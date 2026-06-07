@@ -1,0 +1,5 @@
+/Manifest.toml
+/docs/build/
+/docs/Manifest.toml
+*.cov
+.DS_Store

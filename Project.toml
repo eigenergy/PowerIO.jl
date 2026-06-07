@@ -1,0 +1,24 @@
+name = "PowerIO"
+uuid = "05ed8b54-f668-4096-9d0d-e8c3dd9dc169"
+authors = ["Sam Talkington <samtalki@users.noreply.github.com>"]
+version = "0.0.1"
+
+[deps]
+JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
+
+# Native bridges land as package extensions in later milestones (M3–M5), so a
+# user only pays for the ecosystem they load:
+# [weakdeps]
+# PowerModels = "c36e90e8-916a-50a6-bd3e-75f71f9a4a59"
+# [extensions]
+# PowerModelsExt = "PowerModels"
+
+[compat]
+JSON3 = "1"
+julia = "1.9"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
