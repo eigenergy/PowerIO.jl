@@ -1,6 +1,6 @@
 # PowerIO.jl
 
-Julia bindings for [PowerIO](https://github.com/eigenergy/caseio): a fast, lossless
+Julia bindings for [PowerIO](https://github.com/eigenergy/powerio): a fast, lossless
 reader/writer for power system case files. Parse MATPOWER, PSS/E, PowerWorld, and
 PowerModels JSON, convert losslessly between them, and hand the data to the Julia
 modeling and solver packages you already use.
