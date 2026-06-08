@@ -15,7 +15,8 @@ onto a parsed case:
   lossless element tables (every field, costs, storage, HVDC).
 - `parse_dense` → the numeric tables as dense typed arrays for matrix assembly,
   straight from the C ABI extractors (no JSON).
-- `arrow_table` → one table zero-copy over the Arrow C Data Interface.
+- `arrow_table` → one table over the Arrow C Data Interface (owned columns by
+  default; zero-copy on request).
 
 At first use the binding checks the library's ABI version (`pio_abi_version`)
 against the version it targets and refuses a stale or mismatched library with a
@@ -75,19 +76,22 @@ d.branch.from, d.branch.x         # branch endpoints (1-based ids) and reactance
 d.reference_bus, d.n_components, d.is_radial
 ```
 
-`arrow_table` lends one table zero-copy over the Arrow C Data Interface (needs the
-library built `--features arrow`; `arrow_available()` reports whether it is). The
-columns are a Tables.jl-shaped NamedTuple, so they flow into `Arrow.write`,
-`DataFrame`, etc. Keep the returned `ArrowTable` alive while reading its columns —
-they view the producer's memory:
+`arrow_table` brings one table across the Arrow C Data Interface (needs the library
+built `--features arrow`; `arrow_available()` reports whether it is). By default it
+returns a NamedTuple of **owned** Julia Vectors (Tables.jl-shaped — flows into
+`Arrow.write`, `DataFrame`, etc.), so there's no lifetime caveat. `copy=false`
+returns a zero-copy `ArrowTable` whose columns view the producer's memory; keep it
+alive while reading them. For the numeric tables alone, `parse_dense` is a
+copy-free, `unsafe_wrap`-free fast path (the C ABI fills Julia-owned buffers).
 
 ```julia
 cargo build -p powerio-capi --release --features arrow   # in the sibling powerio checkout
 ```
 
 ```julia
-t = arrow_table("case14.m", :branch)   # :bus, :branch, :gen, :load, :shunt
-t.from, t.x, t.tap                     # zero-copy column views
+t = arrow_table("case14.m", :branch)         # :bus, :branch, :gen, :load, :shunt; owned columns
+t.from, t.x, t.tap
+z = arrow_table("case14.m", :branch; copy=false)   # zero-copy views; keep `z` alive while reading
 ```
 
 ## Shipping the binary

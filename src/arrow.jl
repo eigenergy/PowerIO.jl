@@ -1,18 +1,27 @@
-# Zero-copy columnar export over the Arrow C Data Interface.
+# Columnar export over the Arrow C Data Interface.
 #
 # `pio_export_arrow` (powerio-capi built `--features arrow`) lends one raw network
-# table as an Arrow struct array across the C Data Interface — self-describing,
-# zero-copy, the in-memory sibling of the JSON transport and the dense extractors.
-# Arrow.jl is an IPC-format reader and does not import the C Data Interface, so we
-# decode the two FFI structs here directly: read the schema's child fields, wrap
-# each primitive column's data buffer as a Julia array straight over the producer's
-# memory (no copy), and hold the producer alive until the table is released.
+# table as an Arrow struct array across the C Data Interface — self-describing, the
+# in-memory sibling of the JSON transport and the dense extractors. Arrow.jl is an
+# IPC-format reader and does not import the C Data Interface, so we decode the two
+# FFI structs here directly: read the schema's child fields and, per column, either
+# copy the data buffer into an owned Julia Vector (the default) or wrap it in place
+# (`copy=false`, zero-copy).
+#
+# Reading a foreign buffer is inherently one unsafe op; the design keeps it bounded.
+# `copy=true` (default) memcpys each column out while the producer is provably alive,
+# then releases it before returning — only Julia-owned memory escapes, so there's no
+# finalizer and no use-after-free if a column outlives the call. `copy=false` returns
+# zero-copy views in an `ArrowTable` that holds the producer alive and frees it on
+# finalize; the views then carry the standard keep-the-owner-alive caveat. For the
+# numeric tables alone, `parse_dense` is the copy-free, `unsafe_wrap`-free fast path
+# (the C ABI fills Julia-owned buffers directly).
 #
 # The powerio export is the simple case the decoder is scoped to: every column is a
 # non-nullable primitive (Int64 "l", Float64 "g", UInt8 "C") with no null buffer, so
-# there are no validity bitmaps, no offsets, no nested or variable-width layouts to
-# handle. The returned columns are a Tables.jl-shaped NamedTuple of vectors, so they
-# flow straight into Arrow.write, DataFrame, etc.
+# there are no validity bitmaps, no nested or variable-width layouts. The returned
+# columns are a Tables.jl-shaped NamedTuple of vectors, so they flow straight into
+# Arrow.write, DataFrame, etc.
 
 # Mirror of the Arrow C Data Interface structs (arrow/c/abi.h). Field order and
 # types are the ABI; do not reorder.
@@ -58,13 +67,14 @@ const _ARROW_TABLE_IDS = (bus = Cint(0), branch = Cint(1), gen = Cint(2), load =
 """
     ArrowTable
 
-A columnar table imported zero-copy from the C ABI's Arrow export. Its `columns`
-are a NamedTuple of vectors that view the producer's buffers directly; the table
-holds the producer alive and releases it (frees the buffers) when finalized.
+The zero-copy result of `arrow_table(...; copy=false)`. Its `columns` are a
+NamedTuple of vectors that view the producer's buffers directly; the table holds
+the producer alive and releases it (frees the buffers) when finalized. (The default
+`copy=true` returns a plain NamedTuple of owned Vectors instead — no `ArrowTable`.)
 
 Keep the `ArrowTable` reachable while you use its columns: a column vector extracted
 and kept after the table is collected views freed memory. Copy a column
-(`collect(t.columns.x)`) to outlive the table.
+(`collect(t.x)`) to outlive the table.
 """
 mutable struct ArrowTable
     columns::NamedTuple
@@ -92,8 +102,31 @@ end
 
 _release!(t::ArrowTable) = _release_ffi!(getfield(t, :_array), getfield(t, :_schema))
 
-# Decode the struct array into a NamedTuple of column views (one per child field).
-function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArrowSchema})
+# Read one primitive column. The data pointer is borrowed from the producer (valid
+# until release). `copy=true` memcpys it into an owned Vector under `GC.@preserve` so
+# the result outlives the producer; `copy=false` wraps it in place (zero-copy view).
+function _column(::Type{T}, child::CArrowArray, nrows::Integer, name::Symbol,
+                 arr::Base.RefValue{CArrowArray}, copy::Bool) where {T}
+    nrows == 0 && return T[]
+    # buffers[0] is the validity bitmap (NULL — non-nullable, null_count 0); buffers[1]
+    # is the data. Julia 1-based: index 2 is the data. Guard the layout so a malformed
+    # producer is a clean error, not a segfault.
+    child.n_buffers >= 2 ||
+        error("PowerIO.arrow_table: column $name has $(child.n_buffers) buffers, expected >= 2")
+    raw = unsafe_load(child.buffers, 2)
+    raw == C_NULL && error("PowerIO.arrow_table: null data buffer for column $name")
+    src = Ptr{T}(raw) + child.offset * sizeof(T)
+    copy || return unsafe_wrap(Array, src, nrows; own = false)
+    dest = Vector{T}(undef, nrows)
+    # `arr` roots the unreleased FFI struct (and thus the producer's buffers) across
+    # the memcpy; the caller releases only after this returns.
+    GC.@preserve arr unsafe_copyto!(pointer(dest), src, nrows)
+    return dest
+end
+
+# Decode the struct array into a NamedTuple of columns (owned copies if `copy`, else
+# zero-copy views).
+function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArrowSchema}; copy::Bool)
     a, s = arr[], sch[]
     nrows = a.length
     ncols = Int(a.n_children)
@@ -106,34 +139,28 @@ function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArro
         child_sch = unsafe_load(unsafe_load(s.children, i))
         T = _arrow_eltype(unsafe_string(child_sch.format))
         names[i] = Symbol(unsafe_string(child_sch.name))
-        if nrows == 0
-            cols[i] = T[]
-        else
-            # buffers[0] is the validity bitmap (NULL — non-nullable, null_count 0);
-            # buffers[1] is the data. Julia 1-based: buffer index 2 is the data.
-            # Guard the layout so a malformed producer is a clean error, not a segfault.
-            child_arr.n_buffers >= 2 ||
-                error("PowerIO.arrow_table: column $(names[i]) has $(child_arr.n_buffers) buffers, expected >= 2")
-            raw = unsafe_load(child_arr.buffers, 2)
-            raw == C_NULL && error("PowerIO.arrow_table: null data buffer for column $(names[i])")
-            data = Ptr{T}(raw) + child_arr.offset * sizeof(T)
-            cols[i] = unsafe_wrap(Array, data, nrows; own = false)
-        end
+        cols[i] = _column(T, child_arr, nrows, names[i], arr, copy)
     end
     return NamedTuple{Tuple(names)}(Tuple(cols))
 end
 
 """
-    arrow_table(path, table; from=nothing) -> ArrowTable
+    arrow_table(path, table; from=nothing, copy=true) -> NamedTuple | ArrowTable
 
-Export one raw network table over the Arrow C Data Interface, zero-copy. `table` is
-`:bus`, `:branch`, `:gen`, `:load`, or `:shunt`; the columns are the parsed network
-fields with 1-based (external) bus ids — the same id space as [`parse_dense`], not
-the gridfm schema. Needs powerio-capi built `--features arrow`; see
-[`arrow_available`](@ref). The result's `columns` view the producer's memory, so
-keep the table alive while reading them (see [`ArrowTable`](@ref)).
+Export one raw network table over the Arrow C Data Interface. `table` is `:bus`,
+`:branch`, `:gen`, `:load`, or `:shunt`; the columns are the parsed network fields
+with 1-based (external) bus ids — the same id space as [`parse_dense`], not the
+gridfm schema. Needs powerio-capi built `--features arrow`; see
+[`arrow_available`](@ref).
+
+`copy=true` (default) returns a NamedTuple of **owned** Julia Vectors and releases
+the producer before returning — plain arrays, no lifetime caveat. `copy=false`
+returns a zero-copy [`ArrowTable`](@ref) whose columns view the producer's buffers;
+keep it alive while reading them. Both support `result.<column>` access and are
+Tables.jl-shaped. For the numeric tables alone, [`parse_dense`](@ref) is a
+copy-free, `unsafe_wrap`-free fast path.
 """
-function arrow_table(path::AbstractString, table::Symbol; from=nothing)
+function arrow_table(path::AbstractString, table::Symbol; from=nothing, copy::Bool=true)
     id = get(_ARROW_TABLE_IDS, table, nothing)
     id === nothing && throw(ArgumentError(
         "PowerIO.arrow_table: unknown table $(repr(table)); expected one of $(keys(_ARROW_TABLE_IDS))"))
@@ -152,20 +179,22 @@ function arrow_table(path::AbstractString, table::Symbol; from=nothing)
                   "`cargo build -p powerio-capi --release --features arrow`. Underlying: $e")
         end
         rc == 0 || error("PowerIO.arrow_table: " * _cstr(err))
-        # Export succeeded, so the producer set live release callbacks. If decoding
-        # throws (a contract violation — unknown format code, child-count mismatch),
-        # release here so the buffers don't leak; the ArrowTable's finalizer covers
-        # the normal path.
+        # Export succeeded, so the producer set live release callbacks. Release on any
+        # decode throw (a contract violation) so the buffers don't leak.
         cols = try
-            _decode_arrow(arr, sch)
+            _decode_arrow(arr, sch; copy=copy)
         catch
             _release_ffi!(arr, sch)
             rethrow()
         end
-        return ArrowTable(cols, arr, sch)
+        # copy=true: columns are owned, so free the producer now and hand back plain
+        # Vectors. copy=false: the ArrowTable owns the producer and releases on finalize.
+        copy || return ArrowTable(cols, arr, sch)
+        _release_ffi!(arr, sch)
+        return cols
     finally
-        # The exported buffers are owned by the Arrow array (released with the
-        # ArrowTable), independent of the case handle — free the handle now.
+        # The exported buffers are owned by the Arrow array, independent of the case
+        # handle — free the handle now.
         finalize(h)
     end
 end

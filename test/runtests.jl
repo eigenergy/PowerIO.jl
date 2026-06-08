@@ -111,33 +111,44 @@ using JSON3
         end
     end
 
-    @testset "zero-copy Arrow export" begin
+    @testset "Arrow export (copy-out default + zero-copy opt-in)" begin
         if !(PowerIO.library_available() && PowerIO.arrow_available())
             @test_skip arrow_table("case14.m", :bus)
         else
             data = joinpath(@__DIR__, "data")
-            bus = arrow_table(joinpath(data, "case14.m"), :bus)
-            @test bus isa ArrowTable
-            @test :id in propertynames(bus)
+            m = joinpath(data, "case14.m")
+
+            # Default copy=true: a NamedTuple of owned Julia Vectors, no ArrowTable.
+            bus = arrow_table(m, :bus)
+            @test bus isa NamedTuple
+            @test bus.id isa Vector{Int64}
             @test bus.id == collect(1:14)                   # external 1-based bus ids, in order
+            # Owned: mutating a returned column can't touch the producer (already freed);
+            # a fresh export is unaffected, and GC after the producer is released is safe.
+            bus.id[1] = -999
+            GC.gc()
+            @test arrow_table(m, :bus).id[1] == 1
+            @test bus.id[2] == 2
 
             # The Arrow gen table matches the dense extractor on the shared columns.
-            d = parse_dense(joinpath(data, "case14.m"))
-            gen = arrow_table(joinpath(data, "case14.m"), :gen)
-            @test collect(gen.bus) == d.gen.bus
-            @test collect(gen.pg) ≈ d.gen.pg
+            d = parse_dense(m)
+            gen = arrow_table(m, :gen)
+            @test gen.bus == d.gen.bus
+            @test gen.pg ≈ d.gen.pg
 
             # Every table's row count matches the JSON view's element count.
-            net = parse_case(joinpath(data, "case14.m"))
-            shunts = arrow_table(joinpath(data, "case14.m"), :shunt)
-            @test length(shunts.bus) == length(PowerIO.shunts(net))
-            branch = arrow_table(joinpath(data, "case14.m"), :branch)
-            @test length(branch.from) == length(PowerIO.branches(net))
+            net = parse_case(m)
+            @test length(arrow_table(m, :shunt).bus) == length(PowerIO.shunts(net))
+            @test length(arrow_table(m, :branch).from) == length(PowerIO.branches(net))
 
-            @test_throws ArgumentError arrow_table(joinpath(data, "case14.m"), :nonesuch)
+            @test_throws ArgumentError arrow_table(m, :nonesuch)
 
-            # Releasing the producer (finalizer) must not fault.
-            finalize(bus)
+            # copy=false: the zero-copy ArrowTable path, same values; releasing it
+            # (finalizer) must not fault.
+            z = arrow_table(m, :bus; copy=false)
+            @test z isa ArrowTable
+            @test z.id == collect(1:14)
+            finalize(z)
             @test true
         end
     end
