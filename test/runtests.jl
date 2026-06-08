@@ -24,9 +24,10 @@ using JSON3
         # without the native library.
         mk(buses) = PowerIO.Network(JSON3.read(JSON3.write((; buses = buses))))
 
-        # REF at id 2 / position 2 distinguishes "returns the id" from "returns the index".
-        one_ref = mk([(id = 1, kind = "PQ"), (id = 2, kind = "REF"), (id = 3, kind = "PV")])
-        @test PowerIO.reference_bus_id(one_ref) == 2
+        # REF at array position 2 but id 7: a "returns the index" bug would read 2;
+        # the id is 7. This pins the accessor to the id field, not the position.
+        one_ref = mk([(id = 4, kind = "PQ"), (id = 7, kind = "REF"), (id = 9, kind = "PV")])
+        @test PowerIO.reference_bus_id(one_ref) == 7
         @test PowerIO.reference_bus_id(mk([(id = 1, kind = "REF"), (id = 2, kind = "REF")])) === nothing
         @test PowerIO.reference_bus_id(mk([(id = 1, kind = "PQ"), (id = 2, kind = "PV")])) === nothing
 
@@ -45,6 +46,7 @@ using JSON3
             data = joinpath(@__DIR__, "data")
             net = parse_case(joinpath(data, "case14.m"))
             @test PowerIO.n_buses(net) == 14
+            @test PowerIO.n_branches(net) == 20
             @test PowerIO.n_gens(net) == 5
             @test PowerIO.base_mva(net) == 100.0
             @test PowerIO.source_format(net) == "Matpower"
@@ -56,14 +58,18 @@ using JSON3
             net_hinted = parse_case(joinpath(data, "case14.m"); from = "matpower")
             @test PowerIO.n_buses(net_hinted) == 14
 
-            # EGRET and PowerModels both use .json; the `from` hint is what tells them
-            # apart. The fixtures were produced by convert_case from case14.m.
+            # EGRET and PowerModels both use .json (fixtures produced by convert_case).
+            # The positive cases confirm each fixture parses under its own format; the
+            # negative cases prove `from` overrides inference, since forcing the wrong
+            # reader on a well-formed file fails.
             egret = parse_case(joinpath(data, "case14.egret.json"); from = "egret")
             @test PowerIO.n_buses(egret) == 14
             @test PowerIO.source_format(egret) == "EgretJson"
             pm = parse_case(joinpath(data, "case14.pm.json"); from = "powermodels")
             @test PowerIO.n_buses(pm) == 14
             @test PowerIO.source_format(pm) == "PowerModelsJson"
+            @test_throws ErrorException parse_case(joinpath(data, "case14.pm.json"); from = "egret")
+            @test_throws ErrorException parse_case(joinpath(data, "case14.egret.json"); from = "powermodels")
 
             # Same-format conversion is byte-exact and warning-free.
             text, warnings = convert_case(joinpath(data, "case14.m"), "matpower")

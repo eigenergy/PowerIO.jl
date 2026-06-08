@@ -8,8 +8,8 @@ JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 LazyArtifacts = "4af54fe1-eca0-43a8-85a7-787d91b784e3"
 Libdl = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
 
-# Native bridges land as package extensions in later milestones (M3–M5), so a
-# user only pays for the ecosystem they load:
+# Native bridges land as package extensions at v0.1.0 (PowerModels, ExaPowerIO), so
+# a user only pays for the ecosystem they load:
 # [weakdeps]
 # PowerModels = "c36e90e8-916a-50a6-bd3e-75f71f9a4a59"
 # [extensions]

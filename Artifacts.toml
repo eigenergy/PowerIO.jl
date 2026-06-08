@@ -7,7 +7,7 @@
 # `set_library!`); `_artifact_lib()` in src/PowerIO.jl falls back to a plain
 # `libpowerio_capi` on the loader path if this artifact can't be fetched.
 #
-# To finish the self-hosted distribution (issue N1):
+# To finish the self-hosted distribution (issue #8):
 #   1. Tag a `powerio-capi` release in eigenergy/powerio.
 #   2. Build per-platform cdylib tarballs with BinaryBuilder (see gen/build_tarballs.jl).
 #   3. Publish them on a PowerIO.jl GitHub release.
