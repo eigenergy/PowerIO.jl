@@ -28,9 +28,11 @@ export Network, parse_case, convert_case, write_matpower
 #
 # Resolution order: an explicit dev override (`POWERIO_CAPI` / `set_library!`)
 # first, then the bundled `powerio_capi` artifact (the registered-release path),
-# then a plain `libpowerio_capi` on the loader path. The artifact lookup is lazy
-# and guarded, so a not-yet-populated `Artifacts.toml` (the binary isn't released
-# yet) degrades to the loader-path fallback instead of breaking module load.
+# then a sibling `../powerio` checkout's `target/{release,debug}` build (zero-config
+# tandem dev), then a plain `libpowerio_capi` on the loader path. The artifact lookup
+# is lazy and guarded, so a not-yet-populated `Artifacts.toml` (the binary isn't
+# released yet) degrades to the sibling/loader-path fallback instead of breaking
+# module load.
 #
 # Once a Yggdrasil `PowerIO_jll` is registered (issue #1, non-blocking) this whole
 # block becomes `using PowerIO_jll` and `_lib() = PowerIO_jll.libpowerio_capi`.
@@ -76,9 +78,26 @@ function _artifact_lib()
         # Expected while the artifact is unpublished. Once it ships, a corrupt or
         # platform-missing artifact also lands here, so leave a trace (JULIA_DEBUG=PowerIO)
         # rather than silently masking it; the loader-path fallback still keeps dev working.
-        @debug "PowerIO: powerio_capi artifact did not resolve; falling back to loader-path libpowerio_capi" exception = (e, catch_backtrace())
+        @debug "PowerIO: powerio_capi artifact did not resolve; trying a sibling powerio checkout, then loader-path libpowerio_capi" exception = (e, catch_backtrace())
+        sib = _sibling_lib()
+        isempty(sib) || return sib
         return "libpowerio_capi"
     end
+end
+
+# Dev convenience: when this package sits beside a `powerio` checkout (the usual
+# layout for working on both at once), resolve the locally built cdylib straight
+# from `../powerio/target/{release,debug}` — no `POWERIO_CAPI` and no `set_library!`
+# after a plain `cargo build -p powerio-capi`. Release wins over debug; returns ""
+# when no sibling build is present.
+function _sibling_lib()
+    base = joinpath(dirname(dirname(@__DIR__)), "powerio", "target")
+    lib = "libpowerio_capi.$(Libdl.dlext)"
+    for profile in ("release", "debug")
+        cand = joinpath(base, profile, lib)
+        isfile(cand) && return cand
+    end
+    return ""
 end
 
 """

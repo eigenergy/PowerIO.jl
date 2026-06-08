@@ -1,0 +1,36 @@
+name: Benchmarks
+
+# AirspeedVelocity.jl benchmarks this PR against the base branch on the same runner
+# (a relative comparison, so most runner noise cancels) and comments the result. The
+# parse benchmarks call into the C ABI, so build it from powerio and stash the library
+# outside the workspace before the action runs its own checkouts.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out powerio for the C ABI
+        uses: actions/checkout@v4
+        with:
+          repository: eigenergy/powerio
+          path: powerio
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: powerio
+      # Stash the cdylib in RUNNER_TEMP so it survives the action's own workspace
+      # checkouts; POWERIO_CAPI (a job env) points the benchmark process at it.
+      - name: Build powerio-capi
+        run: |
+          cargo build -p powerio-capi --release --manifest-path powerio/Cargo.toml
+          cp powerio/target/release/libpowerio_capi.so "$RUNNER_TEMP/libpowerio_capi.so"
+          echo "POWERIO_CAPI=$RUNNER_TEMP/libpowerio_capi.so" >> "$GITHUB_ENV"
+      - uses: MilesCranmer/AirspeedVelocity.jl@action-v1
+        with:
+          julia-version: '1'

@@ -22,16 +22,25 @@ case reads identically in Julia, Python, C/C++, and Rust.
 
 ## Develop (before `PowerIO_jll` exists)
 
-Build the C ABI from the PowerIO Rust tree and point Julia at it:
+With a sibling `powerio` checkout (`PowerIO.jl` and `powerio` in the same parent
+directory), build the C ABI and `using PowerIO` finds it — no env var, no
+`set_library!`:
 
 ```
-# in the PowerIO repo:
+# in the sibling powerio checkout:
 cargo build -p powerio-capi --release        # → target/release/libpowerio_capi.{dylib,so}
 ```
 
 ```julia
+using PowerIO                                 # auto-discovers ../powerio/target/{release,debug}
+net = parse_case("case14.m")
+```
+
+For a non-sibling layout, point Julia at the library explicitly:
+
+```julia
 using PowerIO
-PowerIO.set_library!("/path/to/PowerIO/target/release/libpowerio_capi.dylib")
+PowerIO.set_library!("/path/to/powerio/target/release/libpowerio_capi.dylib")
 # or: ENV["POWERIO_CAPI"] = "...path..."  before `using PowerIO`
 
 net = parse_case("case14.m")

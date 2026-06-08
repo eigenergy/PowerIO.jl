@@ -18,7 +18,21 @@ jobs:
         with:
           version: ${{ matrix.julia-version }}
       - uses: julia-actions/cache@v2
+      # Build the C ABI from powerio's main so the ccall tests run against the real
+      # library instead of skipping (they auto-skip when the cdylib is absent).
+      # Drops to `using PowerIO_jll` once that is registered (issue #1).
+      - name: Check out powerio
+        uses: actions/checkout@v4
+        with:
+          repository: eigenergy/powerio
+          path: powerio
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: powerio
+      - name: Build powerio-capi
+        run: cargo build -p powerio-capi --release --manifest-path powerio/Cargo.toml
       - uses: julia-actions/julia-buildpkg@v1
-      # The C ABI tests skip when libpowerio_capi is absent; once PowerIO_jll is
-      # registered (M1) this job gains it as a dep and the ccall tests run.
       - uses: julia-actions/julia-runtest@v1
+        env:
+          POWERIO_CAPI: ${{ github.workspace }}/powerio/target/release/libpowerio_capi.so
