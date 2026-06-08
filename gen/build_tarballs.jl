@@ -21,12 +21,11 @@ version = v"0.1.0"
 
 # Must pin a commit that carries the versioned ABI (`pio_abi_version`) and the Arrow
 # export, since the binding's load-time handshake and `arrow_table` need both. Pinned
-# to the tandem-CI PR head; re-pin to the squash-merge commit on `main` once it lands
-# (and prefer a git tag once one is cut — the right long-term anchor for a
-# reproducible build).
+# to the powerio `main` squash-merge of #54 (the first commit carrying both). Prefer a
+# git tag once one is cut — the right long-term anchor for a reproducible build.
 sources = [
     GitSource("https://github.com/eigenergy/powerio.git",
-              "0fa57e28694969ffad37396a24619f522f9bf2d6"),
+              "b9864e8b548590c7b3d6c04a7e853b76830ab5b5"),
 ]
 
 # `cargo build` writes the cdylib under target/<rust_target>/release. Names differ
