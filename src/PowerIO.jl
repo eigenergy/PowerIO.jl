@@ -423,7 +423,7 @@ end
 # and gen `bus` (the same id space — invert `bus_ids` to map an endpoint to a dense
 # row), degrees for `shift`, total line charging in `b`, raw `tap` (0 means 1).
 
-_branch_tables(p::Ptr{Cvoid}, m::Int) = begin
+function _branch_tables(p::Ptr{Cvoid}, m::Int)
     from = Vector{Int64}(undef, m); to = Vector{Int64}(undef, m)
     r = Vector{Float64}(undef, m); x = Vector{Float64}(undef, m); b = Vector{Float64}(undef, m)
     tap = Vector{Float64}(undef, m); shift = Vector{Float64}(undef, m)
@@ -432,29 +432,29 @@ _branch_tables(p::Ptr{Cvoid}, m::Int) = begin
           (Ptr{Cvoid}, Ptr{Int64}, Ptr{Int64}, Ptr{Float64}, Ptr{Float64},
            Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{UInt8}),
           p, from, to, r, x, b, tap, shift, insvc)
-    (; from, to, r, x, b, tap, shift, in_service = insvc)
+    return (; from, to, r, x, b, tap, shift, in_service = insvc)
 end
 
-_gen_tables(p::Ptr{Cvoid}, ng::Int) = begin
+function _gen_tables(p::Ptr{Cvoid}, ng::Int)
     bus = Vector{Int64}(undef, ng); pg = Vector{Float64}(undef, ng)
     pmax = Vector{Float64}(undef, ng); pmin = Vector{Float64}(undef, ng)
     insvc = Vector{UInt8}(undef, ng)
     ccall((:pio_gens, _lib()), Cvoid,
           (Ptr{Cvoid}, Ptr{Int64}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{UInt8}),
           p, bus, pg, pmax, pmin, insvc)
-    (; bus, pg, pmax, pmin, in_service = insvc)
+    return (; bus, pg, pmax, pmin, in_service = insvc)
 end
 
-_nodal_demand(p::Ptr{Cvoid}, n::Int) = begin
+function _nodal_demand(p::Ptr{Cvoid}, n::Int)
     pd = Vector{Float64}(undef, n); qd = Vector{Float64}(undef, n)
     ccall((:pio_nodal_demand, _lib()), Cvoid, (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}), p, pd, qd)
-    (pd, qd)
+    return (pd, qd)
 end
 
-_nodal_shunt(p::Ptr{Cvoid}, n::Int) = begin
+function _nodal_shunt(p::Ptr{Cvoid}, n::Int)
     gs = Vector{Float64}(undef, n); bs = Vector{Float64}(undef, n)
     ccall((:pio_nodal_shunt, _lib()), Cvoid, (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}), p, gs, bs)
-    (gs, bs)
+    return (gs, bs)
 end
 
 """

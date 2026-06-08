@@ -81,17 +81,16 @@ columns(t::ArrowTable) = getfield(t, :columns)
 Base.getproperty(t::ArrowTable, name::Symbol) = getfield(getfield(t, :columns), name)
 Base.propertynames(t::ArrowTable) = propertynames(getfield(t, :columns))
 
-function _release!(t::ArrowTable)
-    arr = getfield(t, :_array)
-    if arr[].release != C_NULL
-        ccall(arr[].release, Cvoid, (Ptr{CArrowArray},), arr)
-    end
-    sch = getfield(t, :_schema)
-    if sch[].release != C_NULL
-        ccall(sch[].release, Cvoid, (Ptr{CArrowSchema},), sch)
-    end
+# Release the producer's array and schema (frees the columnar buffers). Each
+# release callback NULLs its own struct's `release`, so a second call is a no-op —
+# the explicit-finalize-then-GC-finalize path is safe.
+function _release_ffi!(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArrowSchema})
+    arr[].release == C_NULL || ccall(arr[].release, Cvoid, (Ptr{CArrowArray},), arr)
+    sch[].release == C_NULL || ccall(sch[].release, Cvoid, (Ptr{CArrowSchema},), sch)
     return
 end
+
+_release!(t::ArrowTable) = _release_ffi!(getfield(t, :_array), getfield(t, :_schema))
 
 # Decode the struct array into a NamedTuple of column views (one per child field).
 function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArrowSchema})
@@ -112,7 +111,12 @@ function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArro
         else
             # buffers[0] is the validity bitmap (NULL — non-nullable, null_count 0);
             # buffers[1] is the data. Julia 1-based: buffer index 2 is the data.
-            data = Ptr{T}(unsafe_load(child_arr.buffers, 2)) + child_arr.offset * sizeof(T)
+            # Guard the layout so a malformed producer is a clean error, not a segfault.
+            child_arr.n_buffers >= 2 ||
+                error("PowerIO.arrow_table: column $(names[i]) has $(child_arr.n_buffers) buffers, expected >= 2")
+            raw = unsafe_load(child_arr.buffers, 2)
+            raw == C_NULL && error("PowerIO.arrow_table: null data buffer for column $(names[i])")
+            data = Ptr{T}(raw) + child_arr.offset * sizeof(T)
             cols[i] = unsafe_wrap(Array, data, nrows; own = false)
         end
     end
@@ -148,7 +152,17 @@ function arrow_table(path::AbstractString, table::Symbol; from=nothing)
                   "`cargo build -p powerio-capi --release --features arrow`. Underlying: $e")
         end
         rc == 0 || error("PowerIO.arrow_table: " * _cstr(err))
-        return ArrowTable(_decode_arrow(arr, sch), arr, sch)
+        # Export succeeded, so the producer set live release callbacks. If decoding
+        # throws (a contract violation — unknown format code, child-count mismatch),
+        # release here so the buffers don't leak; the ArrowTable's finalizer covers
+        # the normal path.
+        cols = try
+            _decode_arrow(arr, sch)
+        catch
+            _release_ffi!(arr, sch)
+            rethrow()
+        end
+        return ArrowTable(cols, arr, sch)
     finally
         # The exported buffers are owned by the Arrow array (released with the
         # ArrowTable), independent of the case handle — free the handle now.
