@@ -9,28 +9,38 @@ This is the thin Julia↔C layer. It holds an opaque case handle, calls
 `pio_to_json` once, and parses the result with JSON3, so every accessor and every
 ecosystem bridge is then pure Julia.
 
-Status: scaffold. The C library is wired through a configurable path during
-development (see [`set_library!`](@ref)); milestone M1 replaces that with a
-registered `PowerIO_jll` built by Yggdrasil, so users get the binary with no
-Rust toolchain. See the README for the milestone plan.
+Status: scaffold. During development the C library is wired through a configurable
+path (see [`set_library!`](@ref)); for the public release it ships as a self-hosted,
+lazy artifact (`Artifacts.toml`), so users get the binary with no Rust toolchain. A
+Yggdrasil `PowerIO_jll` is a later, non-blocking swap. See the README for the
+milestone plan.
 """
 module PowerIO
 
 using JSON3
+using LazyArtifacts
+import Libdl
 
 export Network, parse_case, convert_case, write_matpower
 
 # --- library resolution -------------------------------------------------
 #
-# Until `PowerIO_jll` exists (M1), the C ABI library is found at runtime: from
-# the `POWERIO_CAPI` environment variable, else a plain `libpowerio_capi` on the
-# loader path. Once the jll is registered this whole block becomes
-# `using PowerIO_jll` and `_lib() = PowerIO_jll.libpowerio_capi`.
+# Resolution order: an explicit dev override (`POWERIO_CAPI` / `set_library!`)
+# first, then the bundled `powerio_capi` artifact (the registered-release path),
+# then a plain `libpowerio_capi` on the loader path. The artifact lookup is lazy
+# and guarded, so a not-yet-populated `Artifacts.toml` (the binary isn't released
+# yet) degrades to the loader-path fallback instead of breaking module load.
+#
+# Once a Yggdrasil `PowerIO_jll` is registered (issue #1, non-blocking) this whole
+# block becomes `using PowerIO_jll` and `_lib() = PowerIO_jll.libpowerio_capi`.
 
-const _LIBRARY = Ref{String}("")
+const _LIBRARY = Ref{String}("")   # explicit dev override; "" means unset
+const _RESOLVED = Ref{String}("")  # memoized non-override resolution (artifact/loader path)
 
 function __init__()
-    _LIBRARY[] = get(ENV, "POWERIO_CAPI", "libpowerio_capi")
+    # Only the explicit override is read at init; the artifact/loader-path
+    # fallback is resolved (and memoized) lazily in `_lib()`.
+    _LIBRARY[] = get(ENV, "POWERIO_CAPI", "")
 end
 
 """
@@ -38,11 +48,27 @@ end
 
 Point PowerIO at a locally built `libpowerio_capi` (`cargo build -p powerio-capi
 --release` in the PowerIO Rust tree → `target/release/libpowerio_capi.{dylib,so}`).
-A development override until `PowerIO_jll` lands.
+A development override that wins over the bundled artifact.
 """
 set_library!(path::AbstractString) = (_LIBRARY[] = String(path))
 
-_lib() = _LIBRARY[]
+function _lib()
+    isempty(_LIBRARY[]) || return _LIBRARY[]
+    isempty(_RESOLVED[]) || return _RESOLVED[]
+    return _RESOLVED[] = _artifact_lib()  # resolve once; bounds a failed lazy fetch to one attempt
+end
+
+# Resolve the bundled `powerio_capi` artifact. Until `Artifacts.toml` carries a
+# `powerio_capi` entry for this platform (filled in after the BinaryBuilder
+# release; see `gen/build_tarballs.jl`), fall back to a plain `libpowerio_capi` on
+# the loader path so a local build still resolves.
+function _artifact_lib()
+    try
+        return joinpath(artifact"powerio_capi", "lib", "libpowerio_capi.$(Libdl.dlext)")
+    catch
+        return "libpowerio_capi"
+    end
+end
 
 """
     library_available() -> Bool
@@ -164,9 +190,60 @@ function convert_case(path::AbstractString, to::AbstractString; from=nothing)
     return (text, warnings)
 end
 
-# Convenience accessors over the JSON view (a thin slice of the M2 struct API).
+# --- accessor surface ---------------------------------------------------
+#
+# The v0.0.1 surface bridges read: the parsed element tables plus a few scalars.
+# Element field names mirror the Rust `Network` (powerio/src/network.rs) and are
+# the stable contract — raw MATPOWER units (MW/MVAr, degrees), 1-based bus ids,
+# out-of-service elements retained, so a consumer normalizes as it sees fit:
+#
+#   bus:    id, kind ∈ {"PQ","PV","REF","ISOLATED"}, vm, va (deg), base_kv,
+#           vmax, vmin, area, zone, name, extras
+#   gen:    bus, pg, qg, pmax, pmin, qmax, qmin, vg, mbase, in_service,
+#           cost (`nothing`, or {model, startup, shutdown, ncost, coeffs}), caps
+#   branch: from, to, r, x, b, rate_a, rate_b, rate_c, tap, shift (deg),
+#           in_service, angmin (deg), angmax (deg), extras
+#   load:   bus, p (MW), q (MVAr), in_service, extras
+#   shunt:  bus, g, b, in_service, extras
+#
+# The fully typed struct mirroring `network.rs` and the dense-extraction fast path
+# are M2 (issue #2); these views are enough for the ecosystem bridges.
+
 n_buses(net::Network) = length(net.data.buses)
 n_branches(net::Network) = length(net.data.branches)
 base_mva(net::Network) = Float64(net.data.base_mva)
+
+"""
+    network_name(net) -> String
+
+The case name carried through from the source file.
+"""
+network_name(net::Network) = String(net.data.name)
+
+"Buses, in source order (1-based ids preserved). See the accessor-surface note."
+buses(net::Network) = net.data.buses
+"Generators, one per machine (`bus` repeats when a bus has several)."
+generators(net::Network) = net.data.generators
+"Branches (lines and transformers), in source order."
+branches(net::Network) = net.data.branches
+"First-class loads (PSS/E and PowerModels keep several per bus; MATPOWER splits its bus row)."
+loads(net::Network) = net.data.loads
+"First-class bus shunts."
+shunts(net::Network) = net.data.shunts
+
+"""
+    bus_type_code(kind) -> Int
+
+Map the canonical bus-type string (`"PQ"`, `"PV"`, `"REF"`, `"ISOLATED"`) to the
+MATPOWER code (1, 2, 3, 4). The string set matches `BusType::as_str` in the Rust
+core, so the two can't drift.
+"""
+function bus_type_code(kind::AbstractString)
+    kind == "PQ"       && return 1
+    kind == "PV"       && return 2
+    kind == "REF"      && return 3
+    kind == "ISOLATED" && return 4
+    throw(ArgumentError("PowerIO: unknown bus type $(repr(kind))"))
+end
 
 end # module
