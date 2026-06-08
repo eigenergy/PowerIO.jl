@@ -1,0 +1,74 @@
+# PLACEHOLDER — the powerio_capi binary is not released yet.
+#
+# These entries carry zeroed hashes and a placeholder URL so the package compiles
+# (the `artifact"powerio_capi"` macro needs this file to exist) and the artifact
+# resolution path is wired. Until the real per-platform tarballs are published,
+# PowerIO resolves the library from the dev override (`POWERIO_CAPI` /
+# `set_library!`); `_artifact_lib()` in src/PowerIO.jl falls back to a plain
+# `libpowerio_capi` on the loader path if this artifact can't be fetched.
+#
+# To finish the self-hosted distribution (issue #8):
+#   1. Tag a `powerio-capi` release in eigenergy/powerio.
+#   2. Build per-platform cdylib tarballs with BinaryBuilder (see gen/build_tarballs.jl).
+#   3. Publish them on a PowerIO.jl GitHub release.
+#   4. Replace each `git-tree-sha1` / `sha256` / `url` below with the real values
+#      (`Pkg.Artifacts.archive_artifact` / the BinaryBuilder output prints both hashes).
+#
+# `lazy = true`: nothing downloads at `Pkg.add`; the tarball for the *current*
+# platform is fetched on the first `parse_case` that needs the binary. On an
+# unsupported platform the lookup fails and `_artifact_lib()` falls back.
+#
+# Windows note: the .dll ships under bin/, not lib/; `_artifact_lib()` already
+# resolves the bin/ subdir on Windows.
+
+[[powerio_capi]]
+arch = "x86_64"
+os = "linux"
+libc = "glibc"
+git-tree-sha1 = "0000000000000000000000000000000000000000"
+lazy = true
+
+    [[powerio_capi.download]]
+    sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+    url = "https://github.com/eigenergy/PowerIO.jl/releases/download/PLACEHOLDER/libpowerio_capi.x86_64-linux-gnu.tar.gz"
+
+[[powerio_capi]]
+arch = "aarch64"
+os = "linux"
+libc = "glibc"
+git-tree-sha1 = "0000000000000000000000000000000000000000"
+lazy = true
+
+    [[powerio_capi.download]]
+    sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+    url = "https://github.com/eigenergy/PowerIO.jl/releases/download/PLACEHOLDER/libpowerio_capi.aarch64-linux-gnu.tar.gz"
+
+[[powerio_capi]]
+arch = "x86_64"
+os = "macos"
+git-tree-sha1 = "0000000000000000000000000000000000000000"
+lazy = true
+
+    [[powerio_capi.download]]
+    sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+    url = "https://github.com/eigenergy/PowerIO.jl/releases/download/PLACEHOLDER/libpowerio_capi.x86_64-apple-darwin.tar.gz"
+
+[[powerio_capi]]
+arch = "aarch64"
+os = "macos"
+git-tree-sha1 = "0000000000000000000000000000000000000000"
+lazy = true
+
+    [[powerio_capi.download]]
+    sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+    url = "https://github.com/eigenergy/PowerIO.jl/releases/download/PLACEHOLDER/libpowerio_capi.aarch64-apple-darwin.tar.gz"
+
+[[powerio_capi]]
+arch = "x86_64"
+os = "windows"
+git-tree-sha1 = "0000000000000000000000000000000000000000"
+lazy = true
+
+    [[powerio_capi.download]]
+    sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+    url = "https://github.com/eigenergy/PowerIO.jl/releases/download/PLACEHOLDER/libpowerio_capi.x86_64-w64-mingw32.tar.gz"
