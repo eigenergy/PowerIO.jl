@@ -1,0 +1,47 @@
+name: Benchmarks
+
+# AirspeedVelocity.jl benchmarks this PR against the base branch on the same runner
+# (a relative comparison, so most runner noise cancels) and comments the result. The
+# parse benchmarks call into the C ABI, built from powerio. powerio is private, so
+# this needs read access to it via the TANDEM_REPO_TOKEN secret; without it the job
+# skips and passes. The cdylib is stashed outside the workspace so it survives the
+# action's own checkouts.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    env:
+      TANDEM_TOKEN: ${{ secrets.TANDEM_REPO_TOKEN }}
+    steps:
+      - name: Skip notice (no tandem token)
+        if: env.TANDEM_TOKEN == ''
+        run: echo "TANDEM_REPO_TOKEN is not set — skipping benchmarks (the parse benchmarks need powerio's C ABI, and powerio is private). Add the secret to enable."
+      - name: Check out powerio for the C ABI
+        if: env.TANDEM_TOKEN != ''
+        uses: actions/checkout@v4
+        with:
+          repository: eigenergy/powerio
+          path: powerio
+          token: ${{ secrets.TANDEM_REPO_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+        if: env.TANDEM_TOKEN != ''
+      - uses: Swatinem/rust-cache@v2
+        if: env.TANDEM_TOKEN != ''
+        with:
+          workspaces: powerio
+      - name: Build powerio-capi
+        if: env.TANDEM_TOKEN != ''
+        run: |
+          cargo build -p powerio-capi --release --manifest-path powerio/Cargo.toml
+          cp powerio/target/release/libpowerio_capi.so "$RUNNER_TEMP/libpowerio_capi.so"
+          echo "POWERIO_CAPI=$RUNNER_TEMP/libpowerio_capi.so" >> "$GITHUB_ENV"
+      - uses: MilesCranmer/AirspeedVelocity.jl@action-v1
+        if: env.TANDEM_TOKEN != ''
+        with:
+          julia-version: '1'

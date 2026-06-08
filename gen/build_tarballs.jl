@@ -19,12 +19,13 @@ name = "PowerIO"
 # PowerIO.jl *package* version (0.0.1). The crate is at 0.1.0 as of the pinned commit.
 version = v"0.1.0"
 
-# Pinned to the merged #45 commit ("Rename to PowerIO ... v0.1.0 hardening"), which
-# carries the rename and the pio_to_json keystone. Prefer a git tag once one is cut
-# (none exists yet); a tag is the right long-term anchor for a reproducible build.
+# Must pin a commit that carries the versioned ABI (`pio_abi_version`) and the Arrow
+# export, since the binding's load-time handshake and `arrow_table` need both. Pinned
+# to the powerio `main` squash-merge of #54 (the first commit carrying both). Prefer a
+# git tag once one is cut — the right long-term anchor for a reproducible build.
 sources = [
     GitSource("https://github.com/eigenergy/powerio.git",
-              "5d7e76bdb0b870cac0c12846bdc7b5b3d952cdec"),
+              "b9864e8b548590c7b3d6c04a7e853b76830ab5b5"),
 ]
 
 # `cargo build` writes the cdylib under target/<rust_target>/release. Names differ
@@ -32,7 +33,9 @@ sources = [
 # (windows, no lib prefix, ships under bin/). `install_license` keeps AutoMerge happy.
 script = raw"""
 cd $WORKSPACE/srcdir/powerio
-cargo build --release -p powerio-capi --target ${rust_target}
+# --features arrow ships pio_export_arrow (the zero-copy Arrow C Data Interface
+# export the binding's arrow_table calls); the base ABI is identical without it.
+cargo build --release -p powerio-capi --target ${rust_target} --features arrow
 out=target/${rust_target}/release
 if [[ "${target}" == *-mingw32* ]]; then
     install -Dvm755 "${out}/powerio_capi.dll" "${bindir}/libpowerio_capi.dll"

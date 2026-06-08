@@ -6,13 +6,21 @@ PowerModels JSON / EGRET JSON case files, convert between any pair (byte-exact o
 same-format round-trip, maximal-fidelity otherwise), and materialize an immutable
 `Network`, all through the `powerio-capi` C ABI.
 
-This is the thin Julia↔C layer. It holds an opaque case handle, calls
-`pio_to_json` once, and parses the result with JSON3, so every accessor and every
-ecosystem bridge is then pure Julia.
+Three views onto a parsed case, all over the same C ABI:
 
-Status: scaffold. During development the C library is wired through a configurable
-path (see [`set_library!`](@ref)); for the public release it ships as a self-hosted,
-lazy artifact (`Artifacts.toml`), so users get the binary with no Rust toolchain. A
+- [`parse_case`](@ref) → [`Network`](@ref): the rich, lossless element tables via
+  the JSON transport (every field + extras, costs, storage, HVDC).
+- [`parse_dense`](@ref): the numeric tables as dense typed arrays for matrix
+  assembly, straight from the C ABI extractors — no JSON.
+- [`arrow_table`](@ref): one table zero-copy over the Arrow C Data Interface.
+
+At first use the binding checks the library's ABI version (`pio_abi_version`)
+against the version it targets ([`PIO_ABI_VERSION`]) and refuses a stale or
+mismatched library with a directed error.
+
+During development the C library is wired through a configurable path (see
+[`set_library!`](@ref)); for the public release it ships as a self-hosted, lazy
+artifact (`Artifacts.toml`), so users get the binary with no Rust toolchain. A
 Yggdrasil `PowerIO_jll` is a later, non-blocking swap. See the README for the
 milestone plan.
 """
@@ -22,15 +30,17 @@ using JSON3
 using LazyArtifacts
 import Libdl
 
-export Network, parse_case, convert_case, write_matpower
+export Network, parse_case, convert_case, write_matpower, parse_dense, arrow_table, ArrowTable
 
 # --- library resolution -------------------------------------------------
 #
 # Resolution order: an explicit dev override (`POWERIO_CAPI` / `set_library!`)
 # first, then the bundled `powerio_capi` artifact (the registered-release path),
-# then a plain `libpowerio_capi` on the loader path. The artifact lookup is lazy
-# and guarded, so a not-yet-populated `Artifacts.toml` (the binary isn't released
-# yet) degrades to the loader-path fallback instead of breaking module load.
+# then a sibling `../powerio` checkout's `target/{release,debug}` build (zero-config
+# tandem dev), then a plain `libpowerio_capi` on the loader path. The artifact lookup
+# is lazy and guarded, so a not-yet-populated `Artifacts.toml` (the binary isn't
+# released yet) degrades to the sibling/loader-path fallback instead of breaking
+# module load.
 #
 # Once a Yggdrasil `PowerIO_jll` is registered (issue #1, non-blocking) this whole
 # block becomes `using PowerIO_jll` and `_lib() = PowerIO_jll.libpowerio_capi`.
@@ -76,25 +86,92 @@ function _artifact_lib()
         # Expected while the artifact is unpublished. Once it ships, a corrupt or
         # platform-missing artifact also lands here, so leave a trace (JULIA_DEBUG=PowerIO)
         # rather than silently masking it; the loader-path fallback still keeps dev working.
-        @debug "PowerIO: powerio_capi artifact did not resolve; falling back to loader-path libpowerio_capi" exception = (e, catch_backtrace())
+        @debug "PowerIO: powerio_capi artifact did not resolve; trying a sibling powerio checkout, then loader-path libpowerio_capi" exception = (e, catch_backtrace())
+        sib = _sibling_lib()
+        isempty(sib) || return sib
         return "libpowerio_capi"
     end
+end
+
+# Dev convenience: when this package sits beside a `powerio` checkout (the usual
+# layout for working on both at once), resolve the locally built cdylib straight
+# from `../powerio/target/{release,debug}` — no `POWERIO_CAPI` and no `set_library!`
+# after a plain `cargo build -p powerio-capi`. Release wins over debug; returns ""
+# when no sibling build is present.
+function _sibling_lib()
+    base = joinpath(dirname(dirname(@__DIR__)), "powerio", "target")
+    lib = "libpowerio_capi.$(Libdl.dlext)"
+    for profile in ("release", "debug")
+        cand = joinpath(base, profile, lib)
+        isfile(cand) && return cand
+    end
+    return ""
+end
+
+# --- ABI version handshake ----------------------------------------------
+#
+# The C ABI carries an integer ABI version (`pio_abi_version`, added alongside the
+# typed extractors). This binding targets exactly `PIO_ABI_VERSION`; bump the two in
+# lockstep when an existing `pio_*` signature or the JSON transport schema changes.
+# Checking it once at first use turns "library predates this binding" and "library is
+# from an incompatible commit" into a clear error at the boundary, instead of a
+# cryptic ccall fault (a wrong signature) or silently wrong numbers deep in a solver.
+
+const PIO_ABI_VERSION = UInt32(1)
+const _ABI_OK = Ref{Bool}(false)
+
+"""
+    abi_version() -> UInt32
+
+The ABI version the resolved C library was built with (see `pio_abi_version`).
+Compared against [`PIO_ABI_VERSION`], the version this binding targets.
+"""
+abi_version() = ccall((:pio_abi_version, _lib()), UInt32, ())
+
+"""
+    library_version() -> String
+
+The `powerio-capi` crate version string the resolved library reports (e.g.
+`"0.1.0"`). Informational; [`abi_version`] is the compatibility check.
+"""
+function library_version()
+    s = ccall((:pio_version, _lib()), Cstring, ())
+    return s == C_NULL ? "" : unsafe_string(s)  # 'static in the library; do not free
+end
+
+# Verify the resolved library is ABI-compatible, once (memoized). Throws a directed
+# error otherwise; every entry point that calls into the library runs this first.
+function _ensure_compatible()
+    _ABI_OK[] && return
+    got = try
+        abi_version()
+    catch e
+        error("PowerIO: the C ABI at \"$(_lib())\" has no pio_abi_version — it predates " *
+              "the versioned ABI. Rebuild powerio-capi (`cargo build -p powerio-capi --release` " *
+              "in a sibling powerio checkout). Underlying: $e")
+    end
+    got == PIO_ABI_VERSION || error(
+        "PowerIO: C ABI version mismatch — the library reports ABI $got, this PowerIO.jl " *
+        "targets ABI $(PIO_ABI_VERSION). Rebuild powerio-capi from a matching commit, or " *
+        "update PowerIO.jl.")
+    _ABI_OK[] = true
+    return
 end
 
 """
     library_available() -> Bool
 
-True if the C ABI library resolves and exposes the ABI (probes `pio_n_buses`).
-Tests that need the library skip when this is false.
+True if the C ABI library resolves and is ABI-compatible with this binding (see
+[`abi_version`]). Tests that need the library skip when this is false.
 """
 function library_available()
     try
-        ccall((:pio_n_buses, _lib()), Csize_t, (Ptr{Cvoid},), C_NULL)
+        _ensure_compatible()
         return true
     catch e
-        # Probe: false means "not usable". Log so an investigator can tell "library
-        # absent" from "present but wrong ABI" (both otherwise look identical here).
-        @debug "PowerIO: library_available probe failed" exception = (e, catch_backtrace())
+        # Probe: false means "not usable here". The logged message distinguishes
+        # "library absent", "predates the versioned ABI", and "ABI mismatch".
+        @debug "PowerIO: library unavailable or incompatible" exception = (e, catch_backtrace())
         return false
     end
 end
@@ -123,12 +200,22 @@ mutable struct CaseHandle
 end
 
 function _parse_handle(path::AbstractString; from=nothing)
+    _ensure_compatible()
     err = zeros(UInt8, _ERRLEN)
     # Pass the format hint as a `String` (ccall roots it) or `C_NULL` for inference.
     fromc = from === nothing ? C_NULL : String(from)
-    ptr = ccall((:pio_parse, _lib()), Ptr{Cvoid},
-                (Cstring, Cstring, Ptr{UInt8}, Csize_t),
-                path, fromc, err, length(err))
+    ptr = try
+        ccall((:pio_parse, _lib()), Ptr{Cvoid},
+              (Cstring, Cstring, Ptr{UInt8}, Csize_t),
+              path, fromc, err, length(err))
+    catch e
+        # A load/undefined-symbol failure here means the resolved library is missing
+        # or unusable; name it and the fixes instead of a raw ccall error far from
+        # the resolution site.
+        error("PowerIO: could not call the C ABI at \"$(_lib())\" — build it " *
+              "(`cargo build -p powerio-capi --release` in a sibling powerio checkout) " *
+              "or set POWERIO_CAPI / call `set_library!`. Underlying: $e")
+    end
     ptr == C_NULL && error("PowerIO.parse_case: " * _cstr(err))
     return CaseHandle(ptr)
 end
@@ -204,6 +291,7 @@ maximal-fidelity and reports whatever the target can't carry in `warnings`. Toke
 extension inference (needed to tell EGRET and PowerModels `.json` apart).
 """
 function convert_case(path::AbstractString, to::AbstractString; from=nothing)
+    _ensure_compatible()
     warn = zeros(UInt8, _ERRLEN)
     err = zeros(UInt8, _ERRLEN)
     # Pass the format hint as a `String` (ccall roots it) or `C_NULL` for inference.
@@ -322,5 +410,104 @@ function bus_type_code(kind::AbstractString)
     kind == "ISOLATED" && return 4
     throw(ArgumentError("PowerIO: unknown bus type $(repr(kind))"))
 end
+
+# --- dense numeric surface ----------------------------------------------
+#
+# The JSON transport above is the rich, lossless view (every field + extras). For
+# the matrix-assembly path a consumer wants the numeric tables as dense typed
+# arrays without parsing JSON: the C ABI fills caller-allocated buffers
+# (`pio_bus_ids` / `pio_branches` / `pio_gens` / `pio_nodal_*`) straight from the
+# IndexCore the handle built once at parse, and answers the topology scalars
+# (`pio_n_components` / `pio_is_radial` / `pio_reference_bus`) off the same core.
+# Raw MATPOWER units throughout: 1-based bus ids in `bus_ids`, branch `from`/`to`,
+# and gen `bus` (the same id space — invert `bus_ids` to map an endpoint to a dense
+# row), degrees for `shift`, total line charging in `b`, raw `tap` (0 means 1).
+
+function _branch_tables(p::Ptr{Cvoid}, m::Int)
+    from = Vector{Int64}(undef, m); to = Vector{Int64}(undef, m)
+    r = Vector{Float64}(undef, m); x = Vector{Float64}(undef, m); b = Vector{Float64}(undef, m)
+    tap = Vector{Float64}(undef, m); shift = Vector{Float64}(undef, m)
+    insvc = Vector{UInt8}(undef, m)
+    ccall((:pio_branches, _lib()), Cvoid,
+          (Ptr{Cvoid}, Ptr{Int64}, Ptr{Int64}, Ptr{Float64}, Ptr{Float64},
+           Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{UInt8}),
+          p, from, to, r, x, b, tap, shift, insvc)
+    return (; from, to, r, x, b, tap, shift, in_service = insvc)
+end
+
+function _gen_tables(p::Ptr{Cvoid}, ng::Int)
+    bus = Vector{Int64}(undef, ng); pg = Vector{Float64}(undef, ng)
+    pmax = Vector{Float64}(undef, ng); pmin = Vector{Float64}(undef, ng)
+    insvc = Vector{UInt8}(undef, ng)
+    ccall((:pio_gens, _lib()), Cvoid,
+          (Ptr{Cvoid}, Ptr{Int64}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{UInt8}),
+          p, bus, pg, pmax, pmin, insvc)
+    return (; bus, pg, pmax, pmin, in_service = insvc)
+end
+
+function _nodal_demand(p::Ptr{Cvoid}, n::Int)
+    pd = Vector{Float64}(undef, n); qd = Vector{Float64}(undef, n)
+    ccall((:pio_nodal_demand, _lib()), Cvoid, (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}), p, pd, qd)
+    return (pd, qd)
+end
+
+function _nodal_shunt(p::Ptr{Cvoid}, n::Int)
+    gs = Vector{Float64}(undef, n); bs = Vector{Float64}(undef, n)
+    ccall((:pio_nodal_shunt, _lib()), Cvoid, (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}), p, gs, bs)
+    return (gs, bs)
+end
+
+"""
+    parse_dense(path; from=nothing) -> NamedTuple
+
+Parse a case and pull its numeric tables as dense typed arrays straight from the C
+ABI — the matrix-assembly fast path, skipping the JSON transport [`parse_case`]
+uses. Fields:
+
+- `n`, `m`, `ng` — bus / branch / generator counts.
+- `base_mva` — system base.
+- `bus_ids::Vector{Int64}` — 1-based bus ids in dense order; row `k` of every
+  per-bus table is bus `bus_ids[k]`. Invert it to map a 1-based endpoint id to a
+  dense row.
+- `branch` — NamedTuple of `from, to` (1-based bus ids), `r, x, b, tap, shift`
+  (raw MATPOWER units, degrees, total charging, raw tap), and `in_service::Vector{UInt8}`.
+- `gen` — NamedTuple of `bus` (1-based id, one row per machine), `pg, pmax, pmin`
+  (MW), `in_service`.
+- `demand`, `shunt` — NamedTuples of per-bus `(pd, qd)` and `(gs, bs)` in dense order.
+- `reference_bus::Int` — dense 0-based index of the single reference bus, or `-1`.
+- `n_components::Int`, `is_radial::Bool` — connectivity of the in-service topology.
+
+For the rich, lossless element tables (costs, extras, storage, HVDC) use
+[`parse_case`]; for zero-copy columnar export use [`arrow_table`](@ref).
+"""
+function parse_dense(path::AbstractString; from=nothing)
+    h = _parse_handle(path; from=from)
+    try
+        p = h.ptr
+        n = Int(ccall((:pio_n_buses, _lib()), Csize_t, (Ptr{Cvoid},), p))
+        m = Int(ccall((:pio_n_branches, _lib()), Csize_t, (Ptr{Cvoid},), p))
+        ng = Int(ccall((:pio_n_gens, _lib()), Csize_t, (Ptr{Cvoid},), p))
+        bus_ids = Vector{Int64}(undef, n)
+        ccall((:pio_bus_ids, _lib()), Cvoid, (Ptr{Cvoid}, Ptr{Int64}), p, bus_ids)
+        pd, qd = _nodal_demand(p, n)
+        gs, bs = _nodal_shunt(p, n)
+        return (;
+            n, m, ng,
+            base_mva = ccall((:pio_base_mva, _lib()), Cdouble, (Ptr{Cvoid},), p),
+            bus_ids,
+            branch = _branch_tables(p, m),
+            gen = _gen_tables(p, ng),
+            demand = (; pd, qd),
+            shunt = (; gs, bs),
+            reference_bus = Int(ccall((:pio_reference_bus, _lib()), Cptrdiff_t, (Ptr{Cvoid},), p)),
+            n_components = Int(ccall((:pio_n_components, _lib()), Csize_t, (Ptr{Cvoid},), p)),
+            is_radial = ccall((:pio_is_radial, _lib()), Cint, (Ptr{Cvoid},), p) != 0,
+        )
+    finally
+        finalize(h)  # buffers are copied out; free the handle now rather than at GC
+    end
+end
+
+include("arrow.jl")
 
 end # module

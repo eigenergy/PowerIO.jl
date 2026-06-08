@@ -7,10 +7,19 @@ PowerModels JSON, and EGRET JSON; all five read and write, so any pair converts
 data to the Julia modeling and solver packages you already use.
 
 PowerIO.jl is a thin wrapper over the PowerIO Rust core through its C ABI
-(`powerio-capi`). It holds an opaque case handle, calls `pio_to_json` once, and
-materializes an immutable `Network`; every accessor and every ecosystem bridge is
-then pure Julia. The Rust core does the parsing and the byte-exact write, so a
-case reads identically in Julia, Python, C/C++, and Rust.
+(`powerio-capi`). The Rust core does the parsing and the byte-exact write, so a
+case reads identically in Julia, Python, C/C++, and Rust. It offers three views
+onto a parsed case:
+
+- `parse_case` → an immutable `Network` from the JSON transport — the rich,
+  lossless element tables (every field, costs, storage, HVDC).
+- `parse_dense` → the numeric tables as dense typed arrays for matrix assembly,
+  straight from the C ABI extractors (no JSON).
+- `arrow_table` → one table zero-copy over the Arrow C Data Interface.
+
+At first use the binding checks the library's ABI version (`pio_abi_version`)
+against the version it targets and refuses a stale or mismatched library with a
+directed error.
 
 > **Status: scaffold.** The package structure, C ABI layer, accessors, and milestone
 > plan are here; it is not yet registered. During development the binary is wired
@@ -22,16 +31,25 @@ case reads identically in Julia, Python, C/C++, and Rust.
 
 ## Develop (before `PowerIO_jll` exists)
 
-Build the C ABI from the PowerIO Rust tree and point Julia at it:
+With a sibling `powerio` checkout (`PowerIO.jl` and `powerio` in the same parent
+directory), build the C ABI and `using PowerIO` finds it — no env var, no
+`set_library!`:
 
 ```
-# in the PowerIO repo:
+# in the sibling powerio checkout:
 cargo build -p powerio-capi --release        # → target/release/libpowerio_capi.{dylib,so}
 ```
 
 ```julia
+using PowerIO                                 # auto-discovers ../powerio/target/{release,debug}
+net = parse_case("case14.m")
+```
+
+For a non-sibling layout, point Julia at the library explicitly:
+
+```julia
 using PowerIO
-PowerIO.set_library!("/path/to/PowerIO/target/release/libpowerio_capi.dylib")
+PowerIO.set_library!("/path/to/powerio/target/release/libpowerio_capi.dylib")
 # or: ENV["POWERIO_CAPI"] = "...path..."  before `using PowerIO`
 
 net = parse_case("case14.m")
@@ -43,6 +61,33 @@ text, warnings = convert_case("case14.m", "psse")
 
 # EGRET and PowerModels both use .json — pass `from` to disambiguate:
 egret = parse_case("grid.json"; from="egret")
+```
+
+For matrix assembly, `parse_dense` returns the numeric tables as dense typed
+arrays straight from the C ABI — bus ids, branch and generator tables, per-bus
+demand and shunt, plus the connectivity scalars — no JSON parse:
+
+```julia
+d = parse_dense("case14.m")
+d.n, d.m, d.ng                    # bus / branch / generator counts
+d.bus_ids                         # 1-based ids; row k of every per-bus table is bus_ids[k]
+d.branch.from, d.branch.x         # branch endpoints (1-based ids) and reactances
+d.reference_bus, d.n_components, d.is_radial
+```
+
+`arrow_table` lends one table zero-copy over the Arrow C Data Interface (needs the
+library built `--features arrow`; `arrow_available()` reports whether it is). The
+columns are a Tables.jl-shaped NamedTuple, so they flow into `Arrow.write`,
+`DataFrame`, etc. Keep the returned `ArrowTable` alive while reading its columns —
+they view the producer's memory:
+
+```julia
+cargo build -p powerio-capi --release --features arrow   # in the sibling powerio checkout
+```
+
+```julia
+t = arrow_table("case14.m", :branch)   # :bus, :branch, :gen, :load, :shunt
+t.from, t.x, t.tap                     # zero-copy column views
 ```
 
 ## Shipping the binary
@@ -84,11 +129,13 @@ is done in the Rust core.
   `:native` (done).
 
 **v0.1.0 — ecosystem parity + canonical JLL.**
-- Typed immutable `Network` mirroring `powerio/src/network.rs` + the full accessor
-  surface and a dense-extraction fast path (the C ABI already exposes
-  `pio_bus_ids`/`pio_branches`/`pio_gens`/`pio_nodal_demand`/`pio_nodal_shunt` and
-  `pio_reference_bus`/`pio_n_components`/`pio_is_radial` — these need a retained
-  case handle, so they land here, not in v0.0.1).
+- Dense-extraction fast path (`parse_dense`) over `pio_bus_ids`/`pio_branches`/
+  `pio_gens`/`pio_nodal_demand`/`pio_nodal_shunt` + `pio_reference_bus`/
+  `pio_n_components`/`pio_is_radial`, the zero-copy Arrow export (`arrow_table` over
+  the Arrow C Data Interface), and the load-time ABI version handshake
+  (`pio_abi_version`): **done.** A fully typed immutable `Network` mirroring
+  `powerio/src/network.rs` (today the `Network` view is JSON-backed) is the
+  remaining piece.
 - PowerModels parity: `to_powermodels`/`from_powermodels`, same objective as
   `PowerModels.parse_file`.
 - ExaPowerIO/ExaModelsPower: `to_powerdata` (a `PowerData`) + a `parse_ac_power_data`
