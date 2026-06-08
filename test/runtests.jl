@@ -19,7 +19,12 @@ using Test
             data = joinpath(@__DIR__, "data")
             net = parse_case(joinpath(data, "case14.m"))
             @test PowerIO.n_buses(net) == 14
+            @test PowerIO.n_gens(net) == 5
             @test PowerIO.base_mva(net) == 100.0
+            @test PowerIO.source_format(net) == "Matpower"
+            @test PowerIO.reference_bus_id(net) == 1
+            @test isempty(PowerIO.storage(net))
+            @test isempty(PowerIO.hvdc(net))
             text, warnings = convert_case(joinpath(data, "case14.m"), "matpower")
             @test occursin("mpc.bus", text)
             @test isempty(warnings)

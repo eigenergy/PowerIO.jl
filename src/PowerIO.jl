@@ -2,8 +2,8 @@
     PowerIO
 
 Julia bindings for the PowerIO Rust core: parse MATPOWER / PSS/E / PowerWorld /
-PowerModels JSON case files, convert losslessly between them, and materialize an
-immutable `Network` — all through the `powerio-capi` C ABI.
+PowerModels JSON / EGRET JSON case files, convert losslessly between any pair, and
+materialize an immutable `Network` — all through the `powerio-capi` C ABI.
 
 This is the thin Julia↔C layer. It holds an opaque case handle, calls
 `pio_to_json` once, and parses the result with JSON3, so every accessor and every
@@ -62,9 +62,15 @@ end
 # `powerio_capi` entry for this platform (filled in after the BinaryBuilder
 # release; see `gen/build_tarballs.jl`), fall back to a plain `libpowerio_capi` on
 # the loader path so a local build still resolves.
+#
+# The subdir mirrors what `gen/build_tarballs.jl` installs: BinaryBuilder ships the
+# Windows dll under `bin/`, the shared object under `lib/` everywhere else. This
+# hardcoding is a stopgap; once the binary ships, the right form is to let the
+# JLL/`Artifacts.toml` `LibraryProduct` resolve the dlopen path per platform.
 function _artifact_lib()
+    libsubdir = Sys.iswindows() ? "bin" : "lib"
     try
-        return joinpath(artifact"powerio_capi", "lib", "libpowerio_capi.$(Libdl.dlext)")
+        return joinpath(artifact"powerio_capi", libsubdir, "libpowerio_capi.$(Libdl.dlext)")
     catch
         return "libpowerio_capi"
     end
@@ -108,11 +114,13 @@ mutable struct CaseHandle
     end
 end
 
-function _parse_handle(path::AbstractString)
+function _parse_handle(path::AbstractString; from=nothing)
     err = zeros(UInt8, _ERRLEN)
+    # Pass the format hint as a `String` (ccall roots it) or `C_NULL` for inference.
+    fromc = from === nothing ? C_NULL : String(from)
     ptr = ccall((:pio_parse, _lib()), Ptr{Cvoid},
-                (Cstring, Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
-                path, C_NULL, err, length(err))
+                (Cstring, Cstring, Ptr{UInt8}, Csize_t),
+                path, fromc, err, length(err))
     ptr == C_NULL && error("PowerIO.parse_case: " * _cstr(err))
     return CaseHandle(ptr)
 end
@@ -135,8 +143,10 @@ end
     Network
 
 An immutable view of a parsed case, materialized from the C ABI's JSON transport.
-Raw MATPOWER units and 1-based bus ids, mirroring `powerio`'s `Network`. For now
-the tables are the parsed JSON (`net.data`); the fully typed struct mirroring
+Raw MATPOWER units and 1-based bus ids, mirroring `powerio`'s `Network`: buses,
+loads, shunts, branches, generators, storage, and hvdc tables plus `base_mva`,
+`name`, and `source_format` (the format it was read from). For now the tables are
+the parsed JSON (`net.data`); the fully typed struct mirroring
 `powerio/src/network.rs` is M2 (see issues).
 """
 struct Network
@@ -144,12 +154,16 @@ struct Network
 end
 
 """
-    parse_case(path) -> Network
+    parse_case(path; from=nothing) -> Network
 
-Parse a case file (format inferred from the extension) into a [`Network`].
+Parse a case file into a [`Network`]. The format is inferred from the extension
+unless `from` is given. Pass `from` to disambiguate the two JSON formats — EGRET
+and PowerModels both use `.json`. Accepted tokens (case-insensitive): `"matpower"`/
+`"m"`, `"powermodels-json"`/`"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`,
+`"psse"`/`"raw"`, `"powerworld"`/`"aux"`.
 """
-function parse_case(path::AbstractString)
-    h = _parse_handle(path)
+function parse_case(path::AbstractString; from=nothing)
+    h = _parse_handle(path; from=from)
     net = Network(JSON3.read(_to_json(h)))
     return net
 end
@@ -172,14 +186,18 @@ end
 """
     convert_case(path, to; from=nothing) -> (text, warnings)
 
-Convert `path` to format `to` (`"matpower"`, `"powermodels-json"`, `"psse"`,
-`"powerworld"`, `"egret-json"`). `warnings` lists anything the target can't
-represent.
+Convert `path` to format `to`. All five formats read and write, so any pair
+round-trips. Tokens (case-insensitive): `"matpower"`/`"m"`,
+`"powermodels-json"`/`"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`,
+`"psse"`/`"raw"`, `"powerworld"`/`"aux"`. `from` overrides extension inference
+(needed to tell EGRET and PowerModels `.json` apart). `warnings` lists anything
+the target can't represent.
 """
 function convert_case(path::AbstractString, to::AbstractString; from=nothing)
     warn = zeros(UInt8, _ERRLEN)
     err = zeros(UInt8, _ERRLEN)
-    fromc = from === nothing ? C_NULL : Base.unsafe_convert(Cstring, String(from))
+    # Pass the format hint as a `String` (ccall roots it) or `C_NULL` for inference.
+    fromc = from === nothing ? C_NULL : String(from)
     s = ccall((:pio_convert, _lib()), Cstring,
               (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
               path, to, fromc, warn, length(warn), err, length(err))
@@ -197,15 +215,24 @@ end
 # the stable contract — raw MATPOWER units (MW/MVAr, degrees), 1-based bus ids,
 # out-of-service elements retained, so a consumer normalizes as it sees fit:
 #
-#   bus:    id, kind ∈ {"PQ","PV","REF","ISOLATED"}, vm, va (deg), base_kv,
-#           vmax, vmin, area, zone, name, extras
-#   gen:    bus, pg, qg, pmax, pmin, qmax, qmin, vg, mbase, in_service,
-#           cost (`nothing`, or {model, startup, shutdown, ncost, coeffs}), caps
-#   branch: from, to, r, x, b, rate_a, rate_b, rate_c, tap, shift (deg),
-#           in_service, angmin (deg), angmax (deg), extras
-#   load:   bus, p (MW), q (MVAr), in_service, extras
-#   shunt:  bus, g, b, in_service, extras
+#   bus:     id, kind ∈ {"PQ","PV","REF","ISOLATED"}, vm, va (deg), base_kv,
+#            vmax, vmin, area, zone, name, extras
+#   gen:     bus, pg, qg, pmax, pmin, qmax, qmin, vg, mbase, in_service,
+#            cost (`nothing`, or {model, startup, shutdown, ncost, coeffs}),
+#            caps (ordered 11-element nullable array
+#            [pc1, pc2, qc1min, qc1max, qc2min, qc2max, ramp_agc, ramp_10,
+#            ramp_30, ramp_q, apf]; these lived in `extras` in older cores)
+#   branch:  from, to, r, x, b, rate_a, rate_b, rate_c, tap, shift (deg),
+#            in_service, angmin (deg), angmax (deg), extras
+#   load:    bus, p (MW), q (MVAr), in_service, extras
+#   shunt:   bus, g, b, in_service, extras
+#   storage: bus, ps, qs, energy, energy_rating, charge_rating, discharge_rating,
+#            charge_efficiency, discharge_efficiency, thermal_rating, qmin, qmax,
+#            r, x, p_loss, q_loss, in_service, extras
+#   hvdc:    from, to, in_service, pf, pt, qf, qt, vf, vt, pmin, pmax, qminf,
+#            qmaxf, qmint, qmaxt, loss0, loss1, extras
 #
+# Plus scalars: `base_mva`, `network_name`, `source_format`, `reference_bus_id`.
 # The fully typed struct mirroring `network.rs` and the dense-extraction fast path
 # are M2 (issue #2); these views are enough for the ecosystem bridges.
 
@@ -230,6 +257,46 @@ branches(net::Network) = net.data.branches
 loads(net::Network) = net.data.loads
 "First-class bus shunts."
 shunts(net::Network) = net.data.shunts
+"First-class storage units; empty unless the source carries them (PowerModels, EGRET)."
+storage(net::Network) = net.data.storage
+"Two-terminal HVDC lines (MATPOWER `dcline`); empty unless the source carries them."
+hvdc(net::Network) = net.data.hvdc
+
+"""
+    n_gens(net) -> Int
+
+Number of generator rows (one per machine; `bus` repeats). Matches `pio_n_gens`:
+every row, not in-service-filtered.
+"""
+n_gens(net::Network) = length(net.data.generators)
+
+"""
+    source_format(net) -> String
+
+The format the case was read from, verbatim from the Rust `SourceFormat` enum:
+one of `"Matpower"`, `"PowerModelsJson"`, `"EgretJson"`, `"Psse"`, `"PowerWorld"`,
+`"InMemory"`.
+"""
+source_format(net::Network) = String(net.data.source_format)
+
+"""
+    reference_bus_id(net) -> Union{Int,Nothing}
+
+The 1-based id of the reference (slack) bus, or `nothing` unless exactly one bus
+has `kind == "REF"`. This mirrors the "exactly one" rule of the C ABI's
+`pio_reference_bus` (which returns a dense 0-based index, not an id), but returns
+the 1-based id space the other accessors use.
+"""
+function reference_bus_id(net::Network)
+    ref = nothing
+    for b in net.data.buses
+        if String(b.kind) == "REF"
+            ref === nothing || return nothing  # more than one REF: no unique slack
+            ref = Int(b.id)
+        end
+    end
+    return ref
+end
 
 """
     bus_type_code(kind) -> Int

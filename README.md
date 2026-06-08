@@ -1,9 +1,9 @@
 # PowerIO.jl
 
-Julia bindings for [PowerIO](https://github.com/eigenergy/powerio): a fast, lossless
-reader/writer for power system case files. Parse MATPOWER, PSS/E, PowerWorld, and
-PowerModels JSON, convert losslessly between them, and hand the data to the Julia
-modeling and solver packages you already use.
+Julia bindings for [PowerIO](https://github.com/eigenergy/powerio): a lossless
+reader/writer for power system case files. Parse MATPOWER, PSS/E, PowerWorld,
+PowerModels JSON, and EGRET JSON — all five read and write, so any pair converts —
+and hand the data to the Julia modeling and solver packages you already use.
 
 PowerIO.jl is a thin wrapper over the PowerIO Rust core through its C ABI
 (`powerio-capi`). It holds an opaque case handle, calls `pio_to_json` once, and
@@ -34,8 +34,14 @@ PowerIO.set_library!("/path/to/PowerIO/target/release/libpowerio_capi.dylib")
 # or: ENV["POWERIO_CAPI"] = "...path..."  before `using PowerIO`
 
 net = parse_case("case14.m")
-PowerIO.n_buses(net), PowerIO.base_mva(net)
+PowerIO.n_buses(net), PowerIO.n_gens(net), PowerIO.base_mva(net)
+PowerIO.source_format(net)        # "Matpower"
+PowerIO.reference_bus_id(net)     # the slack bus id (or nothing)
+
 text, warnings = convert_case("case14.m", "psse")
+
+# EGRET and PowerModels both use .json — pass `from` to disambiguate:
+egret = parse_case("grid.json"; from="egret")
 ```
 
 ## Shipping the binary
@@ -62,7 +68,7 @@ its own side.
 | PowerModels.jl | both | `to_powermodels` / `from_powermodels` (the post-parse, pre-`correct_network_data!` dict) | v0.1.0 |
 | ExaPowerIO.jl / ExaModelsPower.jl | out | `to_powerdata` (an ExaPowerIO `PowerData`) + a `parse_ac_power_data` NamedTuple feeding `build_polar_opf` / `build_rect_opf` / `build_dcopf` | v0.1.0 |
 | PowerDiff.jl | out | PowerDiff hard-deps PowerIO; its `:powerio` backend adapts the `Network` (PowerIO ships the accessors) | done |
-| MATPOWER / PSS/E / PowerModels JSON / EGRET | file | the Rust core's readers/writers | now |
+| MATPOWER / PSS/E / PowerWorld / PowerModels JSON / EGRET | file (read+write, any pair) | the Rust core's readers/writers via `parse_case` / `convert_case` | now |
 
 ## Milestones
 
@@ -78,7 +84,10 @@ is done in the Rust core.
 
 **v0.1.0 — ecosystem parity + canonical JLL.**
 - Typed immutable `Network` mirroring `powerio/src/network.rs` + the full accessor
-  surface and a dense-extraction fast path.
+  surface and a dense-extraction fast path (the C ABI already exposes
+  `pio_bus_ids`/`pio_branches`/`pio_gens`/`pio_nodal_demand`/`pio_nodal_shunt` and
+  `pio_reference_bus`/`pio_n_components`/`pio_is_radial` — these need a retained
+  case handle, so they land here, not in v0.0.1).
 - PowerModels parity: `to_powermodels`/`from_powermodels`, same objective as
   `PowerModels.parse_file`.
 - ExaPowerIO/ExaModelsPower: `to_powerdata` (a `PowerData`) + a `parse_ac_power_data`
@@ -87,7 +96,8 @@ is done in the Rust core.
 - Yggdrasil `PowerIO_jll` swap; Documenter site + a CI job that rebuilds from the
   local Rust tree.
 
-**v0.2.0 and beyond.** PowerModelsDistribution / OpenDSS, EGRET round-trip, more formats.
+**v0.2.0 and beyond.** PowerModelsDistribution / OpenDSS, more in-memory ecosystem
+bridges, further formats.
 
 ## License
 

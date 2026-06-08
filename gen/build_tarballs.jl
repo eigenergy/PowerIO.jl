@@ -15,12 +15,16 @@
 using BinaryBuilder
 
 name = "PowerIO"
-version = v"0.0.1"
+# Tracks the powerio-capi *crate* version (the binary), which is independent of the
+# PowerIO.jl *package* version (0.0.1). The crate is at 0.1.0 as of the pinned commit.
+version = v"0.1.0"
 
-# Tag a powerio-capi release first, then pin its commit here (the rename + the
-# pio_to_json keystone must be on that commit).
+# Pinned to the merged #45 commit ("Rename to PowerIO ... v0.1.0 hardening"), which
+# carries the rename and the pio_to_json keystone. Prefer a git tag once one is cut
+# (none exists yet); a tag is the right long-term anchor for a reproducible build.
 sources = [
-    GitSource("https://github.com/eigenergy/powerio.git", "FILL_IN_COMMIT_SHA"),
+    GitSource("https://github.com/eigenergy/powerio.git",
+              "5d7e76bdb0b870cac0c12846bdc7b5b3d952cdec"),
 ]
 
 # `cargo build` writes the cdylib under target/<rust_target>/release. Names differ
