@@ -6,16 +6,19 @@ using JSON3
     @testset "loads and exposes its surface" begin
         # The module must load with no C library present (the binding is lazy),
         # and its public surface must exist.
-        for sym in (:Network, :parse_case, :convert_case, :write_matpower)
+        for sym in (:Network, :parse_case, :convert_case, :write_matpower,
+                    :parse_dense, :arrow_table, :ArrowTable)
             @test isdefined(PowerIO, sym)
         end
         # The accessor surface the ecosystem bridges read is unexported but must exist.
         for sym in (:n_buses, :n_branches, :n_gens, :base_mva, :network_name,
                     :source_format, :reference_bus_id, :bus_type_code,
-                    :buses, :generators, :branches, :loads, :shunts, :storage, :hvdc)
+                    :buses, :generators, :branches, :loads, :shunts, :storage, :hvdc,
+                    :abi_version, :library_version, :library_available, :arrow_available)
             @test isdefined(PowerIO, sym)
         end
         @test PowerIO._lib() isa AbstractString
+        @test PowerIO.PIO_ABI_VERSION isa Unsigned
     end
 
     @testset "pure-Julia accessors (no binary)" begin
@@ -80,6 +83,62 @@ using JSON3
             psse_text, psse_warnings = convert_case(joinpath(data, "case14.m"), "psse")
             @test !isempty(psse_text)
             @test psse_warnings isa AbstractVector{<:AbstractString}
+
+            # library_available() is true here, so the ABI handshake passed: the
+            # library's ABI version must equal the one this binding targets.
+            @test PowerIO.abi_version() == PowerIO.PIO_ABI_VERSION
+            @test !isempty(PowerIO.library_version())
+        end
+    end
+
+    @testset "dense numeric surface" begin
+        if !PowerIO.library_available()
+            @test_skip parse_dense("case14.m")
+        else
+            d = parse_dense(joinpath(@__DIR__, "data", "case14.m"))
+            @test (d.n, d.m, d.ng) == (14, 20, 5)
+            @test d.base_mva == 100.0
+            @test d.bus_ids == collect(1:14)                # case14 buses are 1..14
+            @test d.reference_bus == 0                      # dense 0-based index of the REF bus
+            @test d.n_components == 1
+            @test d.is_radial == false                      # case14 has loops
+            @test length(d.branch.from) == 20 && length(d.branch.x) == 20
+            @test all(>(0), d.branch.x)                     # reactances are positive
+            @test d.gen.bus == [1, 2, 3, 6, 8]              # generator buses, file order
+            @test sum(d.demand.pd) ≈ 259.0 rtol = 1e-6      # total active demand (MW)
+            # The dense gen table lines up with the JSON view's count.
+            @test d.ng == PowerIO.n_gens(parse_case(joinpath(@__DIR__, "data", "case14.m")))
+        end
+    end
+
+    @testset "zero-copy Arrow export" begin
+        if !(PowerIO.library_available() && PowerIO.arrow_available())
+            @test_skip arrow_table("case14.m", :bus)
+        else
+            data = joinpath(@__DIR__, "data")
+            bus = arrow_table(joinpath(data, "case14.m"), :bus)
+            @test bus isa ArrowTable
+            @test :id in propertynames(bus)
+            @test bus.id == collect(1:14)                   # external 1-based bus ids, in order
+
+            # The Arrow gen table matches the dense extractor on the shared columns.
+            d = parse_dense(joinpath(data, "case14.m"))
+            gen = arrow_table(joinpath(data, "case14.m"), :gen)
+            @test collect(gen.bus) == d.gen.bus
+            @test collect(gen.pg) ≈ d.gen.pg
+
+            # Every table's row count matches the JSON view's element count.
+            net = parse_case(joinpath(data, "case14.m"))
+            shunts = arrow_table(joinpath(data, "case14.m"), :shunt)
+            @test length(shunts.bus) == length(PowerIO.shunts(net))
+            branch = arrow_table(joinpath(data, "case14.m"), :branch)
+            @test length(branch.from) == length(PowerIO.branches(net))
+
+            @test_throws ArgumentError arrow_table(joinpath(data, "case14.m"), :nonesuch)
+
+            # Releasing the producer (finalizer) must not fault.
+            finalize(bus)
+            @test true
         end
     end
 end

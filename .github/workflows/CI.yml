@@ -41,7 +41,9 @@ jobs:
           workspaces: powerio
       - name: Build powerio-capi
         if: env.TANDEM_TOKEN != ''
-        run: cargo build -p powerio-capi --release --manifest-path powerio/Cargo.toml
+        # --features arrow so the zero-copy arrow_table tests run against a real
+        # pio_export_arrow symbol instead of skipping (arrow_available() gates them).
+        run: cargo build -p powerio-capi --release --features arrow --manifest-path powerio/Cargo.toml
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
         env:
