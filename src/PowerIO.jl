@@ -145,9 +145,18 @@ function _parse_handle(path::AbstractString; from=nothing)
     err = zeros(UInt8, _ERRLEN)
     # Pass the format hint as a `String` (ccall roots it) or `C_NULL` for inference.
     fromc = from === nothing ? C_NULL : String(from)
-    ptr = ccall((:pio_parse, _lib()), Ptr{Cvoid},
-                (Cstring, Cstring, Ptr{UInt8}, Csize_t),
-                path, fromc, err, length(err))
+    ptr = try
+        ccall((:pio_parse, _lib()), Ptr{Cvoid},
+              (Cstring, Cstring, Ptr{UInt8}, Csize_t),
+              path, fromc, err, length(err))
+    catch e
+        # A load/undefined-symbol failure here means the resolved library is missing
+        # or unusable; name it and the fixes instead of a raw ccall error far from
+        # the resolution site.
+        error("PowerIO: could not call the C ABI at \"$(_lib())\" — build it " *
+              "(`cargo build -p powerio-capi --release` in a sibling powerio checkout) " *
+              "or set POWERIO_CAPI / call `set_library!`. Underlying: $e")
+    end
     ptr == C_NULL && error("PowerIO.parse_case: " * _cstr(err))
     return CaseHandle(ptr)
 end
