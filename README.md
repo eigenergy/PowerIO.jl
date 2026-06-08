@@ -2,8 +2,9 @@
 
 Julia bindings for [PowerIO](https://github.com/eigenergy/powerio): a lossless
 reader/writer for power system case files. Parse MATPOWER, PSS/E, PowerWorld,
-PowerModels JSON, and EGRET JSON — all five read and write, so any pair converts —
-and hand the data to the Julia modeling and solver packages you already use.
+PowerModels JSON, and EGRET JSON; all five read and write, so any pair converts
+(byte-exact on a same-format round-trip, maximal-fidelity across formats). Hand the
+data to the Julia modeling and solver packages you already use.
 
 PowerIO.jl is a thin wrapper over the PowerIO Rust core through its C ABI
 (`powerio-capi`). It holds an opaque case handle, calls `pio_to_json` once, and

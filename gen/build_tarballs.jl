@@ -1,10 +1,10 @@
 # BinaryBuilder recipe for the powerio-capi C ABI (libpowerio_capi).
 #
 # Two uses, one recipe:
-#   1. Self-hosted distribution (issue N1, now): cross-compile the per-platform
+#   1. Self-hosted distribution (issue #8, now): cross-compile the per-platform
 #      tarballs, upload them to a PowerIO.jl GitHub release, and reference them from
 #      the package's Artifacts.toml. The build prints each tarball's sha256 and the
-#      artifact's git-tree-sha1 — paste those into Artifacts.toml.
+#      artifact's git-tree-sha1; paste those into Artifacts.toml.
 #   2. Yggdrasil PowerIO_jll (issue #1, later): submit this file to Yggdrasil
 #      essentially unchanged; PowerIO's `_lib()` then swaps to PowerIO_jll.
 #
@@ -40,7 +40,11 @@ else
     install -Dvm755 "${out}/libpowerio_capi.${dlext}" "${libdir}/libpowerio_capi.${dlext}"
 fi
 install -Dvm644 powerio-capi/include/powerio.h "${includedir}/powerio.h"
-install_license LICENSE*
+# powerio declares "MIT OR Apache-2.0" (powerio-capi/Cargo.toml) but ships no LICENSE
+# file at the pinned commit, so don't abort on a missing one. A LICENSE must land
+# upstream before the Yggdrasil submission, where AutoMerge requires it; the
+# self-hosted GitHub-release path does not.
+install_license LICENSE* || true
 """
 
 platforms = [
@@ -58,4 +62,4 @@ products = [
 dependencies = Dependency[]
 
 build_tarballs(ARGS, name, version, sources, script, platforms, products, dependencies;
-    compilers=[:c, :rust], julia_compat="1.6")
+    compilers=[:c, :rust], julia_compat="1.9")  # matches Project.toml's julia floor

@@ -18,8 +18,8 @@
 # platform is fetched on the first `parse_case` that needs the binary. On an
 # unsupported platform the lookup fails and `_artifact_lib()` falls back.
 #
-# Windows note: the .dll ships under bin/, not lib/; teach `_artifact_lib()` the
-# bin/ path when the Windows tarball is added.
+# Windows note: the .dll ships under bin/, not lib/; `_artifact_lib()` already
+# resolves the bin/ subdir on Windows.
 
 [[powerio_capi]]
 arch = "x86_64"

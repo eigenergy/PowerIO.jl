@@ -2,8 +2,9 @@
     PowerIO
 
 Julia bindings for the PowerIO Rust core: parse MATPOWER / PSS/E / PowerWorld /
-PowerModels JSON / EGRET JSON case files, convert losslessly between any pair, and
-materialize an immutable `Network` — all through the `powerio-capi` C ABI.
+PowerModels JSON / EGRET JSON case files, convert between any pair (byte-exact on a
+same-format round-trip, maximal-fidelity otherwise), and materialize an immutable
+`Network`, all through the `powerio-capi` C ABI.
 
 This is the thin Julia↔C layer. It holds an opaque case handle, calls
 `pio_to_json` once, and parses the result with JSON3, so every accessor and every
@@ -71,7 +72,11 @@ function _artifact_lib()
     libsubdir = Sys.iswindows() ? "bin" : "lib"
     try
         return joinpath(artifact"powerio_capi", libsubdir, "libpowerio_capi.$(Libdl.dlext)")
-    catch
+    catch e
+        # Expected while the artifact is unpublished. Once it ships, a corrupt or
+        # platform-missing artifact also lands here, so leave a trace (JULIA_DEBUG=PowerIO)
+        # rather than silently masking it; the loader-path fallback still keeps dev working.
+        @debug "PowerIO: powerio_capi artifact did not resolve; falling back to loader-path libpowerio_capi" exception = (e, catch_backtrace())
         return "libpowerio_capi"
     end
 end
@@ -86,7 +91,10 @@ function library_available()
     try
         ccall((:pio_n_buses, _lib()), Csize_t, (Ptr{Cvoid},), C_NULL)
         return true
-    catch
+    catch e
+        # Probe: false means "not usable". Log so an investigator can tell "library
+        # absent" from "present but wrong ABI" (both otherwise look identical here).
+        @debug "PowerIO: library_available probe failed" exception = (e, catch_backtrace())
         return false
     end
 end
@@ -147,7 +155,7 @@ Raw MATPOWER units and 1-based bus ids, mirroring `powerio`'s `Network`: buses,
 loads, shunts, branches, generators, storage, and hvdc tables plus `base_mva`,
 `name`, and `source_format` (the format it was read from). For now the tables are
 the parsed JSON (`net.data`); the fully typed struct mirroring
-`powerio/src/network.rs` is M2 (see issues).
+`powerio/src/network.rs` is v0.1.0 (see issues).
 """
 struct Network
     data::JSON3.Object
@@ -176,8 +184,10 @@ input was MATPOWER.
 """
 function write_matpower(path::AbstractString)
     h = _parse_handle(path)
+    # pio_write_matpower has no error buffer (see powerio.h); it returns NULL on
+    # failure, so name the input file rather than erroring without context.
     s = ccall((:pio_write_matpower, _lib()), Cstring, (Ptr{Cvoid},), h.ptr)
-    s == C_NULL && error("PowerIO.write_matpower failed")
+    s == C_NULL && error("PowerIO.write_matpower: failed to serialize $(repr(path))")
     out = unsafe_string(s)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
     return out
@@ -187,11 +197,11 @@ end
     convert_case(path, to; from=nothing) -> (text, warnings)
 
 Convert `path` to format `to`. All five formats read and write, so any pair
-round-trips. Tokens (case-insensitive): `"matpower"`/`"m"`,
-`"powermodels-json"`/`"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`,
-`"psse"`/`"raw"`, `"powerworld"`/`"aux"`. `from` overrides extension inference
-(needed to tell EGRET and PowerModels `.json` apart). `warnings` lists anything
-the target can't represent.
+converts. A same-format conversion is byte-exact; a cross-format one is
+maximal-fidelity and reports whatever the target can't carry in `warnings`. Tokens
+(case-insensitive): `"matpower"`/`"m"`, `"powermodels-json"`/`"powermodels"`/`"pm"`,
+`"egret-json"`/`"egret"`, `"psse"`/`"raw"`, `"powerworld"`/`"aux"`. `from` overrides
+extension inference (needed to tell EGRET and PowerModels `.json` apart).
 """
 function convert_case(path::AbstractString, to::AbstractString; from=nothing)
     warn = zeros(UInt8, _ERRLEN)
@@ -234,7 +244,7 @@ end
 #
 # Plus scalars: `base_mva`, `network_name`, `source_format`, `reference_bus_id`.
 # The fully typed struct mirroring `network.rs` and the dense-extraction fast path
-# are M2 (issue #2); these views are enough for the ecosystem bridges.
+# are v0.1.0 (issue #2); these views are enough for the ecosystem bridges.
 
 n_buses(net::Network) = length(net.data.buses)
 n_branches(net::Network) = length(net.data.branches)
