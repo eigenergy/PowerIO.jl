@@ -12,27 +12,37 @@ jobs:
       fail-fast: false
       matrix:
         julia-version: ['1.9', '1']
+    env:
+      # secrets can't be read in `if:` directly; surface it as an env var to gate on.
+      TANDEM_TOKEN: ${{ secrets.TANDEM_REPO_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
         with:
           version: ${{ matrix.julia-version }}
       - uses: julia-actions/cache@v2
-      # Build the C ABI from powerio's main so the ccall tests run against the real
-      # library instead of skipping (they auto-skip when the cdylib is absent).
-      # Drops to `using PowerIO_jll` once that is registered (issue #1).
+      # Build the C ABI from a sibling powerio checkout so the ccall tests run for
+      # real. powerio is private, so this needs read access to it via the
+      # TANDEM_REPO_TOKEN secret; without it the build is skipped and the ccall tests
+      # auto-skip (the pure-Julia tests still run). Drops to `using PowerIO_jll` once
+      # that is registered (issue #1).
       - name: Check out powerio
+        if: env.TANDEM_TOKEN != ''
         uses: actions/checkout@v4
         with:
           repository: eigenergy/powerio
           path: powerio
+          token: ${{ secrets.TANDEM_REPO_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
+        if: env.TANDEM_TOKEN != ''
       - uses: Swatinem/rust-cache@v2
+        if: env.TANDEM_TOKEN != ''
         with:
           workspaces: powerio
       - name: Build powerio-capi
+        if: env.TANDEM_TOKEN != ''
         run: cargo build -p powerio-capi --release --manifest-path powerio/Cargo.toml
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
         env:
-          POWERIO_CAPI: ${{ github.workspace }}/powerio/target/release/libpowerio_capi.so
+          POWERIO_CAPI: ${{ env.TANDEM_TOKEN != '' && format('{0}/powerio/target/release/libpowerio_capi.so', github.workspace) || '' }}
