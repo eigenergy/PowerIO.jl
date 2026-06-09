@@ -28,13 +28,14 @@ At first use the binding checks the library's ABI version (`pio_abi_version`)
 against the version it targets and refuses a stale or mismatched library with a
 directed error.
 
-> **Status: scaffold.** The package structure, C ABI layer, accessors, and milestone
-> plan are here; it is not yet registered. During development the binary is wired
-> through a local library path (below). For the public release it ships as a
-> self-hosted, lazy artifact — per-platform tarballs on a GitHub release, referenced
-> from `Artifacts.toml` — so PowerIO registers in General with **no Rust toolchain**
-> and a plain `Pkg.add("PowerIO")`. A Yggdrasil `PowerIO_jll` is a later, non-blocking
-> swap.
+> **Status: v0.0.1 release candidate.** The API surface, C ABI layer, dense and
+> Arrow fast paths, and the ecosystem bridges are done and tested. What remains
+> before registration in General: the powerio release tagged (its release-binaries
+> workflow attaches the per-platform tarballs), `gen/update_artifacts.jl` run to
+> fill `Artifacts.toml` with the real hashes. After that, `Pkg.add("PowerIO")`
+> needs **no Rust toolchain**: the right tarball downloads lazily on first use.
+> During development the binary is wired through a local library path (below).
+> A Yggdrasil `PowerIO_jll` is a later, non-blocking swap.
 
 ## Develop (before `PowerIO_jll` exists)
 
@@ -43,8 +44,8 @@ directory), build the C ABI and `using PowerIO` finds it — no env var, no
 `set_library!`:
 
 ```
-# in the sibling powerio checkout:
-cargo build -p powerio-capi --release        # → target/release/libpowerio_capi.{dylib,so}
+# in the sibling powerio checkout (--features arrow also enables to_arrow):
+cargo build -p powerio-capi --release --features arrow   # → target/release/libpowerio_capi.{dylib,so}
 ```
 
 ```julia
@@ -129,14 +130,16 @@ t.from, t.x, t.tap                # zero-copy column views
 ## Shipping the binary
 
 `deps/build.jl` would run `cargo` on every user's machine and demand a Rust
-toolchain — the deprecated path. Instead the Rust `cdylib` is cross-compiled
-**once** with BinaryBuilder (see `gen/build_tarballs.jl`) and the per-platform
-tarballs are published on a GitHub release. PowerIO references them from a lazy
-`Artifacts.toml`, so it has no unregistered dependency and registers in General;
-Julia's artifact system downloads the right tarball on first use, no Rust toolchain.
-A Yggdrasil `PowerIO_jll` is the eventual canonical form — a one-line `_lib()` swap —
-but it does not gate the release. The maintainer's local `cargo build` is only a dev
-override (above), never a user step.
+toolchain — the deprecated path. Instead the Rust `cdylib` is built **once** per
+platform by powerio's `release-binaries` CI workflow, which attaches
+`libpowerio_capi.<triplet>.tar.gz` for linux (x86_64, aarch64), macOS (x86_64,
+arm64), and Windows to each tagged powerio release. `gen/update_artifacts.jl <tag>`
+then rewrites the lazy `Artifacts.toml` here with the real hashes and URLs, so
+PowerIO has no unregistered dependency and registers in General; Julia's artifact
+system downloads the right tarball on first use, no Rust toolchain. A Yggdrasil
+`PowerIO_jll` built from `gen/build_tarballs.jl` is the eventual canonical form — a
+one-line `_lib()` swap — but it does not gate the release. The maintainer's local
+`cargo build` is only a dev override (above), never a user step.
 
 ## Interop
 
