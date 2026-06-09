@@ -34,7 +34,9 @@ using JSON3
 using LazyArtifacts
 import Libdl
 
-export Network, parse_file, convert_file, to_normalized, to_json, to_dense, to_matpower, to_arrow, ArrowTable
+export Network, parse_file, parse_str, from_json, convert_file, to_format,
+       to_normalized, to_json, to_dense, to_matpower, to_arrow, ArrowTable,
+       to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data
 
 # --- library resolution -------------------------------------------------
 #
@@ -121,7 +123,7 @@ end
 # from an incompatible commit" into a clear error at the boundary, instead of a
 # cryptic ccall fault (a wrong signature) or silently wrong numbers deep in a solver.
 
-const PIO_ABI_VERSION = UInt32(1)
+const PIO_ABI_VERSION = UInt32(2)
 const _ABI_OK = Ref{Bool}(false)
 
 """
@@ -216,7 +218,7 @@ function _parse_handle(path::AbstractString; from=nothing)
     # Pass the format hint as a `String` (ccall roots it) or `C_NULL` for inference.
     fromc = from === nothing ? C_NULL : String(from)
     ptr = try
-        ccall((:pio_parse, _lib()), Ptr{Cvoid},
+        ccall((:pio_parse_file, _lib()), Ptr{Cvoid},
               (Cstring, Cstring, Ptr{UInt8}, Csize_t),
               path, fromc, err, length(err))
     catch e
@@ -238,7 +240,21 @@ function _parse_handle_str(text::AbstractString, format::AbstractString)
     catch e
         _lib_call_error(e)
     end
-    ptr == C_NULL && error("PowerIO.parse_file: " * _cstr(err))
+    ptr == C_NULL && error("PowerIO.parse_str: " * _cstr(err))
+    return CaseHandle(ptr)
+end
+
+function _from_json_handle(text::AbstractString)
+    _ensure_compatible()
+    err = zeros(UInt8, _ERRLEN)
+    ptr = try
+        ccall((:pio_from_json, _lib()), Ptr{Cvoid},
+              (Cstring, Ptr{UInt8}, Csize_t),
+              String(text), err, length(err))
+    catch e
+        _lib_call_error(e)
+    end
+    ptr == C_NULL && error("PowerIO.from_json: " * _cstr(err))
     return CaseHandle(ptr)
 end
 
@@ -303,13 +319,33 @@ function parse_file(io::IO, format::AbstractString)
     return Network(JSON3.read(_to_json(h)), h)
 end
 
-# The live Rust handle a Network-first transform needs; a Network built straight from
-# JSON has none, and a finalized handle is non-`nothing` but null. Name the function
-# that needs it.
+"""
+    parse_str(text, format="matpower") -> Network
+
+Parse in-memory case text into a [`Network`](@ref). This is the string sibling of
+`parse_file(io, format)` and matches the Rust, Python, and C ABI API.
+"""
+parse_str(text::AbstractString, format::AbstractString="matpower") =
+    parse_file(IOBuffer(String(text)), format)
+
+"""
+    from_json(text) -> Network
+
+Rebuild a live [`Network`](@ref) from the JSON transport produced by
+[`to_json`](@ref). The result has a Rust handle, so `to_*` transforms work on it.
+"""
+function from_json(text::AbstractString)
+    h = _from_json_handle(text)
+    return Network(JSON3.read(_to_json(h)), h)
+end
+
+# The live Rust handle a Network-first transform needs; a manually constructed
+# Network has none, and a finalized handle is non-`nothing` but null. Name the
+# function that needs it.
 function _live_handle(net::Network, fname::AbstractString)
     h = net.handle
     (h === nothing || h.ptr == C_NULL) && error(
-        "PowerIO.$fname: this Network has no live case handle (produce it with parse_file).")
+        "PowerIO.$fname: this Network has no live case handle (produce it with parse_file, parse_str, or from_json).")
     return h
 end
 
@@ -348,15 +384,29 @@ reads back. Uses the live handle when present, else the cached `net.data`.
 """
 to_json(net::Network) = net.handle === nothing ? JSON3.write(net.data) : _to_json(net.handle)
 
-# Serialize a live handle to MATPOWER `.m` text. `pio_write_matpower` has no error
-# buffer (see powerio.h); it returns NULL on failure, so name the case (`what`) since
-# there is no other context to surface.
+# Serialize a live handle to MATPOWER `.m` text.
 function _matpower_from_handle(p::Ptr{Cvoid}, what::AbstractString)
-    s = ccall((:pio_write_matpower, _lib()), Cstring, (Ptr{Cvoid},), p)
-    s == C_NULL && error("PowerIO.to_matpower: failed to serialize $what")
+    err = zeros(UInt8, _ERRLEN)
+    s = ccall((:pio_to_matpower, _lib()), Cstring,
+              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
+              p, err, length(err))
+    s == C_NULL && error("PowerIO.to_matpower: " * _cstr(err) * " ($what)")
     out = unsafe_string(s)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
     return out
+end
+
+function _format_from_handle(p::Ptr{Cvoid}, to::AbstractString, what::AbstractString)
+    warn = zeros(UInt8, _ERRLEN)
+    err = zeros(UInt8, _ERRLEN)
+    s = ccall((:pio_to_format, _lib()), Cstring,
+              (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
+              p, String(to), warn, length(warn), err, length(err))
+    s == C_NULL && error("PowerIO.to_format: " * _cstr(err) * " ($what)")
+    text = unsafe_string(s)
+    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    warnings = filter(!isempty, split(_cstr(warn), '\n'))
+    return (text, warnings)
 end
 
 """
@@ -367,6 +417,15 @@ file in one shot use [`convert_file`](@ref)`(path, "matpower")`.
 """
 to_matpower(net::Network) =
     _matpower_from_handle(_live_handle(net, "to_matpower").ptr, repr(network_name(net)))
+
+"""
+    to_format(net::Network, to) -> (text, warnings)
+
+Serialize a parsed network to format `to` without reparsing the input file.
+Returns the target text and any fidelity warnings.
+"""
+to_format(net::Network, to::AbstractString) =
+    _format_from_handle(_live_handle(net, "to_format").ptr, to, repr(network_name(net)))
 
 """
     convert_file(path, to; from=nothing) -> (text, warnings)
@@ -384,7 +443,7 @@ function convert_file(path::AbstractString, to::AbstractString; from=nothing)
     err = zeros(UInt8, _ERRLEN)
     # Pass the format hint as a `String` (ccall roots it) or `C_NULL` for inference.
     fromc = from === nothing ? C_NULL : String(from)
-    s = ccall((:pio_convert, _lib()), Cstring,
+    s = ccall((:pio_convert_file, _lib()), Cstring,
               (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
               path, to, fromc, warn, length(warn), err, length(err))
     s == C_NULL && error("PowerIO.convert_file: " * _cstr(err))
@@ -602,6 +661,326 @@ function to_dense(path::AbstractString; from=nothing)
     finally
         finalize(h)  # buffers are copied out; free the handle now rather than at GC
     end
+end
+
+# --- ecosystem adapter surface -----------------------------------------
+
+_json_plain(x) = x
+_json_plain(x::JSON3.Array) = [_json_plain(v) for v in x]
+_json_plain(x::JSON3.Object) =
+    Dict(String(k) => _json_plain(getproperty(x, k)) for k in keys(x))
+
+_has(obj, key::Symbol) = key in keys(obj)
+_get(obj, key::Symbol, default) = _has(obj, key) ? getproperty(obj, key) : default
+
+"""
+    to_powermodels(net::Network) -> Dict{String,Any}
+
+Convert a parsed network to a PowerModels network data dictionary through the
+PowerIO writer. This is the post-parse network data shape PowerModels consumes.
+"""
+function to_powermodels(net::Network)
+    text, _ = to_format(net, "powermodels-json")
+    return _json_plain(JSON3.read(text))
+end
+
+"""
+    from_powermodels(data) -> Network
+
+Build a PowerIO [`Network`](@ref) from PowerModels network data. `data` may be a
+Julia dictionary / NamedTuple or a JSON string.
+"""
+from_powermodels(data) = parse_str(JSON3.write(data), "powermodels-json")
+from_powermodels(data::AbstractString) = parse_str(data, "powermodels-json")
+
+function _cost_tuple(g, ::Type{T}, base::T) where {T<:Real}
+    cost = _get(g, :cost, nothing)
+    cost === nothing && return (false, zero(T), zero(T), 0, (zero(T), zero(T), zero(T)))
+    coeffs = collect(cost.coeffs)
+    n = Int(cost.ncost)
+    vals = [zero(T), zero(T), zero(T)]
+    if Int(cost.model) == 2
+        for i in 1:min(3, length(coeffs))
+            vals[i] = T(base^(n - i) * Float64(coeffs[i]))
+        end
+    else
+        for i in 1:min(3, length(coeffs))
+            vals[i] = T(coeffs[i])
+        end
+    end
+    return (Int(cost.model) == 2, T(cost.startup), T(cost.shutdown), n,
+            (vals[1], vals[2], vals[3]))
+end
+
+function _branch_coeffs(r::T, x::T, b_fr::T, b_to::T, g_fr::T, g_to::T,
+                        tap::T, shift::T) where {T<:Real}
+    y = iszero(r) && iszero(x) ? zero(Complex{T}) : inv(complex(r, x))
+    isfinite(real(y)) && isfinite(imag(y)) || (y = zero(Complex{T}))
+    g = real(y)
+    b = imag(y)
+    tap_eff = isapprox(tap, zero(T)) ? one(T) : tap
+    tr = tap_eff * cos(shift)
+    ti = tap_eff * sin(shift)
+    ttm = tr^2 + ti^2
+    return (
+        (-g * tr - b * ti) / ttm,
+        (-b * tr + g * ti) / ttm,
+        (-g * tr + b * ti) / ttm,
+        (-b * tr - g * ti) / ttm,
+        (g + g_fr) / ttm,
+        (b + b_fr) / ttm,
+        g + g_to,
+        b + b_to,
+    )
+end
+
+"""
+    to_powerdata(net; filtered=true, T=Float64) -> NamedTuple
+    to_powerdata(path; from=nothing, filtered=true, T=Float64) -> NamedTuple
+
+Return an ExaPowerIO `PowerData` shaped NamedTuple: `version`, `baseMVA`, `bus`,
+`gen`, `branch`, `arc`, and `storage`. Rows use the field names ExaModelsPower
+reads. Values follow ExaPowerIO conventions: powers are per unit, branch angle
+fields are radians, and branch/generator bus references are indices into the bus
+vector.
+"""
+function to_powerdata(net::Network; filtered::Bool=true, T::Type{<:Real}=Float64)
+    base = T(base_mva(net))
+    raw_buses = collect(buses(net))
+    keep_bus = Dict{Int,Bool}()
+    for b in raw_buses
+        keep_bus[Int(b.id)] = !filtered || String(b.kind) != "ISOLATED"
+    end
+    kept_ids = [Int(b.id) for b in raw_buses if keep_bus[Int(b.id)]]
+    id_to_idx = Dict(id => i for (i, id) in enumerate(kept_ids))
+
+    pd = zeros(T, length(kept_ids))
+    qd = zeros(T, length(kept_ids))
+    for l in loads(net)
+        idx = get(id_to_idx, Int(l.bus), 0)
+        idx == 0 && continue
+        if !filtered || Bool(_get(l, :in_service, true))
+            pd[idx] += T(l.p) / base
+            qd[idx] += T(l.q) / base
+        end
+    end
+    gs = zeros(T, length(kept_ids))
+    bs = zeros(T, length(kept_ids))
+    for s in shunts(net)
+        idx = get(id_to_idx, Int(s.bus), 0)
+        idx == 0 && continue
+        if !filtered || Bool(_get(s, :in_service, true))
+            gs[idx] += T(s.g) / base
+            bs[idx] += T(s.b) / base
+        end
+    end
+
+    bus_rows = NamedTuple[]
+    for b in raw_buses
+        id = Int(b.id)
+        keep_bus[id] || continue
+        i = id_to_idx[id]
+        push!(bus_rows, (;
+            i,
+            bus_i = id,
+            type = bus_type_code(String(b.kind)),
+            pd = pd[i],
+            qd = qd[i],
+            gs = gs[i],
+            bs = bs[i],
+            area = Int(b.area),
+            vm = T(b.vm),
+            va = T(b.va),
+            baseKV = T(b.base_kv),
+            zone = Int(b.zone),
+            vmax = T(b.vmax),
+            vmin = T(b.vmin),
+        ))
+    end
+
+    gen_rows = NamedTuple[]
+    has_gen = falses(length(bus_rows))
+    biggest_gen_bus = 0
+    biggest_gen_pmax = typemin(T)
+    for (row, g) in enumerate(generators(net))
+        idx = get(id_to_idx, Int(g.bus), 0)
+        idx == 0 && continue
+        status = Bool(g.in_service)
+        filtered && !status && continue
+        model_poly, startup, shutdown, ncost, c = _cost_tuple(g, T, base)
+        pmax = T(g.pmax) / base
+        push!(gen_rows, (;
+            i = length(gen_rows) + 1,
+            bus = idx,
+            pg = T(g.pg) / base,
+            qg = T(g.qg) / base,
+            qmax = T(g.qmax) / base,
+            qmin = T(g.qmin) / base,
+            vg = T(g.vg),
+            mbase = T(g.mbase),
+            status = Int(status),
+            pmax,
+            pmin = T(g.pmin) / base,
+            model_poly,
+            startup,
+            shutdown,
+            n = ncost,
+            c,
+        ))
+        if status
+            has_gen[idx] = true
+            if pmax > biggest_gen_pmax
+                biggest_gen_pmax = pmax
+                biggest_gen_bus = idx
+            end
+        end
+    end
+
+    look_for_ref = false
+    for i in eachindex(bus_rows)
+        typ = bus_rows[i].type
+        if has_gen[i] && typ == 1
+            bus_rows[i] = merge(bus_rows[i], (; type = 2))
+        elseif !has_gen[i] && (typ == 2 || typ == 3)
+            look_for_ref |= typ == 3
+            bus_rows[i] = merge(bus_rows[i], (; type = 1))
+        end
+    end
+    if look_for_ref && biggest_gen_bus > 0
+        bus_rows[biggest_gen_bus] = merge(bus_rows[biggest_gen_bus], (; type = 3))
+    end
+
+    kept_branches = Any[]
+    for br in branches(net)
+        f = get(id_to_idx, Int(br.from), 0)
+        t = get(id_to_idx, Int(br.to), 0)
+        (f == 0 || t == 0) && continue
+        status = Bool(br.in_service)
+        filtered && !status && continue
+        push!(kept_branches, br)
+    end
+    m = length(kept_branches)
+    branch_rows = NamedTuple[]
+    for (i, br) in enumerate(kept_branches)
+        f = id_to_idx[Int(br.from)]
+        t = id_to_idx[Int(br.to)]
+        tap = isapprox(T(br.tap), zero(T)) ? one(T) : T(br.tap)
+        shift = T(br.shift) / T(180) * T(pi)
+        b_fr = T(br.b) / T(2)
+        b_to = T(br.b) / T(2)
+        g_fr = zero(T)
+        g_to = zero(T)
+        c1, c2, c3, c4, c5, c6, c7, c8 =
+            _branch_coeffs(T(br.r), T(br.x), b_fr, b_to, g_fr, g_to, tap, shift)
+        push!(branch_rows, (;
+            i,
+            f_bus = f,
+            t_bus = t,
+            br_r = T(br.r),
+            br_x = T(br.x),
+            b_fr,
+            b_to,
+            g_fr,
+            g_to,
+            rate_a = T(br.rate_a) / base,
+            rate_b = T(br.rate_b) / base,
+            rate_c = T(br.rate_c) / base,
+            tap,
+            shift,
+            status = Int(Bool(br.in_service)),
+            angmin = T(br.angmin) / T(180) * T(pi),
+            angmax = T(br.angmax) / T(180) * T(pi),
+            f_idx = i,
+            t_idx = i + m,
+            c1, c2, c3, c4, c5, c6, c7, c8,
+        ))
+    end
+    arc_rows = NamedTuple[]
+    for (i, br) in enumerate(branch_rows)
+        push!(arc_rows, (; i, bus = br.f_bus, rate_a = br.rate_a))
+    end
+    for (i, br) in enumerate(branch_rows)
+        push!(arc_rows, (; i = i + m, bus = br.t_bus, rate_a = br.rate_a))
+    end
+
+    storage_rows = NamedTuple[]
+    for st in storage(net)
+        status = Bool(st.in_service)
+        push!(storage_rows, (;
+            i = length(storage_rows) + 1,
+            storage_bus = Int(st.bus),
+            Pexts = T(st.ps),
+            Qexts = T(st.qs),
+            energy = T(st.energy) / base,
+            energy_rating = T(st.energy_rating) / base,
+            charge_rating = T(st.charge_rating) / base,
+            discharge_rating = T(st.discharge_rating) / base,
+            charge_efficiency = T(st.charge_efficiency),
+            discharge_efficiency = T(st.discharge_efficiency),
+            thermal_rating = T(st.thermal_rating) / base,
+            qmin = T(st.qmin) / base,
+            qmax = T(st.qmax) / base,
+            Zr = T(st.r),
+            Zim = T(st.x),
+            p_loss = T(st.p_loss),
+            q_loss = T(st.q_loss),
+            status = Int(status),
+        ))
+    end
+
+    return (;
+        version = "2",
+        baseMVA = base,
+        bus = bus_rows,
+        gen = gen_rows,
+        branch = branch_rows,
+        arc = arc_rows,
+        storage = storage_rows,
+    )
+end
+
+to_powerdata(path::AbstractString; from=nothing, filtered::Bool=true,
+             T::Type{<:Real}=Float64) =
+    to_powerdata(parse_file(path; from=from); filtered=filtered, T=T)
+
+"""
+    parse_ac_power_data(input; from=nothing, filtered=true, T=Float64) -> NamedTuple
+
+Return the NamedTuple shape consumed by ExaModelsPower's `build_polar_opf`,
+`build_rect_opf`, and `build_dcopf`. `input` may be a [`Network`](@ref) or a path.
+"""
+function parse_ac_power_data(input; from=nothing, filtered::Bool=true,
+                             T::Type{<:Real}=Float64)
+    pd = input isa Network ? to_powerdata(input; filtered=filtered, T=T) :
+         to_powerdata(String(input); from=from, filtered=filtered, T=T)
+    empty_storage = NamedTuple{(:i,),Tuple{Int64}}[]
+    storage_rows = isempty(pd.storage) ? empty_storage : pd.storage
+    return (;
+        baseMVA = [pd.baseMVA],
+        bus = pd.bus,
+        gen = pd.gen,
+        arc = pd.arc,
+        branch = pd.branch,
+        storage = storage_rows,
+        ref_buses = [i for i in 1:length(pd.bus) if pd.bus[i].type == 3],
+        vmax = [b.vmax for b in pd.bus],
+        vmin = [b.vmin for b in pd.bus],
+        pmax = [g.pmax for g in pd.gen],
+        pmin = [g.pmin for g in pd.gen],
+        qmax = [g.qmax for g in pd.gen],
+        qmin = [g.qmin for g in pd.gen],
+        angmax = [br.angmax for br in pd.branch],
+        angmin = [br.angmin for br in pd.branch],
+        rate_a = [a.rate_a for a in pd.arc],
+        vm0 = [b.vm for b in pd.bus],
+        va0 = [b.va for b in pd.bus],
+        pg0 = [g.pg for g in pd.gen],
+        qg0 = [g.qg for g in pd.gen],
+        pdmax = isempty(pd.storage) ? empty_storage : [s.charge_rating for s in pd.storage],
+        pcmax = isempty(pd.storage) ? empty_storage : [s.discharge_rating for s in pd.storage],
+        srating = isempty(pd.storage) ? empty_storage : [s.thermal_rating for s in pd.storage],
+        emax = isempty(pd.storage) ? empty_storage : [s.energy_rating for s in pd.storage],
+    )
 end
 
 include("arrow.jl")

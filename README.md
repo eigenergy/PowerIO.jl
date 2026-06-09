@@ -9,8 +9,8 @@ data to the Julia modeling and solver packages you already use.
 PowerIO.jl is a thin wrapper over the PowerIO Rust core through its C ABI
 (`powerio-capi`). The Rust core does the parsing and the byte-exact write, so a
 case reads identically in Julia, Python, C/C++, and Rust. Parse once with
-`parse_file` (a path, or an `IO`) into an immutable `Network`, then read or transform
-it:
+`parse_file`, `parse_str`, or `from_json` into an immutable `Network`, then read
+or transform it:
 
 - the rich, lossless element tables (every field, costs, storage, HVDC) via the
   accessors and `to_json`.
@@ -18,7 +18,8 @@ it:
   straight from the C ABI extractors (no JSON).
 - `to_arrow` → one table zero-copy over the Arrow C Data Interface.
 - `to_normalized` → a per-unit / radian / filtered / reindexed copy; `to_matpower`
-  and `convert_file` serialize back out.
+  and `to_format` serialize parsed networks back out. `convert_file` is the path
+  to target text convenience wrapper.
 
 Every `to_*` reads a parsed `Network` straight off its retained handle (no re-parse),
 or takes a path for a one-shot.
@@ -74,6 +75,7 @@ in memory through an `IO` with an explicit `format`:
 
 ```julia
 net = parse_file(IOBuffer(read("case14.m", String)), "matpower")
+net = parse_str(read("case14.m", String), "matpower")
 ```
 
 `to_normalized` derives a computation-ready copy: powers per unit (÷ `base_mva`),
@@ -93,6 +95,8 @@ was MATPOWER); `to_json` gives the JSON transport:
 ```julia
 to_matpower(net)                  # ::String
 to_json(net)                      # ::String
+to_format(net, "powermodels-json") # (text, warnings)
+from_json(to_json(net))            # Network with a live handle
 ```
 
 For matrix assembly, `to_dense` returns the numeric tables as dense typed arrays
@@ -138,15 +142,35 @@ override (above), never a user step.
 
 Native, in-memory bridges to the Julia ecosystem. The PowerModels and
 ExaPowerIO/ExaModelsPower bridges are weak-dependency extensions, so you only pay
-for what you load; PowerDiff instead hard-deps PowerIO and adapts the `Network` on
-its own side.
+for what you load; PowerDiff hard-deps PowerIO and adapts the `Network` on its
+own side. There is no PowerDiff backend switch.
 
 | Target | Direction | Mechanism | Milestone |
 |---|---|---|---|
-| PowerModels.jl | both | `to_powermodels` / `from_powermodels` (the post-parse, pre-`correct_network_data!` dict) | v0.1.0 |
-| ExaPowerIO.jl / ExaModelsPower.jl | out | `to_powerdata` (an ExaPowerIO `PowerData`) + a `parse_ac_power_data` NamedTuple feeding `build_polar_opf` / `build_rect_opf` / `build_dcopf` | v0.1.0 |
-| PowerDiff.jl | out | PowerDiff hard-deps PowerIO; its `:powerio` backend adapts the `Network` (PowerIO ships the accessors) | done |
+| PowerModels.jl | both | `to_powermodels` / `from_powermodels` (PowerModels network data) | now |
+| ExaPowerIO.jl / ExaModelsPower.jl | out | `to_powerdata` shape + `parse_ac_power_data` NamedTuple feeding `build_polar_opf` / `build_rect_opf` / `build_dcopf` | now |
+| PowerDiff.jl | out | PowerDiff hard-deps PowerIO; PowerIO is its parser/data layer | done |
 | MATPOWER / PSS/E / PowerWorld / PowerModels JSON / EGRET | file (read+write, any pair) | the Rust core's readers/writers via `parse_file` / `convert_file` | now |
+
+## Unified API
+
+| Concept | Rust | Python | Julia | C ABI |
+|---|---|---|---|---|
+| Parse path | `parse_file(path)` | `parse_file(path, from_=None)` | `parse_file(path; from=nothing)` | `pio_parse_file` |
+| Parse text | `parse_str(text, format)` | `parse_str(text, format)` | `parse_str(text, format)` | `pio_parse_str` |
+| Parse IO | n/a | file object later | `parse_file(io, format)` | n/a |
+| JSON to Network | `Network::from_json` | `from_json` | `from_json` | `pio_from_json` |
+| File conversion | `convert_file(path, to, from)` | `convert_file(path, to, from_=None)` | `convert_file(path, to; from=nothing)` | `pio_convert_file` |
+| Parsed conversion | `net.to_format(to)` | `net.to_format(to)` | `to_format(net, to)` | `pio_to_format` |
+| MATPOWER text | `net.to_matpower()` | `net.to_matpower()` | `to_matpower(net)` | `pio_to_matpower` |
+| JSON text | `net.to_json()` | `net.to_json()` | `to_json(net)` | `pio_to_json` |
+| Normalized copy | `net.to_normalized()` | `net.to_normalized()` | `to_normalized(net)` | `pio_to_normalized` |
+| Dense tables | typed table API | `to_dense` | `to_dense` | `pio_*` extractors |
+| Arrow handoff | internal/C ABI | later | `to_arrow` | `pio_export_arrow` |
+
+`convert` / `convert!` are not used for format conversion in Julia. `Base.convert`
+means type conversion, and `!` means mutating an argument. PowerIO APIs return new
+values. The same table is kept in [`docs/languages.md`](docs/languages.md).
 
 ## Milestones
 
@@ -157,8 +181,7 @@ is done in the Rust core.
 - Self-hosted lazy `Artifacts.toml` for `libpowerio_capi` → register in General,
   decoupled from Yggdrasil.
 - Minimal `Network` accessor surface the ecosystem bridges read.
-- PowerDiff hard-deps PowerIO via its `:powerio` backend, parity-tested against
-  `:native` (done).
+- PowerDiff hard-deps PowerIO as its only parser/data layer.
 
 **v0.1.0 — ecosystem parity + canonical JLL.**
 - Dense-extraction fast path (`to_dense`) over `pio_bus_ids`/`pio_branches`/
@@ -170,8 +193,8 @@ is done in the Rust core.
   remaining piece.
 - PowerModels parity: `to_powermodels`/`from_powermodels`, same objective as
   `PowerModels.parse_file`.
-- ExaPowerIO/ExaModelsPower: `to_powerdata` (a `PowerData`) + a `parse_ac_power_data`
-  NamedTuple feeding `build_polar_opf`/`build_rect_opf`/`build_dcopf`.
+- ExaPowerIO/ExaModelsPower: harden `to_powerdata` into a package extension once
+  weak deps are added.
 - Clang.jl-seeded `ccall` layer over `powerio.h`.
 - Yggdrasil `PowerIO_jll` swap; Documenter site + a CI job that rebuilds from the
   local Rust tree.
