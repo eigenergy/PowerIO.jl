@@ -63,6 +63,27 @@ text, warnings = convert_case("case14.m", "psse")
 egret = parse_case("grid.json"; from="egret")
 ```
 
+`parse_string` parses case text already in memory; an explicit `format` is required
+(no extension to infer from). It takes a string or any `IO`:
+
+```julia
+net = parse_string(read("case14.m", String), "matpower")
+net = parse_string(io, "psse")            # an IO works too
+```
+
+`to_normalized` derives a computation-ready copy of a parsed case: powers per unit
+(÷ `base_mva`), angles in radians, transformer tap `0 → 1`, out-of-service and
+isolated elements dropped, buses reindexed to a dense 1-based id space, and bus
+types inferred (a generator bus keeps `REF` or becomes `PV`, a generator-less bus
+becomes `PQ`). It needs the live handle a parse returns, so call it on a `Network`
+from `parse_case` or `parse_string`:
+
+```julia
+norm = to_normalized(parse_case("case14.m"))
+PowerIO.source_format(norm)       # "Normalized"
+PowerIO.base_mva(norm)            # unchanged; the element tables are now per unit
+```
+
 For matrix assembly, `parse_dense` returns the numeric tables as dense typed
 arrays straight from the C ABI — bus ids, branch and generator tables, per-bus
 demand and shunt, plus the connectivity scalars — no JSON parse:

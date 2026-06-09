@@ -6,8 +6,8 @@ using JSON3
     @testset "loads and exposes its surface" begin
         # The module must load with no C library present (the binding is lazy),
         # and its public surface must exist.
-        for sym in (:Network, :parse_case, :convert_case, :write_matpower,
-                    :parse_dense, :arrow_table, :ArrowTable)
+        for sym in (:Network, :parse_case, :parse_string, :to_normalized, :convert_case,
+                    :write_matpower, :parse_dense, :arrow_table, :ArrowTable)
             @test isdefined(PowerIO, sym)
         end
         # The accessor surface the ecosystem bridges read is unexported but must exist.
@@ -88,6 +88,70 @@ using JSON3
             # library's ABI version must equal the one this binding targets.
             @test PowerIO.abi_version() == PowerIO.PIO_ABI_VERSION
             @test !isempty(PowerIO.library_version())
+        end
+    end
+
+    @testset "parse_string and to_normalized" begin
+        if !PowerIO.library_available()
+            @test_skip parse_string("", "matpower")
+        else
+            data = joinpath(@__DIR__, "data")
+            mtext = read(joinpath(data, "case14.m"), String)
+
+            # parse_string matches parse_case field-for-field, except `name`: a path
+            # parse takes the case name from the file stem ("case14"), an in-memory
+            # parse has no path so the core defaults it.
+            net = parse_case(joinpath(data, "case14.m"))
+            nets = parse_string(mtext, "matpower")
+            @test PowerIO.source_format(nets) == "Matpower"
+            @test PowerIO.n_buses(nets) == PowerIO.n_buses(net)
+            for k in keys(net.data)
+                k == :name && continue
+                @test JSON3.write(net.data[k]) == JSON3.write(nets.data[k])
+            end
+
+            # The IO method reads the stream to the end.
+            @test parse_string(IOBuffer(mtext), "matpower") isa Network
+
+            # to_normalized on case14: per unit, radians, bus types, source_format.
+            # case14 buses are already 1..14, so the reindex is the identity here;
+            # norm_tiny below exercises filtering and reindex.
+            norm = to_normalized(net)
+            @test PowerIO.source_format(norm) == "Normalized"
+            @test PowerIO.n_buses(norm) == 14
+            @test [Int(b.id) for b in PowerIO.buses(norm)] == collect(1:14)
+            @test first(PowerIO.generators(norm)).pg ≈ 232.4 / 100    # bus 1 raw pg, MW -> pu
+            @test PowerIO.buses(norm)[2].va ≈ -4.98 * pi / 180        # raw va, deg -> rad
+            kind(id) = String(PowerIO.buses(norm)[id].kind)
+            @test kind(1) == "REF"                                   # file REF, gen-backed
+            @test all(kind(i) == "PV" for i in (2, 3, 6, 8))         # gen buses
+            @test all(kind(i) == "PQ" for i in (4, 5, 7, 9, 10, 11, 12, 13, 14))
+            @test PowerIO.reference_bus_id(norm) == 1
+
+            # norm_tiny: ids 1,3,5,8 with bus 8 ISOLATED; branch 1-5 out of service
+            # and branch 5-8 onto the dropped bus. Normalized: buses {1,3,5} reindex
+            # to 1,2,3 and branches {1-3, 3-5} to {1-2, 2-3}; tap 0->1, 0.98 kept.
+            tiny = to_normalized(parse_case(joinpath(data, "norm_tiny.m")))
+            @test PowerIO.n_buses(tiny) == 3                          # isolated bus 8 dropped
+            @test PowerIO.n_branches(tiny) == 2                      # out-of-service + dangling dropped
+            @test [Int(b.id) for b in PowerIO.buses(tiny)] == [1, 2, 3]
+            @test [String(b.kind) for b in PowerIO.buses(tiny)] == ["REF", "PV", "PQ"]
+            @test [(Int(br.from), Int(br.to)) for br in PowerIO.branches(tiny)] == [(1, 2), (2, 3)]
+            taps = [Float64(br.tap) for br in PowerIO.branches(tiny)]
+            @test taps[1] ≈ 1.0                                      # raw tap 0 -> 1
+            @test taps[2] ≈ 0.98                                     # explicit tap kept
+            @test PowerIO.buses(tiny)[3].va ≈ -5 * pi / 180
+            @test sort([Float64(l.p) for l in PowerIO.loads(tiny)]) ≈ [0.30, 0.50]  # 30,50 MW -> pu
+
+            # Error paths surface as Julia errors. Build the bad cases in memory.
+            basemva0 = replace(mtext, "mpc.baseMVA = 100" => "mpc.baseMVA = 0")
+            @test_throws ErrorException to_normalized(parse_string(basemva0, "matpower"))
+            # No generators and no REF bus: nothing to promote to slack.
+            noref = "function mpc = noref\nmpc.version = '2';\nmpc.baseMVA = 100;\n" *
+                    "mpc.bus = [\n1 1 10 5 0 0 1 1.0 0 138 1 1.1 0.9;\n" *
+                    "2 1 20 8 0 0 1 1.0 -1 138 1 1.1 0.9;\n];\n" *
+                    "mpc.gen = [\n];\nmpc.branch = [\n1 2 0.01 0.1 0 100 100 100 0 0 1 -30 30;\n];\n"
+            @test_throws ErrorException to_normalized(parse_string(noref, "matpower"))
         end
     end
 
