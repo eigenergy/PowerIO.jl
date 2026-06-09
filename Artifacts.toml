@@ -15,7 +15,7 @@
 #      (`Pkg.Artifacts.archive_artifact` / the BinaryBuilder output prints both hashes).
 #
 # `lazy = true`: nothing downloads at `Pkg.add`; the tarball for the *current*
-# platform is fetched on the first `parse_case` that needs the binary. On an
+# platform is fetched on the first `parse_file` that needs the binary. On an
 # unsupported platform the lookup fails and `_artifact_lib()` falls back.
 #
 # Windows note: the .dll ships under bin/, not lib/; `_artifact_lib()` already

@@ -15,8 +15,8 @@ const CASE = joinpath(@__DIR__, "..", "test", "data", "case14.m")
 # The parse is deferred into the benchmark (and into `setup` for the accessors), so
 # loading the suite never calls the C ABI; the benchmark process resolves the library
 # at run time (POWERIO_CAPI in CI, the sibling checkout locally).
-SUITE["parse_case"] = @benchmarkable parse_case($CASE)
+SUITE["parse_file"] = @benchmarkable parse_file($CASE)
 SUITE["accessors"] = @benchmarkable(
     (PowerIO.n_buses(net), PowerIO.n_branches(net), PowerIO.base_mva(net)),
-    setup = (net = parse_case($CASE)),
+    setup = (net = parse_file($CASE)),
 )
