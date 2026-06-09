@@ -2,18 +2,18 @@
     PowerIO
 
 Julia bindings for the PowerIO Rust core: parse MATPOWER / PSS/E / PowerWorld /
-PowerModels JSON / EGRET JSON case files, convert between any pair (byte-exact on a
-same-format round-trip, maximal-fidelity otherwise), and materialize an immutable
+PowerModels JSON / egret JSON case files, convert between any pair (byte exact on a
+same-format round trip, maximal fidelity otherwise), and materialize an immutable
 `Network`, all through the `powerio-capi` C ABI.
 
 Parse once with [`parse_file`](@ref) → [`Network`](@ref), then read or transform it,
 all over the same C ABI:
 
 - the rich, lossless element tables via the JSON transport (every field + extras,
-  costs, storage, HVDC) — the accessors and [`to_json`](@ref).
+  costs, storage, HVDC): the accessors and [`to_json`](@ref).
 - [`to_dense`](@ref): the numeric tables as dense typed arrays for matrix assembly,
-  straight from the C ABI extractors — no JSON.
-- [`to_arrow`](@ref): one table zero-copy over the Arrow C Data Interface.
+  straight from the C ABI extractors, no JSON.
+- [`to_arrow`](@ref): one table zero copy over the Arrow C Data Interface.
 
 [`to_normalized`](@ref) derives a per-unit / radian / filtered / reindexed copy, and
 [`to_matpower`](@ref) / [`convert_file`](@ref) serialize back out.
@@ -285,8 +285,8 @@ the parsed JSON (`net.data`); the fully typed struct mirroring
 A `Network` from [`parse_file`](@ref) also keeps its live Rust [`CaseHandle`](@ref)
 (`net.handle`), so the `to_*` transforms ([`to_normalized`](@ref), [`to_dense`](@ref),
 [`to_matpower`](@ref), [`to_arrow`](@ref)) work straight off it. The handle's
-finalizer frees the Rust case once the `Network` is unreachable. A `Network` built
-straight from JSON has `handle === nothing`; the accessors and [`to_json`](@ref) work
+finalizer frees the Rust case once the `Network` is unreachable. A `Network` constructed
+from a bare `JSON3.Object` has `handle === nothing`; the accessors and [`to_json`](@ref) work
 on it, but the handle-only transforms error.
 """
 struct Network
@@ -302,7 +302,7 @@ Network(data::JSON3.Object) = Network(data, nothing)
 Parse a case into a [`Network`].
 
 From a file `path` the format is inferred from the extension unless `from` is given
-(needed to tell EGRET and PowerModels `.json` apart). From an `io` stream the
+(needed to tell egret and PowerModels `.json` apart). From an `io` stream the
 `format` is required (there is no extension); parse in-memory text by wrapping it,
 `parse_file(IOBuffer(text), "matpower")`.
 
@@ -379,7 +379,7 @@ end
 """
     to_json(net::Network) -> String
 
-Serialize `net` to the C ABI's JSON transport — the same text [`parse_file`](@ref)
+Serialize `net` to the C ABI's JSON transport, the same text [`from_json`](@ref)
 reads back. Uses the live handle when present, else the cached `net.data`.
 """
 to_json(net::Network) = net.handle === nothing ? JSON3.write(net.data) : _to_json(net.handle)
@@ -412,7 +412,7 @@ end
 """
     to_matpower(net::Network) -> String
 
-Serialize `net` to MATPOWER `.m` text — byte-exact when the input was MATPOWER. For a
+Serialize `net` to MATPOWER `.m` text, byte exact when the input was MATPOWER. For a
 file in one shot use [`convert_file`](@ref)`(path, "matpower")`.
 """
 to_matpower(net::Network) =
@@ -431,11 +431,11 @@ to_format(net::Network, to::AbstractString) =
     convert_file(path, to; from=nothing) -> (text, warnings)
 
 Convert `path` to format `to`. All five formats read and write, so any pair
-converts. A same-format conversion is byte-exact; a cross-format one is
-maximal-fidelity and reports whatever the target can't carry in `warnings`. Tokens
+converts. A same-format conversion is byte exact; a cross-format one is
+maximal fidelity and reports whatever the target can't carry in `warnings`. Tokens
 (case-insensitive): `"matpower"`/`"m"`, `"powermodels-json"`/`"powermodels"`/`"pm"`,
 `"egret-json"`/`"egret"`, `"psse"`/`"raw"`, `"powerworld"`/`"aux"`. `from` overrides
-extension inference (needed to tell EGRET and PowerModels `.json` apart).
+extension inference (needed to tell egret and PowerModels `.json` apart).
 """
 function convert_file(path::AbstractString, to::AbstractString; from=nothing)
     _ensure_compatible()
@@ -502,7 +502,7 @@ branches(net::Network) = net.data.branches
 loads(net::Network) = net.data.loads
 "First-class bus shunts."
 shunts(net::Network) = net.data.shunts
-"First-class storage units; empty unless the source carries them (PowerModels, EGRET)."
+"First-class storage units; empty unless the source carries them (PowerModels, egret)."
 storage(net::Network) = net.data.storage
 "Two-terminal HVDC lines (MATPOWER `dcline`); empty unless the source carries them."
 hvdc(net::Network) = net.data.hvdc
@@ -677,7 +677,7 @@ _get(obj, key::Symbol, default) = _has(obj, key) ? getproperty(obj, key) : defau
     to_powermodels(net::Network) -> Dict{String,Any}
 
 Convert a parsed network to a PowerModels network data dictionary through the
-PowerIO writer. This is the post-parse network data shape PowerModels consumes.
+PowerIO writer. This is the post-parse network data shape PowerModels.jl consumes.
 """
 function to_powermodels(net::Network)
     text, _ = to_format(net, "powermodels-json")
@@ -738,7 +738,7 @@ end
     to_powerdata(net; filtered=true, T=Float64) -> NamedTuple
     to_powerdata(path; from=nothing, filtered=true, T=Float64) -> NamedTuple
 
-Return an ExaPowerIO `PowerData` shaped NamedTuple: `version`, `baseMVA`, `bus`,
+Return a NamedTuple in ExaPowerIO's `PowerData` shape: `version`, `baseMVA`, `bus`,
 `gen`, `branch`, `arc`, and `storage`. Rows use the field names ExaModelsPower
 reads. Values follow ExaPowerIO conventions: powers are per unit, branch angle
 fields are radians, and branch/generator bus references are indices into the bus

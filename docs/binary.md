@@ -8,9 +8,9 @@ PowerIO does not use it.
 
 1. A version tag on [eigenergy/powerio](https://github.com/eigenergy/powerio)
    triggers its `release-binaries` workflow, which builds
-   `libpowerio_capi.<triplet>.tar.gz` with the `arrow` feature for five
-   platforms — linux glibc (x86_64, aarch64), macOS (x86_64, arm64), and
-   Windows (x86_64) — and attaches them to the GitHub release. Each tarball
+   `libpowerio_capi.<triplet>.tar.gz` with the `arrow` feature for Linux glibc
+   (x86_64, aarch64), macOS (x86_64, arm64), and Windows (x86_64), and
+   attaches the five tarballs to the GitHub release. Each tarball
    holds the cdylib under `lib/` (`bin/` on Windows), the C header under
    `include/`, and the licenses.
 2. In this repository, `julia gen/update_artifacts.jl <tag>` downloads the five
@@ -35,5 +35,5 @@ local build working.
 ## Yggdrasil
 
 A `PowerIO_jll` built from `gen/build_tarballs.jl` (the BinaryBuilder recipe) is
-the eventual canonical form — a one-line `_lib()` swap — but it does not gate
+the eventual canonical form, a one-line `_lib()` swap, but it does not gate
 the release.

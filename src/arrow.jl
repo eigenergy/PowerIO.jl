@@ -1,8 +1,8 @@
 # Zero-copy columnar export over the Arrow C Data Interface.
 #
 # `pio_export_arrow` (powerio-capi built `--features arrow`) lends one raw network
-# table as an Arrow struct array across the C Data Interface — self-describing,
-# zero-copy, the in-memory sibling of the JSON transport and the dense extractors.
+# table as an Arrow struct array across the C Data Interface: self-describing,
+# zero copy, the in-memory sibling of the JSON transport and the dense extractors.
 # Arrow.jl is an IPC-format reader and does not import the C Data Interface, so we
 # decode the two FFI structs here directly: read the schema's child fields, wrap
 # each primitive column's data buffer as a Julia array straight over the producer's
@@ -58,13 +58,13 @@ const _ARROW_TABLE_IDS = (bus = Cint(0), branch = Cint(1), gen = Cint(2), load =
 """
     ArrowTable
 
-A columnar table imported zero-copy from the C ABI's Arrow export. Its `columns`
+A columnar table imported zero copy from the C ABI's Arrow export. Its `columns`
 are a NamedTuple of vectors that view the producer's buffers directly; the table
 holds the producer alive and releases it (frees the buffers) when finalized.
 
 Keep the `ArrowTable` reachable while you use its columns: a column vector extracted
 and kept after the table is collected views freed memory. Copy a column
-(`collect(t.columns.x)`) to outlive the table.
+(`collect(t.x)`) to outlive the table.
 """
 mutable struct ArrowTable
     columns::NamedTuple
@@ -111,7 +111,7 @@ function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArro
         else
             # buffers[0] is the validity bitmap (NULL — non-nullable, null_count 0);
             # buffers[1] is the data. Julia 1-based: buffer index 2 is the data.
-            # Guard the layout so a malformed producer is a clean error, not a segfault.
+            # Guard the layout so a malformed producer errors instead of segfaulting.
             child_arr.n_buffers >= 2 ||
                 error("PowerIO.to_arrow: column $(names[i]) has $(child_arr.n_buffers) buffers, expected >= 2")
             raw = unsafe_load(child_arr.buffers, 2)
@@ -159,7 +159,7 @@ end
     to_arrow(net::Network, table::Symbol) -> ArrowTable
     to_arrow(path, table::Symbol; from=nothing) -> ArrowTable
 
-Export one raw network table over the Arrow C Data Interface, zero-copy. `table` is
+Export one raw network table over the Arrow C Data Interface, zero copy. `table` is
 `:bus`, `:branch`, `:gen`, `:load`, or `:shunt`; the columns are the parsed network
 fields with 1-based (external) bus ids — the same id space as [`to_dense`](@ref).
 Takes a parsed [`Network`](@ref) (via its live handle) or a `path` to parse first.
