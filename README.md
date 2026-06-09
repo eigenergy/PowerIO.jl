@@ -9,8 +9,8 @@ data to the Julia modeling and solver packages you already use.
 PowerIO.jl is a thin wrapper over the PowerIO Rust core through its C ABI
 (`powerio-capi`). The Rust core does the parsing and the byte-exact write, so a
 case reads identically in Julia, Python, C/C++, and Rust. Parse once with
-`parse_case` (from a file, a string, or an `IO`) into an immutable `Network`, then
-read or transform it:
+`parse_file` (a path, or an `IO`) into an immutable `Network`, then read or transform
+it:
 
 - the rich, lossless element tables (every field, costs, storage, HVDC) via the
   accessors and `to_json`.
@@ -18,7 +18,7 @@ read or transform it:
   straight from the C ABI extractors (no JSON).
 - `to_arrow` → one table zero-copy over the Arrow C Data Interface.
 - `to_normalized` → a per-unit / radian / filtered / reindexed copy; `to_matpower`
-  and `convert_case` serialize back out.
+  and `convert_file` serialize back out.
 
 Every `to_*` reads a parsed `Network` straight off its retained handle (no re-parse),
 or takes a path for a one-shot.
@@ -48,7 +48,7 @@ cargo build -p powerio-capi --release        # → target/release/libpowerio_cap
 
 ```julia
 using PowerIO                                 # auto-discovers ../powerio/target/{release,debug}
-net = parse_case("case14.m")
+net = parse_file("case14.m")
 ```
 
 For a non-sibling layout, point Julia at the library explicitly:
@@ -58,25 +58,22 @@ using PowerIO
 PowerIO.set_library!("/path/to/powerio/target/release/libpowerio_capi.dylib")
 # or: ENV["POWERIO_CAPI"] = "...path..."  before `using PowerIO`
 
-net = parse_case("case14.m")
+net = parse_file("case14.m")
 PowerIO.n_buses(net), PowerIO.n_gens(net), PowerIO.base_mva(net)
 PowerIO.source_format(net)        # "Matpower"
 PowerIO.reference_bus_id(net)     # the slack bus id (or nothing)
 
-text, warnings = convert_case("case14.m", "psse")
+text, warnings = convert_file("case14.m", "psse")
 
 # EGRET and PowerModels both use .json — pass `from` to disambiguate:
-egret = parse_case("grid.json"; from="egret")
+egret = parse_file("grid.json"; from="egret")
 ```
 
-`parse_case` also parses case text already in memory; pass the `format` positionally
-(there is no extension to infer from), as a string or any `IO`:
+`parse_file` also reads from an `IO` — a `String` is always a path, so pass case text
+in memory through an `IO` with an explicit `format`:
 
 ```julia
-net = parse_case(read("case14.m", String), "matpower")
-net = parse_case(io, "psse")                 # an IO works too
-# a 2nd positional arg means content; to hint a file's format use `from=`:
-net = parse_case("case14.m"; from="matpower")
+net = parse_file(IOBuffer(read("case14.m", String)), "matpower")
 ```
 
 `to_normalized` derives a computation-ready copy: powers per unit (÷ `base_mva`),
@@ -149,7 +146,7 @@ its own side.
 | PowerModels.jl | both | `to_powermodels` / `from_powermodels` (the post-parse, pre-`correct_network_data!` dict) | v0.1.0 |
 | ExaPowerIO.jl / ExaModelsPower.jl | out | `to_powerdata` (an ExaPowerIO `PowerData`) + a `parse_ac_power_data` NamedTuple feeding `build_polar_opf` / `build_rect_opf` / `build_dcopf` | v0.1.0 |
 | PowerDiff.jl | out | PowerDiff hard-deps PowerIO; its `:powerio` backend adapts the `Network` (PowerIO ships the accessors) | done |
-| MATPOWER / PSS/E / PowerWorld / PowerModels JSON / EGRET | file (read+write, any pair) | the Rust core's readers/writers via `parse_case` / `convert_case` | now |
+| MATPOWER / PSS/E / PowerWorld / PowerModels JSON / EGRET | file (read+write, any pair) | the Rust core's readers/writers via `parse_file` / `convert_file` | now |
 
 ## Milestones
 

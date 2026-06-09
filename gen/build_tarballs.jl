@@ -20,7 +20,7 @@ name = "PowerIO"
 version = v"0.1.0"
 
 # Must pin a commit that carries the versioned ABI (`pio_abi_version`) and the Arrow
-# export, since the binding's load-time handshake and `arrow_table` need both. Pinned
+# export, since the binding's load-time handshake and `to_arrow` need both. Pinned
 # to the powerio `main` squash-merge of #54 (the first commit carrying both). Prefer a
 # git tag once one is cut — the right long-term anchor for a reproducible build.
 sources = [
@@ -34,7 +34,7 @@ sources = [
 script = raw"""
 cd $WORKSPACE/srcdir/powerio
 # --features arrow ships pio_export_arrow (the zero-copy Arrow C Data Interface
-# export the binding's arrow_table calls); the base ABI is identical without it.
+# export the binding's to_arrow calls); the base ABI is identical without it.
 cargo build --release -p powerio-capi --target ${rust_target} --features arrow
 out=target/${rust_target}/release
 if [[ "${target}" == *-mingw32* ]]; then

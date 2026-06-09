@@ -6,7 +6,7 @@ PowerModels JSON / EGRET JSON case files, convert between any pair (byte-exact o
 same-format round-trip, maximal-fidelity otherwise), and materialize an immutable
 `Network`, all through the `powerio-capi` C ABI.
 
-Parse once with [`parse_case`](@ref) → [`Network`](@ref), then read it three ways,
+Parse once with [`parse_file`](@ref) → [`Network`](@ref), then read or transform it,
 all over the same C ABI:
 
 - the rich, lossless element tables via the JSON transport (every field + extras,
@@ -16,7 +16,7 @@ all over the same C ABI:
 - [`to_arrow`](@ref): one table zero-copy over the Arrow C Data Interface.
 
 [`to_normalized`](@ref) derives a per-unit / radian / filtered / reindexed copy, and
-[`to_matpower`](@ref) / [`convert_case`](@ref) serialize back out.
+[`to_matpower`](@ref) / [`convert_file`](@ref) serialize back out.
 
 At first use the binding checks the library's ABI version (`pio_abi_version`)
 against the version it targets ([`PIO_ABI_VERSION`]) and refuses a stale or
@@ -34,7 +34,7 @@ using JSON3
 using LazyArtifacts
 import Libdl
 
-export Network, parse_case, convert_case, to_normalized, to_json, to_dense, to_matpower, to_arrow, ArrowTable
+export Network, parse_file, convert_file, to_normalized, to_json, to_dense, to_matpower, to_arrow, ArrowTable
 
 # --- library resolution -------------------------------------------------
 #
@@ -188,7 +188,7 @@ const _ERRLEN = 512
     CaseHandle
 
 Opaque handle to a parsed case inside the Rust core. Freed by its finalizer; you
-normally go straight to [`parse_case`](@ref), which returns a [`Network`].
+normally go straight to [`parse_file`](@ref), which returns a [`Network`].
 """
 mutable struct CaseHandle
     ptr::Ptr{Cvoid}
@@ -222,7 +222,7 @@ function _parse_handle(path::AbstractString; from=nothing)
     catch e
         _lib_call_error(e)
     end
-    ptr == C_NULL && error("PowerIO.parse_case: " * _cstr(err))
+    ptr == C_NULL && error("PowerIO.parse_file: " * _cstr(err))
     return CaseHandle(ptr)
 end
 
@@ -238,7 +238,7 @@ function _parse_handle_str(text::AbstractString, format::AbstractString)
     catch e
         _lib_call_error(e)
     end
-    ptr == C_NULL && error("PowerIO.parse_case: " * _cstr(err))
+    ptr == C_NULL && error("PowerIO.parse_file: " * _cstr(err))
     return CaseHandle(ptr)
 end
 
@@ -266,11 +266,12 @@ loads, shunts, branches, generators, storage, and hvdc tables plus `base_mva`,
 the parsed JSON (`net.data`); the fully typed struct mirroring
 `powerio/src/network.rs` is v0.1.0 (see issues).
 
-A `Network` from [`parse_case`](@ref) also keeps its live Rust [`CaseHandle`](@ref)
+A `Network` from [`parse_file`](@ref) also keeps its live Rust [`CaseHandle`](@ref)
 (`net.handle`), so the `to_*` transforms ([`to_normalized`](@ref), [`to_dense`](@ref),
 [`to_matpower`](@ref), [`to_arrow`](@ref)) work straight off it. The handle's
 finalizer frees the Rust case once the `Network` is unreachable. A `Network` built
-straight from JSON has `handle === nothing`; only [`to_json`](@ref) works on it.
+straight from JSON has `handle === nothing`; the accessors and [`to_json`](@ref) work
+on it, but the handle-only transforms error.
 """
 struct Network
     data::JSON3.Object
@@ -279,39 +280,37 @@ end
 Network(data::JSON3.Object) = Network(data, nothing)
 
 """
-    parse_case(path; from=nothing) -> Network
-    parse_case(text::AbstractString, format::AbstractString) -> Network
-    parse_case(io::IO, format::AbstractString) -> Network
+    parse_file(path; from=nothing) -> Network
+    parse_file(io::IO, format::AbstractString) -> Network
 
 Parse a case into a [`Network`].
 
 From a file `path` the format is inferred from the extension unless `from` is given
-(needed to tell EGRET and PowerModels `.json` apart). From in-memory `text`, or the
-full contents of an `io`, the `format` is required and passed positionally: a second
-positional argument means the first is case *content*, not a path. To hint the
-format of a file, use the `from=` keyword — `parse_case("c.m", "matpower")` parses
-`"c.m"` as MATPOWER text, while `parse_case("c.m"; from="matpower")` reads the file.
+(needed to tell EGRET and PowerModels `.json` apart). From an `io` stream the
+`format` is required (there is no extension); parse in-memory text by wrapping it,
+`parse_file(IOBuffer(text), "matpower")`.
 
 Accepted format tokens (case-insensitive): `"matpower"`/`"m"`, `"powermodels-json"`/
 `"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`, `"psse"`/`"raw"`,
 `"powerworld"`/`"aux"`.
 """
-function parse_case(path::AbstractString; from=nothing)
+function parse_file(path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)
     return Network(JSON3.read(_to_json(h)), h)
 end
-function parse_case(text::AbstractString, format::AbstractString)
-    h = _parse_handle_str(text, format)
+function parse_file(io::IO, format::AbstractString)
+    h = _parse_handle_str(read(io, String), format)
     return Network(JSON3.read(_to_json(h)), h)
 end
-parse_case(io::IO, format::AbstractString) = parse_case(read(io, String), format)
 
-# The live Rust handle a Network-first transform needs; a Network built straight
-# from JSON has none, so name the function that needs it.
+# The live Rust handle a Network-first transform needs; a Network built straight from
+# JSON has none, and a finalized handle is non-`nothing` but null. Name the function
+# that needs it.
 function _live_handle(net::Network, fname::AbstractString)
-    net.handle === nothing && error(
-        "PowerIO.$fname: this Network has no live case handle (produce it with parse_case).")
-    return net.handle
+    h = net.handle
+    (h === nothing || h.ptr == C_NULL) && error(
+        "PowerIO.$fname: this Network has no live case handle (produce it with parse_file).")
+    return h
 end
 
 # Derive a normalized handle from a live one via `pio_to_normalized` (a read-only
@@ -333,7 +332,7 @@ buses reindexed to a dense 1-based id space, and bus types inferred (a bus with 
 surviving generator keeps `REF` if the source marked it so, else becomes `PV`; a
 generator-less bus becomes `PQ`). `source_format` of the result is `"Normalized"`.
 
-Needs `net`'s live Rust handle (from [`parse_case`](@ref)). Errors if `base_mva` is
+Needs `net`'s live Rust handle (from [`parse_file`](@ref)). Errors if `base_mva` is
 not positive or no reference bus can be established.
 """
 function to_normalized(net::Network)
@@ -344,16 +343,17 @@ end
 """
     to_json(net::Network) -> String
 
-Serialize `net` to the C ABI's JSON transport — the same text [`parse_case`](@ref)
+Serialize `net` to the C ABI's JSON transport — the same text [`parse_file`](@ref)
 reads back. Uses the live handle when present, else the cached `net.data`.
 """
 to_json(net::Network) = net.handle === nothing ? JSON3.write(net.data) : _to_json(net.handle)
 
 # Serialize a live handle to MATPOWER `.m` text. `pio_write_matpower` has no error
-# buffer (see powerio.h); it returns NULL on failure.
-function _matpower_from_handle(p::Ptr{Cvoid})
+# buffer (see powerio.h); it returns NULL on failure, so name the case (`what`) since
+# there is no other context to surface.
+function _matpower_from_handle(p::Ptr{Cvoid}, what::AbstractString)
     s = ccall((:pio_write_matpower, _lib()), Cstring, (Ptr{Cvoid},), p)
-    s == C_NULL && error("PowerIO.to_matpower: failed to serialize the case")
+    s == C_NULL && error("PowerIO.to_matpower: failed to serialize $what")
     out = unsafe_string(s)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
     return out
@@ -361,23 +361,15 @@ end
 
 """
     to_matpower(net::Network) -> String
-    to_matpower(path; from=nothing) -> String
 
-Serialize a case to MATPOWER `.m` text — byte-exact when the input was MATPOWER.
-Takes a parsed [`Network`](@ref) (via its live handle) or a `path` to parse first.
+Serialize `net` to MATPOWER `.m` text — byte-exact when the input was MATPOWER. For a
+file in one shot use [`convert_file`](@ref)`(path, "matpower")`.
 """
-to_matpower(net::Network) = _matpower_from_handle(_live_handle(net, "to_matpower").ptr)
-function to_matpower(path::AbstractString; from=nothing)
-    h = _parse_handle(path; from=from)
-    try
-        return _matpower_from_handle(h.ptr)
-    finally
-        finalize(h)
-    end
-end
+to_matpower(net::Network) =
+    _matpower_from_handle(_live_handle(net, "to_matpower").ptr, repr(network_name(net)))
 
 """
-    convert_case(path, to; from=nothing) -> (text, warnings)
+    convert_file(path, to; from=nothing) -> (text, warnings)
 
 Convert `path` to format `to`. All five formats read and write, so any pair
 converts. A same-format conversion is byte-exact; a cross-format one is
@@ -386,7 +378,7 @@ maximal-fidelity and reports whatever the target can't carry in `warnings`. Toke
 `"egret-json"`/`"egret"`, `"psse"`/`"raw"`, `"powerworld"`/`"aux"`. `from` overrides
 extension inference (needed to tell EGRET and PowerModels `.json` apart).
 """
-function convert_case(path::AbstractString, to::AbstractString; from=nothing)
+function convert_file(path::AbstractString, to::AbstractString; from=nothing)
     _ensure_compatible()
     warn = zeros(UInt8, _ERRLEN)
     err = zeros(UInt8, _ERRLEN)
@@ -395,7 +387,7 @@ function convert_case(path::AbstractString, to::AbstractString; from=nothing)
     s = ccall((:pio_convert, _lib()), Cstring,
               (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
               path, to, fromc, warn, length(warn), err, length(err))
-    s == C_NULL && error("PowerIO.convert_case: " * _cstr(err))
+    s == C_NULL && error("PowerIO.convert_file: " * _cstr(err))
     text = unsafe_string(s)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
     warnings = filter(!isempty, split(_cstr(warn), '\n'))
@@ -599,7 +591,7 @@ builds the JSON view). Fields:
 - `n_components::Int`, `is_radial::Bool` — connectivity of the in-service topology.
 
 For the rich, lossless element tables (costs, extras, storage, HVDC) use the
-accessors on a [`parse_case`](@ref) `Network`; for zero-copy columnar export use
+accessors on a [`parse_file`](@ref) `Network`; for zero-copy columnar export use
 [`to_arrow`](@ref).
 """
 to_dense(net::Network) = _dense_from_handle(_live_handle(net, "to_dense").ptr)
