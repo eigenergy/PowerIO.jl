@@ -6,8 +6,8 @@ using JSON3
     @testset "loads and exposes its surface" begin
         # The module must load with no C library present (the binding is lazy),
         # and its public surface must exist.
-        for sym in (:Network, :parse_case, :parse_string, :to_normalized, :convert_case,
-                    :write_matpower, :parse_dense, :arrow_table, :ArrowTable)
+        for sym in (:Network, :parse_file, :convert_file, :to_normalized, :to_json,
+                    :to_dense, :to_matpower, :to_arrow, :ArrowTable)
             @test isdefined(PowerIO, sym)
         end
         # The accessor surface the ecosystem bridges read is unexported but must exist.
@@ -44,10 +44,10 @@ using JSON3
     @testset "C ABI round trip" begin
         if !PowerIO.library_available()
             @info "libpowerio_capi not found (set POWERIO_CAPI to a local build); skipping ccall tests"
-            @test_skip parse_case("case14.m")
+            @test_skip parse_file("case14.m")
         else
             data = joinpath(@__DIR__, "data")
-            net = parse_case(joinpath(data, "case14.m"))
+            net = parse_file(joinpath(data, "case14.m"))
             @test PowerIO.n_buses(net) == 14
             @test PowerIO.n_branches(net) == 20
             @test PowerIO.n_gens(net) == 5
@@ -58,29 +58,29 @@ using JSON3
             @test isempty(PowerIO.hvdc(net))
 
             # `from` hint threads through to pio_parse.
-            net_hinted = parse_case(joinpath(data, "case14.m"); from = "matpower")
+            net_hinted = parse_file(joinpath(data, "case14.m"); from = "matpower")
             @test PowerIO.n_buses(net_hinted) == 14
 
-            # EGRET and PowerModels both use .json (fixtures produced by convert_case).
+            # EGRET and PowerModels both use .json (fixtures produced by convert_file).
             # The positive cases confirm each fixture parses under its own format; the
             # negative cases prove `from` overrides inference, since forcing the wrong
             # reader on a well-formed file fails.
-            egret = parse_case(joinpath(data, "case14.egret.json"); from = "egret")
+            egret = parse_file(joinpath(data, "case14.egret.json"); from = "egret")
             @test PowerIO.n_buses(egret) == 14
             @test PowerIO.source_format(egret) == "EgretJson"
-            pm = parse_case(joinpath(data, "case14.pm.json"); from = "powermodels")
+            pm = parse_file(joinpath(data, "case14.pm.json"); from = "powermodels")
             @test PowerIO.n_buses(pm) == 14
             @test PowerIO.source_format(pm) == "PowerModelsJson"
-            @test_throws ErrorException parse_case(joinpath(data, "case14.pm.json"); from = "egret")
-            @test_throws ErrorException parse_case(joinpath(data, "case14.egret.json"); from = "powermodels")
+            @test_throws ErrorException parse_file(joinpath(data, "case14.pm.json"); from = "egret")
+            @test_throws ErrorException parse_file(joinpath(data, "case14.egret.json"); from = "powermodels")
 
             # Same-format conversion is byte-exact and warning-free.
-            text, warnings = convert_case(joinpath(data, "case14.m"), "matpower")
+            text, warnings = convert_file(joinpath(data, "case14.m"), "matpower")
             @test occursin("mpc.bus", text)
             @test isempty(warnings)
 
             # A cross-format target exercises a second writer and the warnings vector.
-            psse_text, psse_warnings = convert_case(joinpath(data, "case14.m"), "psse")
+            psse_text, psse_warnings = convert_file(joinpath(data, "case14.m"), "psse")
             @test !isempty(psse_text)
             @test psse_warnings isa AbstractVector{<:AbstractString}
 
@@ -91,18 +91,18 @@ using JSON3
         end
     end
 
-    @testset "parse_string and to_normalized" begin
+    @testset "parse_file input methods and to_* dispatch" begin
         if !PowerIO.library_available()
-            @test_skip parse_string("", "matpower")
+            @test_skip parse_file("case14.m")
         else
             data = joinpath(@__DIR__, "data")
             mtext = read(joinpath(data, "case14.m"), String)
 
-            # parse_string matches parse_case field-for-field, except `name`: a path
-            # parse takes the case name from the file stem ("case14"), an in-memory
-            # parse has no path so the core defaults it.
-            net = parse_case(joinpath(data, "case14.m"))
-            nets = parse_string(mtext, "matpower")
+            # parse_file from an IO matches parse_file from a path field-for-field,
+            # except `name`: a path parse takes the case name from the file stem
+            # ("case14"), an in-memory parse has no path so the core defaults it.
+            net = parse_file(joinpath(data, "case14.m"))
+            nets = parse_file(IOBuffer(mtext), "matpower")
             @test PowerIO.source_format(nets) == "Matpower"
             @test PowerIO.n_buses(nets) == PowerIO.n_buses(net)
             for k in keys(net.data)
@@ -110,8 +110,24 @@ using JSON3
                 @test JSON3.write(net.data[k]) == JSON3.write(nets.data[k])
             end
 
-            # The IO method reads the stream to the end.
-            @test parse_string(IOBuffer(mtext), "matpower") isa Network
+            # Each Network-first to_* transform agrees with its path / convert counterpart.
+            @test to_dense(net).gen.bus == to_dense(joinpath(data, "case14.m")).gen.bus
+            @test to_dense(net).branch.x ≈ to_dense(joinpath(data, "case14.m")).branch.x
+            # to_matpower(net) equals the file->MATPOWER conversion (byte-exact) and round-trips.
+            @test to_matpower(net) == convert_file(joinpath(data, "case14.m"), "matpower")[1]
+            @test PowerIO.n_buses(parse_file(IOBuffer(to_matpower(net)), "matpower")) == 14
+            @test JSON3.read(to_json(net)).base_mva == PowerIO.base_mva(net)
+
+            # to_json works on a handle-less Network (built straight from JSON); every
+            # handle-only transform refuses it with a clear error. The guard fires before
+            # any feature-specific ccall, so to_arrow throws even without the arrow build.
+            jsononly = PowerIO.Network(JSON3.read(to_json(net)))
+            @test jsononly.handle === nothing
+            @test to_json(jsononly) isa String
+            @test_throws ErrorException to_dense(jsononly)
+            @test_throws ErrorException to_matpower(jsononly)
+            @test_throws ErrorException to_arrow(jsononly, :bus)
+            @test_throws ErrorException to_normalized(jsononly)
 
             # to_normalized on case14: per unit, radians, bus types, source_format.
             # case14 buses are already 1..14, so the reindex is the identity here;
@@ -131,7 +147,7 @@ using JSON3
             # norm_tiny: ids 1,3,5,8 with bus 8 ISOLATED; branch 1-5 out of service
             # and branch 5-8 onto the dropped bus. Normalized: buses {1,3,5} reindex
             # to 1,2,3 and branches {1-3, 3-5} to {1-2, 2-3}; tap 0->1, 0.98 kept.
-            tiny = to_normalized(parse_case(joinpath(data, "norm_tiny.m")))
+            tiny = to_normalized(parse_file(joinpath(data, "norm_tiny.m")))
             @test PowerIO.n_buses(tiny) == 3                          # isolated bus 8 dropped
             @test PowerIO.n_branches(tiny) == 2                      # out-of-service + dangling dropped
             @test [Int(b.id) for b in PowerIO.buses(tiny)] == [1, 2, 3]
@@ -145,21 +161,21 @@ using JSON3
 
             # Error paths surface as Julia errors. Build the bad cases in memory.
             basemva0 = replace(mtext, "mpc.baseMVA = 100" => "mpc.baseMVA = 0")
-            @test_throws ErrorException to_normalized(parse_string(basemva0, "matpower"))
+            @test_throws ErrorException to_normalized(parse_file(IOBuffer(basemva0), "matpower"))
             # No generators and no REF bus: nothing to promote to slack.
             noref = "function mpc = noref\nmpc.version = '2';\nmpc.baseMVA = 100;\n" *
                     "mpc.bus = [\n1 1 10 5 0 0 1 1.0 0 138 1 1.1 0.9;\n" *
                     "2 1 20 8 0 0 1 1.0 -1 138 1 1.1 0.9;\n];\n" *
                     "mpc.gen = [\n];\nmpc.branch = [\n1 2 0.01 0.1 0 100 100 100 0 0 1 -30 30;\n];\n"
-            @test_throws ErrorException to_normalized(parse_string(noref, "matpower"))
+            @test_throws ErrorException to_normalized(parse_file(IOBuffer(noref), "matpower"))
         end
     end
 
     @testset "dense numeric surface" begin
         if !PowerIO.library_available()
-            @test_skip parse_dense("case14.m")
+            @test_skip to_dense("case14.m")
         else
-            d = parse_dense(joinpath(@__DIR__, "data", "case14.m"))
+            d = to_dense(joinpath(@__DIR__, "data", "case14.m"))
             @test (d.n, d.m, d.ng) == (14, 20, 5)
             @test d.base_mva == 100.0
             @test d.bus_ids == collect(1:14)                # case14 buses are 1..14
@@ -171,34 +187,37 @@ using JSON3
             @test d.gen.bus == [1, 2, 3, 6, 8]              # generator buses, file order
             @test sum(d.demand.pd) ≈ 259.0 rtol = 1e-6      # total active demand (MW)
             # The dense gen table lines up with the JSON view's count.
-            @test d.ng == PowerIO.n_gens(parse_case(joinpath(@__DIR__, "data", "case14.m")))
+            @test d.ng == PowerIO.n_gens(parse_file(joinpath(@__DIR__, "data", "case14.m")))
         end
     end
 
     @testset "zero-copy Arrow export" begin
         if !(PowerIO.library_available() && PowerIO.arrow_available())
-            @test_skip arrow_table("case14.m", :bus)
+            @test_skip to_arrow("case14.m", :bus)
         else
             data = joinpath(@__DIR__, "data")
-            bus = arrow_table(joinpath(data, "case14.m"), :bus)
+            bus = to_arrow(joinpath(data, "case14.m"), :bus)
             @test bus isa ArrowTable
             @test :id in propertynames(bus)
             @test bus.id == collect(1:14)                   # external 1-based bus ids, in order
 
             # The Arrow gen table matches the dense extractor on the shared columns.
-            d = parse_dense(joinpath(data, "case14.m"))
-            gen = arrow_table(joinpath(data, "case14.m"), :gen)
+            d = to_dense(joinpath(data, "case14.m"))
+            gen = to_arrow(joinpath(data, "case14.m"), :gen)
             @test collect(gen.bus) == d.gen.bus
             @test collect(gen.pg) ≈ d.gen.pg
 
             # Every table's row count matches the JSON view's element count.
-            net = parse_case(joinpath(data, "case14.m"))
-            shunts = arrow_table(joinpath(data, "case14.m"), :shunt)
+            net = parse_file(joinpath(data, "case14.m"))
+            shunts = to_arrow(joinpath(data, "case14.m"), :shunt)
             @test length(shunts.bus) == length(PowerIO.shunts(net))
-            branch = arrow_table(joinpath(data, "case14.m"), :branch)
+            branch = to_arrow(joinpath(data, "case14.m"), :branch)
             @test length(branch.from) == length(PowerIO.branches(net))
 
-            @test_throws ArgumentError arrow_table(joinpath(data, "case14.m"), :nonesuch)
+            # The Network-first method matches the path method.
+            @test to_arrow(net, :bus).id == bus.id
+
+            @test_throws ArgumentError to_arrow(joinpath(data, "case14.m"), :nonesuch)
 
             # Releasing the producer (finalizer) must not fault.
             finalize(bus)

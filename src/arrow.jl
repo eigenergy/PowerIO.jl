@@ -50,7 +50,7 @@ function _arrow_eltype(fmt::AbstractString)
     fmt == "l" && return Int64     # int64
     fmt == "g" && return Float64   # float64 (double)
     fmt == "C" && return UInt8     # uint8
-    throw(ArgumentError("PowerIO.arrow_table: unsupported Arrow column format $(repr(fmt))"))
+    throw(ArgumentError("PowerIO.to_arrow: unsupported Arrow column format $(repr(fmt))"))
 end
 
 const _ARROW_TABLE_IDS = (bus = Cint(0), branch = Cint(1), gen = Cint(2), load = Cint(3), shunt = Cint(4))
@@ -98,7 +98,7 @@ function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArro
     nrows = a.length
     ncols = Int(a.n_children)
     ncols == Int(s.n_children) ||
-        error("PowerIO.arrow_table: schema/array child count mismatch ($(s.n_children) vs $ncols)")
+        error("PowerIO.to_arrow: schema/array child count mismatch ($(s.n_children) vs $ncols)")
     names = Vector{Symbol}(undef, ncols)
     cols = Vector{Any}(undef, ncols)
     for i in 1:ncols
@@ -113,9 +113,9 @@ function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArro
             # buffers[1] is the data. Julia 1-based: buffer index 2 is the data.
             # Guard the layout so a malformed producer is a clean error, not a segfault.
             child_arr.n_buffers >= 2 ||
-                error("PowerIO.arrow_table: column $(names[i]) has $(child_arr.n_buffers) buffers, expected >= 2")
+                error("PowerIO.to_arrow: column $(names[i]) has $(child_arr.n_buffers) buffers, expected >= 2")
             raw = unsafe_load(child_arr.buffers, 2)
-            raw == C_NULL && error("PowerIO.arrow_table: null data buffer for column $(names[i])")
+            raw == C_NULL && error("PowerIO.to_arrow: null data buffer for column $(names[i])")
             data = Ptr{T}(raw) + child_arr.offset * sizeof(T)
             cols[i] = unsafe_wrap(Array, data, nrows; own = false)
         end
@@ -123,46 +123,55 @@ function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArro
     return NamedTuple{Tuple(names)}(Tuple(cols))
 end
 
+# Export one table off a live handle over the Arrow C Data Interface, shared by the
+# Network and path methods of `to_arrow`.
+function _arrow_from_handle(p::Ptr{Cvoid}, table::Symbol)
+    id = get(_ARROW_TABLE_IDS, table, nothing)
+    id === nothing && throw(ArgumentError(
+        "PowerIO.to_arrow: unknown table $(repr(table)); expected one of $(keys(_ARROW_TABLE_IDS))"))
+    arr = Ref(_zero(CArrowArray))
+    sch = Ref(_zero(CArrowSchema))
+    err = zeros(UInt8, _ERRLEN)
+    rc = try
+        ccall((:pio_export_arrow, _lib()), Cint,
+              (Ptr{Cvoid}, Cint, Ptr{CArrowArray}, Ptr{CArrowSchema}, Ptr{UInt8}, Csize_t),
+              p, id, arr, sch, err, length(err))
+    catch e
+        error("PowerIO.to_arrow: could not call pio_export_arrow — the C ABI at " *
+              "\"$(_lib())\" was built without the arrow feature. Rebuild with " *
+              "`cargo build -p powerio-capi --release --features arrow`. Underlying: $e")
+    end
+    rc == 0 || error("PowerIO.to_arrow: " * _cstr(err))
+    # Export succeeded, so the producer set live release callbacks. If decoding
+    # throws (a contract violation — unknown format code, child-count mismatch),
+    # release here so the buffers don't leak; the ArrowTable's finalizer covers
+    # the normal path.
+    cols = try
+        _decode_arrow(arr, sch)
+    catch
+        _release_ffi!(arr, sch)
+        rethrow()
+    end
+    return ArrowTable(cols, arr, sch)
+end
+
 """
-    arrow_table(path, table; from=nothing) -> ArrowTable
+    to_arrow(net::Network, table::Symbol) -> ArrowTable
+    to_arrow(path, table::Symbol; from=nothing) -> ArrowTable
 
 Export one raw network table over the Arrow C Data Interface, zero-copy. `table` is
 `:bus`, `:branch`, `:gen`, `:load`, or `:shunt`; the columns are the parsed network
-fields with 1-based (external) bus ids — the same id space as [`parse_dense`], not
-the gridfm schema. Needs powerio-capi built `--features arrow`; see
-[`arrow_available`](@ref). The result's `columns` view the producer's memory, so
-keep the table alive while reading them (see [`ArrowTable`](@ref)).
+fields with 1-based (external) bus ids — the same id space as [`to_dense`](@ref).
+Takes a parsed [`Network`](@ref) (via its live handle) or a `path` to parse first.
+Needs powerio-capi built `--features arrow`; see [`arrow_available`](@ref). The
+result's `columns` view the producer's memory, so keep the table alive while reading
+them (see [`ArrowTable`](@ref)).
 """
-function arrow_table(path::AbstractString, table::Symbol; from=nothing)
-    id = get(_ARROW_TABLE_IDS, table, nothing)
-    id === nothing && throw(ArgumentError(
-        "PowerIO.arrow_table: unknown table $(repr(table)); expected one of $(keys(_ARROW_TABLE_IDS))"))
+to_arrow(net::Network, table::Symbol) = _arrow_from_handle(_live_handle(net, "to_arrow").ptr, table)
+function to_arrow(path::AbstractString, table::Symbol; from=nothing)
     h = _parse_handle(path; from=from)
     try
-        arr = Ref(_zero(CArrowArray))
-        sch = Ref(_zero(CArrowSchema))
-        err = zeros(UInt8, _ERRLEN)
-        rc = try
-            ccall((:pio_export_arrow, _lib()), Cint,
-                  (Ptr{Cvoid}, Cint, Ptr{CArrowArray}, Ptr{CArrowSchema}, Ptr{UInt8}, Csize_t),
-                  h.ptr, id, arr, sch, err, length(err))
-        catch e
-            error("PowerIO.arrow_table: could not call pio_export_arrow — the C ABI at " *
-                  "\"$(_lib())\" was built without the arrow feature. Rebuild with " *
-                  "`cargo build -p powerio-capi --release --features arrow`. Underlying: $e")
-        end
-        rc == 0 || error("PowerIO.arrow_table: " * _cstr(err))
-        # Export succeeded, so the producer set live release callbacks. If decoding
-        # throws (a contract violation — unknown format code, child-count mismatch),
-        # release here so the buffers don't leak; the ArrowTable's finalizer covers
-        # the normal path.
-        cols = try
-            _decode_arrow(arr, sch)
-        catch
-            _release_ffi!(arr, sch)
-            rethrow()
-        end
-        return ArrowTable(cols, arr, sch)
+        return _arrow_from_handle(h.ptr, table)
     finally
         # The exported buffers are owned by the Arrow array (released with the
         # ArrowTable), independent of the case handle — free the handle now.
