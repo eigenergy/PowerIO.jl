@@ -30,7 +30,7 @@ using JSON3
 using LazyArtifacts
 import Libdl
 
-export Network, parse_case, convert_case, write_matpower, parse_dense, arrow_table, ArrowTable
+export Network, parse_case, parse_string, to_normalized, convert_case, write_matpower, parse_dense, arrow_table, ArrowTable
 
 # --- library resolution -------------------------------------------------
 #
@@ -199,6 +199,13 @@ mutable struct CaseHandle
     end
 end
 
+# Directed error for when the ccall itself fails to dispatch — a missing library or
+# undefined symbol — instead of a raw ccall fault far from the resolution site.
+_lib_call_error(e) = error(
+    "PowerIO: could not call the C ABI at \"$(_lib())\" — build it " *
+    "(`cargo build -p powerio-capi --release` in a sibling powerio checkout) " *
+    "or set POWERIO_CAPI / call `set_library!`. Underlying: $e")
+
 function _parse_handle(path::AbstractString; from=nothing)
     _ensure_compatible()
     err = zeros(UInt8, _ERRLEN)
@@ -209,14 +216,25 @@ function _parse_handle(path::AbstractString; from=nothing)
               (Cstring, Cstring, Ptr{UInt8}, Csize_t),
               path, fromc, err, length(err))
     catch e
-        # A load/undefined-symbol failure here means the resolved library is missing
-        # or unusable; name it and the fixes instead of a raw ccall error far from
-        # the resolution site.
-        error("PowerIO: could not call the C ABI at \"$(_lib())\" — build it " *
-              "(`cargo build -p powerio-capi --release` in a sibling powerio checkout) " *
-              "or set POWERIO_CAPI / call `set_library!`. Underlying: $e")
+        _lib_call_error(e)
     end
     ptr == C_NULL && error("PowerIO.parse_case: " * _cstr(err))
+    return CaseHandle(ptr)
+end
+
+# In-memory sibling of `_parse_handle`: parse `text` under an explicit `format`
+# (no path, so no extension to infer from) via `pio_parse_str`.
+function _parse_handle_str(text::AbstractString, format::AbstractString)
+    _ensure_compatible()
+    err = zeros(UInt8, _ERRLEN)
+    ptr = try
+        ccall((:pio_parse_str, _lib()), Ptr{Cvoid},
+              (Cstring, Cstring, Ptr{UInt8}, Csize_t),
+              String(text), String(format), err, length(err))
+    catch e
+        _lib_call_error(e)
+    end
+    ptr == C_NULL && error("PowerIO.parse_string: " * _cstr(err))
     return CaseHandle(ptr)
 end
 
@@ -243,10 +261,18 @@ loads, shunts, branches, generators, storage, and hvdc tables plus `base_mva`,
 `name`, and `source_format` (the format it was read from). For now the tables are
 the parsed JSON (`net.data`); the fully typed struct mirroring
 `powerio/src/network.rs` is v0.1.0 (see issues).
+
+A `Network` from [`parse_case`](@ref) or [`parse_string`](@ref) also keeps its live
+Rust [`CaseHandle`](@ref) (`net.handle`), so it can derive a normalized copy with
+[`to_normalized`](@ref). The handle's finalizer frees the Rust case once the
+`Network` is unreachable. A `Network` built straight from JSON has `handle ===
+nothing` and cannot be normalized.
 """
 struct Network
     data::JSON3.Object
+    handle::Union{CaseHandle,Nothing}
 end
+Network(data::JSON3.Object) = Network(data, nothing)
 
 """
     parse_case(path; from=nothing) -> Network
@@ -259,8 +285,54 @@ and PowerModels both use `.json`. Accepted tokens (case-insensitive): `"matpower
 """
 function parse_case(path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)
-    net = Network(JSON3.read(_to_json(h)))
-    return net
+    return Network(JSON3.read(_to_json(h)), h)
+end
+
+"""
+    parse_string(text::AbstractString, format::AbstractString) -> Network
+    parse_string(io::IO, format::AbstractString) -> Network
+
+Parse an in-memory case string (or the full contents of `io`) into a [`Network`].
+`format` is required — there is no path to infer it from. Accepted tokens are the
+same as [`parse_case`](@ref): `"matpower"`/`"m"`, `"powermodels-json"`/
+`"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`, `"psse"`/`"raw"`,
+`"powerworld"`/`"aux"`.
+"""
+function parse_string(text::AbstractString, format::AbstractString)
+    h = _parse_handle_str(text, format)
+    return Network(JSON3.read(_to_json(h)), h)
+end
+parse_string(io::IO, format::AbstractString) = parse_string(read(io, String), format)
+
+# Derive a normalized handle from a live one via `pio_to_normalized` (a read-only
+# borrow of the source case, so the source handle stays valid).
+function _normalize_handle(h::CaseHandle)
+    err = zeros(UInt8, _ERRLEN)
+    ptr = ccall((:pio_to_normalized, _lib()), Ptr{Cvoid},
+                (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
+    ptr == C_NULL && error("PowerIO.to_normalized: " * _cstr(err))
+    return CaseHandle(ptr)
+end
+
+"""
+    to_normalized(net::Network) -> Network
+
+A computation-ready copy of `net`: per unit (powers ÷ `base_mva`), angles in
+radians, transformer tap `0 → 1`, out-of-service and ISOLATED elements dropped,
+buses reindexed to a dense 1-based id space, and bus types inferred (a bus with a
+surviving generator keeps `REF` if the source marked it so, else becomes `PV`; a
+generator-less bus becomes `PQ`). `source_format` of the result is `"Normalized"`.
+
+Needs `net`'s live Rust handle, so `net` must come from [`parse_case`](@ref) or
+[`parse_string`](@ref). Errors if `base_mva` is not positive or no reference bus can
+be established.
+"""
+function to_normalized(net::Network)
+    net.handle === nothing &&
+        error("PowerIO.to_normalized: this Network has no live case handle " *
+              "(produce it with parse_case or parse_string).")
+    hn = _normalize_handle(net.handle)
+    return Network(JSON3.read(_to_json(hn)), hn)
 end
 
 """
@@ -373,7 +445,7 @@ n_gens(net::Network) = length(net.data.generators)
 
 The format the case was read from, verbatim from the Rust `SourceFormat` enum:
 one of `"Matpower"`, `"PowerModelsJson"`, `"EgretJson"`, `"Psse"`, `"PowerWorld"`,
-`"InMemory"`.
+`"InMemory"`, `"Normalized"` (the last is the output of [`to_normalized`](@ref)).
 """
 source_format(net::Network) = String(net.data.source_format)
 
