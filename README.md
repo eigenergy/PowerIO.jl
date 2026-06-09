@@ -16,7 +16,7 @@ case reads identically in Julia, Python, C/C++, and Rust.
 Supported formats (each reads and writes, so any pair converts):
 
 - [MATPOWER](https://matpower.org/) `.m`
-- [PSS/E](https://www.siemens.com/psscape) `.raw` revision 33
+- [PSS/E](https://www.siemens.com/global/en/products/energy/grid-software/planning/pss-software/pss-e.html) `.raw` revision 33
 - [PowerWorld](https://www.powerworld.com/WebHelp/Content/MainDocumentation_HTML/Case_Formats.htm) `.aux`
 - [PowerModels.jl](https://github.com/lanl-ansi/PowerModels.jl) network data JSON
 - [egret](https://pypi.org/project/gridx-egret/) `ModelData` JSON
