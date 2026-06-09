@@ -6,13 +6,17 @@ PowerModels JSON / EGRET JSON case files, convert between any pair (byte-exact o
 same-format round-trip, maximal-fidelity otherwise), and materialize an immutable
 `Network`, all through the `powerio-capi` C ABI.
 
-Three views onto a parsed case, all over the same C ABI:
+Parse once with [`parse_case`](@ref) → [`Network`](@ref), then read it three ways,
+all over the same C ABI:
 
-- [`parse_case`](@ref) → [`Network`](@ref): the rich, lossless element tables via
-  the JSON transport (every field + extras, costs, storage, HVDC).
-- [`parse_dense`](@ref): the numeric tables as dense typed arrays for matrix
-  assembly, straight from the C ABI extractors — no JSON.
-- [`arrow_table`](@ref): one table zero-copy over the Arrow C Data Interface.
+- the rich, lossless element tables via the JSON transport (every field + extras,
+  costs, storage, HVDC) — the accessors and [`to_json`](@ref).
+- [`to_dense`](@ref): the numeric tables as dense typed arrays for matrix assembly,
+  straight from the C ABI extractors — no JSON.
+- [`to_arrow`](@ref): one table zero-copy over the Arrow C Data Interface.
+
+[`to_normalized`](@ref) derives a per-unit / radian / filtered / reindexed copy, and
+[`to_matpower`](@ref) / [`convert_case`](@ref) serialize back out.
 
 At first use the binding checks the library's ABI version (`pio_abi_version`)
 against the version it targets ([`PIO_ABI_VERSION`]) and refuses a stale or
@@ -30,7 +34,7 @@ using JSON3
 using LazyArtifacts
 import Libdl
 
-export Network, parse_case, parse_string, to_normalized, convert_case, write_matpower, parse_dense, arrow_table, ArrowTable
+export Network, parse_case, convert_case, to_normalized, to_json, to_dense, to_matpower, to_arrow, ArrowTable
 
 # --- library resolution -------------------------------------------------
 #
@@ -234,7 +238,7 @@ function _parse_handle_str(text::AbstractString, format::AbstractString)
     catch e
         _lib_call_error(e)
     end
-    ptr == C_NULL && error("PowerIO.parse_string: " * _cstr(err))
+    ptr == C_NULL && error("PowerIO.parse_case: " * _cstr(err))
     return CaseHandle(ptr)
 end
 
@@ -262,11 +266,11 @@ loads, shunts, branches, generators, storage, and hvdc tables plus `base_mva`,
 the parsed JSON (`net.data`); the fully typed struct mirroring
 `powerio/src/network.rs` is v0.1.0 (see issues).
 
-A `Network` from [`parse_case`](@ref) or [`parse_string`](@ref) also keeps its live
-Rust [`CaseHandle`](@ref) (`net.handle`), so it can derive a normalized copy with
-[`to_normalized`](@ref). The handle's finalizer frees the Rust case once the
-`Network` is unreachable. A `Network` built straight from JSON has `handle ===
-nothing` and cannot be normalized.
+A `Network` from [`parse_case`](@ref) also keeps its live Rust [`CaseHandle`](@ref)
+(`net.handle`), so the `to_*` transforms ([`to_normalized`](@ref), [`to_dense`](@ref),
+[`to_matpower`](@ref), [`to_arrow`](@ref)) work straight off it. The handle's
+finalizer frees the Rust case once the `Network` is unreachable. A `Network` built
+straight from JSON has `handle === nothing`; only [`to_json`](@ref) works on it.
 """
 struct Network
     data::JSON3.Object
@@ -276,33 +280,39 @@ Network(data::JSON3.Object) = Network(data, nothing)
 
 """
     parse_case(path; from=nothing) -> Network
+    parse_case(text::AbstractString, format::AbstractString) -> Network
+    parse_case(io::IO, format::AbstractString) -> Network
 
-Parse a case file into a [`Network`]. The format is inferred from the extension
-unless `from` is given. Pass `from` to disambiguate the two JSON formats — EGRET
-and PowerModels both use `.json`. Accepted tokens (case-insensitive): `"matpower"`/
-`"m"`, `"powermodels-json"`/`"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`,
-`"psse"`/`"raw"`, `"powerworld"`/`"aux"`.
+Parse a case into a [`Network`].
+
+From a file `path` the format is inferred from the extension unless `from` is given
+(needed to tell EGRET and PowerModels `.json` apart). From in-memory `text`, or the
+full contents of an `io`, the `format` is required and passed positionally: a second
+positional argument means the first is case *content*, not a path. To hint the
+format of a file, use the `from=` keyword — `parse_case("c.m", "matpower")` parses
+`"c.m"` as MATPOWER text, while `parse_case("c.m"; from="matpower")` reads the file.
+
+Accepted format tokens (case-insensitive): `"matpower"`/`"m"`, `"powermodels-json"`/
+`"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`, `"psse"`/`"raw"`,
+`"powerworld"`/`"aux"`.
 """
 function parse_case(path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)
     return Network(JSON3.read(_to_json(h)), h)
 end
-
-"""
-    parse_string(text::AbstractString, format::AbstractString) -> Network
-    parse_string(io::IO, format::AbstractString) -> Network
-
-Parse an in-memory case string (or the full contents of `io`) into a [`Network`].
-`format` is required — there is no path to infer it from. Accepted tokens are the
-same as [`parse_case`](@ref): `"matpower"`/`"m"`, `"powermodels-json"`/
-`"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`, `"psse"`/`"raw"`,
-`"powerworld"`/`"aux"`.
-"""
-function parse_string(text::AbstractString, format::AbstractString)
+function parse_case(text::AbstractString, format::AbstractString)
     h = _parse_handle_str(text, format)
     return Network(JSON3.read(_to_json(h)), h)
 end
-parse_string(io::IO, format::AbstractString) = parse_string(read(io, String), format)
+parse_case(io::IO, format::AbstractString) = parse_case(read(io, String), format)
+
+# The live Rust handle a Network-first transform needs; a Network built straight
+# from JSON has none, so name the function that needs it.
+function _live_handle(net::Network, fname::AbstractString)
+    net.handle === nothing && error(
+        "PowerIO.$fname: this Network has no live case handle (produce it with parse_case).")
+    return net.handle
+end
 
 # Derive a normalized handle from a live one via `pio_to_normalized` (a read-only
 # borrow of the source case, so the source handle stays valid).
@@ -323,33 +333,47 @@ buses reindexed to a dense 1-based id space, and bus types inferred (a bus with 
 surviving generator keeps `REF` if the source marked it so, else becomes `PV`; a
 generator-less bus becomes `PQ`). `source_format` of the result is `"Normalized"`.
 
-Needs `net`'s live Rust handle, so `net` must come from [`parse_case`](@ref) or
-[`parse_string`](@ref). Errors if `base_mva` is not positive or no reference bus can
-be established.
+Needs `net`'s live Rust handle (from [`parse_case`](@ref)). Errors if `base_mva` is
+not positive or no reference bus can be established.
 """
 function to_normalized(net::Network)
-    net.handle === nothing &&
-        error("PowerIO.to_normalized: this Network has no live case handle " *
-              "(produce it with parse_case or parse_string).")
-    hn = _normalize_handle(net.handle)
+    hn = _normalize_handle(_live_handle(net, "to_normalized"))
     return Network(JSON3.read(_to_json(hn)), hn)
 end
 
 """
-    write_matpower(path) -> String
+    to_json(net::Network) -> String
 
-Parse `path` and serialize it back to MATPOWER `.m` text — byte-exact when the
-input was MATPOWER.
+Serialize `net` to the C ABI's JSON transport — the same text [`parse_case`](@ref)
+reads back. Uses the live handle when present, else the cached `net.data`.
 """
-function write_matpower(path::AbstractString)
-    h = _parse_handle(path)
-    # pio_write_matpower has no error buffer (see powerio.h); it returns NULL on
-    # failure, so name the input file rather than erroring without context.
-    s = ccall((:pio_write_matpower, _lib()), Cstring, (Ptr{Cvoid},), h.ptr)
-    s == C_NULL && error("PowerIO.write_matpower: failed to serialize $(repr(path))")
+to_json(net::Network) = net.handle === nothing ? JSON3.write(net.data) : _to_json(net.handle)
+
+# Serialize a live handle to MATPOWER `.m` text. `pio_write_matpower` has no error
+# buffer (see powerio.h); it returns NULL on failure.
+function _matpower_from_handle(p::Ptr{Cvoid})
+    s = ccall((:pio_write_matpower, _lib()), Cstring, (Ptr{Cvoid},), p)
+    s == C_NULL && error("PowerIO.to_matpower: failed to serialize the case")
     out = unsafe_string(s)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
     return out
+end
+
+"""
+    to_matpower(net::Network) -> String
+    to_matpower(path; from=nothing) -> String
+
+Serialize a case to MATPOWER `.m` text — byte-exact when the input was MATPOWER.
+Takes a parsed [`Network`](@ref) (via its live handle) or a `path` to parse first.
+"""
+to_matpower(net::Network) = _matpower_from_handle(_live_handle(net, "to_matpower").ptr)
+function to_matpower(path::AbstractString; from=nothing)
+    h = _parse_handle(path; from=from)
+    try
+        return _matpower_from_handle(h.ptr)
+    finally
+        finalize(h)
+    end
 end
 
 """
@@ -529,12 +553,37 @@ function _nodal_shunt(p::Ptr{Cvoid}, n::Int)
     return (gs, bs)
 end
 
-"""
-    parse_dense(path; from=nothing) -> NamedTuple
+# Dense numeric extraction off a live handle, shared by the Network and path methods.
+function _dense_from_handle(p::Ptr{Cvoid})
+    n = Int(ccall((:pio_n_buses, _lib()), Csize_t, (Ptr{Cvoid},), p))
+    m = Int(ccall((:pio_n_branches, _lib()), Csize_t, (Ptr{Cvoid},), p))
+    ng = Int(ccall((:pio_n_gens, _lib()), Csize_t, (Ptr{Cvoid},), p))
+    bus_ids = Vector{Int64}(undef, n)
+    ccall((:pio_bus_ids, _lib()), Cvoid, (Ptr{Cvoid}, Ptr{Int64}), p, bus_ids)
+    pd, qd = _nodal_demand(p, n)
+    gs, bs = _nodal_shunt(p, n)
+    return (;
+        n, m, ng,
+        base_mva = ccall((:pio_base_mva, _lib()), Cdouble, (Ptr{Cvoid},), p),
+        bus_ids,
+        branch = _branch_tables(p, m),
+        gen = _gen_tables(p, ng),
+        demand = (; pd, qd),
+        shunt = (; gs, bs),
+        reference_bus = Int(ccall((:pio_reference_bus, _lib()), Cptrdiff_t, (Ptr{Cvoid},), p)),
+        n_components = Int(ccall((:pio_n_components, _lib()), Csize_t, (Ptr{Cvoid},), p)),
+        is_radial = ccall((:pio_is_radial, _lib()), Cint, (Ptr{Cvoid},), p) != 0,
+    )
+end
 
-Parse a case and pull its numeric tables as dense typed arrays straight from the C
-ABI — the matrix-assembly fast path, skipping the JSON transport [`parse_case`]
-uses. Fields:
+"""
+    to_dense(net::Network) -> NamedTuple
+    to_dense(path; from=nothing) -> NamedTuple
+
+Pull a case's numeric tables as dense typed arrays straight from the C ABI — the
+matrix-assembly fast path, skipping the JSON transport. Takes a parsed
+[`Network`](@ref) (via its live handle) or a `path` to parse first (which never
+builds the JSON view). Fields:
 
 - `n`, `m`, `ng` — bus / branch / generator counts.
 - `base_mva` — system base.
@@ -549,32 +598,15 @@ uses. Fields:
 - `reference_bus::Int` — dense 0-based index of the single reference bus, or `-1`.
 - `n_components::Int`, `is_radial::Bool` — connectivity of the in-service topology.
 
-For the rich, lossless element tables (costs, extras, storage, HVDC) use
-[`parse_case`]; for zero-copy columnar export use [`arrow_table`](@ref).
+For the rich, lossless element tables (costs, extras, storage, HVDC) use the
+accessors on a [`parse_case`](@ref) `Network`; for zero-copy columnar export use
+[`to_arrow`](@ref).
 """
-function parse_dense(path::AbstractString; from=nothing)
+to_dense(net::Network) = _dense_from_handle(_live_handle(net, "to_dense").ptr)
+function to_dense(path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)
     try
-        p = h.ptr
-        n = Int(ccall((:pio_n_buses, _lib()), Csize_t, (Ptr{Cvoid},), p))
-        m = Int(ccall((:pio_n_branches, _lib()), Csize_t, (Ptr{Cvoid},), p))
-        ng = Int(ccall((:pio_n_gens, _lib()), Csize_t, (Ptr{Cvoid},), p))
-        bus_ids = Vector{Int64}(undef, n)
-        ccall((:pio_bus_ids, _lib()), Cvoid, (Ptr{Cvoid}, Ptr{Int64}), p, bus_ids)
-        pd, qd = _nodal_demand(p, n)
-        gs, bs = _nodal_shunt(p, n)
-        return (;
-            n, m, ng,
-            base_mva = ccall((:pio_base_mva, _lib()), Cdouble, (Ptr{Cvoid},), p),
-            bus_ids,
-            branch = _branch_tables(p, m),
-            gen = _gen_tables(p, ng),
-            demand = (; pd, qd),
-            shunt = (; gs, bs),
-            reference_bus = Int(ccall((:pio_reference_bus, _lib()), Cptrdiff_t, (Ptr{Cvoid},), p)),
-            n_components = Int(ccall((:pio_n_components, _lib()), Csize_t, (Ptr{Cvoid},), p)),
-            is_radial = ccall((:pio_is_radial, _lib()), Cint, (Ptr{Cvoid},), p) != 0,
-        )
+        return _dense_from_handle(h.ptr)
     finally
         finalize(h)  # buffers are copied out; free the handle now rather than at GC
     end
