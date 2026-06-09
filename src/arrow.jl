@@ -62,8 +62,8 @@ A columnar table imported zero copy from the C ABI's Arrow export. Its `columns`
 are a NamedTuple of vectors that view the producer's buffers directly; the table
 holds the producer alive and releases it (frees the buffers) when finalized.
 
-Keep the `ArrowTable` reachable while you use its columns: a column vector extracted
-and kept after the table is collected views freed memory. Copy a column
+Keep the `ArrowTable` reachable while you use its columns: a column kept after
+the table is garbage collected points into freed memory. Copy a column
 (`collect(t.x)`) to outlive the table.
 """
 mutable struct ArrowTable
@@ -137,7 +137,7 @@ function _arrow_from_handle(p::Ptr{Cvoid}, table::Symbol)
               (Ptr{Cvoid}, Cint, Ptr{CArrowArray}, Ptr{CArrowSchema}, Ptr{UInt8}, Csize_t),
               p, id, arr, sch, err, length(err))
     catch e
-        error("PowerIO.to_arrow: could not call pio_export_arrow — the C ABI at " *
+        error("PowerIO.to_arrow: could not call pio_export_arrow: the C ABI at " *
               "\"$(_lib())\" was built without the arrow feature. Rebuild with " *
               "`cargo build -p powerio-capi --release --features arrow`. Underlying: $e")
     end
@@ -161,7 +161,7 @@ end
 
 Export one raw network table over the Arrow C Data Interface, zero copy. `table` is
 `:bus`, `:branch`, `:gen`, `:load`, or `:shunt`; the columns are the parsed network
-fields with 1-based (external) bus ids — the same id space as [`to_dense`](@ref).
+fields with 1-based (external) bus ids, the same id space as [`to_dense`](@ref).
 Takes a parsed [`Network`](@ref) (via its live handle) or a `path` to parse first.
 Needs powerio-capi built `--features arrow`; see [`arrow_available`](@ref). The
 result's `columns` view the producer's memory, so keep the table alive while reading
@@ -183,7 +183,7 @@ end
     arrow_available() -> Bool
 
 True if the resolved C library exports `pio_export_arrow` (built `--features
-arrow`). Tests for the Arrow path skip when this is false.
+arrow`).
 """
 function arrow_available()
     try

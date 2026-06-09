@@ -32,11 +32,10 @@ the target cannot represent as warnings.
   >
 </p>
 
-> **Status: v0.0.1 release candidate.** Not yet registered. What remains: tag the
-> powerio release (its CI attaches the per-platform `libpowerio_capi` tarballs),
-> run `gen/update_artifacts.jl <tag>` to fill `Artifacts.toml`, register. After
-> that `Pkg.add("PowerIO")` needs no Rust toolchain; the binary downloads lazily
-> on first use. See [docs/binary.md](docs/binary.md).
+> **Status: v0.0.1 release candidate.** Not yet registered; until then install
+> from the repository URL below. Once registered, `Pkg.add("PowerIO")` needs no
+> Rust toolchain; the binary downloads lazily on first use. See
+> [docs/binary.md](docs/binary.md).
 
 ## Install
 
@@ -111,7 +110,7 @@ t.from, t.x, t.tap                # zero-copy column views
 ```
 
 At first use the binding checks `pio_abi_version` against the version it targets
-and refuses a stale or mismatched library with a directed error.
+and refuses a stale or mismatched library with an error stating both versions.
 
 ## Interop
 
@@ -122,9 +121,8 @@ and refuses a stale or mismatched library with a directed error.
 | [PowerDiff.jl](https://github.com/grid-opt-alg-lab/PowerDiff.jl) | out | PowerDiff depends on PowerIO as its parser and data layer |
 | MATPOWER / PSS/E / PowerWorld / PowerModels JSON / egret | file | `parse_file` / `convert_file` |
 
-The same `parse_file` / `to_*` verb taxonomy holds across Rust, Python, Julia,
-and the C ABI; the cross-language table is in
-[docs/languages.md](docs/languages.md).
+The `parse_file` / `to_*` naming is shared across Rust, Python, Julia, and the
+C ABI; the cross language table is in [docs/languages.md](docs/languages.md).
 
 ## Develop
 
@@ -150,7 +148,7 @@ lazy artifact. The pipeline is described in [docs/binary.md](docs/binary.md).
 Registration in General is the v0.0.1 milestone. After that: a fully typed
 immutable `Network` mirroring the Rust model (today's view is JSON-backed), a
 Documenter site, package extensions for the PowerModels and ExaPowerIO bridges,
-and the Yggdrasil `PowerIO_jll` swap.
+and distribution through a registered `PowerIO_jll`.
 
 ## License
 

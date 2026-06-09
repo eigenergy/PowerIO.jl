@@ -1,8 +1,7 @@
 # Binary distribution
 
-PowerIO.jl wraps the Rust `powerio-capi` cdylib. Users never compile it:
-`deps/build.jl` running `cargo` on every machine is the deprecated path, and
-PowerIO does not use it.
+PowerIO.jl wraps the Rust `powerio-capi` cdylib, shipped as a prebuilt
+per-platform binary; users never compile it.
 
 ## Pipeline
 
@@ -15,7 +14,7 @@ PowerIO does not use it.
    `include/`, and the licenses.
 2. In this repository, `julia gen/update_artifacts.jl <tag>` downloads the five
    tarballs, computes each one's sha256 and unpacked git-tree-sha1, and rewrites
-   `Artifacts.toml`. Commit the result.
+   `Artifacts.toml`.
 3. `Artifacts.toml` is lazy: nothing downloads at `Pkg.add`; the tarball for the
    current platform is fetched on the first call that needs the library.
 
@@ -34,6 +33,6 @@ local build working.
 
 ## Yggdrasil
 
-A `PowerIO_jll` built from `gen/build_tarballs.jl` (the BinaryBuilder recipe) is
-the eventual canonical form, a one-line `_lib()` swap, but it does not gate
-the release.
+A `PowerIO_jll` built from `gen/build_tarballs.jl` (the BinaryBuilder recipe)
+is the planned long-term distribution; current releases use the artifact
+pipeline above.

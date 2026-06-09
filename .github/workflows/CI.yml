@@ -14,7 +14,7 @@ jobs:
         julia-version: ['1.9', '1']
     env:
       # secrets can't be read in `if:` directly; surface it as an env var to gate on.
-      TANDEM_TOKEN: ${{ secrets.TANDEM_REPO_TOKEN }}
+      POWERIO_TOKEN: ${{ secrets.POWERIO_REPO_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
@@ -22,29 +22,63 @@ jobs:
           version: ${{ matrix.julia-version }}
       - uses: julia-actions/cache@v2
       # Build the C ABI from a sibling powerio checkout so the ccall tests run for
-      # real. powerio is private, so this needs read access to it via the
-      # TANDEM_REPO_TOKEN secret; without it the build is skipped and the ccall tests
-      # auto-skip (the pure-Julia tests still run). Drops to `using PowerIO_jll` once
-      # that is registered (issue #1).
+      # real. The probe checks out eigenergy/powerio anonymously when it is public;
+      # while it is private, add a token with read access to it as the
+      # POWERIO_REPO_TOKEN secret. With neither, the build is skipped and the ccall
+      # tests auto-skip (the pure-Julia tests still run). Drops to
+      # `using PowerIO_jll` once that is registered (issue #1).
+      - name: Probe powerio access
+        id: powerio
+        run: |
+          if [ -n "${POWERIO_TOKEN}" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          elif git ls-remote https://github.com/eigenergy/powerio.git HEAD >/dev/null 2>&1; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "eigenergy/powerio is unreachable (no POWERIO_REPO_TOKEN secret, and the repo is not public); the ccall tests will skip."
+          fi
       - name: Check out powerio
-        if: env.TANDEM_TOKEN != ''
+        if: steps.powerio.outputs.available == 'true'
         uses: actions/checkout@v4
         with:
           repository: eigenergy/powerio
           path: powerio
-          token: ${{ secrets.TANDEM_REPO_TOKEN }}
+          # Falls back to the workflow token, which suffices once the repo is public.
+          token: ${{ secrets.POWERIO_REPO_TOKEN || github.token }}
       - uses: dtolnay/rust-toolchain@stable
-        if: env.TANDEM_TOKEN != ''
+        if: steps.powerio.outputs.available == 'true'
       - uses: Swatinem/rust-cache@v2
-        if: env.TANDEM_TOKEN != ''
+        if: steps.powerio.outputs.available == 'true'
         with:
           workspaces: powerio
       - name: Build powerio-capi
-        if: env.TANDEM_TOKEN != ''
+        if: steps.powerio.outputs.available == 'true'
         # --features arrow so the zero-copy to_arrow tests run against a real
         # pio_export_arrow symbol instead of skipping (arrow_available() gates them).
         run: cargo build -p powerio-capi --release --features arrow --manifest-path powerio/Cargo.toml
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
         env:
-          POWERIO_CAPI: ${{ env.TANDEM_TOKEN != '' && format('{0}/powerio/target/release/libpowerio_capi.so', github.workspace) || '' }}
+          POWERIO_CAPI: ${{ steps.powerio.outputs.available == 'true' && format('{0}/powerio/target/release/libpowerio_capi.so', github.workspace) || '' }}
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      statuses: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v2
+      # The module loads without the C library (resolution is lazy and
+      # doctest=false), so the docs build needs no Rust toolchain.
+      - name: Instantiate docs environment
+        run: julia --project=docs -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
+      - name: Build and deploy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: julia --project=docs docs/make.jl

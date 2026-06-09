@@ -19,14 +19,12 @@ all over the same C ABI:
 [`to_matpower`](@ref) / [`convert_file`](@ref) serialize back out.
 
 At first use the binding checks the library's ABI version (`pio_abi_version`)
-against the version it targets ([`PIO_ABI_VERSION`]) and refuses a stale or
-mismatched library with a directed error.
+against the version it targets (`PIO_ABI_VERSION`) and refuses a stale or
+mismatched library with an error stating both versions.
 
-During development the C library is wired through a configurable path (see
-[`set_library!`](@ref)); for the public release it ships as a self-hosted, lazy
-artifact (`Artifacts.toml`), so users get the binary with no Rust toolchain. A
-Yggdrasil `PowerIO_jll` is a later, non-blocking swap. See the README for the
-milestone plan.
+The C library resolves automatically: the bundled lazy artifact, or a sibling
+powerio build during development. Point at a custom build with
+[`set_library!`](@ref) or the `POWERIO_CAPI` environment variable.
 """
 module PowerIO
 
@@ -130,7 +128,7 @@ const _ABI_OK = Ref{Bool}(false)
     abi_version() -> UInt32
 
 The ABI version the resolved C library was built with (see `pio_abi_version`).
-Compared against [`PIO_ABI_VERSION`], the version this binding targets.
+Compared against `PIO_ABI_VERSION`, the version this binding targets.
 """
 abi_version() = ccall((:pio_abi_version, _lib()), UInt32, ())
 
@@ -138,7 +136,7 @@ abi_version() = ccall((:pio_abi_version, _lib()), UInt32, ())
     library_version() -> String
 
 The `powerio-capi` crate version string the resolved library reports (e.g.
-`"0.0.1"`). Informational; [`abi_version`] is the compatibility check.
+`"0.0.1"`). Informational; [`abi_version`](@ref) is the compatibility check.
 """
 function library_version()
     s = ccall((:pio_version, _lib()), Cstring, ())
@@ -152,12 +150,12 @@ function _ensure_compatible()
     got = try
         abi_version()
     catch e
-        error("PowerIO: the C ABI at \"$(_lib())\" has no pio_abi_version — it predates " *
+        error("PowerIO: the C ABI at \"$(_lib())\" has no pio_abi_version: it predates " *
               "the versioned ABI. Rebuild powerio-capi (`cargo build -p powerio-capi --release` " *
               "in a sibling powerio checkout). Underlying: $e")
     end
     got == PIO_ABI_VERSION || error(
-        "PowerIO: C ABI version mismatch — the library reports ABI $got, this PowerIO.jl " *
+        "PowerIO: C ABI version mismatch: the library reports ABI $got, this PowerIO.jl " *
         "targets ABI $(PIO_ABI_VERSION). Rebuild powerio-capi from a matching commit, or " *
         "update PowerIO.jl.")
     _ABI_OK[] = true
@@ -167,8 +165,8 @@ end
 """
     library_available() -> Bool
 
-True if the C ABI library resolves and is ABI-compatible with this binding (see
-[`abi_version`]). Tests that need the library skip when this is false.
+True if the C ABI library resolves and is ABI compatible with this binding
+(see [`abi_version`](@ref)).
 """
 function library_available()
     try
@@ -208,7 +206,7 @@ end
 # Directed error for when the ccall itself fails to dispatch — a missing library or
 # undefined symbol — instead of a raw ccall fault far from the resolution site.
 _lib_call_error(e) = error(
-    "PowerIO: could not call the C ABI at \"$(_lib())\" — build it " *
+    "PowerIO: could not call the C ABI at \"$(_lib())\": build it " *
     "(`cargo build -p powerio-capi --release` in a sibling powerio checkout) " *
     "or set POWERIO_CAPI / call `set_library!`. Underlying: $e")
 
@@ -279,8 +277,7 @@ An immutable view of a parsed case, materialized from the C ABI's JSON transport
 Raw MATPOWER units and 1-based bus ids, mirroring `powerio`'s `Network`: buses,
 loads, shunts, branches, generators, storage, and hvdc tables plus `base_mva`,
 `name`, and `source_format` (the format it was read from). For now the tables are
-the parsed JSON (`net.data`); the fully typed struct mirroring
-`powerio/src/network.rs` is v0.1.0 (see issues).
+the parsed JSON (`net.data`).
 
 A `Network` from [`parse_file`](@ref) also keeps its live Rust [`CaseHandle`](@ref)
 (`net.handle`), so the `to_*` transforms ([`to_normalized`](@ref), [`to_dense`](@ref),
@@ -323,7 +320,7 @@ end
     parse_str(text, format="matpower") -> Network
 
 Parse in-memory case text into a [`Network`](@ref). This is the string sibling of
-`parse_file(io, format)` and matches the Rust, Python, and C ABI API.
+`parse_file(io, format)`, matching the Rust, Python, and C interfaces.
 """
 parse_str(text::AbstractString, format::AbstractString="matpower") =
     parse_file(IOBuffer(String(text)), format)
@@ -363,7 +360,7 @@ end
     to_normalized(net::Network) -> Network
 
 A computation-ready copy of `net`: per unit (powers ÷ `base_mva`), angles in
-radians, transformer tap `0 → 1`, out-of-service and ISOLATED elements dropped,
+radians, transformer tap `0 → 1`, out-of-service and isolated elements dropped,
 buses reindexed to a dense 1-based id space, and bus types inferred (a bus with a
 surviving generator keeps `REF` if the source marked it so, else becomes `PV`; a
 generator-less bus becomes `PQ`). `source_format` of the result is `"Normalized"`.
@@ -466,7 +463,7 @@ end
 #            cost (`nothing`, or {model, startup, shutdown, ncost, coeffs}),
 #            caps (ordered 11-element nullable array
 #            [pc1, pc2, qc1min, qc1max, qc2min, qc2max, ramp_agc, ramp_10,
-#            ramp_30, ramp_q, apf]; these lived in `extras` in older cores)
+#            ramp_30, ramp_q, apf])
 #   branch:  from, to, r, x, b, rate_a, rate_b, rate_c, tap, shift (deg),
 #            in_service, angmin (deg), angmax (deg), extras
 #   load:    bus, p (MW), q (MVAr), in_service, extras
@@ -547,8 +544,8 @@ end
     bus_type_code(kind) -> Int
 
 Map the canonical bus-type string (`"PQ"`, `"PV"`, `"REF"`, `"ISOLATED"`) to the
-MATPOWER code (1, 2, 3, 4). The string set matches `BusType::as_str` in the Rust
-core, so the two can't drift.
+MATPOWER code (1, 2, 3, 4). The strings are the Rust core's `BusType::as_str`
+values.
 """
 function bus_type_code(kind::AbstractString)
     kind == "PQ"       && return 1
@@ -631,8 +628,8 @@ end
     to_dense(net::Network) -> NamedTuple
     to_dense(path; from=nothing) -> NamedTuple
 
-Pull a case's numeric tables as dense typed arrays straight from the C ABI — the
-matrix-assembly fast path, skipping the JSON transport. Takes a parsed
+Pull a case's numeric tables as dense typed arrays straight from the C ABI,
+skipping the JSON transport (the fast path for matrix assembly). Takes a parsed
 [`Network`](@ref) (via its live handle) or a `path` to parse first (which never
 builds the JSON view). Fields:
 
