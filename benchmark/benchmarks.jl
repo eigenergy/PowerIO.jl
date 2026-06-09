@@ -1,8 +1,8 @@
 # AirspeedVelocity.jl suite: track PowerIO's own parse and accessor performance
 # across commits. The benchmark workflow (.github/workflows/benchmark.yml) runs this
 # on a PR and its base branch on the same runner and comments the comparison. This
-# tracks self-regression over history; the cross-tool snapshot (powerio vs the field)
-# lives in the powerio repo's benchmarks/RESULTS.md.
+# tracks self-regression over history; the cross-tool snapshot lives in the
+# powerio repo's benchmarks/RESULTS.md.
 #
 # Locally: build the C ABI in a sibling powerio checkout (`cargo build -p powerio-capi
 # --release`) so PowerIO finds it, then run with AirspeedVelocity's `benchpkg`.

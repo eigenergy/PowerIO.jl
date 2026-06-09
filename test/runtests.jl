@@ -6,8 +6,10 @@ using JSON3
     @testset "loads and exposes its surface" begin
         # The module must load with no C library present (the binding is lazy),
         # and its public surface must exist.
-        for sym in (:Network, :parse_file, :convert_file, :to_normalized, :to_json,
-                    :to_dense, :to_matpower, :to_arrow, :ArrowTable)
+        for sym in (:Network, :parse_file, :parse_str, :from_json, :convert_file,
+                    :to_format, :to_normalized, :to_json, :to_dense, :to_matpower,
+                    :to_arrow, :ArrowTable, :to_powermodels, :from_powermodels,
+                    :to_powerdata, :parse_ac_power_data)
             @test isdefined(PowerIO, sym)
         end
         # The accessor surface the ecosystem bridges read is unexported but must exist.
@@ -57,9 +59,18 @@ using JSON3
             @test isempty(PowerIO.storage(net))
             @test isempty(PowerIO.hvdc(net))
 
-            # `from` hint threads through to pio_parse.
+            # `from` hint threads through to pio_parse_file.
             net_hinted = parse_file(joinpath(data, "case14.m"); from = "matpower")
             @test PowerIO.n_buses(net_hinted) == 14
+
+            text_in = read(joinpath(data, "case14.m"), String)
+            net_from_text = parse_str(text_in, "matpower")
+            @test PowerIO.n_buses(net_from_text) == 14
+            @test PowerIO.source_format(net_from_text) == "Matpower"
+
+            net_from_json = from_json(to_json(net))
+            @test PowerIO.n_buses(net_from_json) == 14
+            @test PowerIO.source_format(net_from_json) == "Matpower"
 
             # EGRET and PowerModels both use .json (fixtures produced by convert_file).
             # The positive cases confirm each fixture parses under its own format; the
@@ -83,6 +94,44 @@ using JSON3
             psse_text, psse_warnings = convert_file(joinpath(data, "case14.m"), "psse")
             @test !isempty(psse_text)
             @test psse_warnings isa AbstractVector{<:AbstractString}
+
+            pm_text, pm_warnings = to_format(net, "powermodels-json")
+            @test JSON3.read(pm_text).baseMVA == 100.0
+            @test pm_warnings isa AbstractVector{<:AbstractString}
+            pm_dict = to_powermodels(net)
+            @test haskey(pm_dict, "bus")
+            @test PowerIO.n_buses(from_powermodels(pm_dict)) == 14
+
+            pdata = to_powerdata(net)
+            @test pdata.baseMVA == 100.0
+            @test length(pdata.bus) == 14
+            @test length(pdata.arc) == 2 * length(pdata.branch)
+            @test pdata.gen[1].bus == 1
+            ac = parse_ac_power_data(net)
+            @test ac.baseMVA == [100.0]
+            @test ac.ref_buses == [1]
+
+            storage_text = """
+            function mpc = storage_case
+            mpc.baseMVA = 100;
+            mpc.bus = [
+                1 3 0 0 0 0 1 1 0 345 1 1.1 0.9;
+                4 1 0 0 0 0 1 1 0 345 1 1.1 0.9;
+            ];
+            mpc.branch = [
+                1 4 0.01 0.05 0.02 0 0 0 0 0 1 -360 360;
+            ];
+            mpc.storage = [
+                4 0.0 0.0 1.00 600.0 300.0 216.0 0.9 0.85 1000 -1000 1000 0.1 0.01 0 0 1;
+                1 0.0 0.0 0.50 200.0 100.0 100.0 0.95 0.9 500 -500 500 0.2 0.02 0 0 0;
+            ];
+            """
+            storage_pd = to_powerdata(parse_str(storage_text, "matpower"))
+            @test length(storage_pd.storage) == 2
+            @test storage_pd.storage[1].storage_bus == 4
+            @test storage_pd.storage[1].energy_rating == 6.0
+            @test storage_pd.storage[2].storage_bus == 1
+            @test storage_pd.storage[2].status == 0
 
             # library_available() is true here, so the ABI handshake passed: the
             # library's ABI version must equal the one this binding targets.
@@ -160,6 +209,18 @@ using JSON3
             @test sort([Float64(l.p) for l in PowerIO.loads(tiny)]) ≈ [0.30, 0.50]  # 30,50 MW -> pu
 
             # Error paths surface as Julia errors. Build the bad cases in memory.
+            try
+                parse_file(joinpath(data, "missing.m"))
+                error("expected parse_file to fail")
+            catch e
+                @test occursin("PowerIO.parse_file:", sprint(showerror, e))
+            end
+            try
+                parse_str("not a MATPOWER case", "matpower")
+                error("expected parse_str to fail")
+            catch e
+                @test occursin("PowerIO.parse_str:", sprint(showerror, e))
+            end
             basemva0 = replace(mtext, "mpc.baseMVA = 100" => "mpc.baseMVA = 0")
             @test_throws ErrorException to_normalized(parse_file(IOBuffer(basemva0), "matpower"))
             # No generators and no REF bus: nothing to promote to slack.

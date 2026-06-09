@@ -1,0 +1,6 @@
+[deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+PowerIO = "05ed8b54-f668-4096-9d0d-e8c3dd9dc169"
+
+[compat]
+Documenter = "1"

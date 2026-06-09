@@ -15,17 +15,17 @@
 using BinaryBuilder
 
 name = "PowerIO"
-# Tracks the powerio-capi *crate* version (the binary), which is independent of the
-# PowerIO.jl *package* version (0.0.1). The crate is at 0.1.0 as of the pinned commit.
-version = v"0.1.0"
+# Tracks the powerio-capi *crate* version (the binary), unified with the
+# PowerIO.jl *package* version for the first release.
+version = v"0.0.1"
 
-# Must pin a commit that carries the versioned ABI (`pio_abi_version`) and the Arrow
-# export, since the binding's load-time handshake and `to_arrow` need both. Pinned
-# to the powerio `main` squash-merge of #54 (the first commit carrying both). Prefer a
-# git tag once one is cut — the right long-term anchor for a reproducible build.
+# Must pin a commit reporting `PIO_ABI_VERSION` 2: the binding's load-time
+# handshake refuses anything else, and `to_arrow` needs the Arrow export. Pinned
+# to the powerio main head; repin to the v0.0.1 release tag for the Yggdrasil
+# submission (the right long-term anchor for a reproducible build).
 sources = [
     GitSource("https://github.com/eigenergy/powerio.git",
-              "b9864e8b548590c7b3d6c04a7e853b76830ab5b5"),
+              "2afcee05c6be73b9b412c9506573a3f7e2f6e79d"),
 ]
 
 # `cargo build` writes the cdylib under target/<rust_target>/release. Names differ
@@ -43,11 +43,9 @@ else
     install -Dvm755 "${out}/libpowerio_capi.${dlext}" "${libdir}/libpowerio_capi.${dlext}"
 fi
 install -Dvm644 powerio-capi/include/powerio.h "${includedir}/powerio.h"
-# powerio declares "MIT OR Apache-2.0" (powerio-capi/Cargo.toml) but ships no LICENSE
-# file at the pinned commit, so don't abort on a missing one. A LICENSE must land
-# upstream before the Yggdrasil submission, where AutoMerge requires it; the
-# self-hosted GitHub-release path does not.
-install_license LICENSE* || true
+# powerio declares "MIT OR Apache-2.0"; LICENSE-MIT and LICENSE-APACHE ship at
+# the repo root.
+install_license LICENSE*
 """
 
 platforms = [
