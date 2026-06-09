@@ -76,9 +76,9 @@ function _lib()
 end
 
 # Resolve the bundled `powerio_capi` artifact. Until `Artifacts.toml` carries a
-# `powerio_capi` entry for this platform (filled in after the BinaryBuilder
-# release; see `gen/build_tarballs.jl`), fall back to a plain `libpowerio_capi` on
-# the loader path so a local build still resolves.
+# `powerio_capi` entry for this platform (filled by `gen/update_artifacts.jl` from
+# a tagged powerio release; see docs/binary.md), fall back to a plain
+# `libpowerio_capi` on the loader path so a local build still resolves.
 #
 # The subdir mirrors what `gen/build_tarballs.jl` installs: BinaryBuilder ships the
 # Windows dll under `bin/`, the shared object under `lib/` everywhere else. This
@@ -138,7 +138,7 @@ abi_version() = ccall((:pio_abi_version, _lib()), UInt32, ())
     library_version() -> String
 
 The `powerio-capi` crate version string the resolved library reports (e.g.
-`"0.1.0"`). Informational; [`abi_version`] is the compatibility check.
+`"0.0.1"`). Informational; [`abi_version`] is the compatibility check.
 """
 function library_version()
     s = ccall((:pio_version, _lib()), Cstring, ())

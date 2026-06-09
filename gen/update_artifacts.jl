@@ -1,7 +1,7 @@
 #!/usr/bin/env julia
 # Fill Artifacts.toml from a powerio release's binary tarballs.
 #
-#   julia gen/update_artifacts.jl v0.1.0
+#   julia gen/update_artifacts.jl v0.0.1
 #
 # The release-binaries workflow in eigenergy/powerio builds
 # libpowerio_capi.<triplet>.tar.gz for the five supported platforms and attaches
@@ -36,7 +36,7 @@ function fetch(tag::String, name::String, dest::String)
     end
 end
 
-isempty(ARGS) && error("usage: julia gen/update_artifacts.jl <powerio tag, e.g. v0.1.0>")
+isempty(ARGS) && error("usage: julia gen/update_artifacts.jl <powerio tag, e.g. v0.0.1>")
 tag = ARGS[1]
 
 stanzas = String[]
