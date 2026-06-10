@@ -50,6 +50,11 @@ After each powerio binary release:
 
 A binding-only fix (no new binary) skips step 1.
 
+Version numbers: a binary-driven release registers the same version as the
+powerio release it wraps; a binding-only release bumps the patch independently.
+The compatibility contract is the ABI handshake (`PIO_ABI_VERSION`), not the
+version number.
+
 ## Docs
 
 Documenter build: `julia --project=docs docs/make.jl`.
