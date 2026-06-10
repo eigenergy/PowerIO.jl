@@ -32,16 +32,16 @@ the target cannot represent as warnings.
   >
 </p>
 
-> **Status: v0.0.1 release candidate.** Not yet registered; until then install
-> from the repository URL below. Once registered, `Pkg.add("PowerIO")` needs no
-> Rust toolchain; the binary downloads lazily on first use. See
+> **Status: registration in General in progress.** Once it completes,
+> `Pkg.add("PowerIO")` needs no Rust toolchain; the binary downloads lazily on
+> first use. Until then install from the repository URL below. See
 > [docs/binary.md](docs/binary.md).
 
 ## Install
 
 ```julia
-pkg> add PowerIO                  # after registration in General
-pkg> add https://github.com/eigenergy/PowerIO.jl   # until then
+pkg> add PowerIO                  # once registration in General completes
+pkg> add https://github.com/eigenergy/PowerIO.jl   # works either way
 ```
 
 Working on the binding itself needs a local C ABI build; see Develop below.
@@ -145,8 +145,8 @@ C ABI; the cross language table is in [docs/languages.md](docs/languages.md).
 With a sibling `powerio` checkout, build the C ABI and `using PowerIO` finds it:
 
 ```
-# in the sibling powerio checkout (--features arrow also enables to_arrow):
-cargo build -p powerio-capi --release --features arrow
+# in the sibling powerio checkout (arrow enables to_arrow, gridfm enables read_gridfm):
+cargo build -p powerio-capi --release --features arrow,gridfm
 ```
 
 For a non-sibling layout, point Julia at the library explicitly:
@@ -161,10 +161,11 @@ lazy artifact. The pipeline is described in [docs/binary.md](docs/binary.md).
 
 ## Roadmap
 
-Registration in General is the v0.0.1 milestone. After that: a fully typed
-immutable `Network` mirroring the Rust model (today's view is JSON-backed), a
-Documenter site, package extensions for the PowerModels and ExaPowerIO bridges,
-and distribution through a registered `PowerIO_jll`.
+0.1.0 ships the gridfm reader (`read_gridfm`) against powerio v0.1.0, with
+registration in General underway. Next: a fully typed immutable `Network`
+mirroring the Rust model (today's view is JSON-backed), a Documenter site,
+package extensions for the PowerModels and ExaPowerIO bridges, and
+distribution through a registered `PowerIO_jll`.
 
 ## License
 
