@@ -21,7 +21,7 @@ jobs:
       TAG: ${{ inputs.powerio_tag }}
     steps:
       - uses: actions/checkout@v6
-      - uses: julia-actions/setup-julia@v2
+      - uses: julia-actions/setup-julia@v3
         with:
           version: "1"
       - name: Regenerate Artifacts.toml
@@ -35,7 +35,7 @@ jobs:
         # guard); close and reopen the PR, or push to its branch, to trigger it.
         run: |
           if git diff --quiet -- Artifacts.toml; then
-            echo "Artifacts.toml already matches $TAG; nothing to do"
+            echo "Artifacts.toml already matches $TAG; nothing to do" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           branch="artifacts/$TAG"
@@ -43,9 +43,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "release: artifact hashes from powerio $TAG"
-          git push -u origin "$branch"
-          gh pr create \
-            --title "release: artifact hashes from powerio $TAG" \
-            --body "Regenerates Artifacts.toml from the $TAG release of eigenergy/powerio.
+          # The branch is bot owned and tag scoped, so a re-run replaces it
+          # outright; --force-with-lease cannot apply because the shallow
+          # fetch has no tracking ref for it.
+          git push --force -u origin "$branch"
+          url="$(gh pr list --head "$branch" --state open --json url --jq '.[0].url // empty')"
+          if [ -n "$url" ]; then
+            echo "PR already exists, branch updated: $url" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            gh pr create \
+              --title "release: artifact hashes from powerio $TAG" \
+              --body "Regenerates Artifacts.toml from the $TAG release of eigenergy/powerio.
 
           Before merging: if this release bumped \`PIO_ABI_VERSION\`, update the constant in src/PowerIO.jl and the affected ccalls in this PR (see CONTRIBUTING.md, ABI lockstep). After merging, dispatch the Register Package workflow with the new version."
+          fi

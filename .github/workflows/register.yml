@@ -2,13 +2,16 @@ name: Register Package
 
 # Sets the version in Project.toml, commits it to main, and posts the
 # `@JuliaRegistrator register` comment on that commit. The General registry PR
-# AutoMerges (~15 minutes for new versions); TagBot then tags here. Manual
-# fallback: comment `@JuliaRegistrator register` on any commit.
+# AutoMerges (~15 minutes for new versions); TagBot then tags here. A green
+# run only means the comment was posted: registration errors (duplicate
+# version, compat problems) surface as Registrator replies on the commit
+# thread and on the General PR. Manual fallback: comment
+# `@JuliaRegistrator register` on any commit.
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version to register, or the component to bump (major/minor/patch)
+        description: Version to register (no leading v), or the component to bump (major/minor/patch)
         required: true
 
 permissions:

@@ -2,15 +2,12 @@ name: TagBot
 
 # Tags vX.Y.Z and creates the GitHub release here after each PowerIO version
 # merges into the General registry. Triggered by the JuliaTagBot service
-# commenting on the TagBot trigger issue; the dispatch input re-scans the last
-# N days of registry merges as the recovery path.
+# commenting on the TagBot trigger issue; a manual dispatch is the recovery
+# path (TagBot re-scans all registered versions on every run).
 on:
   issue_comment:
     types: [ created ]
   workflow_dispatch:
-    inputs:
-      lookback:
-        default: "3"
 
 permissions:
   actions: read
