@@ -1,0 +1,23 @@
+name: Register Package
+
+# Sets the version in Project.toml, commits it to main, and posts the
+# `@JuliaRegistrator register` comment on that commit. The General registry PR
+# AutoMerges (~15 minutes for new versions); TagBot then tags here. Manual
+# fallback: comment `@JuliaRegistrator register` on any commit.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to register, or the component to bump (major/minor/patch)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: julia-actions/RegisterAction@latest
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

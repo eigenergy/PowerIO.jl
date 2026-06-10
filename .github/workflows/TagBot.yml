@@ -1,0 +1,30 @@
+name: TagBot
+
+# Tags vX.Y.Z and creates the GitHub release here after each PowerIO version
+# merges into the General registry. Triggered by the JuliaTagBot service
+# commenting on the TagBot trigger issue; the dispatch input re-scans the last
+# N days of registry merges as the recovery path.
+on:
+  issue_comment:
+    types: [ created ]
+  workflow_dispatch:
+    inputs:
+      lookback:
+        default: "3"
+
+permissions:
+  actions: read
+  checks: read
+  contents: write
+  issues: read
+  pull-requests: read
+  statuses: read
+
+jobs:
+  TagBot:
+    if: github.event_name == 'workflow_dispatch' || github.actor == 'JuliaTagBot'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: JuliaRegistries/TagBot@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
