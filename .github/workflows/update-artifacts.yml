@@ -1,0 +1,59 @@
+name: Update artifacts
+
+# Regenerates Artifacts.toml from a powerio binary release and opens a PR.
+# Dispatch with the powerio tag after publishing the release there; merge the
+# PR, then dispatch Register Package with the new version.
+on:
+  workflow_dispatch:
+    inputs:
+      powerio_tag:
+        description: powerio release tag to pull binaries from (e.g. v0.0.2)
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.powerio_tag }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: "1"
+      - name: Regenerate Artifacts.toml
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: julia gen/update_artifacts.jl "$TAG"
+      - name: Open a pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # CI does not run on PRs opened with GITHUB_TOKEN (the recursion
+        # guard); close and reopen the PR, or push to its branch, to trigger it.
+        run: |
+          if git diff --quiet -- Artifacts.toml; then
+            echo "Artifacts.toml already matches $TAG; nothing to do" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          branch="artifacts/$TAG"
+          git switch -c "$branch"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "release: artifact hashes from powerio $TAG"
+          # The branch is bot owned and tag scoped, so a re-run replaces it
+          # outright; --force-with-lease cannot apply because the shallow
+          # fetch has no tracking ref for it.
+          git push --force -u origin "$branch"
+          url="$(gh pr list --head "$branch" --state open --json url --jq '.[0].url // empty')"
+          if [ -n "$url" ]; then
+            echo "PR already exists, branch updated: $url" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            gh pr create \
+              --title "release: artifact hashes from powerio $TAG" \
+              --body "Regenerates Artifacts.toml from the $TAG release of eigenergy/powerio.
+
+          Before merging: if this release bumped \`PIO_ABI_VERSION\`, update the constant in src/PowerIO.jl and the affected ccalls in this PR (see CONTRIBUTING.md, ABI lockstep). After merging, dispatch the Register Package workflow with the new version."
+          fi

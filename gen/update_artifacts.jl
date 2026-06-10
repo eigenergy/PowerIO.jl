@@ -7,7 +7,8 @@
 # libpowerio_capi.<triplet>.tar.gz for the five supported platforms and attaches
 # them to the GitHub release for the given tag. This script downloads each one,
 # computes the tarball sha256 and the unpacked tree's git-tree-sha1, and rewrites
-# Artifacts.toml. Commit the result.
+# Artifacts.toml. Commit the result (the Update artifacts workflow runs this
+# and opens the PR).
 #
 # The assets must be downloadable: either eigenergy/powerio is public, or `gh`
 # is installed and authenticated (used automatically when available).
