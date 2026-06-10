@@ -99,14 +99,18 @@ d.branch.from, d.branch.x         # branch endpoints and reactances
 d.reference_bus, d.n_components, d.is_radial
 ```
 
-`to_arrow` lends one table zero copy over the Arrow C Data Interface (needs the
-library built with `--features arrow`; `arrow_available()` reports it). The
-columns are a Tables.jl-shaped NamedTuple, so they flow into `Arrow.write`,
-`DataFrame`, etc. Keep the returned `ArrowTable` alive while reading its columns:
+`to_arrow` brings one table across the Arrow C Data Interface (needs the library
+built with `--features arrow`; `arrow_available()` reports it). By default it
+returns a NamedTuple of **owned** Julia Vectors (Tables.jl-shaped, flows into
+`Arrow.write`, `DataFrame`, etc.), so there is no lifetime caveat. `copy=false`
+returns a zero-copy `ArrowTable` whose columns view the producer's memory; keep it
+alive while reading them. For the numeric tables alone, `to_dense` is a copy-free,
+`unsafe_wrap`-free fast path (the C ABI fills Julia-owned buffers).
 
 ```julia
-t = to_arrow(net, :branch)        # :bus, :branch, :gen, :load, :shunt
-t.from, t.x, t.tap                # zero-copy column views
+t = to_arrow(net, :branch)                  # :bus, :branch, :gen, :load, :shunt; owned columns
+t.from, t.x, t.tap
+z = to_arrow(net, :branch; copy=false)      # zero-copy views; keep `z` alive while reading
 ```
 
 At first use the binding checks `pio_abi_version` against the version it targets
