@@ -206,7 +206,7 @@ function to_arrow(path::AbstractString, table::Symbol; from=nothing, copy::Bool=
         return _arrow_from_handle(h.ptr, table, copy)
     finally
         # The exported buffers are owned by the Arrow array, independent of the
-        # case handle — free the handle now.
+        # network handle — free the handle now.
         finalize(h)
     end
 end

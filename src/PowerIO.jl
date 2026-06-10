@@ -122,7 +122,7 @@ end
 # from an incompatible commit" into a clear error at the boundary, instead of a
 # cryptic ccall fault (a wrong signature) or silently wrong numbers deep in a solver.
 
-const PIO_ABI_VERSION = UInt32(2)
+const PIO_ABI_VERSION = UInt32(3)
 const _ABI_OK = Ref{Bool}(false)
 
 """
@@ -186,18 +186,18 @@ const _ERRLEN = 512
 # --- handle layer -------------------------------------------------------
 
 """
-    CaseHandle
+    NetworkHandle
 
-Opaque handle to a parsed case inside the Rust core. Freed by its finalizer; you
-normally go straight to [`parse_file`](@ref), which returns a [`Network`].
+Opaque handle to a parsed network inside the Rust core. Freed by its finalizer;
+you normally go straight to [`parse_file`](@ref), which returns a [`Network`].
 """
-mutable struct CaseHandle
+mutable struct NetworkHandle
     ptr::Ptr{Cvoid}
-    function CaseHandle(ptr::Ptr{Cvoid})
-        ptr == C_NULL && error("PowerIO: null case handle")
+    function NetworkHandle(ptr::Ptr{Cvoid})
+        ptr == C_NULL && error("PowerIO: null network handle")
         h = new(ptr)
         finalizer(h) do x
-            x.ptr == C_NULL || ccall((:pio_case_free, _lib()), Cvoid, (Ptr{Cvoid},), x.ptr)
+            x.ptr == C_NULL || ccall((:pio_network_free, _lib()), Cvoid, (Ptr{Cvoid},), x.ptr)
             x.ptr = C_NULL
         end
         return h
@@ -224,7 +224,7 @@ function _parse_handle(path::AbstractString; from=nothing)
         _lib_call_error(e)
     end
     ptr == C_NULL && error("PowerIO.parse_file: " * _cstr(err))
-    return CaseHandle(ptr)
+    return NetworkHandle(ptr)
 end
 
 # In-memory sibling of `_parse_handle`: parse `text` under an explicit `format`
@@ -240,7 +240,7 @@ function _parse_handle_str(text::AbstractString, format::AbstractString)
         _lib_call_error(e)
     end
     ptr == C_NULL && error("PowerIO.parse_str: " * _cstr(err))
-    return CaseHandle(ptr)
+    return NetworkHandle(ptr)
 end
 
 function _from_json_handle(text::AbstractString)
@@ -254,12 +254,12 @@ function _from_json_handle(text::AbstractString)
         _lib_call_error(e)
     end
     ptr == C_NULL && error("PowerIO.from_json: " * _cstr(err))
-    return CaseHandle(ptr)
+    return NetworkHandle(ptr)
 end
 
 _cstr(buf::Vector{UInt8}) = unsafe_string(pointer(buf))
 
-function _to_json(h::CaseHandle)
+function _to_json(h::NetworkHandle)
     err = zeros(UInt8, _ERRLEN)
     s = ccall((:pio_to_json, _lib()), Cstring, (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
               h.ptr, err, length(err))
@@ -280,7 +280,7 @@ loads, shunts, branches, generators, storage, and hvdc tables plus `base_mva`,
 `name`, and `source_format` (the format it was read from). For now the tables are
 the parsed JSON (`net.data`).
 
-A `Network` from [`parse_file`](@ref) also keeps its live Rust [`CaseHandle`](@ref)
+A `Network` from [`parse_file`](@ref) also keeps its live Rust [`NetworkHandle`](@ref)
 (`net.handle`), so the `to_*` transforms ([`to_normalized`](@ref), [`to_dense`](@ref),
 [`to_matpower`](@ref), [`to_arrow`](@ref)) work straight off it. The handle's
 finalizer frees the Rust case once the `Network` is unreachable. A `Network` constructed
@@ -289,7 +289,7 @@ on it, but the handle-only transforms error.
 """
 struct Network
     data::JSON3.Object
-    handle::Union{CaseHandle,Nothing}
+    handle::Union{NetworkHandle,Nothing}
 end
 Network(data::JSON3.Object) = Network(data, nothing)
 
@@ -343,18 +343,18 @@ end
 function _live_handle(net::Network, fname::AbstractString)
     h = net.handle
     (h === nothing || h.ptr == C_NULL) && error(
-        "PowerIO.$fname: this Network has no live case handle (produce it with parse_file, parse_str, or from_json).")
+        "PowerIO.$fname: this Network has no live network handle (produce it with parse_file, parse_str, or from_json).")
     return h
 end
 
 # Derive a normalized handle from a live one via `pio_to_normalized` (a read-only
 # borrow of the source case, so the source handle stays valid).
-function _normalize_handle(h::CaseHandle)
+function _normalize_handle(h::NetworkHandle)
     err = zeros(UInt8, _ERRLEN)
     ptr = ccall((:pio_to_normalized, _lib()), Ptr{Cvoid},
                 (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
     ptr == C_NULL && error("PowerIO.to_normalized: " * _cstr(err))
-    return CaseHandle(ptr)
+    return NetworkHandle(ptr)
 end
 
 """
