@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.0.2
+## 0.1.0
 
 - `read_gridfm` / `read_gridfm_scenarios` read a gridfm-datakit Parquet dataset
   back into a `Network` — the inverse of the gridfm writer, the ML→classical
