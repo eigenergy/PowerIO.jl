@@ -34,8 +34,11 @@ sources = [
 script = raw"""
 cd $WORKSPACE/srcdir/powerio
 # --features arrow ships pio_export_arrow (the zero-copy Arrow C Data Interface
-# export the binding's to_arrow calls); the base ABI is identical without it.
-cargo build --release -p powerio-capi --target ${rust_target} --features arrow
+# export to_arrow calls); --features gridfm ships pio_read_gridfm (the
+# gridfm-datakit Parquet reader read_gridfm calls). The base ABI is identical
+# without them. NOTE: the `sources` commit above must include pio_read_gridfm
+# (powerio PR #70 and later) before re-cutting the artifact with gridfm enabled.
+cargo build --release -p powerio-capi --target ${rust_target} --features arrow,gridfm
 out=target/${rust_target}/release
 if [[ "${target}" == *-mingw32* ]]; then
     install -Dvm755 "${out}/powerio_capi.dll" "${bindir}/libpowerio_capi.dll"
