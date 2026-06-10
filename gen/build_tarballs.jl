@@ -21,11 +21,11 @@ version = v"0.0.1"
 
 # Must pin a commit reporting `PIO_ABI_VERSION` 3: the binding's load-time
 # handshake refuses anything else, and `to_arrow` needs the Arrow export. Pinned
-# to the powerio main head; repin to the v0.0.1 release tag for the Yggdrasil
-# submission (the right long-term anchor for a reproducible build).
+# to the v0.0.1 release tag (the right long-term anchor for a reproducible
+# build and the Yggdrasil submission).
 sources = [
     GitSource("https://github.com/eigenergy/powerio.git",
-              "2afcee05c6be73b9b412c9506573a3f7e2f6e79d"),
+              "db944afe3819b2efd67060eda056003846f8e8ad"),
 ]
 
 # `cargo build` writes the cdylib under target/<rust_target>/release. Names differ
