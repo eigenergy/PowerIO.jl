@@ -13,7 +13,8 @@ all over the same C ABI:
   costs, storage, HVDC): the accessors and [`to_json`](@ref).
 - [`to_dense`](@ref): the numeric tables as dense typed arrays for matrix assembly,
   straight from the C ABI extractors, no JSON.
-- [`to_arrow`](@ref): one table zero copy over the Arrow C Data Interface.
+- [`to_arrow`](@ref): one table over the Arrow C Data Interface (owned columns by
+  default; zero copy with `copy=false`).
 
 [`to_normalized`](@ref) derives a per-unit / radian / filtered / reindexed copy, and
 [`to_matpower`](@ref) / [`convert_file`](@ref) serialize back out.
@@ -647,8 +648,8 @@ builds the JSON view). Fields:
 - `n_components::Int`, `is_radial::Bool` — connectivity of the in-service topology.
 
 For the rich, lossless element tables (costs, extras, storage, HVDC) use the
-accessors on a [`parse_file`](@ref) `Network`; for zero-copy columnar export use
-[`to_arrow`](@ref).
+accessors on a [`parse_file`](@ref) `Network`; for self-describing columnar export
+use [`to_arrow`](@ref).
 """
 to_dense(net::Network) = _dense_from_handle(_live_handle(net, "to_dense").ptr)
 function to_dense(path::AbstractString; from=nothing)
