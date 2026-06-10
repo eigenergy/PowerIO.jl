@@ -6,7 +6,9 @@ name: Register Package
 # run only means the comment was posted: registration errors (duplicate
 # version, compat problems) surface as Registrator replies on the commit
 # thread and on the General PR. Manual fallback: comment
-# `@JuliaRegistrator register` on any commit.
+# `@JuliaRegistrator register` on any commit — also the recourse if a dispatch
+# breaks after a runner Node bump (upstream is dormant; the runner
+# force-migrates its node16 runtime).
 on:
   workflow_dispatch:
     inputs:
