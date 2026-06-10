@@ -16,11 +16,11 @@ jobs:
       # secrets can't be read in `if:` directly; surface it as an env var to gate on.
       POWERIO_TOKEN: ${{ secrets.POWERIO_REPO_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v2
+      - uses: actions/checkout@v6
+      - uses: julia-actions/setup-julia@v3
         with:
           version: ${{ matrix.julia-version }}
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       # Build the C ABI from a sibling powerio checkout so the ccall tests run for
       # real. The probe checks out eigenergy/powerio anonymously when it is public;
       # while it is private, add a token with read access to it as the
@@ -40,7 +40,7 @@ jobs:
           fi
       - name: Check out powerio
         if: steps.powerio.outputs.available == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: eigenergy/powerio
           path: powerio
@@ -69,11 +69,11 @@ jobs:
       contents: write
       statuses: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v2
+      - uses: actions/checkout@v6
+      - uses: julia-actions/setup-julia@v3
         with:
           version: '1'
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       # The module loads without the C library (resolution is lazy and
       # doctest=false), so the docs build needs no Rust toolchain.
       - name: Instantiate docs environment
