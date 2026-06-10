@@ -19,6 +19,10 @@ all over the same C ABI:
 [`to_normalized`](@ref) derives a per-unit / radian / filtered / reindexed copy, and
 [`to_matpower`](@ref) / [`convert_file`](@ref) serialize back out.
 
+[`read_gridfm`](@ref) / [`read_gridfm_scenarios`](@ref) read a gridfm-datakit Parquet
+dataset back into a `Network` (the ML→classical return leg; lossy but
+power-flow-complete, needs powerio-capi built `--features gridfm`).
+
 At first use the binding checks the library's ABI version (`pio_abi_version`)
 against the version it targets (`PIO_ABI_VERSION`) and refuses a stale or
 mismatched library with an error stating both versions.
@@ -35,7 +39,8 @@ import Libdl
 
 export Network, parse_file, parse_str, from_json, convert_file, to_format,
        to_normalized, to_json, to_dense, to_matpower, to_arrow, ArrowTable,
-       to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data
+       to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
+       read_gridfm, read_gridfm_scenarios
 
 # --- library resolution -------------------------------------------------
 #
@@ -982,5 +987,6 @@ function parse_ac_power_data(input; from=nothing, filtered::Bool=true,
 end
 
 include("arrow.jl")
+include("gridfm.jl")
 
 end # module

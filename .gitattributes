@@ -4,3 +4,8 @@
 # collapse them in diffs. The files stay in the repo so the test suite stays
 # hermetic.
 test/data/**/*.m linguist-vendored
+
+# gridfm-datakit Parquet test fixtures are binary: pin them so no platform mangles
+# them (CRLF conversion would corrupt the bytes the reader round-trips) and keep
+# them out of textual diffs.
+test/data/**/*.parquet binary

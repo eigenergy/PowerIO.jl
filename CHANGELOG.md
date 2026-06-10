@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.2
+
+- `read_gridfm` / `read_gridfm_scenarios` read a gridfm-datakit Parquet dataset
+  back into a `Network` — the inverse of the gridfm writer, the ML→classical
+  return leg (lossy but power-flow-complete; what the schema can't round-trip
+  comes back in `warnings`). Needs powerio-capi built `--features gridfm`;
+  `gridfm_available()` probes for the symbol (no ABI bump, still version 3).
+
 ## 0.0.1
 
 First release, targeting powerio C ABI version 3.

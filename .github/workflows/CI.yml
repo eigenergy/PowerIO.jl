@@ -54,9 +54,10 @@ jobs:
           workspaces: powerio
       - name: Build powerio-capi
         if: steps.powerio.outputs.available == 'true'
-        # --features arrow so the zero-copy to_arrow tests run against a real
-        # pio_export_arrow symbol instead of skipping (arrow_available() gates them).
-        run: cargo build -p powerio-capi --release --features arrow --manifest-path powerio/Cargo.toml
+        # --features arrow,gridfm so the to_arrow and read_gridfm tests run against
+        # real pio_export_arrow / pio_read_gridfm symbols instead of skipping
+        # (arrow_available() / gridfm_available() gate them).
+        run: cargo build -p powerio-capi --release --features arrow,gridfm --manifest-path powerio/Cargo.toml
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
         env:

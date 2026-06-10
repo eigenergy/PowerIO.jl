@@ -113,6 +113,17 @@ t.from, t.x, t.tap
 z = to_arrow(net, :branch; copy=false)      # zero-copy views; keep `z` alive while reading
 ```
 
+`read_gridfm` reads a gridfm-datakit Parquet dataset back into a `Network` — the
+inverse of the gridfm writer, the ML→classical return leg (needs the library built
+with `--features gridfm`; `gridfm_available()` reports it). The read is lossy but
+power-flow-complete; what the schema can't round-trip comes back in `warnings`.
+
+```julia
+r = read_gridfm("out/case14/raw")              # (; network, scenario, warnings)
+to_matpower(r.network)                         # gridfm → any classical format
+reads = read_gridfm_scenarios("out/case14/raw")  # one result per scenario id
+```
+
 At first use the binding checks `pio_abi_version` against the version it targets
 and refuses a stale or mismatched library with an error stating both versions.
 
@@ -124,6 +135,7 @@ and refuses a stale or mismatched library with an error stating both versions.
 | ExaPowerIO.jl / ExaModelsPower.jl | out | `to_powerdata` / `parse_ac_power_data` feeding `build_polar_opf` / `build_rect_opf` / `build_dcopf` |
 | [PowerDiff.jl](https://github.com/grid-opt-alg-lab/PowerDiff.jl) | out | PowerDiff depends on PowerIO as its parser and data layer |
 | MATPOWER / PSS/E / PowerWorld / PowerModels JSON / egret | file | `parse_file` / `convert_file` |
+| GridFM (gridfm-datakit Parquet) | in | `read_gridfm` / `read_gridfm_scenarios` |
 
 The `parse_file` / `to_*` naming is shared across Rust, Python, Julia, and the
 C ABI; the cross language table is in [docs/languages.md](docs/languages.md).

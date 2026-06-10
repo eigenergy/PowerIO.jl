@@ -1,0 +1,21 @@
+{
+  "case_name": "case14",
+  "base_mva": 100.0,
+  "scenario": 0,
+  "n_scenarios": 2,
+  "schema": "gridfm-datakit",
+  "n_buses": 14,
+  "n_branches": 20,
+  "n_branches_in_service": 20,
+  "n_gens": 5,
+  "reference_bus": 0,
+  "dropped_zero_impedance": 0,
+  "degenerate_cost_gens": 0,
+  "files": [
+    "bus_data.parquet",
+    "gen_data.parquet",
+    "branch_data.parquet",
+    "y_bus_data.parquet"
+  ],
+  "powerio_version": "0.0.1"
+}
