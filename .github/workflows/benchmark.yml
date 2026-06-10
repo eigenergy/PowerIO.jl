@@ -24,7 +24,7 @@ jobs:
         run: echo "TANDEM_REPO_TOKEN is not set — skipping benchmarks (the parse benchmarks need powerio's C ABI, and powerio is private). Add the secret to enable."
       - name: Check out powerio for the C ABI
         if: env.TANDEM_TOKEN != ''
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: eigenergy/powerio
           path: powerio
