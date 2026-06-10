@@ -19,7 +19,7 @@ name = "PowerIO"
 # PowerIO.jl *package* version for the first release.
 version = v"0.0.1"
 
-# Must pin a commit reporting `PIO_ABI_VERSION` 2: the binding's load-time
+# Must pin a commit reporting `PIO_ABI_VERSION` 3: the binding's load-time
 # handshake refuses anything else, and `to_arrow` needs the Arrow export. Pinned
 # to the powerio main head; repin to the v0.0.1 release tag for the Yggdrasil
 # submission (the right long-term anchor for a reproducible build).
