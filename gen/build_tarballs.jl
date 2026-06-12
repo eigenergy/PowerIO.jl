@@ -17,12 +17,12 @@ using BinaryBuilder
 name = "PowerIO"
 # Tracks the powerio-capi *crate* version (the binary), not the PowerIO.jl
 # package version: the binding is 0.2.0 while the v4 binary ships as powerio
-# v0.2.1.
-version = v"0.2.1"
+# v0.3.0.
+version = v"0.3.0"
 
 # Must pin a commit reporting `PIO_ABI_VERSION` 4: the binding's load-time
-# handshake refuses anything else. Pinned to the powerio#112 head (the ABI v4
-# lockstep partner of this release); move to the v0.2.1 release tag once it is
+# handshake refuses anything else. Pinned to the powerio#116 head (the ABI v4
+# lockstep partner of this release); move to the v0.3.0 release tag once it is
 # cut (the right long-term anchor for a reproducible build and the Yggdrasil
 # submission).
 sources = [

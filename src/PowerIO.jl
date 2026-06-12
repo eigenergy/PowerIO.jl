@@ -229,16 +229,29 @@ const _WARNLEN = 4096
 Opaque handle to a parsed network inside the Rust core. Freed by its finalizer;
 you normally go straight to [`parse_file`](@ref), which returns a [`Network`].
 """
+# The allocating library's `pio_network_free`, memoized per resolved path:
+# resolving `_lib()` at finalization time would cross allocators after a
+# `set_library!` swap. The un-dlclosed handle deliberately pins the library so
+# the pointer stays valid for every outstanding finalizer.
+const _FREE_FN = Ref{Ptr{Cvoid}}(C_NULL)
+const _FREE_FN_LIB = Ref{String}("")
+function _network_free_fn()
+    lib = _lib()
+    if _FREE_FN[] == C_NULL || _FREE_FN_LIB[] != lib
+        _FREE_FN[] = Libdl.dlsym(Libdl.dlopen(lib), :pio_network_free)
+        _FREE_FN_LIB[] = lib
+    end
+    return _FREE_FN[]
+end
+
 mutable struct NetworkHandle
     ptr::Ptr{Cvoid}
     function NetworkHandle(ptr::Ptr{Cvoid})
         ptr == C_NULL && error("PowerIO: null network handle")
+        # Resolve before `new`: a failed lookup must not strand a handle with
+        # no finalizer attached.
+        free = _network_free_fn()
         h = new(ptr)
-        # Capture the allocating library's free function now: resolving `_lib()`
-        # at finalization time would cross allocators after a `set_library!`
-        # swap. The un-dlclosed handle deliberately pins the library so the
-        # pointer stays valid for the finalizer's lifetime.
-        free = Libdl.dlsym(Libdl.dlopen(_lib()), :pio_network_free)
         finalizer(h) do x
             x.ptr == C_NULL || ccall(free, Cvoid, (Ptr{Cvoid},), x.ptr)
             x.ptr = C_NULL
@@ -514,7 +527,8 @@ end
 Convert `path` to format `to`; every reader/writer pair converts. A same-format
 conversion is byte exact; a cross-format one is maximal fidelity and reports
 whatever the target can't carry in `warnings`. Takes the same format tokens as
-[`parse_file`](@ref). `from` overrides extension inference (needed to tell the
+[`parse_file`](@ref), except `"pypsa-csv"`: PyPSA folders are directories, not
+text documents. `from` overrides extension inference (needed to tell the
 `.json` formats apart).
 """
 function convert_file(path::AbstractString, to::AbstractString; from=nothing)

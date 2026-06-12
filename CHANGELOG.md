@@ -2,7 +2,7 @@
 
 ## 0.2.0
 
-Targets powerio C ABI version 4 (powerio v0.2.1); an older library or artifact
+Targets powerio C ABI version 4 (powerio v0.3.0); an older library or artifact
 is refused at first use. Breaking.
 
 - `to_dense` renames: `reference_bus → ref_bus_index`, `n_components →
