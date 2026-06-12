@@ -74,6 +74,11 @@ using JSON3
             @test PowerIO.n_buses(net_from_json) == 14
             @test PowerIO.source_format(net_from_json) == "Matpower"
 
+            # The snapshot is also a first-class format name (ABI 4: no format
+            # symbols), and the MATPOWER reader is total: no handle warnings.
+            @test PowerIO.n_buses(parse_str(to_json(net), "powerio-json")) == 14
+            @test isempty(PowerIO.warnings(net))
+
             # EGRET and PowerModels both use .json (fixtures produced by convert_file).
             # The positive cases confirm each fixture parses under its own format; the
             # negative cases prove `from` overrides inference, since forcing the wrong
@@ -242,8 +247,8 @@ using JSON3
             @test (d.n, d.m, d.ng) == (14, 20, 5)
             @test d.base_mva == 100.0
             @test d.bus_ids == collect(1:14)                # case14 buses are 1..14
-            @test d.reference_bus == 0                      # dense 0-based index of the REF bus
-            @test d.n_components == 1
+            @test d.ref_bus_index == 0                      # dense 0-based INDEX of the REF bus
+            @test d.n_islands == 1
             @test d.is_radial == false                      # case14 has loops
             @test length(d.branch.from) == 20 && length(d.branch.x) == 20
             @test all(>(0), d.branch.x)                     # reactances are positive
@@ -289,13 +294,21 @@ using JSON3
 
             @test_throws ArgumentError to_arrow(m, :nonesuch)
 
-            # copy=false: the zero-copy ArrowTable path, same values; releasing it
-            # (finalizer) must not fault, and a second finalize is a no-op.
+            # copy=false: the zero-copy ArrowTable path, same values. A column
+            # extracted from the table roots the shared buffers on its own, so
+            # it survives the table being collected (the old footgun).
             z = to_arrow(m, :bus; copy=false)
             @test z isa ArrowTable
             @test z.id == collect(1:14)
-            finalize(z)
-            finalize(z)
+            @test z.id isa PowerIO.ArrowColumn{Int64}
+            col = z.id
+            z = nothing
+            GC.gc(); GC.gc()
+            @test col == collect(1:14)
+            # Dropping the last reference releases the producer (exercised by GC;
+            # the release callback NULLs itself, so double release is a no-op).
+            col = nothing
+            GC.gc()
             @test true
         end
     end
@@ -314,6 +327,8 @@ using JSON3
             @test r.scenario == 0
             @test r.warnings isa Vector{String}
             @test !isempty(r.warnings)
+            # ABI 4: the lossy read's warnings attach to the handle itself.
+            @test PowerIO.warnings(r.network) == r.warnings
             @test PowerIO.n_buses(r.network) == 14
             @test PowerIO.n_branches(r.network) == 20
             @test PowerIO.n_gens(r.network) == 5

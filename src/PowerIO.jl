@@ -37,6 +37,8 @@ using JSON3
 using LazyArtifacts
 import Libdl
 
+# `warnings` stays unexported (accessor surface, like `n_buses`): the documented
+# destructuring convention `text, warnings = convert_file(...)` would shadow it.
 export Network, parse_file, parse_str, from_json, convert_file, to_format,
        to_normalized, to_json, to_dense, to_matpower, to_arrow, ArrowTable,
        to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
@@ -122,12 +124,17 @@ end
 #
 # The C ABI carries an integer ABI version (`pio_abi_version`, added alongside the
 # typed extractors). This binding targets exactly `PIO_ABI_VERSION`; bump the two in
-# lockstep when an existing `pio_*` signature or the JSON transport schema changes.
+# lockstep when an existing `pio_*` signature or the snapshot schema changes.
 # Checking it once at first use turns "library predates this binding" and "library is
 # from an incompatible commit" into a clear error at the boundary, instead of a
 # cryptic ccall fault (a wrong signature) or silently wrong numbers deep in a solver.
+#
+# ABI 4 is the naming-grammar freeze: format strings instead of format symbols
+# (the JSON transport is the `powerio-json` format through pio_to_format /
+# pio_parse_str), cap/count array extractors, byte-length pio_warnings, and the
+# bus/node/branch vocabulary. See powerio-capi's header preamble.
 
-const PIO_ABI_VERSION = UInt32(3)
+const PIO_ABI_VERSION = UInt32(4)
 const _ABI_OK = Ref{Bool}(false)
 
 """
@@ -187,6 +194,10 @@ function library_available()
 end
 
 const _ERRLEN = 512
+# Per-call fidelity warnings (pio_to_format / pio_convert_file) can run long on a
+# lossy conversion; give them headroom. Handle-attached warnings size exactly via
+# pio_warnings instead.
+const _WARNLEN = 4096
 
 # --- handle layer -------------------------------------------------------
 
@@ -248,31 +259,14 @@ function _parse_handle_str(text::AbstractString, format::AbstractString)
     return NetworkHandle(ptr)
 end
 
-function _from_json_handle(text::AbstractString)
-    _ensure_compatible()
-    err = zeros(UInt8, _ERRLEN)
-    ptr = try
-        ccall((:pio_from_json, _lib()), Ptr{Cvoid},
-              (Cstring, Ptr{UInt8}, Csize_t),
-              String(text), err, length(err))
-    catch e
-        _lib_call_error(e)
-    end
-    ptr == C_NULL && error("PowerIO.from_json: " * _cstr(err))
-    return NetworkHandle(ptr)
-end
+# `buf` must stay rooted across the unsafe_string read; without the preserve the
+# compiler may drop the buffer after `pointer(buf)` and a GC mid-copy dangles.
+_cstr(buf::Vector{UInt8}) = GC.@preserve buf unsafe_string(pointer(buf))
 
-_cstr(buf::Vector{UInt8}) = unsafe_string(pointer(buf))
-
-function _to_json(h::NetworkHandle)
-    err = zeros(UInt8, _ERRLEN)
-    s = ccall((:pio_to_json, _lib()), Cstring, (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
-              h.ptr, err, length(err))
-    s == C_NULL && error("PowerIO: to_json failed: " * _cstr(err))
-    json = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
-    return json
-end
+# Serialize a live handle to the canonical `powerio-json` snapshot — the rich
+# transport the accessors materialize from. A format string under ABI 4, not a
+# symbol; the snapshot is lossless, so the warnings it returns are empty.
+_to_json(h::NetworkHandle) = first(_format_from_handle(h, "powerio-json", "snapshot"))
 
 # --- public surface -----------------------------------------------------
 
@@ -311,7 +305,8 @@ From a file `path` the format is inferred from the extension unless `from` is gi
 
 Accepted format tokens (case-insensitive): `"matpower"`/`"m"`, `"powermodels-json"`/
 `"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`, `"psse"`/`"raw"`,
-`"powerworld"`/`"aux"`.
+`"powerworld"`/`"aux"`, `"powerio-json"`/`"json"` (the canonical snapshot
+[`to_json`](@ref) writes).
 """
 function parse_file(path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)
@@ -334,11 +329,12 @@ parse_str(text::AbstractString, format::AbstractString="matpower") =
 """
     from_json(text) -> Network
 
-Rebuild a live [`Network`](@ref) from the JSON transport produced by
-[`to_json`](@ref). The result has a Rust handle, so `to_*` transforms work on it.
+Rebuild a live [`Network`](@ref) from the snapshot produced by [`to_json`](@ref)
+(the `powerio-json` format, validated on read). The result has a Rust handle, so
+`to_*` transforms work on it.
 """
 function from_json(text::AbstractString)
-    h = _from_json_handle(text)
+    h = _parse_handle_str(text, "powerio-json")
     return Network(JSON3.read(_to_json(h)), h)
 end
 
@@ -352,12 +348,16 @@ function _live_handle(net::Network, fname::AbstractString)
     return h
 end
 
-# Derive a normalized handle from a live one via `pio_to_normalized` (a read-only
-# borrow of the source case, so the source handle stays valid).
+# Derive a normalized handle from a live one via `pio_normalize` (a read-only
+# borrow of the source case, so the source handle stays valid). GC.@preserve:
+# Julia frees an object after its last use, not at end of call, so without it a
+# GC triggered between extracting `h.ptr` and the ccall could finalize `h` and
+# hand the Rust side a freed pointer. Every helper that lowers a handle to a raw
+# pointer carries the same guard.
 function _normalize_handle(h::NetworkHandle)
     err = zeros(UInt8, _ERRLEN)
-    ptr = ccall((:pio_to_normalized, _lib()), Ptr{Cvoid},
-                (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
+    ptr = GC.@preserve h ccall((:pio_normalize, _lib()), Ptr{Cvoid},
+                               (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
     ptr == C_NULL && error("PowerIO.to_normalized: " * _cstr(err))
     return NetworkHandle(ptr)
 end
@@ -387,48 +387,62 @@ reads back. Uses the live handle when present, else the cached `net.data`.
 """
 to_json(net::Network) = net.handle === nothing ? JSON3.write(net.data) : _to_json(net.handle)
 
-# Serialize a live handle to MATPOWER `.m` text.
-function _matpower_from_handle(p::Ptr{Cvoid}, what::AbstractString)
+# Serialize a live handle to the named format via `pio_to_format` — the one text
+# serializer; every format is a string under ABI 4. Takes the handle (not a raw
+# pointer) and preserves it across the ccall; see `_normalize_handle`.
+function _format_from_handle(h::NetworkHandle, to::AbstractString, what::AbstractString)
+    warn = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
-    s = ccall((:pio_to_matpower, _lib()), Cstring,
-              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
-              p, err, length(err))
-    s == C_NULL && error("PowerIO.to_matpower: " * _cstr(err) * " ($what)")
-    out = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
-    return out
-end
-
-function _format_from_handle(p::Ptr{Cvoid}, to::AbstractString, what::AbstractString)
-    warn = zeros(UInt8, _ERRLEN)
-    err = zeros(UInt8, _ERRLEN)
-    s = ccall((:pio_to_format, _lib()), Cstring,
-              (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
-              p, String(to), warn, length(warn), err, length(err))
+    s = GC.@preserve h ccall((:pio_to_format, _lib()), Cstring,
+                             (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
+                             h.ptr, String(to), warn, length(warn), err, length(err))
     s == C_NULL && error("PowerIO.to_format: " * _cstr(err) * " ($what)")
     text = unsafe_string(s)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
-    warnings = filter(!isempty, split(_cstr(warn), '\n'))
-    return (text, warnings)
+    warns = filter(!isempty, split(_cstr(warn), '\n'))
+    return (text, warns)
 end
 
 """
     to_matpower(net::Network) -> String
 
-Serialize `net` to MATPOWER `.m` text, byte exact when the input was MATPOWER. For a
-file in one shot use [`convert_file`](@ref)`(path, "matpower")`.
+Serialize `net` to MATPOWER `.m` text, byte exact when the input was MATPOWER —
+a convenience over [`to_format`](@ref)`(net, "matpower")` that drops the
+warnings. For a file in one shot use [`convert_file`](@ref)`(path, "matpower")`.
 """
-to_matpower(net::Network) =
-    _matpower_from_handle(_live_handle(net, "to_matpower").ptr, repr(network_name(net)))
+to_matpower(net::Network) = first(to_format(net, "matpower"))
 
 """
     to_format(net::Network, to) -> (text, warnings)
 
 Serialize a parsed network to format `to` without reparsing the input file.
-Returns the target text and any fidelity warnings.
+Returns the target text and any fidelity warnings. `"powerio-json"` (alias
+`"json"`) is the canonical lossless snapshot [`from_json`](@ref) reads back.
 """
 to_format(net::Network, to::AbstractString) =
-    _format_from_handle(_live_handle(net, "to_format").ptr, to, repr(network_name(net)))
+    _format_from_handle(_live_handle(net, "to_format"), to, repr(network_name(net)))
+
+"""
+    PowerIO.warnings(net::Network) -> Vector{String}
+
+The fidelity warnings attached to `net`'s handle by whichever constructor built
+it (a lossy reader itemizes what it ignored; total readers attach none). Sized
+exactly via the byte-length query of `pio_warnings`. Unexported, because
+`text, warnings = convert_file(...)` is the documented destructuring idiom and
+would shadow it.
+"""
+function warnings(net::Network)
+    h = _live_handle(net, "warnings")
+    GC.@preserve h begin
+        len = ccall((:pio_warnings, _lib()), Csize_t,
+                    (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, C_NULL, 0)
+        len == 0 && return String[]
+        buf = zeros(UInt8, len + 1)
+        ccall((:pio_warnings, _lib()), Csize_t,
+              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, buf, length(buf))
+        return String.(filter(!isempty, split(_cstr(buf), '\n')))
+    end
+end
 
 """
     convert_file(path, to; from=nothing) -> (text, warnings)
@@ -442,18 +456,20 @@ extension inference (needed to tell egret and PowerModels `.json` apart).
 """
 function convert_file(path::AbstractString, to::AbstractString; from=nothing)
     _ensure_compatible()
-    warn = zeros(UInt8, _ERRLEN)
+    warn = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
     # Pass the format hint as a `String` (ccall roots it) or `C_NULL` for inference.
+    # ABI 4 argument order: (path, from, to) — the converters read as
+    # "convert <input> from <source> to <target>".
     fromc = from === nothing ? C_NULL : String(from)
     s = ccall((:pio_convert_file, _lib()), Cstring,
               (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
-              path, to, fromc, warn, length(warn), err, length(err))
+              path, fromc, to, warn, length(warn), err, length(err))
     s == C_NULL && error("PowerIO.convert_file: " * _cstr(err))
     text = unsafe_string(s)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
-    warnings = filter(!isempty, split(_cstr(warn), '\n'))
-    return (text, warnings)
+    warns = filter(!isempty, split(_cstr(warn), '\n'))
+    return (text, warns)
 end
 
 # --- accessor surface ---------------------------------------------------
@@ -532,7 +548,7 @@ source_format(net::Network) = String(net.data.source_format)
 
 The 1-based id of the reference (slack) bus, or `nothing` unless exactly one bus
 has `kind == "REF"`. This mirrors the "exactly one" rule of the C ABI's
-`pio_reference_bus` (which returns a dense 0-based index, not an id), but returns
+`pio_ref_bus_index` (which returns a dense 0-based index, not an id), but returns
 the 1-based id space the other accessors use.
 """
 function reference_bus_id(net::Network)
@@ -563,71 +579,86 @@ end
 
 # --- dense numeric surface ----------------------------------------------
 #
-# The JSON transport above is the rich, lossless view (every field + extras). For
-# the matrix-assembly path a consumer wants the numeric tables as dense typed
-# arrays without parsing JSON: the C ABI fills caller-allocated buffers
-# (`pio_bus_ids` / `pio_branches` / `pio_gens` / `pio_nodal_*`) straight from the
-# IndexCore the handle built once at parse, and answers the topology scalars
-# (`pio_n_components` / `pio_is_radial` / `pio_reference_bus`) off the same core.
+# The snapshot above is the rich, lossless view (every field + extras). For the
+# matrix-assembly path a consumer wants the numeric tables as dense typed arrays
+# without parsing JSON: the C ABI fills caller-allocated buffers (`pio_bus_ids` /
+# `pio_branches` / `pio_gens` / `pio_bus_demand` / `pio_bus_shunt`) straight from
+# the IndexCore the handle built once at parse, and answers the topology scalars
+# (`pio_n_islands` / `pio_is_radial` / `pio_ref_bus_index`) off the same core.
+# Every extractor takes a cap and returns the total available (asserted below: a
+# count drifting between the n_* query and the fill would mean a torn handle).
 # Raw MATPOWER units throughout: 1-based bus ids in `bus_ids`, branch `from`/`to`,
 # and gen `bus` (the same id space — invert `bus_ids` to map an endpoint to a dense
 # row), degrees for `shift`, total line charging in `b`, raw `tap` (0 means 1).
+#
+# Every helper takes the NetworkHandle and preserves it across its ccalls (the
+# raw pointer never travels alone); see `_normalize_handle` for why.
 
-function _branch_tables(p::Ptr{Cvoid}, m::Int)
+function _branch_tables(h::NetworkHandle, m::Int)
     from = Vector{Int64}(undef, m); to = Vector{Int64}(undef, m)
     r = Vector{Float64}(undef, m); x = Vector{Float64}(undef, m); b = Vector{Float64}(undef, m)
     tap = Vector{Float64}(undef, m); shift = Vector{Float64}(undef, m)
     insvc = Vector{UInt8}(undef, m)
-    ccall((:pio_branches, _lib()), Cvoid,
+    total = GC.@preserve h ccall((:pio_branches, _lib()), Csize_t,
           (Ptr{Cvoid}, Ptr{Int64}, Ptr{Int64}, Ptr{Float64}, Ptr{Float64},
-           Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{UInt8}),
-          p, from, to, r, x, b, tap, shift, insvc)
+           Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{UInt8}, Csize_t),
+          h.ptr, from, to, r, x, b, tap, shift, insvc, m)
+    Int(total) == m || error("PowerIO.to_dense: branch count changed under us ($total vs $m)")
     return (; from, to, r, x, b, tap, shift, in_service = insvc)
 end
 
-function _gen_tables(p::Ptr{Cvoid}, ng::Int)
+function _gen_tables(h::NetworkHandle, ng::Int)
     bus = Vector{Int64}(undef, ng); pg = Vector{Float64}(undef, ng)
     pmax = Vector{Float64}(undef, ng); pmin = Vector{Float64}(undef, ng)
     insvc = Vector{UInt8}(undef, ng)
-    ccall((:pio_gens, _lib()), Cvoid,
-          (Ptr{Cvoid}, Ptr{Int64}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{UInt8}),
-          p, bus, pg, pmax, pmin, insvc)
+    total = GC.@preserve h ccall((:pio_gens, _lib()), Csize_t,
+          (Ptr{Cvoid}, Ptr{Int64}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{UInt8}, Csize_t),
+          h.ptr, bus, pg, pmax, pmin, insvc, ng)
+    Int(total) == ng || error("PowerIO.to_dense: gen count changed under us ($total vs $ng)")
     return (; bus, pg, pmax, pmin, in_service = insvc)
 end
 
-function _nodal_demand(p::Ptr{Cvoid}, n::Int)
+function _bus_demand(h::NetworkHandle, n::Int)
     pd = Vector{Float64}(undef, n); qd = Vector{Float64}(undef, n)
-    ccall((:pio_nodal_demand, _lib()), Cvoid, (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}), p, pd, qd)
+    GC.@preserve h ccall((:pio_bus_demand, _lib()), Csize_t,
+          (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}, Csize_t), h.ptr, pd, qd, n)
     return (pd, qd)
 end
 
-function _nodal_shunt(p::Ptr{Cvoid}, n::Int)
+function _bus_shunt(h::NetworkHandle, n::Int)
     gs = Vector{Float64}(undef, n); bs = Vector{Float64}(undef, n)
-    ccall((:pio_nodal_shunt, _lib()), Cvoid, (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}), p, gs, bs)
+    GC.@preserve h ccall((:pio_bus_shunt, _lib()), Csize_t,
+          (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}, Csize_t), h.ptr, gs, bs, n)
     return (gs, bs)
 end
 
-# Dense numeric extraction off a live handle, shared by the Network and path methods.
-function _dense_from_handle(p::Ptr{Cvoid})
-    n = Int(ccall((:pio_n_buses, _lib()), Csize_t, (Ptr{Cvoid},), p))
-    m = Int(ccall((:pio_n_branches, _lib()), Csize_t, (Ptr{Cvoid},), p))
-    ng = Int(ccall((:pio_n_gens, _lib()), Csize_t, (Ptr{Cvoid},), p))
-    bus_ids = Vector{Int64}(undef, n)
-    ccall((:pio_bus_ids, _lib()), Cvoid, (Ptr{Cvoid}, Ptr{Int64}), p, bus_ids)
-    pd, qd = _nodal_demand(p, n)
-    gs, bs = _nodal_shunt(p, n)
-    return (;
-        n, m, ng,
-        base_mva = ccall((:pio_base_mva, _lib()), Cdouble, (Ptr{Cvoid},), p),
-        bus_ids,
-        branch = _branch_tables(p, m),
-        gen = _gen_tables(p, ng),
-        demand = (; pd, qd),
-        shunt = (; gs, bs),
-        reference_bus = Int(ccall((:pio_reference_bus, _lib()), Cptrdiff_t, (Ptr{Cvoid},), p)),
-        n_components = Int(ccall((:pio_n_components, _lib()), Csize_t, (Ptr{Cvoid},), p)),
-        is_radial = ccall((:pio_is_radial, _lib()), Cint, (Ptr{Cvoid},), p) != 0,
-    )
+# Dense numeric extraction off a live handle, shared by the Network and path
+# methods. The whole body runs under GC.@preserve h: a dozen ccalls with Julia
+# allocations between them, exactly the shape where a finalizer racing the raw
+# pointer would be a use after free.
+function _dense_from_handle(h::NetworkHandle)
+    GC.@preserve h begin
+        p = h.ptr
+        n = Int(ccall((:pio_n_buses, _lib()), Csize_t, (Ptr{Cvoid},), p))
+        m = Int(ccall((:pio_n_branches, _lib()), Csize_t, (Ptr{Cvoid},), p))
+        ng = Int(ccall((:pio_n_gens, _lib()), Csize_t, (Ptr{Cvoid},), p))
+        bus_ids = Vector{Int64}(undef, n)
+        ccall((:pio_bus_ids, _lib()), Csize_t, (Ptr{Cvoid}, Ptr{Int64}, Csize_t), p, bus_ids, n)
+        pd, qd = _bus_demand(h, n)
+        gs, bs = _bus_shunt(h, n)
+        return (;
+            n, m, ng,
+            base_mva = ccall((:pio_base_mva, _lib()), Cdouble, (Ptr{Cvoid},), p),
+            bus_ids,
+            branch = _branch_tables(h, m),
+            gen = _gen_tables(h, ng),
+            demand = (; pd, qd),
+            shunt = (; gs, bs),
+            ref_bus_index = Int(ccall((:pio_ref_bus_index, _lib()), Int64, (Ptr{Cvoid},), p)),
+            n_islands = Int(ccall((:pio_n_islands, _lib()), Csize_t, (Ptr{Cvoid},), p)),
+            is_radial = ccall((:pio_is_radial, _lib()), Cint, (Ptr{Cvoid},), p) != 0,
+        )
+    end
 end
 
 """
@@ -649,18 +680,19 @@ builds the JSON view). Fields:
 - `gen` — NamedTuple of `bus` (1-based id, one row per machine), `pg, pmax, pmin`
   (MW), `in_service`.
 - `demand`, `shunt` — NamedTuples of per-bus `(pd, qd)` and `(gs, bs)` in dense order.
-- `reference_bus::Int` — dense 0-based index of the single reference bus, or `-1`.
-- `n_components::Int`, `is_radial::Bool` — connectivity of the in-service topology.
+- `ref_bus_index::Int` — dense 0-based INDEX of the single reference bus, or `-1`
+  (an index into `bus_ids` order, unlike the 1-based ids in `branch.from`/`to`).
+- `n_islands::Int`, `is_radial::Bool` — connectivity of the in-service topology.
 
 For the rich, lossless element tables (costs, extras, storage, HVDC) use the
 accessors on a [`parse_file`](@ref) `Network`; for self-describing columnar export
 use [`to_arrow`](@ref).
 """
-to_dense(net::Network) = _dense_from_handle(_live_handle(net, "to_dense").ptr)
+to_dense(net::Network) = _dense_from_handle(_live_handle(net, "to_dense"))
 function to_dense(path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)
     try
-        return _dense_from_handle(h.ptr)
+        return _dense_from_handle(h)
     finally
         finalize(h)  # buffers are copied out; free the handle now rather than at GC
     end

@@ -33,11 +33,11 @@ sources = [
 # (windows, no lib prefix, ships under bin/). `install_license` keeps AutoMerge happy.
 script = raw"""
 cd $WORKSPACE/srcdir/powerio
-# --features arrow ships pio_export_arrow (the zero-copy Arrow C Data Interface
-# export to_arrow calls); --features gridfm ships pio_read_gridfm (the
+# --features arrow ships pio_to_arrow (the zero-copy Arrow C Data Interface
+# export to_arrow calls); --features gridfm ships pio_read_dir / pio_scenario_ids (the
 # gridfm-datakit Parquet reader read_gridfm calls). The base ABI is identical
-# without them. NOTE: the `sources` commit above must include pio_read_gridfm
-# (powerio PR #70 and later) before re-cutting the artifact with gridfm enabled.
+# without them. NOTE: the `sources` commit above must include the ABI v4 surface
+# (powerio ABI 4 and later) before re-cutting the artifact with gridfm enabled.
 cargo build --release -p powerio-capi --target ${rust_target} --features arrow,gridfm
 out=target/${rust_target}/release
 if [[ "${target}" == *-mingw32* ]]; then

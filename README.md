@@ -96,7 +96,7 @@ d = to_dense(net)                 # or to_dense("case14.m") for parse + extract
 d.n, d.m, d.ng                    # bus / branch / generator counts
 d.bus_ids                         # 1-based ids; row k of every per-bus table is bus_ids[k]
 d.branch.from, d.branch.x         # branch endpoints and reactances
-d.reference_bus, d.n_components, d.is_radial
+d.ref_bus_index, d.n_islands, d.is_radial
 ```
 
 `to_arrow` brings one table across the Arrow C Data Interface (needs the library
