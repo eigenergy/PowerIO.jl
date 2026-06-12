@@ -36,6 +36,12 @@ permissions:
   contents: write
   pull-requests: write
 
+# A dispatch landing mid-scheduled-run would race on the same artifacts/<tag>
+# branch; queue instead.
+concurrency:
+  group: update-artifacts
+  cancel-in-progress: false
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -56,9 +62,11 @@ jobs:
           fi
           [ -n "$TAG" ] || { echo "no published powerio release found" >&2; exit 1; }
           # The dispatch payload and input are caller controlled; the tag flows
-          # into a branch name and a release lookup, so hold it to the vX.Y.Z
-          # shape powerio tags actually have.
-          printf '%s' "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$' \
+          # into a branch name, a release lookup, and a GITHUB_ENV line, so
+          # hold the WHOLE string (bash =~, not per-line grep — a multiline
+          # value must not smuggle extra NAME=VALUE lines into GITHUB_ENV) to
+          # the vX.Y.Z shape powerio tags actually have.
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$ ]] \
             || { echo "refusing tag that does not look like vX.Y.Z" >&2; exit 1; }
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "tracking powerio $TAG" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -72,7 +80,12 @@ jobs:
             echo "Artifacts.toml unchanged; skipping tests" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
+          julia --project=. -e 'using Pkg; Pkg.instantiate()'
+          # The ccall testsets skip when the library is unavailable, so assert
+          # the repinned artifact actually resolves and passes the handshake —
+          # otherwise a download flake would let Pkg.test pass vacuously.
+          julia --project=. -e 'using PowerIO; PowerIO.library_available() || error("the repinned artifact did not resolve or failed the ABI handshake")'
+          julia --project=. -e 'using Pkg; Pkg.test()'
       - name: Open a pull request
         env:
           GH_TOKEN: ${{ github.token }}
