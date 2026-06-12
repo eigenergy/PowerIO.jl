@@ -3,7 +3,8 @@
 ## 0.1.1
 
 Pointer lifetime hardening, backported from the ABI v4 branch; still targets
-powerio C ABI version 3 (powerio v0.2.x binaries are drop in). No API change.
+powerio C ABI version 3 (powerio v0.2.x binaries are drop in). No signature
+changes; the one behavioral change is `finalize` on a zero-copy table, below.
 
 - Use after free: every helper that lowers a `NetworkHandle` to a raw pointer
   now runs its ccalls under `GC.@preserve` — Julia may collect a handle after
