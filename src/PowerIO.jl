@@ -195,7 +195,8 @@ end
 
 const _ERRLEN = 512
 # Per-call fidelity warnings (pio_to_format / pio_convert_file) can run long on a
-# lossy conversion; give them headroom. Handle-attached warnings size exactly via
+# lossy conversion; give them headroom. Overflow truncates silently (the C side
+# cuts on a UTF-8 boundary, no signal). Handle-attached warnings size exactly via
 # pio_warnings instead.
 const _WARNLEN = 4096
 
@@ -244,8 +245,10 @@ function _parse_handle(path::AbstractString; from=nothing)
 end
 
 # In-memory sibling of `_parse_handle`: parse `text` under an explicit `format`
-# (no path, so no extension to infer from) via `pio_parse_str`.
-function _parse_handle_str(text::AbstractString, format::AbstractString)
+# (no path, so no extension to infer from) via `pio_parse_str`. `what` labels the
+# error with the public entry point (`from_json` also lands here).
+function _parse_handle_str(text::AbstractString, format::AbstractString,
+                           what::AbstractString="parse_str")
     _ensure_compatible()
     err = zeros(UInt8, _ERRLEN)
     ptr = try
@@ -255,7 +258,7 @@ function _parse_handle_str(text::AbstractString, format::AbstractString)
     catch e
         _lib_call_error(e)
     end
-    ptr == C_NULL && error("PowerIO.parse_str: " * _cstr(err))
+    ptr == C_NULL && error("PowerIO.$what: " * _cstr(err))
     return NetworkHandle(ptr)
 end
 
@@ -266,7 +269,7 @@ _cstr(buf::Vector{UInt8}) = GC.@preserve buf unsafe_string(pointer(buf))
 # Serialize a live handle to the canonical `powerio-json` snapshot — the rich
 # transport the accessors materialize from. A format string under ABI 4, not a
 # symbol; the snapshot is lossless, so the warnings it returns are empty.
-_to_json(h::NetworkHandle) = first(_format_from_handle(h, "powerio-json", "snapshot"))
+_to_json(h::NetworkHandle) = first(_format_from_handle(h, "powerio-json", "to_json"))
 
 # --- public surface -----------------------------------------------------
 
@@ -304,9 +307,9 @@ From a file `path` the format is inferred from the extension unless `from` is gi
 `parse_file(IOBuffer(text), "matpower")`.
 
 Accepted format tokens (case-insensitive): `"matpower"`/`"m"`, `"powermodels-json"`/
-`"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`, `"psse"`/`"raw"`,
-`"powerworld"`/`"aux"`, `"powerio-json"`/`"json"` (the canonical snapshot
-[`to_json`](@ref) writes).
+`"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`, `"pandapower-json"`/
+`"pandapower"`/`"pp"`, `"psse"`/`"raw"`, `"powerworld"`/`"aux"`,
+`"powerio-json"`/`"json"` (the canonical snapshot [`to_json`](@ref) writes).
 """
 function parse_file(path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)
@@ -334,7 +337,7 @@ Rebuild a live [`Network`](@ref) from the snapshot produced by [`to_json`](@ref)
 `to_*` transforms work on it.
 """
 function from_json(text::AbstractString)
-    h = _parse_handle_str(text, "powerio-json")
+    h = _parse_handle_str(text, "powerio-json", "from_json")
     return Network(JSON3.read(_to_json(h)), h)
 end
 
@@ -594,6 +597,10 @@ end
 # Every helper takes the NetworkHandle and preserves it across its ccalls (the
 # raw pointer never travels alone); see `_normalize_handle` for why.
 
+_expect_total(total, expected::Int, what::AbstractString) =
+    Int(total) == expected ||
+    error("PowerIO.to_dense: $what count changed under us ($total vs $expected)")
+
 function _branch_tables(h::NetworkHandle, m::Int)
     from = Vector{Int64}(undef, m); to = Vector{Int64}(undef, m)
     r = Vector{Float64}(undef, m); x = Vector{Float64}(undef, m); b = Vector{Float64}(undef, m)
@@ -603,7 +610,7 @@ function _branch_tables(h::NetworkHandle, m::Int)
           (Ptr{Cvoid}, Ptr{Int64}, Ptr{Int64}, Ptr{Float64}, Ptr{Float64},
            Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{UInt8}, Csize_t),
           h.ptr, from, to, r, x, b, tap, shift, insvc, m)
-    Int(total) == m || error("PowerIO.to_dense: branch count changed under us ($total vs $m)")
+    _expect_total(total, m, "branch")
     return (; from, to, r, x, b, tap, shift, in_service = insvc)
 end
 
@@ -614,21 +621,23 @@ function _gen_tables(h::NetworkHandle, ng::Int)
     total = GC.@preserve h ccall((:pio_gens, _lib()), Csize_t,
           (Ptr{Cvoid}, Ptr{Int64}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{UInt8}, Csize_t),
           h.ptr, bus, pg, pmax, pmin, insvc, ng)
-    Int(total) == ng || error("PowerIO.to_dense: gen count changed under us ($total vs $ng)")
+    _expect_total(total, ng, "gen")
     return (; bus, pg, pmax, pmin, in_service = insvc)
 end
 
 function _bus_demand(h::NetworkHandle, n::Int)
     pd = Vector{Float64}(undef, n); qd = Vector{Float64}(undef, n)
-    GC.@preserve h ccall((:pio_bus_demand, _lib()), Csize_t,
+    total = GC.@preserve h ccall((:pio_bus_demand, _lib()), Csize_t,
           (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}, Csize_t), h.ptr, pd, qd, n)
+    _expect_total(total, n, "bus demand")
     return (pd, qd)
 end
 
 function _bus_shunt(h::NetworkHandle, n::Int)
     gs = Vector{Float64}(undef, n); bs = Vector{Float64}(undef, n)
-    GC.@preserve h ccall((:pio_bus_shunt, _lib()), Csize_t,
+    total = GC.@preserve h ccall((:pio_bus_shunt, _lib()), Csize_t,
           (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}, Csize_t), h.ptr, gs, bs, n)
+    _expect_total(total, n, "bus shunt")
     return (gs, bs)
 end
 
@@ -643,7 +652,8 @@ function _dense_from_handle(h::NetworkHandle)
         m = Int(ccall((:pio_n_branches, _lib()), Csize_t, (Ptr{Cvoid},), p))
         ng = Int(ccall((:pio_n_gens, _lib()), Csize_t, (Ptr{Cvoid},), p))
         bus_ids = Vector{Int64}(undef, n)
-        ccall((:pio_bus_ids, _lib()), Csize_t, (Ptr{Cvoid}, Ptr{Int64}, Csize_t), p, bus_ids, n)
+        total = ccall((:pio_bus_ids, _lib()), Csize_t, (Ptr{Cvoid}, Ptr{Int64}, Csize_t), p, bus_ids, n)
+        _expect_total(total, n, "bus id")
         pd, qd = _bus_demand(h, n)
         gs, bs = _bus_shunt(h, n)
         return (;

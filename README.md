@@ -20,6 +20,7 @@ Supported formats (each reads and writes, so any pair converts):
 - [PowerWorld](https://www.powerworld.com/WebHelp/Content/MainDocumentation_HTML/Case_Formats.htm) `.aux`
 - [PowerModels.jl](https://github.com/lanl-ansi/PowerModels.jl) network data JSON
 - [egret](https://pypi.org/project/gridx-egret/) `ModelData` JSON
+- [pandapower](https://www.pandapower.org/) network JSON
 
 A same-format round trip is byte exact; cross-format conversion reports fields
 the target cannot represent as warnings.
@@ -103,14 +104,16 @@ d.ref_bus_index, d.n_islands, d.is_radial
 built with `--features arrow`; `arrow_available()` reports it). By default it
 returns a NamedTuple of **owned** Julia Vectors (Tables.jl-shaped, flows into
 `Arrow.write`, `DataFrame`, etc.), so there is no lifetime caveat. `copy=false`
-returns a zero-copy `ArrowTable` whose columns view the producer's memory; keep it
-alive while reading them. For the numeric tables alone, `to_dense` is a copy-free,
-`unsafe_wrap`-free fast path (the C ABI fills Julia-owned buffers).
+returns a zero-copy `ArrowTable` whose columns view the producer's memory; each
+column roots the shared buffers, so a column extracted from the table stays
+valid on its own, and `close(z)` frees the buffers without waiting for GC. For
+the numeric tables alone, `to_dense` is a copy-free, `unsafe_wrap`-free fast
+path (the C ABI fills Julia-owned buffers).
 
 ```julia
 t = to_arrow(net, :branch)                  # :bus, :branch, :gen, :load, :shunt; owned columns
 t.from, t.x, t.tap
-z = to_arrow(net, :branch; copy=false)      # zero-copy views; keep `z` alive while reading
+z = to_arrow(net, :branch; copy=false)      # zero-copy views; close(z) releases eagerly
 ```
 
 `read_gridfm` reads a gridfm-datakit Parquet dataset back into a `Network` — the

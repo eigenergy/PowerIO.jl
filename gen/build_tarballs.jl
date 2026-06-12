@@ -15,17 +15,19 @@
 using BinaryBuilder
 
 name = "PowerIO"
-# Tracks the powerio-capi *crate* version (the binary), unified with the
-# PowerIO.jl *package* version for the first release.
-version = v"0.0.1"
+# Tracks the powerio-capi *crate* version (the binary), not the PowerIO.jl
+# package version: the binding is 0.2.0 while the v4 binary ships as powerio
+# v0.2.1.
+version = v"0.2.1"
 
-# Must pin a commit reporting `PIO_ABI_VERSION` 3: the binding's load-time
-# handshake refuses anything else, and `to_arrow` needs the Arrow export. Pinned
-# to the v0.0.1 release tag (the right long-term anchor for a reproducible
-# build and the Yggdrasil submission).
+# Must pin a commit reporting `PIO_ABI_VERSION` 4: the binding's load-time
+# handshake refuses anything else. Pinned to the powerio#112 head (the ABI v4
+# lockstep partner of this release); move to the v0.2.1 release tag once it is
+# cut (the right long-term anchor for a reproducible build and the Yggdrasil
+# submission).
 sources = [
     GitSource("https://github.com/eigenergy/powerio.git",
-              "db944afe3819b2efd67060eda056003846f8e8ad"),
+              "4511e350786569e13186aa144e61f6e11b76594d"),
 ]
 
 # `cargo build` writes the cdylib under target/<rust_target>/release. Names differ
@@ -36,8 +38,7 @@ cd $WORKSPACE/srcdir/powerio
 # --features arrow ships pio_to_arrow (the zero-copy Arrow C Data Interface
 # export to_arrow calls); --features gridfm ships pio_read_dir / pio_scenario_ids (the
 # gridfm-datakit Parquet reader read_gridfm calls). The base ABI is identical
-# without them. NOTE: the `sources` commit above must include the ABI v4 surface
-# (powerio ABI 4 and later) before re-cutting the artifact with gridfm enabled.
+# without them.
 cargo build --release -p powerio-capi --target ${rust_target} --features arrow,gridfm
 out=target/${rust_target}/release
 if [[ "${target}" == *-mingw32* ]]; then

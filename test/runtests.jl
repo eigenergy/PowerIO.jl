@@ -305,11 +305,19 @@ using JSON3
             z = nothing
             GC.gc(); GC.gc()
             @test col == collect(1:14)
-            # Dropping the last reference releases the producer (exercised by GC;
-            # the release callback NULLs itself, so double release is a no-op).
             col = nothing
             GC.gc()
-            @test true
+
+            # close releases the producer eagerly: both release callbacks NULL
+            # themselves, so a second close (and the later GC finalize) is a
+            # no-op.
+            z2 = to_arrow(m, :bus; copy=false)
+            b = getfield(z2, :_buffers)
+            @test b.array[].release != C_NULL
+            close(z2)
+            @test b.array[].release == C_NULL
+            @test b.schema[].release == C_NULL
+            close(z2)
         end
     end
 

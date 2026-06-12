@@ -114,8 +114,9 @@ The zero-copy result of `to_arrow(...; copy=false)`. Its `columns` are a
 NamedTuple of [`ArrowColumn`](@ref) views into the producer's buffers; the
 columns and the table each root the shared buffer owner, which frees the
 buffers once none of them is reachable. A column extracted from the table is
-safe on its own. (The default `copy=true` returns a plain NamedTuple of owned
-Vectors instead, no `ArrowTable` involved.)
+safe on its own. `close(t)` frees the buffers eagerly instead of waiting for
+GC. (The default `copy=true` returns a plain NamedTuple of owned Vectors
+instead, no `ArrowTable` involved.)
 """
 struct ArrowTable
     columns::NamedTuple
@@ -125,6 +126,15 @@ end
 columns(t::ArrowTable) = getfield(t, :columns)
 Base.getproperty(t::ArrowTable, name::Symbol) = getfield(getfield(t, :columns), name)
 Base.propertynames(t::ArrowTable) = propertynames(getfield(t, :columns))
+
+"""
+    close(t::ArrowTable)
+
+Release the producer's buffers now instead of at GC. Every [`ArrowColumn`](@ref)
+of `t` is invalid afterwards; reading one is undefined behavior. Idempotent (the
+release callbacks NULL themselves).
+"""
+Base.close(t::ArrowTable) = (finalize(getfield(t, :_buffers)); nothing)
 
 # Read one primitive column. The data pointer is borrowed from the producer (valid
 # until release). `copy=true` memcpys it into an owned Vector under `GC.@preserve` so
@@ -223,7 +233,8 @@ powerio-capi built `--features arrow`; see [`arrow_available`](@ref).
 `copy=true` (default) returns a NamedTuple of **owned** Julia Vectors and releases
 the producer before returning: plain arrays, no lifetime caveat. `copy=false`
 returns a zero-copy [`ArrowTable`](@ref) of [`ArrowColumn`](@ref) views; each
-column roots the shared buffers, so columns may outlive the table. Both support
+column roots the shared buffers, so columns may outlive the table, and
+`close(t)` frees the buffers eagerly. Both support
 `result.<column>` access and are Tables.jl-shaped. For the numeric tables alone,
 [`to_dense`](@ref) is a copy-free, `unsafe_wrap`-free fast path.
 """
