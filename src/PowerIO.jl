@@ -223,12 +223,6 @@ const _WARNLEN = 4096
 
 # --- handle layer -------------------------------------------------------
 
-"""
-    NetworkHandle
-
-Opaque handle to a parsed network inside the Rust core. Freed by its finalizer;
-you normally go straight to [`parse_file`](@ref), which returns a [`Network`].
-"""
 # The allocating library's `pio_network_free`, memoized per resolved path:
 # resolving `_lib()` at finalization time would cross allocators after a
 # `set_library!` swap. The un-dlclosed handle deliberately pins the library so
@@ -244,6 +238,12 @@ function _network_free_fn()
     return _FREE_FN[]
 end
 
+"""
+    NetworkHandle
+
+Opaque handle to a parsed network inside the Rust core. Freed by its finalizer;
+you normally go straight to [`parse_file`](@ref), which returns a [`Network`].
+"""
 mutable struct NetworkHandle
     ptr::Ptr{Cvoid}
     function NetworkHandle(ptr::Ptr{Cvoid})
