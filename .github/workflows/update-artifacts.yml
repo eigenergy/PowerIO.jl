@@ -1,14 +1,36 @@
 name: Update artifacts
 
-# Regenerates Artifacts.toml from a powerio binary release and opens a PR.
-# Dispatch with the powerio tag after publishing the release there; merge the
-# PR, then dispatch Register Package with the new version.
+# Keeps Artifacts.toml tracking the latest powerio binary release.
+#
+# Three triggers:
+# - schedule: a daily poll of the latest published powerio release — the
+#   no-secret reliability backstop, so tracking works even if the fast path
+#   is unconfigured or missed an event.
+# - repository_dispatch (powerio-release): fired by powerio's Notify
+#   PowerIO.jl workflow the moment a release is published over there; carries
+#   the tag in the client payload.
+# - workflow_dispatch: manual recovery, or pinning an explicit older tag.
+#
+# gen/update_artifacts.jl refuses a release whose pio_abi_version differs
+# from the PIO_ABI_VERSION this binding targets (it leaves Artifacts.toml
+# untouched), so an ABI-bumping release parks until the lockstep binding PR
+# merges; the next scheduled run then picks it up. Drafts never match:
+# `gh release view` resolves the latest *published* release.
+#
+# The test suite runs against the regenerated Artifacts.toml before the PR
+# opens, because CI does not run on PRs opened with GITHUB_TOKEN (the
+# recursion guard); close and reopen the PR, or push to its branch, to
+# trigger CI on it anyway.
 on:
+  schedule:
+    - cron: "23 5 * * *"
+  repository_dispatch:
+    types: [powerio-release]
   workflow_dispatch:
     inputs:
       powerio_tag:
-        description: powerio release tag to pull binaries from (e.g. v0.0.2)
-        required: true
+        description: powerio release tag to pull binaries from (empty = latest)
+        required: false
 
 permissions:
   contents: write
@@ -17,22 +39,43 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
-    env:
-      TAG: ${{ inputs.powerio_tag }}
     steps:
       - uses: actions/checkout@v6
       - uses: julia-actions/setup-julia@v3
         with:
           version: "1"
+      - name: Resolve the powerio tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.powerio_tag }}
+          DISPATCH_TAG: ${{ github.event.client_payload.tag }}
+        run: |
+          TAG="${INPUT_TAG:-$DISPATCH_TAG}"
+          if [ -z "$TAG" ]; then
+            TAG="$(gh release view --repo eigenergy/powerio --json tagName --jq .tagName)"
+          fi
+          [ -n "$TAG" ] || { echo "no published powerio release found" >&2; exit 1; }
+          # The dispatch payload and input are caller controlled; the tag flows
+          # into a branch name and a release lookup, so hold it to the vX.Y.Z
+          # shape powerio tags actually have.
+          printf '%s' "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$' \
+            || { echo "refusing tag that does not look like vX.Y.Z" >&2; exit 1; }
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "tracking powerio $TAG" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Regenerate Artifacts.toml
         env:
           GH_TOKEN: ${{ github.token }}
         run: julia gen/update_artifacts.jl "$TAG"
+      - name: Test against the regenerated artifact
+        run: |
+          if git diff --quiet -- Artifacts.toml; then
+            echo "Artifacts.toml unchanged; skipping tests" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
       - name: Open a pull request
         env:
           GH_TOKEN: ${{ github.token }}
-        # CI does not run on PRs opened with GITHUB_TOKEN (the recursion
-        # guard); close and reopen the PR, or push to its branch, to trigger it.
         run: |
           if git diff --quiet -- Artifacts.toml; then
             echo "Artifacts.toml already matches $TAG; nothing to do" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -53,7 +96,5 @@ jobs:
           else
             gh pr create \
               --title "release: artifact hashes from powerio $TAG" \
-              --body "Regenerates Artifacts.toml from the $TAG release of eigenergy/powerio.
-
-          Before merging: if this release bumped \`PIO_ABI_VERSION\`, update the constant in src/PowerIO.jl and the affected ccalls in this PR (see CONTRIBUTING.md, ABI lockstep). After merging, dispatch the Register Package workflow with the new version."
+              --body "Regenerates Artifacts.toml from the $TAG release of eigenergy/powerio. The ABI matched the binding's PIO_ABI_VERSION and the test suite passed against these binaries before this PR opened. After merging, dispatch the Register Package workflow with the new version."
           fi
