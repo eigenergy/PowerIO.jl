@@ -262,11 +262,14 @@ function _from_json_handle(text::AbstractString)
     return NetworkHandle(ptr)
 end
 
-_cstr(buf::Vector{UInt8}) = unsafe_string(pointer(buf))
+_cstr(buf::Vector{UInt8}) = GC.@preserve buf unsafe_string(pointer(buf))
 
 function _to_json(h::NetworkHandle)
     err = zeros(UInt8, _ERRLEN)
-    s = ccall((:pio_to_json, _lib()), Cstring, (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
+    # `GC.@preserve h` keeps the handle (and its finalizer) from running while
+    # the raw pointer is in flight; the same guard wraps every ccall that uses
+    # a pointer extracted from a NetworkHandle.
+    s = GC.@preserve h ccall((:pio_to_json, _lib()), Cstring, (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
               h.ptr, err, length(err))
     s == C_NULL && error("PowerIO: to_json failed: " * _cstr(err))
     json = unsafe_string(s)
@@ -356,7 +359,7 @@ end
 # borrow of the source case, so the source handle stays valid).
 function _normalize_handle(h::NetworkHandle)
     err = zeros(UInt8, _ERRLEN)
-    ptr = ccall((:pio_to_normalized, _lib()), Ptr{Cvoid},
+    ptr = GC.@preserve h ccall((:pio_to_normalized, _lib()), Ptr{Cvoid},
                 (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
     ptr == C_NULL && error("PowerIO.to_normalized: " * _cstr(err))
     return NetworkHandle(ptr)
@@ -388,23 +391,23 @@ reads back. Uses the live handle when present, else the cached `net.data`.
 to_json(net::Network) = net.handle === nothing ? JSON3.write(net.data) : _to_json(net.handle)
 
 # Serialize a live handle to MATPOWER `.m` text.
-function _matpower_from_handle(p::Ptr{Cvoid}, what::AbstractString)
+function _matpower_from_handle(h::NetworkHandle, what::AbstractString)
     err = zeros(UInt8, _ERRLEN)
-    s = ccall((:pio_to_matpower, _lib()), Cstring,
+    s = GC.@preserve h ccall((:pio_to_matpower, _lib()), Cstring,
               (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
-              p, err, length(err))
+              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.to_matpower: " * _cstr(err) * " ($what)")
     out = unsafe_string(s)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
     return out
 end
 
-function _format_from_handle(p::Ptr{Cvoid}, to::AbstractString, what::AbstractString)
+function _format_from_handle(h::NetworkHandle, to::AbstractString, what::AbstractString)
     warn = zeros(UInt8, _ERRLEN)
     err = zeros(UInt8, _ERRLEN)
-    s = ccall((:pio_to_format, _lib()), Cstring,
+    s = GC.@preserve h ccall((:pio_to_format, _lib()), Cstring,
               (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
-              p, String(to), warn, length(warn), err, length(err))
+              h.ptr, String(to), warn, length(warn), err, length(err))
     s == C_NULL && error("PowerIO.to_format: " * _cstr(err) * " ($what)")
     text = unsafe_string(s)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
@@ -419,7 +422,7 @@ Serialize `net` to MATPOWER `.m` text, byte exact when the input was MATPOWER. F
 file in one shot use [`convert_file`](@ref)`(path, "matpower")`.
 """
 to_matpower(net::Network) =
-    _matpower_from_handle(_live_handle(net, "to_matpower").ptr, repr(network_name(net)))
+    _matpower_from_handle(_live_handle(net, "to_matpower"), repr(network_name(net)))
 
 """
     to_format(net::Network, to) -> (text, warnings)
@@ -428,7 +431,7 @@ Serialize a parsed network to format `to` without reparsing the input file.
 Returns the target text and any fidelity warnings.
 """
 to_format(net::Network, to::AbstractString) =
-    _format_from_handle(_live_handle(net, "to_format").ptr, to, repr(network_name(net)))
+    _format_from_handle(_live_handle(net, "to_format"), to, repr(network_name(net)))
 
 """
     convert_file(path, to; from=nothing) -> (text, warnings)
@@ -607,8 +610,13 @@ function _nodal_shunt(p::Ptr{Cvoid}, n::Int)
     return (gs, bs)
 end
 
-# Dense numeric extraction off a live handle, shared by the Network and path methods.
-function _dense_from_handle(p::Ptr{Cvoid})
+# Dense numeric extraction off a live handle, shared by the Network and path
+# methods. The whole sequence runs under `GC.@preserve`: the extraction allocates
+# output buffers between the ccalls, and a GC there must not finalize the handle
+# (freeing the Rust network) while the raw pointer is still in use.
+_dense_from_handle(h::NetworkHandle) = GC.@preserve h _dense_from_ptr(h.ptr)
+
+function _dense_from_ptr(p::Ptr{Cvoid})
     n = Int(ccall((:pio_n_buses, _lib()), Csize_t, (Ptr{Cvoid},), p))
     m = Int(ccall((:pio_n_branches, _lib()), Csize_t, (Ptr{Cvoid},), p))
     ng = Int(ccall((:pio_n_gens, _lib()), Csize_t, (Ptr{Cvoid},), p))
@@ -656,11 +664,11 @@ For the rich, lossless element tables (costs, extras, storage, HVDC) use the
 accessors on a [`parse_file`](@ref) `Network`; for self-describing columnar export
 use [`to_arrow`](@ref).
 """
-to_dense(net::Network) = _dense_from_handle(_live_handle(net, "to_dense").ptr)
+to_dense(net::Network) = _dense_from_handle(_live_handle(net, "to_dense"))
 function to_dense(path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)
     try
-        return _dense_from_handle(h.ptr)
+        return _dense_from_handle(h)
     finally
         finalize(h)  # buffers are copied out; free the handle now rather than at GC
     end

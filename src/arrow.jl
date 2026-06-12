@@ -146,8 +146,11 @@ function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArro
 end
 
 # Export one table off a live handle over the Arrow C Data Interface, shared by the
-# Network and path methods of `to_arrow`.
-function _arrow_from_handle(p::Ptr{Cvoid}, table::Symbol, copy::Bool)
+# Network and path methods of `to_arrow`. `GC.@preserve h` keeps the handle's
+# finalizer from freeing the Rust network while the raw pointer is in flight;
+# the exported buffers themselves are owned by the Arrow producer, independent
+# of the handle.
+function _arrow_from_handle(h::NetworkHandle, table::Symbol, copy::Bool)
     id = get(_ARROW_TABLE_IDS, table, nothing)
     id === nothing && throw(ArgumentError(
         "PowerIO.to_arrow: unknown table $(repr(table)); expected one of $(keys(_ARROW_TABLE_IDS))"))
@@ -155,9 +158,9 @@ function _arrow_from_handle(p::Ptr{Cvoid}, table::Symbol, copy::Bool)
     sch = Ref(_zero(CArrowSchema))
     err = zeros(UInt8, _ERRLEN)
     rc = try
-        ccall((:pio_export_arrow, _lib()), Cint,
+        GC.@preserve h ccall((:pio_export_arrow, _lib()), Cint,
               (Ptr{Cvoid}, Cint, Ptr{CArrowArray}, Ptr{CArrowSchema}, Ptr{UInt8}, Csize_t),
-              p, id, arr, sch, err, length(err))
+              h.ptr, id, arr, sch, err, length(err))
     catch e
         error("PowerIO.to_arrow: could not call pio_export_arrow: the C ABI at " *
               "\"$(_lib())\" was built without the arrow feature. Rebuild with " *
@@ -198,12 +201,12 @@ Tables.jl-shaped. For the numeric tables alone, [`to_dense`](@ref) is a copy-fre
 `unsafe_wrap`-free fast path.
 """
 function to_arrow(net::Network, table::Symbol; copy::Bool=true)
-    return _arrow_from_handle(_live_handle(net, "to_arrow").ptr, table, copy)
+    return _arrow_from_handle(_live_handle(net, "to_arrow"), table, copy)
 end
 function to_arrow(path::AbstractString, table::Symbol; from=nothing, copy::Bool=true)
     h = _parse_handle(path; from=from)
     try
-        return _arrow_from_handle(h.ptr, table, copy)
+        return _arrow_from_handle(h, table, copy)
     finally
         # The exported buffers are owned by the Arrow array, independent of the
         # network handle — free the handle now.
