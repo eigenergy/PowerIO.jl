@@ -40,6 +40,10 @@ After each powerio binary release:
    regenerates Artifacts.toml from the release tarballs and opens a PR when
    anything changed. If the release bumped `PIO_ABI_VERSION`, update the
    constant and the affected ccalls in that PR (see "ABI lockstep" above).
+   Never register a version whose `PIO_ABI_VERSION` does not match the ABI of
+   the tarballs Artifacts.toml points at: the bundled artifact would fail the
+   load handshake, so the registered package errors at first use for everyone
+   on the default install path.
 2. Merge the artifacts PR if one was opened, then dispatch "Register Package"
    with the new version (no leading v, or major/minor/patch to bump). It
    commits the Project.toml bump to main and posts the

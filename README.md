@@ -78,6 +78,7 @@ to_matpower(net)                   # ::String, byte exact when the input was MAT
 to_json(net)                       # the JSON transport
 to_format(net, "powermodels-json") # (text, warnings)
 from_json(to_json(net))            # Network with a live handle
+PowerIO.warnings(net)              # fidelity warnings the reader attached to net
 ```
 
 `to_normalized` derives a computation-ready copy: powers per unit, angles in

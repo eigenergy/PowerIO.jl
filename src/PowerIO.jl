@@ -73,7 +73,11 @@ Point PowerIO at a locally built `libpowerio_capi` (`cargo build -p powerio-capi
 --release` in the PowerIO Rust tree → `target/release/libpowerio_capi.{dylib,so}`).
 A development override that wins over the bundled artifact.
 """
-set_library!(path::AbstractString) = (_LIBRARY[] = String(path))
+function set_library!(path::AbstractString)
+    _LIBRARY[] = String(path)
+    _ABI_OK[] = false  # the new library must pass its own handshake
+    return
+end
 
 function _lib()
     isempty(_LIBRARY[]) || return _LIBRARY[]
@@ -193,6 +197,23 @@ function library_available()
     end
 end
 
+# Shared probe behind `arrow_available`/`gridfm_available`: true if the resolved
+# library exports `sym` (the feature-gated entry points come and go with cargo
+# features, not the ABI version).
+function _exports_symbol(sym::Symbol)
+    try
+        handle = Libdl.dlopen(_lib())
+        try
+            return Libdl.dlsym(handle, sym; throw_error=false) !== nothing
+        finally
+            Libdl.dlclose(handle)
+        end
+    catch e
+        @debug "PowerIO: $sym probe failed" exception = (e, catch_backtrace())
+        return false
+    end
+end
+
 const _ERRLEN = 512
 # Per-call fidelity warnings (pio_to_format / pio_convert_file) can run long on a
 # lossy conversion; give them headroom. Overflow truncates silently (the C side
@@ -213,8 +234,13 @@ mutable struct NetworkHandle
     function NetworkHandle(ptr::Ptr{Cvoid})
         ptr == C_NULL && error("PowerIO: null network handle")
         h = new(ptr)
+        # Capture the allocating library's free function now: resolving `_lib()`
+        # at finalization time would cross allocators after a `set_library!`
+        # swap. The un-dlclosed handle deliberately pins the library so the
+        # pointer stays valid for the finalizer's lifetime.
+        free = Libdl.dlsym(Libdl.dlopen(_lib()), :pio_network_free)
         finalizer(h) do x
-            x.ptr == C_NULL || ccall((:pio_network_free, _lib()), Cvoid, (Ptr{Cvoid},), x.ptr)
+            x.ptr == C_NULL || ccall(free, Cvoid, (Ptr{Cvoid},), x.ptr)
             x.ptr = C_NULL
         end
         return h
@@ -227,6 +253,18 @@ _lib_call_error(e) = error(
     "PowerIO: could not call the C ABI at \"$(_lib())\": build it " *
     "(`cargo build -p powerio-capi --release` in a sibling powerio checkout) " *
     "or set POWERIO_CAPI / call `set_library!`. Underlying: $e")
+
+# Sibling of `_lib_call_error` for the feature-gated entry points: the ccall threw
+# because the resolved library lacks `sym`. Anything other than the missing
+# symbol/library ErrorException (e.g. an ArgumentError from argument conversion)
+# is not a toolchain problem — rethrow it untouched.
+function _feature_call_error(fname::AbstractString, sym::AbstractString,
+                             feature::AbstractString, e)
+    e isa ErrorException || throw(e)
+    error("PowerIO.$fname: could not call $sym: the C ABI at \"$(_lib())\" was " *
+          "built without the $feature feature. Rebuild with " *
+          "`cargo build -p powerio-capi --release --features $feature`. Underlying: $e")
+end
 
 function _parse_handle(path::AbstractString; from=nothing)
     _ensure_compatible()
@@ -266,10 +304,22 @@ end
 # compiler may drop the buffer after `pointer(buf)` and a GC mid-copy dangles.
 _cstr(buf::Vector{UInt8}) = GC.@preserve buf unsafe_string(pointer(buf))
 
+# Split a `\n`-joined warn buffer into owned Strings (a SubString would pin the
+# whole buffer-sized parent). `capped`: the fixed-size per-call channel truncates
+# silently on a UTF-8 boundary at the cap, so a fill within 4 bytes of it is the
+# truncation signature — surface it rather than under-count fidelity warnings.
+function _warn_lines(buf::Vector{UInt8}; capped::Bool=false)
+    s = _cstr(buf)
+    warns = String.(filter(!isempty, split(s, '\n')))
+    capped && ncodeunits(s) >= length(buf) - 4 &&
+        push!(warns, "... warning list truncated at $(length(buf)) bytes")
+    return warns
+end
+
 # Serialize a live handle to the canonical `powerio-json` snapshot — the rich
 # transport the accessors materialize from. A format string under ABI 4, not a
 # symbol; the snapshot is lossless, so the warnings it returns are empty.
-_to_json(h::NetworkHandle) = first(_format_from_handle(h, "powerio-json", "to_json"))
+_to_json(h::NetworkHandle) = first(_format_from_handle(h, "powerio-json", "to_json"; warn=false))
 
 # --- public surface -----------------------------------------------------
 
@@ -310,6 +360,8 @@ Accepted format tokens (case-insensitive): `"matpower"`/`"m"`, `"powermodels-jso
 `"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`, `"pandapower-json"`/
 `"pandapower"`/`"pp"`, `"psse"`/`"raw"`, `"powerworld"`/`"aux"`,
 `"powerio-json"`/`"json"` (the canonical snapshot [`to_json`](@ref) writes).
+A PyPSA CSV folder is a directory, not text, so it enters only through the
+`path` method: `parse_file(dir; from="pypsa-csv")`.
 """
 function parse_file(path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)
@@ -388,22 +440,29 @@ end
 Serialize `net` to the C ABI's JSON transport, the same text [`from_json`](@ref)
 reads back. Uses the live handle when present, else the cached `net.data`.
 """
-to_json(net::Network) = net.handle === nothing ? JSON3.write(net.data) : _to_json(net.handle)
+function to_json(net::Network)
+    h = net.handle
+    # A finalized handle (explicit `finalize(net.handle)`) is non-`nothing` but
+    # null; the cached-data fallback covers it like the handleless case.
+    return (h === nothing || h.ptr == C_NULL) ? JSON3.write(net.data) : _to_json(h)
+end
 
 # Serialize a live handle to the named format via `pio_to_format` — the one text
 # serializer; every format is a string under ABI 4. Takes the handle (not a raw
-# pointer) and preserves it across the ccall; see `_normalize_handle`.
-function _format_from_handle(h::NetworkHandle, to::AbstractString, what::AbstractString)
-    warn = zeros(UInt8, _WARNLEN)
+# pointer) and preserves it across the ccall; see `_normalize_handle`. `warn=false`
+# skips the warning channel (length 0 discards it, per the header) for callers
+# that drop the warnings anyway.
+function _format_from_handle(h::NetworkHandle, to::AbstractString, what::AbstractString;
+                             warn::Bool=true)
+    warnbuf = zeros(UInt8, warn ? _WARNLEN : 0)
     err = zeros(UInt8, _ERRLEN)
     s = GC.@preserve h ccall((:pio_to_format, _lib()), Cstring,
                              (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
-                             h.ptr, String(to), warn, length(warn), err, length(err))
+                             h.ptr, String(to), warnbuf, length(warnbuf), err, length(err))
     s == C_NULL && error("PowerIO.to_format: " * _cstr(err) * " ($what)")
     text = unsafe_string(s)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
-    warns = filter(!isempty, split(_cstr(warn), '\n'))
-    return (text, warns)
+    return (text, warn ? _warn_lines(warnbuf; capped=true) : String[])
 end
 
 """
@@ -413,7 +472,9 @@ Serialize `net` to MATPOWER `.m` text, byte exact when the input was MATPOWER �
 a convenience over [`to_format`](@ref)`(net, "matpower")` that drops the
 warnings. For a file in one shot use [`convert_file`](@ref)`(path, "matpower")`.
 """
-to_matpower(net::Network) = first(to_format(net, "matpower"))
+to_matpower(net::Network) =
+    first(_format_from_handle(_live_handle(net, "to_matpower"), "matpower",
+                              repr(network_name(net)); warn=false))
 
 """
     to_format(net::Network, to) -> (text, warnings)
@@ -443,23 +504,22 @@ function warnings(net::Network)
         buf = zeros(UInt8, len + 1)
         ccall((:pio_warnings, _lib()), Csize_t,
               (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, buf, length(buf))
-        return String.(filter(!isempty, split(_cstr(buf), '\n')))
+        return _warn_lines(buf)
     end
 end
 
 """
     convert_file(path, to; from=nothing) -> (text, warnings)
 
-Convert `path` to format `to`. All five formats read and write, so any pair
-converts. A same-format conversion is byte exact; a cross-format one is
-maximal fidelity and reports whatever the target can't carry in `warnings`. Tokens
-(case-insensitive): `"matpower"`/`"m"`, `"powermodels-json"`/`"powermodels"`/`"pm"`,
-`"egret-json"`/`"egret"`, `"psse"`/`"raw"`, `"powerworld"`/`"aux"`. `from` overrides
-extension inference (needed to tell egret and PowerModels `.json` apart).
+Convert `path` to format `to`; every reader/writer pair converts. A same-format
+conversion is byte exact; a cross-format one is maximal fidelity and reports
+whatever the target can't carry in `warnings`. Takes the same format tokens as
+[`parse_file`](@ref). `from` overrides extension inference (needed to tell the
+`.json` formats apart).
 """
 function convert_file(path::AbstractString, to::AbstractString; from=nothing)
     _ensure_compatible()
-    warn = zeros(UInt8, _WARNLEN)
+    warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
     # Pass the format hint as a `String` (ccall roots it) or `C_NULL` for inference.
     # ABI 4 argument order: (path, from, to) — the converters read as
@@ -467,12 +527,11 @@ function convert_file(path::AbstractString, to::AbstractString; from=nothing)
     fromc = from === nothing ? C_NULL : String(from)
     s = ccall((:pio_convert_file, _lib()), Cstring,
               (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
-              path, fromc, to, warn, length(warn), err, length(err))
+              path, fromc, to, warnbuf, length(warnbuf), err, length(err))
     s == C_NULL && error("PowerIO.convert_file: " * _cstr(err))
     text = unsafe_string(s)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
-    warns = filter(!isempty, split(_cstr(warn), '\n'))
-    return (text, warns)
+    return (text, _warn_lines(warnbuf; capped=true))
 end
 
 # --- accessor surface ---------------------------------------------------
@@ -542,7 +601,9 @@ n_gens(net::Network) = length(net.data.generators)
 
 The format the case was read from, verbatim from the Rust `SourceFormat` enum:
 one of `"Matpower"`, `"PowerModelsJson"`, `"EgretJson"`, `"Psse"`, `"PowerWorld"`,
-`"InMemory"`, `"Normalized"` (the last is the output of [`to_normalized`](@ref)).
+`"PandapowerJson"`, `"PowerWorldBinary"`, `"PypsaCsv"`, `"Gridfm"` (the
+[`read_gridfm`](@ref) reconstruction), `"InMemory"`, or `"Normalized"` (the
+output of [`to_normalized`](@ref)).
 """
 source_format(net::Network) = String(net.data.source_format)
 
@@ -692,6 +753,8 @@ builds the JSON view). Fields:
 - `demand`, `shunt` — NamedTuples of per-bus `(pd, qd)` and `(gs, bs)` in dense order.
 - `ref_bus_index::Int` — dense 0-based INDEX of the single reference bus, or `-1`
   (an index into `bus_ids` order, unlike the 1-based ids in `branch.from`/`to`).
+  `-1` covers both no reference anywhere and several (e.g. one per island; check
+  `n_islands`); the C ABI's `pio_ref_bus_indices` disambiguates, not yet bound.
 - `n_islands::Int`, `is_radial::Bool` — connectivity of the in-service topology.
 
 For the rich, lossless element tables (costs, extras, storage, HVDC) use the

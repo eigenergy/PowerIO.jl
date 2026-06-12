@@ -301,6 +301,10 @@ using JSON3
             @test z isa ArrowTable
             @test z.id == collect(1:14)
             @test z.id isa PowerIO.ArrowColumn{Int64}
+            @test PowerIO.columns(z) isa NamedTuple
+            # The raw unsafe_wrap view must not escape its rooting wrapper.
+            @test_throws ErrorException z.id.data
+            @test collect(z.id) isa Vector{Int64}
             col = z.id
             z = nothing
             GC.gc(); GC.gc()
@@ -335,8 +339,9 @@ using JSON3
             @test r.scenario == 0
             @test r.warnings isa Vector{String}
             @test !isempty(r.warnings)
-            # ABI 4: the lossy read's warnings attach to the handle itself.
-            @test PowerIO.warnings(r.network) == r.warnings
+            # ABI 4: the lossy read's warnings attach to the handle itself, and
+            # the documented bus id synthesis is itemized there.
+            @test any(w -> occursin("synthesized bus ids", w), PowerIO.warnings(r.network))
             @test PowerIO.n_buses(r.network) == 14
             @test PowerIO.n_branches(r.network) == 20
             @test PowerIO.n_gens(r.network) == 5

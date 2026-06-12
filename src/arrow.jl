@@ -101,6 +101,11 @@ struct ArrowColumn{T} <: AbstractVector{T}
 end
 Base.size(c::ArrowColumn) = size(getfield(c, :data))
 Base.IndexStyle(::Type{<:ArrowColumn}) = IndexLinear()
+# The raw view must not escape its rooting wrapper: a bare `c.data` does not root
+# `buffers`, which is exactly the use after free this type exists to prevent.
+Base.getproperty(c::ArrowColumn, name::Symbol) = error(
+    "PowerIO.ArrowColumn has no public fields; `collect(c)` copies it to an owned Vector")
+Base.propertynames(::ArrowColumn) = ()
 # Preserve `c` (hence its ArrowBuffers) across the read: the wrapped Vector's
 # memory is the producer's, not Julia's, so `c` being collectible mid-read would
 # let the release finalizer free it.
@@ -110,13 +115,16 @@ Base.@propagate_inbounds Base.getindex(c::ArrowColumn, i::Int) =
 """
     ArrowTable
 
-The zero-copy result of `to_arrow(...; copy=false)`. Its `columns` are a
-NamedTuple of [`ArrowColumn`](@ref) views into the producer's buffers; the
-columns and the table each root the shared buffer owner, which frees the
-buffers once none of them is reachable. A column extracted from the table is
-safe on its own. `close(t)` frees the buffers eagerly instead of waiting for
-GC. (The default `copy=true` returns a plain NamedTuple of owned Vectors
-instead, no `ArrowTable` involved.)
+The zero-copy result of `to_arrow(...; copy=false)`: a NamedTuple of
+[`ArrowColumn`](@ref) views into the producer's buffers, behind property access
+(`t.id`, `t.from`, ...). Every property name resolves to a column — including
+`t.columns`, which would look up a column called `columns` — so the NamedTuple
+itself comes from the unexported accessor `PowerIO.columns(t)`. The columns and
+the table each root the shared buffer owner, which frees the buffers once none
+of them is reachable; a column extracted from the table is safe on its own.
+`close(t)` frees the buffers eagerly instead of waiting for GC. (The default
+`copy=true` returns a plain NamedTuple of owned Vectors instead, no `ArrowTable`
+involved.)
 """
 struct ArrowTable
     columns::NamedTuple
@@ -193,9 +201,7 @@ function _arrow_from_handle(h::NetworkHandle, table::Symbol, copy::Bool)
               (Ptr{Cvoid}, Cint, Ptr{CArrowArray}, Ptr{CArrowSchema}, Ptr{UInt8}, Csize_t),
               h.ptr, id, arr, sch, err, length(err))
     catch e
-        error("PowerIO.to_arrow: could not call pio_to_arrow: the C ABI at " *
-              "\"$(_lib())\" was built without the arrow feature. Rebuild with " *
-              "`cargo build -p powerio-capi --release --features arrow`. Underlying: $e")
+        _feature_call_error("to_arrow", "pio_to_arrow", "arrow", e)
     end
     rc == 0 || error("PowerIO.to_arrow: " * _cstr(err))
     if copy
@@ -234,9 +240,11 @@ powerio-capi built `--features arrow`; see [`arrow_available`](@ref).
 the producer before returning: plain arrays, no lifetime caveat. `copy=false`
 returns a zero-copy [`ArrowTable`](@ref) of [`ArrowColumn`](@ref) views; each
 column roots the shared buffers, so columns may outlive the table, and
-`close(t)` frees the buffers eagerly. Both support
-`result.<column>` access and are Tables.jl-shaped. For the numeric tables alone,
-[`to_dense`](@ref) is a copy-free, `unsafe_wrap`-free fast path.
+`close(t)` frees the buffers eagerly. Both support `result.<column>` access,
+but only the `copy=true` NamedTuple is Tables.jl-shaped (flows into
+`Arrow.write`, `DataFrame`, etc.); `collect` a zero-copy column for an owned
+Vector. For the numeric tables alone, [`to_dense`](@ref) is a copy-free,
+`unsafe_wrap`-free fast path.
 """
 function to_arrow(net::Network, table::Symbol; copy::Bool=true)
     return _arrow_from_handle(_live_handle(net, "to_arrow"), table, copy)
@@ -258,16 +266,4 @@ end
 True if the resolved C library exports `pio_to_arrow` (built `--features
 arrow`).
 """
-function arrow_available()
-    try
-        handle = Libdl.dlopen(_lib())
-        try
-            return Libdl.dlsym(handle, :pio_to_arrow; throw_error=false) !== nothing
-        finally
-            Libdl.dlclose(handle)
-        end
-    catch e
-        @debug "PowerIO: arrow_available probe failed" exception = (e, catch_backtrace())
-        return false
-    end
-end
+arrow_available() = _exports_symbol(:pio_to_arrow)
