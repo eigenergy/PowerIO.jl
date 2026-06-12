@@ -27,7 +27,7 @@ version = v"0.3.0"
 # submission).
 sources = [
     GitSource("https://github.com/eigenergy/powerio.git",
-              "4511e350786569e13186aa144e61f6e11b76594d"),
+              "b92d9abee9a8e22df5f79d3a9d41caf30813fa1f"),
 ]
 
 # `cargo build` writes the cdylib under target/<rust_target>/release. Names differ
