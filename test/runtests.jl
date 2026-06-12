@@ -289,13 +289,36 @@ using JSON3
 
             @test_throws ArgumentError to_arrow(m, :nonesuch)
 
-            # copy=false: the zero-copy ArrowTable path, same values; releasing it
-            # (finalizer) must not fault, and a second finalize is a no-op.
+            # copy=false: the zero-copy ArrowTable path, same values. A column
+            # extracted from the table roots the shared buffers on its own, so
+            # it survives the table being collected (the old footgun).
             z = to_arrow(m, :bus; copy=false)
             @test z isa ArrowTable
             @test z.id == collect(1:14)
-            finalize(z)
-            finalize(z)
+            @test z.id isa PowerIO.ArrowColumn{Int64}
+            @test PowerIO.columns(z) isa NamedTuple
+            # The raw unsafe_wrap view must not escape its rooting wrapper.
+            @test_throws ErrorException z.id.data
+            @test collect(z.id) isa Vector{Int64}
+            col = z.id
+            z = nothing
+            GC.gc(); GC.gc()
+            @test col == collect(1:14)
+            col = nothing
+            GC.gc()
+
+            # close releases the producer eagerly: both release callbacks NULL
+            # themselves, so a second close (and the later GC finalize) is a
+            # no-op. finalize(table) stays a legal no-op for 0.1.0 callers; the
+            # buffers free once the columns drop too.
+            z2 = to_arrow(m, :bus; copy=false)
+            b = getfield(z2, :_buffers)
+            @test b.array[].release != C_NULL
+            close(z2)
+            @test b.array[].release == C_NULL
+            @test b.schema[].release == C_NULL
+            close(z2)
+            finalize(z2)
             @test true
         end
     end
