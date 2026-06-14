@@ -1,12 +1,10 @@
 # Changelog
 
-## 0.2.1
+## 0.1.1
 
-First registry release tracking powerio **0.2.1** (still C ABI version 3 —
-powerio 0.2.x binaries are drop in). The version number now matches the powerio
-release the binding wraps. Breaking under pre-1.0 SemVer because it is a minor
-bump from the registered 0.0.1; there is no source-level break, and the upgrade
-is just `pkg> up PowerIO`. Bundles the 0.1.1 pointer-lifetime hardening below.
+Adds two C-ABI bindings; still targets powerio C ABI version 3 (powerio 0.2.x
+binaries are drop in, the v0.2.1 artifact pin unchanged). No breaking changes —
+an additive patch over 0.1.0.
 
 - `write_pypsa_csv_folder(net, out_dir) -> (out_dir, warnings)` writes a PyPSA
   CSV folder — the directory-shaped inverse of
@@ -14,14 +12,19 @@ is just `pkg> up PowerIO`. Bundles the 0.1.1 pointer-lifetime hardening below.
 - `reference_bus_indices(net) -> Vector{Int}` returns the dense indices of every
   reference bus (zero, one, or many), over `pio_n_reference_buses` /
   `pio_reference_buses` — the multi-slack companion to `reference_bus_id`.
-- Artifacts repinned to the powerio v0.2.1 release tarballs.
 
-## 0.1.1
+## 0.1.0
 
-Pointer lifetime hardening, backported from the ABI v4 branch; still targets
-powerio C ABI version 3 (powerio v0.2.x binaries are drop in). No signature
-changes; the one behavioral change is `finalize` on a zero-copy table, below.
+First current release: the gridfm reader plus pointer-lifetime hardening, on
+powerio C ABI version 3 (v0.2.1 binaries are drop in). Breaking under pre-1.0
+SemVer as a minor bump from 0.0.1; no source-level break, no signature changes.
+The one behavioral change is `finalize` on a zero-copy table, below.
 
+- `read_gridfm` / `read_gridfm_scenarios` read a gridfm-datakit Parquet dataset
+  back into a `Network` — the inverse of the gridfm writer, the ML→classical
+  return leg (lossy but power-flow-complete; what the schema can't round-trip
+  comes back in `warnings`). Needs powerio-capi built `--features gridfm`;
+  `gridfm_available()` probes for the symbol (no ABI bump, still version 3).
 - Use after free: every helper that lowers a `NetworkHandle` to a raw pointer
   now runs its ccalls under `GC.@preserve` — Julia may collect a handle after
   its last use, not at end of call, so a GC between pointer extraction and a
@@ -42,14 +45,6 @@ changes; the one behavioral change is `finalize` on a zero-copy table, below.
   blaming the build.
 - Per-call warning buffers grow to 4096 bytes and a fill near the cap is
   surfaced as a truncation marker instead of silently dropping warnings.
-
-## 0.1.0
-
-- `read_gridfm` / `read_gridfm_scenarios` read a gridfm-datakit Parquet dataset
-  back into a `Network` — the inverse of the gridfm writer, the ML→classical
-  return leg (lossy but power-flow-complete; what the schema can't round-trip
-  comes back in `warnings`). Needs powerio-capi built `--features gridfm`;
-  `gridfm_available()` probes for the symbol (no ABI bump, still version 3).
 
 ## 0.0.1
 
