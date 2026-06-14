@@ -155,10 +155,12 @@ lazy artifact. The pipeline is described in [docs/binary.md](docs/binary.md).
 
 ## Roadmap
 
-0.1.0 ships the gridfm reader (`read_gridfm`) against powerio v0.1.0. Next: a fully typed immutable `Network`
-mirroring the Rust model (today's view is JSON-backed), a Documenter site,
-package extensions for the PowerModels and ExaPowerIO bridges, and
-distribution through a registered `PowerIO_jll`.
+0.1.x tracks powerio v0.2.1 (C ABI 3): 0.1.0 added the gridfm reader
+(`read_gridfm`), 0.1.1 the PyPSA CSV writer (`write_pypsa_csv_folder`) and
+`reference_bus_indices`. Next: a fully typed immutable `Network` mirroring the
+Rust model (today's view is JSON-backed), a Documenter site, package extensions
+for the PowerModels and ExaPowerIO bridges, and distribution through a
+registered `PowerIO_jll`.
 
 ## License
 
