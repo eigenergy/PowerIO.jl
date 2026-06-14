@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.2
+
+Tracks powerio v0.2.2 (C ABI version 3, unchanged); the repinned binaries improve
+PSS/E and PowerWorld parsing. Additive Julia-side changes only.
+
+- `n_components(net)` and `is_radial(net)` accessors over `pio_n_components` /
+  `pio_is_radial` — the connectivity scalars `to_dense` already returns, now
+  reachable without building the dense view.
+- `Base.show` for `Network` prints a one-line summary (source format, bus / branch /
+  gen counts).
+- Aqua.jl quality tests added to the suite.
+
 ## 0.1.1
 
 Adds two C-ABI bindings; still targets powerio C ABI version 3 (powerio 0.2.x

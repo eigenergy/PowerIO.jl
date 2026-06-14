@@ -368,6 +368,13 @@ struct Network
 end
 Network(data::JSON3.Object) = Network(data, nothing)
 
+# A one-line REPL summary. Uses only the JSON-backed accessors, so a handle-less
+# `Network` (built by `from_json`) shows without needing the Rust library.
+function Base.show(io::IO, net::Network)
+    print(io, "Network{", source_format(net), "}: ", n_buses(net), " buses, ",
+          n_branches(net), " branches, ", n_gens(net), " gens")
+end
+
 """
     parse_file(path; from=nothing) -> Network
     parse_file(io::IO, format::AbstractString) -> Network
@@ -664,6 +671,30 @@ function reference_bus_indices(net::Network)
         ccall((:pio_reference_buses, _lib()), Cvoid, (Ptr{Cvoid}, Ptr{Int64}), h.ptr, out)
         Vector{Int}(out)
     end
+end
+
+"""
+    n_components(net) -> Int
+
+Number of connected components of the in-service topology, as the C ABI computes it
+(`pio_n_components`). The same quantity as `to_dense(net).n_components`, without
+building the dense view. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
+"""
+function n_components(net::Network)
+    h = _live_handle(net, "n_components")
+    return Int(GC.@preserve h ccall((:pio_n_components, _lib()), Csize_t, (Ptr{Cvoid},), h.ptr))
+end
+
+"""
+    is_radial(net) -> Bool
+
+Whether the in-service topology is radial (a forest), as the C ABI computes it
+(`pio_is_radial`). The same quantity as `to_dense(net).is_radial`, without building
+the dense view. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
+"""
+function is_radial(net::Network)
+    h = _live_handle(net, "is_radial")
+    return (GC.@preserve h ccall((:pio_is_radial, _lib()), Cint, (Ptr{Cvoid},), h.ptr)) != 0
 end
 
 """
