@@ -39,8 +39,8 @@ import Libdl
 
 export Network, parse_file, parse_str, from_json, convert_file, to_format,
        to_normalized, to_json, to_dense, to_matpower, to_arrow, ArrowTable,
-       to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
-       read_gridfm, read_gridfm_scenarios
+       write_pypsa_csv_folder, to_powermodels, from_powermodels, to_powerdata,
+       parse_ac_power_data, read_gridfm, read_gridfm_scenarios
 
 # --- library resolution -------------------------------------------------
 #
@@ -534,6 +534,29 @@ function convert_file(path::AbstractString, to::AbstractString; from=nothing)
     return (text, _warn_lines(warnbuf; capped=true))
 end
 
+"""
+    write_pypsa_csv_folder(net::Network, out_dir) -> (out_dir, warnings)
+
+Write `net` as a PyPSA CSV folder under `out_dir` (created if absent) — the
+directory-shaped inverse of `parse_file(out_dir; from="pypsa-csv")`, where the
+other writers (`to_format`, `convert_file`) emit a single text document. Returns
+the output directory and any fidelity warnings the writer reports for fields the
+PyPSA static-network CSV schema can't carry. Needs `net`'s live Rust handle
+(from [`parse_file`](@ref)).
+"""
+function write_pypsa_csv_folder(net::Network, out_dir::AbstractString)
+    h = _live_handle(net, "write_pypsa_csv_folder")
+    warnbuf = zeros(UInt8, _WARNLEN)
+    err = zeros(UInt8, _ERRLEN)
+    # Fallible `int` return (0 = success), the warnbuf/errbuf convention of
+    # `pio_convert_file`; the handle is preserved across the ccall.
+    rc = GC.@preserve h ccall((:pio_write_pypsa_csv_folder, _lib()), Int32,
+                              (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
+                              h.ptr, String(out_dir), warnbuf, length(warnbuf), err, length(err))
+    rc == 0 || error("PowerIO.write_pypsa_csv_folder: " * _cstr(err))
+    return (String(out_dir), _warn_lines(warnbuf; capped=true))
+end
+
 # --- accessor surface ---------------------------------------------------
 #
 # The v0.0.1 surface bridges read: the parsed element tables plus a few scalars.
@@ -622,6 +645,25 @@ function reference_bus_id(net::Network)
         end
     end
     return ref
+end
+
+"""
+    reference_bus_indices(net) -> Vector{Int}
+
+The dense `[0, n)` indices of every reference (slack) bus, in dense bus order.
+Unlike [`reference_bus_id`](@ref) — which returns a single 1-based id and only
+when exactly one bus is `REF` — this returns all of them (zero, one, or many) as
+dense indices. Map an index back to a 1-based id with `to_dense(net).bus_ids`.
+Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
+"""
+function reference_bus_indices(net::Network)
+    h = _live_handle(net, "reference_bus_indices")
+    return GC.@preserve h begin
+        n = Int(ccall((:pio_n_reference_buses, _lib()), Csize_t, (Ptr{Cvoid},), h.ptr))
+        out = Vector{Int64}(undef, n)
+        ccall((:pio_reference_buses, _lib()), Cvoid, (Ptr{Cvoid}, Ptr{Int64}), h.ptr, out)
+        Vector{Int}(out)
+    end
 end
 
 """

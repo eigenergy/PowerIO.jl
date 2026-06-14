@@ -8,14 +8,14 @@ using JSON3
         # and its public surface must exist.
         for sym in (:Network, :parse_file, :parse_str, :from_json, :convert_file,
                     :to_format, :to_normalized, :to_json, :to_dense, :to_matpower,
-                    :to_arrow, :ArrowTable, :to_powermodels, :from_powermodels,
-                    :to_powerdata, :parse_ac_power_data, :read_gridfm,
-                    :read_gridfm_scenarios)
+                    :to_arrow, :ArrowTable, :write_pypsa_csv_folder, :to_powermodels,
+                    :from_powermodels, :to_powerdata, :parse_ac_power_data,
+                    :read_gridfm, :read_gridfm_scenarios)
             @test isdefined(PowerIO, sym)
         end
         # The accessor surface the ecosystem bridges read is unexported but must exist.
         for sym in (:n_buses, :n_branches, :n_gens, :base_mva, :network_name,
-                    :source_format, :reference_bus_id, :bus_type_code,
+                    :source_format, :reference_bus_id, :reference_bus_indices, :bus_type_code,
                     :buses, :generators, :branches, :loads, :shunts, :storage, :hvdc,
                     :abi_version, :library_version, :library_available, :arrow_available,
                     :gridfm_available)
@@ -139,6 +139,34 @@ using JSON3
             # library's ABI version must equal the one this binding targets.
             @test PowerIO.abi_version() == PowerIO.PIO_ABI_VERSION
             @test !isempty(PowerIO.library_version())
+        end
+    end
+
+    @testset "PyPSA CSV writer and reference bus indices" begin
+        if !PowerIO.library_available()
+            @test_skip parse_file("case14.m")
+        else
+            data = joinpath(@__DIR__, "data")
+            net = parse_file(joinpath(data, "case14.m"))
+
+            # write_pypsa_csv_folder writes a directory and round-trips back through
+            # the pypsa-csv reader; bus count and base_mva survive the model crossing.
+            out = mktempdir()
+            dir, warnings = write_pypsa_csv_folder(net, out)
+            @test dir == out
+            @test warnings isa AbstractVector{<:AbstractString}
+            @test !isempty(readdir(out))
+            back = parse_file(out; from = "pypsa-csv")
+            @test PowerIO.n_buses(back) == PowerIO.n_buses(net)
+            @test PowerIO.base_mva(back) ≈ PowerIO.base_mva(net)
+
+            # reference_bus_indices returns the dense indices of every REF bus; case14
+            # has the single slack reference_bus_id reports, and the dense index maps
+            # back to that 1-based id through bus_ids.
+            refs = reference_bus_indices(net)
+            @test refs isa Vector{Int}
+            @test length(refs) == 1
+            @test PowerIO.to_dense(net).bus_ids[refs[1] + 1] == PowerIO.reference_bus_id(net)
         end
     end
 

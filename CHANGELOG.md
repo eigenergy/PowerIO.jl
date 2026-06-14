@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.1
+
+First registry release tracking powerio **0.2.1** (still C ABI version 3 —
+powerio 0.2.x binaries are drop in). The version number now matches the powerio
+release the binding wraps. Breaking under pre-1.0 SemVer because it is a minor
+bump from the registered 0.0.1; there is no source-level break, and the upgrade
+is just `pkg> up PowerIO`. Bundles the 0.1.1 pointer-lifetime hardening below.
+
+- `write_pypsa_csv_folder(net, out_dir) -> (out_dir, warnings)` writes a PyPSA
+  CSV folder — the directory-shaped inverse of
+  `parse_file(out_dir; from="pypsa-csv")`, binding `pio_write_pypsa_csv_folder`.
+- `reference_bus_indices(net) -> Vector{Int}` returns the dense indices of every
+  reference bus (zero, one, or many), over `pio_n_reference_buses` /
+  `pio_reference_buses` — the multi-slack companion to `reference_bus_id`.
+- Artifacts repinned to the powerio v0.2.1 release tarballs.
+
 ## 0.1.1
 
 Pointer lifetime hardening, backported from the ABI v4 branch; still targets

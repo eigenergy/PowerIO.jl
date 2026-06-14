@@ -41,10 +41,16 @@ After each powerio binary release:
    anything changed. If the release bumped `PIO_ABI_VERSION`, update the
    constant and the affected ccalls in that PR (see "ABI lockstep" above).
 2. Merge the artifacts PR if one was opened, then dispatch "Register Package"
-   with the new version (no leading v, or major/minor/patch to bump). It
-   commits the Project.toml bump to main and posts the
-   `@JuliaRegistrator register` comment; the manual fallback is commenting
-   that on any commit.
+   with the new version (no leading v, or major/minor/patch to bump) and, for a
+   breaking bump, release notes. It commits the Project.toml bump to main and
+   posts the `@JuliaRegistrator register` comment with a `Release notes:` block
+   (defaulting to the top CHANGELOG.md section); the manual fallback is
+   commenting that — notes block included — on any commit.
+
+   Every pre-1.0 minor bump (`0.x.0`) is a *breaking* release, and General's
+   AutoMerge holds a breaking version whose trigger has no change description.
+   The notes must mention "breaking" or "changelog" (even just "no breaking
+   changes"); the workflow's CHANGELOG default already does.
 3. The General registry PR AutoMerges in about 15 minutes for new versions
    (3 days for a brand-new package). TagBot then tags `vX.Y.Z` here and
    creates the GitHub release.
