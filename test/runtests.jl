@@ -163,7 +163,7 @@ using JSON3
             # reference_bus_indices returns the dense indices of every REF bus; case14
             # has the single slack reference_bus_id reports, and the dense index maps
             # back to that 1-based id through bus_ids.
-            refs = reference_bus_indices(net)
+            refs = PowerIO.reference_bus_indices(net)
             @test refs isa Vector{Int}
             @test length(refs) == 1
             @test PowerIO.to_dense(net).bus_ids[refs[1] + 1] == PowerIO.reference_bus_id(net)
