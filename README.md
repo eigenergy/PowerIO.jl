@@ -32,16 +32,10 @@ the target cannot represent as warnings.
   >
 </p>
 
-> **Status: registration in General in progress.** Once it completes,
-> `Pkg.add("PowerIO")` needs no Rust toolchain; the binary downloads lazily on
-> first use. Until then install from the repository URL below. See
-> [docs/binary.md](docs/binary.md).
-
 ## Install
 
 ```julia
-pkg> add PowerIO                  # once registration in General completes
-pkg> add https://github.com/eigenergy/PowerIO.jl   # works either way
+pkg> add PowerIO
 ```
 
 Working on the binding itself needs a local C ABI build; see Develop below.
@@ -161,11 +155,12 @@ lazy artifact. The pipeline is described in [docs/binary.md](docs/binary.md).
 
 ## Roadmap
 
-0.1.0 ships the gridfm reader (`read_gridfm`) against powerio v0.1.0, with
-registration in General underway. Next: a fully typed immutable `Network`
-mirroring the Rust model (today's view is JSON-backed), a Documenter site,
-package extensions for the PowerModels and ExaPowerIO bridges, and
-distribution through a registered `PowerIO_jll`.
+0.1.x tracks powerio v0.2.1 (C ABI 3): 0.1.0 added the gridfm reader
+(`read_gridfm`), 0.1.1 the PyPSA CSV writer (`write_pypsa_csv_folder`) and
+`reference_bus_indices`. Next: a fully typed immutable `Network` mirroring the
+Rust model (today's view is JSON-backed), a Documenter site, package extensions
+for the PowerModels and ExaPowerIO bridges, and distribution through a
+registered `PowerIO_jll`.
 
 ## License
 
