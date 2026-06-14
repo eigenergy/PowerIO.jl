@@ -84,7 +84,8 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -am "Set version to ${{ steps.ver.outputs.version }}"
+          git commit -am "Set version to ${{ steps.ver.outputs.version }}" \
+            || echo "version already ${{ steps.ver.outputs.version }}; nothing to commit"
           git push origin main
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 

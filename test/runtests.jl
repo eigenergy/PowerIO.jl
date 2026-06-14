@@ -1,6 +1,7 @@
 using PowerIO
 using Test
 using JSON3
+using Aqua
 
 @testset "PowerIO" begin
     @testset "loads and exposes its surface" begin
@@ -15,7 +16,8 @@ using JSON3
         end
         # The accessor surface the ecosystem bridges read is unexported but must exist.
         for sym in (:n_buses, :n_branches, :n_gens, :base_mva, :network_name,
-                    :source_format, :reference_bus_id, :reference_bus_indices, :bus_type_code,
+                    :source_format, :reference_bus_id, :reference_bus_indices,
+                    :n_components, :is_radial, :bus_type_code,
                     :buses, :generators, :branches, :loads, :shunts, :storage, :hvdc,
                     :abi_version, :library_version, :library_available, :arrow_available,
                     :gridfm_available)
@@ -167,6 +169,12 @@ using JSON3
             @test refs isa Vector{Int}
             @test length(refs) == 1
             @test PowerIO.to_dense(net).bus_ids[refs[1] + 1] == PowerIO.reference_bus_id(net)
+
+            # n_components / is_radial read the C ABI connectivity scalars directly;
+            # they must match the dense view (case14 is one connected, looped component).
+            dense = PowerIO.to_dense(net)
+            @test PowerIO.n_components(net) == dense.n_components == 1
+            @test PowerIO.is_radial(net) == dense.is_radial == false
         end
     end
 
@@ -393,5 +401,9 @@ using JSON3
             # A nonexistent dataset directory surfaces as a Julia error, not a fault.
             @test_throws ErrorException read_gridfm(joinpath(data, "no_such_gridfm"))
         end
+    end
+
+    @testset "Aqua quality" begin
+        Aqua.test_all(PowerIO)
     end
 end
