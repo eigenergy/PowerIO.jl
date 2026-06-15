@@ -74,8 +74,8 @@ from_json(to_json(net))            # Network with a live handle
 ```
 
 `to_normalized` derives a computation-ready copy: powers per unit, angles in
-radians, tap `0 → 1`, out-of-service and isolated elements dropped, buses
-reindexed to a dense 1-based id space, bus types inferred:
+radians, tap `0 → 1`, out-of-service and isolated elements dropped, source bus
+ids preserved, bus types inferred:
 
 ```julia
 norm = to_normalized(net)
