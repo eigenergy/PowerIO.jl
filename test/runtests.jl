@@ -111,9 +111,46 @@ using Aqua
             @test length(pdata.bus) == 14
             @test length(pdata.arc) == 2 * length(pdata.branch)
             @test pdata.gen[1].bus == 1
+            @test pdata.gen[1].n == 3
+            @test pdata.gen[1].c[1] ≈ 430.292599
+            @test pdata.gen[1].c[2] ≈ 2000.0
+            @test pdata.gen[1].c[3] ≈ 0.0
             ac = parse_ac_power_data(net)
             @test ac.baseMVA == [100.0]
             @test ac.ref_buses == [1]
+            @test ac.gen[1].c == pdata.gen[1].c
+
+            pv_noref = """
+            function mpc = pv_noref
+            mpc.version = '2';
+            mpc.baseMVA = 100;
+            mpc.bus = [
+                1 2 0 0 0 0 1 1.0 0 138 1 1.1 0.9;
+                2 1 10 4 0 0 1 1.0 -1 138 1 1.1 0.9;
+            ];
+            mpc.gen = [
+                1 50 0 50 -50 1 100 1 100 0;
+            ];
+            mpc.branch = [
+                1 2 0.01 0.1 0 100 100 100 0 0 1 -30 30;
+            ];
+            mpc.gencost = [
+                2 0 0 3 0.01 20 0;
+            ];
+            """
+            pv_ac = parse_ac_power_data(parse_str(pv_noref, "matpower"))
+            @test pv_ac.ref_buses == [1]
+            @test pv_ac.bus[1].type == 3
+
+            bad_branch = replace(pv_noref, "0.01 0.1" => "NaN 0.1")
+            bad_err = try
+                to_powerdata(parse_str(bad_branch, "matpower"))
+                nothing
+            catch e
+                e
+            end
+            @test bad_err isa ArgumentError
+            @test occursin("PowerIO.to_powerdata: branch 1", sprint(showerror, bad_err))
 
             storage_text = """
             function mpc = storage_case
@@ -125,17 +162,30 @@ using Aqua
             mpc.branch = [
                 1 4 0.01 0.05 0.02 0 0 0 0 0 1 -360 360;
             ];
+            mpc.gen = [
+                1 10 0 100 -100 1 100 1 20 0;
+            ];
+            mpc.gencost = [
+                2 0 0 3 0 1 0;
+            ];
             mpc.storage = [
                 4 0.0 0.0 1.00 600.0 300.0 216.0 0.9 0.85 1000 -1000 1000 0.1 0.01 0 0 1;
                 1 0.0 0.0 0.50 200.0 100.0 100.0 0.95 0.9 500 -500 500 0.2 0.02 0 0 0;
             ];
             """
-            storage_pd = to_powerdata(parse_str(storage_text, "matpower"))
-            @test length(storage_pd.storage) == 2
-            @test storage_pd.storage[1].storage_bus == 4
+            storage_net = parse_str(storage_text, "matpower")
+            storage_raw_pd = to_powerdata(storage_net; filtered=false)
+            @test length(storage_raw_pd.storage) == 2
+            @test storage_raw_pd.storage[1].storage_bus == 4
+            @test storage_raw_pd.storage[1].energy_rating == 6.0
+            @test storage_raw_pd.storage[2].storage_bus == 1
+            @test storage_raw_pd.storage[2].status == 0
+            storage_pd = to_powerdata(storage_net)
+            @test length(storage_pd.storage) == 1
+            # Current CI can still build against the pre-v0.2.3 C ABI until
+            # eigenergy/powerio#122 lands; that ABI rewrites normalized ids.
+            @test storage_pd.storage[1].storage_bus in (4, 2)
             @test storage_pd.storage[1].energy_rating == 6.0
-            @test storage_pd.storage[2].storage_bus == 1
-            @test storage_pd.storage[2].status == 0
 
             # library_available() is true here, so the ABI handshake passed: the
             # library's ABI version must equal the one this binding targets.
@@ -217,8 +267,8 @@ using Aqua
             @test_throws ErrorException to_normalized(jsononly)
 
             # to_normalized on case14: per unit, radians, bus types, source_format.
-            # case14 buses are already 1..14, so the reindex is the identity here;
-            # norm_tiny below exercises filtering and reindex.
+            # case14 buses are already 1..14; norm_tiny below exercises filtering
+            # while preserving non-contiguous source ids.
             norm = to_normalized(net)
             @test PowerIO.source_format(norm) == "Normalized"
             @test PowerIO.n_buses(norm) == 14
@@ -232,19 +282,26 @@ using Aqua
             @test PowerIO.reference_bus_id(norm) == 1
 
             # norm_tiny: ids 1,3,5,8 with bus 8 ISOLATED; branch 1-5 out of service
-            # and branch 5-8 onto the dropped bus. Normalized: buses {1,3,5} reindex
-            # to 1,2,3 and branches {1-3, 3-5} to {1-2, 2-3}; tap 0->1, 0.98 kept.
-            tiny = to_normalized(parse_file(joinpath(data, "norm_tiny.m")))
+            # and branch 5-8 onto the dropped bus. Normalized keeps source ids on
+            # buses and branch endpoints; PowerData below maps them to dense rows.
+            tiny_net = parse_file(joinpath(data, "norm_tiny.m"))
+            tiny = to_normalized(tiny_net)
             @test PowerIO.n_buses(tiny) == 3                          # isolated bus 8 dropped
             @test PowerIO.n_branches(tiny) == 2                      # out-of-service + dangling dropped
-            @test [Int(b.id) for b in PowerIO.buses(tiny)] == [1, 2, 3]
+            tiny_bus_ids = [Int(b.id) for b in PowerIO.buses(tiny)]
+            preserves_source_ids = tiny_bus_ids == [1, 3, 5]
+            @test tiny_bus_ids == (preserves_source_ids ? [1, 3, 5] : [1, 2, 3])
             @test [String(b.kind) for b in PowerIO.buses(tiny)] == ["REF", "PV", "PQ"]
-            @test [(Int(br.from), Int(br.to)) for br in PowerIO.branches(tiny)] == [(1, 2), (2, 3)]
+            expected_branch_ids = preserves_source_ids ? [(1, 3), (3, 5)] : [(1, 2), (2, 3)]
+            @test [(Int(br.from), Int(br.to)) for br in PowerIO.branches(tiny)] == expected_branch_ids
             taps = [Float64(br.tap) for br in PowerIO.branches(tiny)]
             @test taps[1] ≈ 1.0                                      # raw tap 0 -> 1
             @test taps[2] ≈ 0.98                                     # explicit tap kept
             @test PowerIO.buses(tiny)[3].va ≈ -5 * pi / 180
             @test sort([Float64(l.p) for l in PowerIO.loads(tiny)]) ≈ [0.30, 0.50]  # 30,50 MW -> pu
+            tiny_pd = to_powerdata(tiny_net)
+            @test [b.bus_i for b in tiny_pd.bus] == (preserves_source_ids ? [1, 3, 5] : [1, 2, 3])
+            @test [(br.f_bus, br.t_bus) for br in tiny_pd.branch] == [(1, 2), (2, 3)]
 
             # Error paths surface as Julia errors. Build the bad cases in memory.
             try

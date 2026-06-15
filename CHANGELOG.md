@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- `to_normalized` now preserves source bus ids, matching powerio v0.2.3.
+- `to_powerdata` and `parse_ac_power_data` now derive their default filtered
+  view from `to_normalized`, preserving `bus_i` source ids while keeping
+  PowerData branch and generator references dense.
+- PowerData polynomial cost lowering now drops leading padded zeros and returns
+  quadratic `(quad, lin, const)` coefficients in per unit.
+
 ## 0.1.2
 
 Tracks powerio v0.2.2 (C ABI version 3, unchanged); the repinned binaries improve

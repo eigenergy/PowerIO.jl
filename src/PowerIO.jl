@@ -16,7 +16,8 @@ all over the same C ABI:
 - [`to_arrow`](@ref): one table over the Arrow C Data Interface (owned columns by
   default; zero copy with `copy=false`).
 
-[`to_normalized`](@ref) derives a per-unit / radian / filtered / reindexed copy, and
+[`to_normalized`](@ref) derives a per-unit / radian / filtered copy that preserves
+source bus ids, and
 [`to_matpower`](@ref) / [`convert_file`](@ref) serialize back out.
 
 [`read_gridfm`](@ref) / [`read_gridfm_scenarios`](@ref) read a gridfm-datakit Parquet
@@ -448,9 +449,9 @@ end
 
 A computation-ready copy of `net`: per unit (powers ÷ `base_mva`), angles in
 radians, transformer tap `0 → 1`, out-of-service and isolated elements dropped,
-buses reindexed to a dense 1-based id space, and bus types inferred (a bus with a
-surviving generator keeps `REF` if the source marked it so, else becomes `PV`; a
-generator-less bus becomes `PQ`). `source_format` of the result is `"Normalized"`.
+source bus ids preserved, and bus types inferred (a bus with a surviving generator
+keeps `REF` if the source marked it so, else becomes `PV`; a generator-less bus
+becomes `PQ`). `source_format` of the result is `"Normalized"`.
 
 Needs `net`'s live Rust handle (from [`parse_file`](@ref)). Errors if `base_mva` is
 not positive or no reference bus can be established.
@@ -858,23 +859,71 @@ Julia dictionary / NamedTuple or a JSON string.
 from_powermodels(data) = parse_str(JSON3.write(data), "powermodels-json")
 from_powermodels(data::AbstractString) = parse_str(data, "powermodels-json")
 
-function _cost_tuple(g, ::Type{T}, base::T) where {T<:Real}
-    cost = _get(g, :cost, nothing)
-    cost === nothing && return (false, zero(T), zero(T), 0, (zero(T), zero(T), zero(T)))
-    coeffs = collect(cost.coeffs)
-    n = Int(cost.ncost)
-    vals = [zero(T), zero(T), zero(T)]
-    if Int(cost.model) == 2
-        for i in 1:min(3, length(coeffs))
-            vals[i] = T(base^(n - i) * Float64(coeffs[i]))
-        end
-    else
-        for i in 1:min(3, length(coeffs))
-            vals[i] = T(coeffs[i])
+function _powerdata_real(x, ::Type{T}, element::AbstractString,
+                         field::Symbol) where {T<:Real}
+    x === nothing &&
+        throw(ArgumentError("PowerIO.to_powerdata: $element has missing field `$field`"))
+    y = try
+        T(x)
+    catch err
+        msg = sprint(showerror, err)
+        throw(ArgumentError("PowerIO.to_powerdata: $element has invalid field `$field`: $msg"))
+    end
+    isfinite(y) ||
+        throw(ArgumentError("PowerIO.to_powerdata: $element has non-finite field `$field`"))
+    return y
+end
+
+function _quadratic_cost_coeffs(coeffs::Vector{T}, base::T,
+                                normalized::Bool) where {T<:Real}
+    scaled = copy(coeffs)
+    if !normalized
+        k = length(scaled)
+        for i in eachindex(scaled)
+            scaled[i] *= base^(k - i)
         end
     end
-    return (Int(cost.model) == 2, T(cost.startup), T(cost.shutdown), n,
-            (vals[1], vals[2], vals[3]))
+    while length(scaled) > 3 && iszero(first(scaled))
+        popfirst!(scaled)
+    end
+    length(scaled) > 3 &&
+        throw(ArgumentError("PowerIO.to_powerdata: polynomial generator cost cannot fit PowerData quadratic cost"))
+
+    vals = [zero(T), zero(T), zero(T)]
+    offset = 3 - length(scaled)
+    for (i, c) in enumerate(scaled)
+        vals[offset + i] = c
+    end
+    return vals
+end
+
+function _cost_tuple(g, ::Type{T}, base::T; normalized::Bool=false) where {T<:Real}
+    cost = _get(g, :cost, nothing)
+    cost === nothing && return (false, zero(T), zero(T), 0, (zero(T), zero(T), zero(T)))
+    coeffs = [_powerdata_real(c, T, "generator cost", :coeffs)
+              for c in collect(cost.coeffs)]
+    model = Int(cost.model)
+    n = Int(cost.ncost)
+    if model == 2
+        limit = min(n, length(coeffs))
+        trimmed = limit == 0 ? T[] : coeffs[1:limit]
+        vals = _quadratic_cost_coeffs(trimmed, base, normalized)
+        return (true,
+                _powerdata_real(cost.startup, T, "generator cost", :startup),
+                _powerdata_real(cost.shutdown, T, "generator cost", :shutdown),
+                3, (vals[1], vals[2], vals[3]))
+    else
+        limit = model == 1 ? min(2 * n, length(coeffs)) : length(coeffs)
+        trimmed = limit == 0 ? T[] : coeffs[1:limit]
+        vals = [zero(T), zero(T), zero(T)]
+        for i in 1:min(3, length(trimmed))
+            vals[i] = trimmed[i]
+        end
+    end
+    return (model == 2,
+            _powerdata_real(cost.startup, T, "generator cost", :startup),
+            _powerdata_real(cost.shutdown, T, "generator cost", :shutdown),
+            n, (vals[1], vals[2], vals[3]))
 end
 
 function _branch_coeffs(r::T, x::T, b_fr::T, b_to::T, g_fr::T, g_to::T,
@@ -899,17 +948,186 @@ function _branch_coeffs(r::T, x::T, b_fr::T, b_to::T, g_fr::T, g_to::T,
     )
 end
 
+function _to_powerdata_normalized(net::Network, ::Type{T}) where {T<:Real}
+    base = _powerdata_real(base_mva(net), T, "network", :base_mva)
+    raw_buses = collect(buses(net))
+    kept_ids = [Int(b.id) for b in raw_buses]
+    id_to_idx = Dict(id => i for (i, id) in enumerate(kept_ids))
+
+    pd = zeros(T, length(kept_ids))
+    qd = zeros(T, length(kept_ids))
+    for (row, l) in enumerate(loads(net))
+        idx = get(id_to_idx, Int(l.bus), 0)
+        idx == 0 && continue
+        pd[idx] += _powerdata_real(l.p, T, "load $row", :p)
+        qd[idx] += _powerdata_real(l.q, T, "load $row", :q)
+    end
+    gs = zeros(T, length(kept_ids))
+    bs = zeros(T, length(kept_ids))
+    for (row, s) in enumerate(shunts(net))
+        idx = get(id_to_idx, Int(s.bus), 0)
+        idx == 0 && continue
+        gs[idx] += _powerdata_real(s.g, T, "shunt $row", :g)
+        bs[idx] += _powerdata_real(s.b, T, "shunt $row", :b)
+    end
+
+    bus_rows = NamedTuple[]
+    for b in raw_buses
+        id = Int(b.id)
+        i = id_to_idx[id]
+        push!(bus_rows, (;
+            i,
+            bus_i = id,
+            type = bus_type_code(String(b.kind)),
+            pd = pd[i],
+            qd = qd[i],
+            gs = gs[i],
+            bs = bs[i],
+            area = Int(b.area),
+            vm = _powerdata_real(b.vm, T, "bus $id", :vm),
+            va = _powerdata_real(b.va, T, "bus $id", :va),
+            baseKV = _powerdata_real(b.base_kv, T, "bus $id", :base_kv),
+            zone = Int(b.zone),
+            vmax = _powerdata_real(b.vmax, T, "bus $id", :vmax),
+            vmin = _powerdata_real(b.vmin, T, "bus $id", :vmin),
+        ))
+    end
+
+    gen_rows = NamedTuple[]
+    for (row, g) in enumerate(generators(net))
+        idx = get(id_to_idx, Int(g.bus), 0)
+        idx == 0 && continue
+        model_poly, startup, shutdown, ncost, c =
+            _cost_tuple(g, T, base; normalized=true)
+        status = Bool(_get(g, :in_service, true))
+        push!(gen_rows, (;
+            i = length(gen_rows) + 1,
+            bus = idx,
+            pg = _powerdata_real(g.pg, T, "generator $row", :pg),
+            qg = _powerdata_real(g.qg, T, "generator $row", :qg),
+            qmax = _powerdata_real(g.qmax, T, "generator $row", :qmax),
+            qmin = _powerdata_real(g.qmin, T, "generator $row", :qmin),
+            vg = _powerdata_real(g.vg, T, "generator $row", :vg),
+            mbase = _powerdata_real(g.mbase, T, "generator $row", :mbase),
+            status = Int(status),
+            pmax = _powerdata_real(g.pmax, T, "generator $row", :pmax),
+            pmin = _powerdata_real(g.pmin, T, "generator $row", :pmin),
+            model_poly,
+            startup,
+            shutdown,
+            n = ncost,
+            c,
+        ))
+    end
+
+    kept_branches = Any[]
+    for br in branches(net)
+        f = get(id_to_idx, Int(br.from), 0)
+        t = get(id_to_idx, Int(br.to), 0)
+        (f == 0 || t == 0) && continue
+        push!(kept_branches, br)
+    end
+    m = length(kept_branches)
+    branch_rows = NamedTuple[]
+    for (i, br) in enumerate(kept_branches)
+        label = "branch $i"
+        f = id_to_idx[Int(br.from)]
+        t = id_to_idx[Int(br.to)]
+        tap_raw = _powerdata_real(br.tap, T, label, :tap)
+        tap = isapprox(tap_raw, zero(T)) ? one(T) : tap_raw
+        shift = _powerdata_real(br.shift, T, label, :shift)
+        b = _powerdata_real(br.b, T, label, :b)
+        b_fr = b / T(2)
+        b_to = b / T(2)
+        g_fr = zero(T)
+        g_to = zero(T)
+        r = _powerdata_real(br.r, T, label, :br_r)
+        x = _powerdata_real(br.x, T, label, :br_x)
+        c1, c2, c3, c4, c5, c6, c7, c8 =
+            _branch_coeffs(r, x, b_fr, b_to, g_fr, g_to, tap, shift)
+        push!(branch_rows, (;
+            i,
+            f_bus = f,
+            t_bus = t,
+            br_r = r,
+            br_x = x,
+            b_fr,
+            b_to,
+            g_fr,
+            g_to,
+            rate_a = _powerdata_real(br.rate_a, T, label, :rate_a),
+            rate_b = _powerdata_real(br.rate_b, T, label, :rate_b),
+            rate_c = _powerdata_real(br.rate_c, T, label, :rate_c),
+            tap,
+            shift,
+            status = Int(Bool(_get(br, :in_service, true))),
+            angmin = _powerdata_real(br.angmin, T, label, :angmin),
+            angmax = _powerdata_real(br.angmax, T, label, :angmax),
+            f_idx = i,
+            t_idx = i + m,
+            c1, c2, c3, c4, c5, c6, c7, c8,
+        ))
+    end
+    arc_rows = NamedTuple[]
+    for (i, br) in enumerate(branch_rows)
+        push!(arc_rows, (; i, bus = br.f_bus, rate_a = br.rate_a))
+    end
+    for (i, br) in enumerate(branch_rows)
+        push!(arc_rows, (; i = i + m, bus = br.t_bus, rate_a = br.rate_a))
+    end
+
+    storage_rows = NamedTuple[]
+    for (row, st) in enumerate(storage(net))
+        push!(storage_rows, (;
+            i = length(storage_rows) + 1,
+            storage_bus = Int(st.bus),
+            Pexts = _powerdata_real(st.ps, T, "storage $row", :ps),
+            Qexts = _powerdata_real(st.qs, T, "storage $row", :qs),
+            energy = _powerdata_real(st.energy, T, "storage $row", :energy),
+            energy_rating = _powerdata_real(st.energy_rating, T, "storage $row", :energy_rating),
+            charge_rating = _powerdata_real(st.charge_rating, T, "storage $row", :charge_rating),
+            discharge_rating = _powerdata_real(st.discharge_rating, T, "storage $row", :discharge_rating),
+            charge_efficiency = _powerdata_real(st.charge_efficiency, T, "storage $row", :charge_efficiency),
+            discharge_efficiency = _powerdata_real(st.discharge_efficiency, T, "storage $row", :discharge_efficiency),
+            thermal_rating = _powerdata_real(st.thermal_rating, T, "storage $row", :thermal_rating),
+            qmin = _powerdata_real(st.qmin, T, "storage $row", :qmin),
+            qmax = _powerdata_real(st.qmax, T, "storage $row", :qmax),
+            Zr = _powerdata_real(st.r, T, "storage $row", :r),
+            Zim = _powerdata_real(st.x, T, "storage $row", :x),
+            p_loss = _powerdata_real(st.p_loss, T, "storage $row", :p_loss),
+            q_loss = _powerdata_real(st.q_loss, T, "storage $row", :q_loss),
+            status = Int(Bool(_get(st, :in_service, true))),
+        ))
+    end
+
+    return (;
+        version = "2",
+        baseMVA = base,
+        bus = bus_rows,
+        gen = gen_rows,
+        branch = branch_rows,
+        arc = arc_rows,
+        storage = storage_rows,
+    )
+end
+
 """
     to_powerdata(net; filtered=true, T=Float64) -> NamedTuple
     to_powerdata(path; from=nothing, filtered=true, T=Float64) -> NamedTuple
 
 Return a NamedTuple in ExaPowerIO's `PowerData` shape: `version`, `baseMVA`, `bus`,
 `gen`, `branch`, `arc`, and `storage`. Rows use the field names ExaModelsPower
-reads. Values follow ExaPowerIO conventions: powers are per unit, branch angle
-fields are radians, and branch/generator bus references are indices into the bus
-vector.
+reads. With the default `filtered=true`, values are derived from
+[`to_normalized`](@ref): `bus_i` preserves the source bus id, powers are per unit,
+branch angle fields are radians, and branch/generator bus references are indices
+into the bus vector.
 """
 function to_powerdata(net::Network; filtered::Bool=true, T::Type{<:Real}=Float64)
+    if filtered
+        norm = source_format(net) == "Normalized" ? net : to_normalized(net)
+        return _to_powerdata_normalized(norm, T)
+    end
+
     base = T(base_mva(net))
     raw_buses = collect(buses(net))
     keep_bus = Dict{Int,Bool}()
@@ -972,7 +1190,8 @@ function to_powerdata(net::Network; filtered::Bool=true, T::Type{<:Real}=Float64
         idx == 0 && continue
         status = Bool(g.in_service)
         filtered && !status && continue
-        model_poly, startup, shutdown, ncost, c = _cost_tuple(g, T, base)
+        model_poly, startup, shutdown, ncost, c =
+            _cost_tuple(g, T, base; normalized=false)
         pmax = T(g.pmax) / base
         push!(gen_rows, (;
             i = length(gen_rows) + 1,
@@ -1001,17 +1220,15 @@ function to_powerdata(net::Network; filtered::Bool=true, T::Type{<:Real}=Float64
         end
     end
 
-    look_for_ref = false
     for i in eachindex(bus_rows)
         typ = bus_rows[i].type
         if has_gen[i] && typ == 1
             bus_rows[i] = merge(bus_rows[i], (; type = 2))
         elseif !has_gen[i] && (typ == 2 || typ == 3)
-            look_for_ref |= typ == 3
             bus_rows[i] = merge(bus_rows[i], (; type = 1))
         end
     end
-    if look_for_ref && biggest_gen_bus > 0
+    if !any(row.type == 3 for row in bus_rows) && biggest_gen_bus > 0
         bus_rows[biggest_gen_bus] = merge(bus_rows[biggest_gen_bus], (; type = 3))
     end
 
@@ -1029,32 +1246,37 @@ function to_powerdata(net::Network; filtered::Bool=true, T::Type{<:Real}=Float64
     for (i, br) in enumerate(kept_branches)
         f = id_to_idx[Int(br.from)]
         t = id_to_idx[Int(br.to)]
-        tap = isapprox(T(br.tap), zero(T)) ? one(T) : T(br.tap)
-        shift = T(br.shift) / T(180) * T(pi)
-        b_fr = T(br.b) / T(2)
-        b_to = T(br.b) / T(2)
+        label = "branch $i"
+        tap_raw = _powerdata_real(br.tap, T, label, :tap)
+        tap = isapprox(tap_raw, zero(T)) ? one(T) : tap_raw
+        shift = _powerdata_real(br.shift, T, label, :shift) / T(180) * T(pi)
+        b = _powerdata_real(br.b, T, label, :b)
+        b_fr = b / T(2)
+        b_to = b / T(2)
         g_fr = zero(T)
         g_to = zero(T)
+        r = _powerdata_real(br.r, T, label, :br_r)
+        x = _powerdata_real(br.x, T, label, :br_x)
         c1, c2, c3, c4, c5, c6, c7, c8 =
-            _branch_coeffs(T(br.r), T(br.x), b_fr, b_to, g_fr, g_to, tap, shift)
+            _branch_coeffs(r, x, b_fr, b_to, g_fr, g_to, tap, shift)
         push!(branch_rows, (;
             i,
             f_bus = f,
             t_bus = t,
-            br_r = T(br.r),
-            br_x = T(br.x),
+            br_r = r,
+            br_x = x,
             b_fr,
             b_to,
             g_fr,
             g_to,
-            rate_a = T(br.rate_a) / base,
-            rate_b = T(br.rate_b) / base,
-            rate_c = T(br.rate_c) / base,
+            rate_a = _powerdata_real(br.rate_a, T, label, :rate_a) / base,
+            rate_b = _powerdata_real(br.rate_b, T, label, :rate_b) / base,
+            rate_c = _powerdata_real(br.rate_c, T, label, :rate_c) / base,
             tap,
             shift,
             status = Int(Bool(br.in_service)),
-            angmin = T(br.angmin) / T(180) * T(pi),
-            angmax = T(br.angmax) / T(180) * T(pi),
+            angmin = _powerdata_real(br.angmin, T, label, :angmin) / T(180) * T(pi),
+            angmax = _powerdata_real(br.angmax, T, label, :angmax) / T(180) * T(pi),
             f_idx = i,
             t_idx = i + m,
             c1, c2, c3, c4, c5, c6, c7, c8,
