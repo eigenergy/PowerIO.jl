@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.1.4
+
+Updates binaries to track powerio v0.2.4. No Julia binding changes. 
+
+- Support for reading PSLF `.epc` files
+- Broader vintage support for `.pwb` and `.pwd` files
+- Various hardening fixes
+- C ABI unchanged
+
+## 0.1.3
 
 - `to_normalized` now preserves source bus ids, matching powerio v0.2.3.
 - `to_powerdata` and `parse_ac_power_data` now derive their default filtered
