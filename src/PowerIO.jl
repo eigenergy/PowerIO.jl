@@ -25,9 +25,10 @@ dataset back into a `Network` (the ML→classical return leg; lossy but
 power-flow-complete, needs powerio-capi built `--features gridfm`).
 
 Multiconductor distribution cases are a separate model on their own
-[`DistNetwork`](@ref) handle: [`dist_parse_file`](@ref) / [`dist_to_format`](@ref) /
-[`dist_convert_file`](@ref) read and write OpenDSS, PowerModelsDistribution JSON,
-and IEEE BMOPF JSON (experimental; needs powerio-capi built `--features dist`).
+[`DistNetwork`](@ref) handle, sharing the same verbs: `parse_file(DistNetwork, path)`,
+`to_format(net, to)`, `convert_file(DistNetwork, path, to)` read and write OpenDSS,
+PowerModelsDistribution JSON, and IEEE BMOPF JSON (experimental; needs powerio-capi
+built `--features dist`).
 
 At first use the binding checks the library's ABI version (`pio_abi_version`)
 against the version it targets (`PIO_ABI_VERSION`) and refuses a stale or
@@ -43,12 +44,11 @@ using JSON3
 using LazyArtifacts
 import Libdl
 
-export Network, parse_file, parse_str, from_json, convert_file, to_format,
-       to_normalized, to_json, to_dense, to_matpower, to_arrow, ArrowTable,
-       write_pypsa_csv_folder, to_powermodels, from_powermodels, to_powerdata,
-       parse_ac_power_data, read_gridfm, read_gridfm_scenarios,
-       DistNetwork, dist_parse_file, dist_parse_str, dist_to_format,
-       dist_convert_file, dist_convert_str, dist_warnings
+export Network, parse_file, parse_str, from_json, convert_file, convert_str,
+       to_format, to_normalized, to_json, to_dense, to_matpower, to_arrow,
+       ArrowTable, write_pypsa_csv_folder, to_powermodels, from_powermodels,
+       to_powerdata, parse_ac_power_data, read_gridfm, read_gridfm_scenarios,
+       DistNetwork
 
 # --- library resolution -------------------------------------------------
 #
@@ -415,6 +415,7 @@ end
 """
     parse_file(path; from=nothing) -> Network
     parse_file(io::IO, format::AbstractString) -> Network
+    parse_file(DistNetwork, path; from=nothing) -> DistNetwork
 
 Parse a case into a [`Network`].
 
@@ -426,6 +427,10 @@ From a file `path` the format is inferred from the extension unless `from` is gi
 Accepted format tokens (case-insensitive): `"matpower"`/`"m"`, `"powermodels-json"`/
 `"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`, `"psse"`/`"raw"`,
 `"powerworld"`/`"aux"`.
+
+Pass [`DistNetwork`](@ref) as the first argument to parse a multiconductor
+distribution case instead (`parse_file(DistNetwork, path)`); `Network` is the
+default, the `parse(T, x)` idiom. See the `src/dist.jl` surface.
 """
 function parse_file(path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)
@@ -435,15 +440,21 @@ function parse_file(io::IO, format::AbstractString)
     h = _parse_handle_str(read(io, String), format)
     return Network(JSON3.read(_to_json(h)), h)
 end
+# Explicit transmission marker, symmetric with `parse_file(DistNetwork, ...)`.
+parse_file(::Type{Network}, path::AbstractString; from=nothing) = parse_file(path; from=from)
 
 """
     parse_str(text, format="matpower") -> Network
+    parse_str(DistNetwork, text, format) -> DistNetwork
 
 Parse in-memory case text into a [`Network`](@ref). This is the string sibling of
-`parse_file(io, format)`, matching the Rust, Python, and C interfaces.
+`parse_file(io, format)`, matching the Rust, Python, and C interfaces. Pass
+[`DistNetwork`](@ref) first for a distribution case.
 """
 parse_str(text::AbstractString, format::AbstractString="matpower") =
     parse_file(IOBuffer(String(text)), format)
+parse_str(::Type{Network}, text::AbstractString, format::AbstractString="matpower") =
+    parse_str(text, format)
 
 """
     from_json(text) -> Network
@@ -536,22 +547,39 @@ to_matpower(net::Network) =
 
 """
     to_format(net::Network, to) -> (text, warnings)
+    to_format(net::DistNetwork, to) -> (text, warnings)
 
 Serialize a parsed network to format `to` without reparsing the input file.
-Returns the target text and any fidelity warnings.
+Returns the target text and any fidelity warnings. Dispatches on the handle type,
+so a [`DistNetwork`](@ref) writes the distribution formats.
 """
 to_format(net::Network, to::AbstractString) =
     _format_from_handle(_live_handle(net, "to_format"), to, repr(network_name(net)))
 
 """
+    warnings(net::Network) -> Vector{String}
+    warnings(net::DistNetwork) -> Vector{String}
+
+The fidelity warnings retained on a live handle (`pio_warnings`) — what the reader
+could not represent or had to assume. Empty for a handle-less [`Network`](@ref).
+"""
+function warnings(net::Network)
+    h = net.handle
+    (h === nothing || h.ptr == C_NULL) && return String[]
+    return _handle_warnings(h)
+end
+
+"""
     convert_file(path, to; from=nothing) -> (text, warnings)
+    convert_file(DistNetwork, path, to; from=nothing) -> (text, warnings)
 
 Convert `path` to format `to`. All five formats read and write, so any pair
 converts. A same-format conversion is byte exact; a cross-format one is
 maximal fidelity and reports whatever the target can't carry in `warnings`. Tokens
 (case-insensitive): `"matpower"`/`"m"`, `"powermodels-json"`/`"powermodels"`/`"pm"`,
 `"egret-json"`/`"egret"`, `"psse"`/`"raw"`, `"powerworld"`/`"aux"`. `from` overrides
-extension inference (needed to tell egret and PowerModels `.json` apart).
+extension inference (needed to tell egret and PowerModels `.json` apart). Pass
+[`DistNetwork`](@ref) first to convert a distribution case.
 """
 function convert_file(path::AbstractString, to::AbstractString; from=nothing)
     _ensure_compatible()
@@ -568,6 +596,9 @@ function convert_file(path::AbstractString, to::AbstractString; from=nothing)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
     return (text, _warn_lines(warnbuf; capped=true))
 end
+# Explicit transmission marker, symmetric with `convert_file(DistNetwork, ...)`.
+convert_file(::Type{Network}, path::AbstractString, to::AbstractString; from=nothing) =
+    convert_file(path, to; from=from)
 
 """
     write_pypsa_csv_folder(net::Network, out_dir) -> (out_dir, warnings)

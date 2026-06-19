@@ -1,13 +1,16 @@
 # Multiconductor distribution surface over the C ABI (`pio_dist_*`, powerio-capi
 # built `--features dist`).
 #
-# Transmission cases (balanced positive sequence) flow through `Network` and the
-# `pio_*` functions; multiconductor unbalanced cases are a different model and
-# ride their own `PioDistNetwork` handle, parsed from and written to OpenDSS
-# (`"dss"`), PowerModelsDistribution ENGINEERING JSON (`"pmd"`), and the IEEE
-# BMOPF Taskforce JSON (`"bmopf"`). The surface is parse / convert / serialize
-# only — distribution data has no dense-extractor contract; rich structure rides
-# the format JSON payloads, which carry their own `meta.version`.
+# Transmission cases (balanced positive sequence) flow through `Network` and
+# multiconductor unbalanced cases through `DistNetwork` — a different model on its
+# own handle, parsed from and written to OpenDSS (`"dss"`), PowerModelsDistribution
+# ENGINEERING JSON (`"pmd"`), and the IEEE BMOPF Taskforce JSON (`"bmopf"`). The
+# two share the verbs rather than prefixing: `to_format` / `warnings` dispatch on
+# the handle type, and the entry points that build a handle from a path or string
+# take the target type first, the `parse(T, x)` idiom — `parse_file(DistNetwork,
+# path)` — since Julia dispatches on argument types, not the return type. The
+# surface is parse / convert / serialize only; distribution data has no
+# dense-extractor contract, its structure rides the format JSON payloads.
 #
 # EXPERIMENTAL: the `pio_dist_*` signatures are frozen under `PIO_ABI_VERSION` 4,
 # but the BMOPF schema (v0.0.1) and the JSON payloads may still evolve; pin a
@@ -33,9 +36,10 @@ end
     DistNetwork
 
 Opaque handle to a parsed multiconductor distribution case inside the Rust core,
-the distribution sibling of [`NetworkHandle`](@ref). Freed by its finalizer; you
-get one from [`dist_parse_file`](@ref) / [`dist_parse_str`](@ref) and serialize it
-with [`dist_to_format`](@ref). EXPERIMENTAL; see the `src/dist.jl` note.
+the distribution sibling of [`NetworkHandle`](@ref). Build one with
+`parse_file(DistNetwork, path)` / `parse_str(DistNetwork, text, format)` and
+serialize it with [`to_format`](@ref)`(net, to)`. Freed by its finalizer.
+EXPERIMENTAL; see the `src/dist.jl` note.
 """
 mutable struct DistNetwork
     ptr::Ptr{Cvoid}
@@ -60,20 +64,23 @@ Base.show(io::IO, net::DistNetwork) =
     dist_available() -> Bool
 
 True if the resolved C library exports `pio_dist_parse_file` (built `--features
-dist`, on by default in the released binaries).
+dist`, on by default in the released binaries). The mirror of
+[`arrow_available`](@ref) / [`gridfm_available`](@ref).
 """
 dist_available() = _exports_symbol(:pio_dist_parse_file)
 
 """
-    dist_parse_file(path; from=nothing) -> DistNetwork
+    parse_file(DistNetwork, path; from=nothing) -> DistNetwork
 
-Parse a distribution case file into a [`DistNetwork`](@ref). The format is inferred
-from the file unless `from` is given: `.dss` is OpenDSS, a `.json` with the
-ENGINEERING `data_model` key is PMD, otherwise BMOPF JSON. Accepted `from` tokens:
-`"dss"`, `"pmd"`, `"bmopf"`. Retrieve parse warnings with [`dist_warnings`](@ref).
-Needs powerio-capi built `--features dist`; see [`dist_available`](@ref).
+Parse a distribution case file into a [`DistNetwork`](@ref) — the distribution
+overload of [`parse_file`](@ref), selected by passing the target type first (the
+`parse(T, x)` idiom). The format is inferred from the file unless `from` is given:
+`.dss` is OpenDSS, a `.json` with the ENGINEERING `data_model` key is PMD,
+otherwise BMOPF JSON. `from` tokens: `"dss"`, `"pmd"`, `"bmopf"`. Read parse
+warnings with [`warnings`](@ref)`(net)`. Needs `--features dist`; see
+[`dist_available`](@ref).
 """
-function dist_parse_file(path::AbstractString; from=nothing)
+function parse_file(::Type{DistNetwork}, path::AbstractString; from=nothing)
     _ensure_compatible()
     err = zeros(UInt8, _ERRLEN)
     fromc = from === nothing ? C_NULL : String(from)
@@ -82,20 +89,20 @@ function dist_parse_file(path::AbstractString; from=nothing)
               (Cstring, Cstring, Ptr{UInt8}, Csize_t),
               path, fromc, err, length(err))
     catch e
-        _feature_call_error("dist_parse_file", "pio_dist_parse_file", "dist", e)
+        _feature_call_error("parse_file", "pio_dist_parse_file", "dist", e)
     end
-    ptr == C_NULL && error("PowerIO.dist_parse_file: " * _cstr(err))
+    ptr == C_NULL && error("PowerIO.parse_file(DistNetwork): " * _cstr(err))
     return DistNetwork(ptr)
 end
 
 """
-    dist_parse_str(text, format) -> DistNetwork
+    parse_str(DistNetwork, text, format) -> DistNetwork
 
 Parse in-memory distribution case `text` of the named `format` (`"dss"`, `"pmd"`,
 or `"bmopf"`; required, there is no path to infer from) into a [`DistNetwork`](@ref).
 An OpenDSS `Redirect`/`Compile` resolves against the current working directory.
 """
-function dist_parse_str(text::AbstractString, format::AbstractString)
+function parse_str(::Type{DistNetwork}, text::AbstractString, format::AbstractString)
     _ensure_compatible()
     err = zeros(UInt8, _ERRLEN)
     ptr = try
@@ -103,77 +110,82 @@ function dist_parse_str(text::AbstractString, format::AbstractString)
               (Cstring, Cstring, Ptr{UInt8}, Csize_t),
               String(text), String(format), err, length(err))
     catch e
-        _feature_call_error("dist_parse_str", "pio_dist_parse_str", "dist", e)
+        _feature_call_error("parse_str", "pio_dist_parse_str", "dist", e)
     end
-    ptr == C_NULL && error("PowerIO.dist_parse_str: " * _cstr(err))
+    ptr == C_NULL && error("PowerIO.parse_str(DistNetwork): " * _cstr(err))
     return DistNetwork(ptr)
 end
 
 """
-    dist_warnings(net::DistNetwork) -> Vector{String}
+    warnings(net::DistNetwork) -> Vector{String}
 
 The fidelity warnings retained on a [`DistNetwork`](@ref) handle — everything the
 reader could not represent or had to assume — over `pio_dist_warnings`.
 """
-dist_warnings(net::DistNetwork) =
+warnings(net::DistNetwork) =
     GC.@preserve net _warnings_from((out, cap) -> ccall((:pio_dist_warnings, _lib()), Csize_t,
                                     (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), net.ptr, out, cap))
 
 """
-    dist_to_format(net::DistNetwork, to) -> (text, warnings)
+    to_format(net::DistNetwork, to) -> (text, warnings)
 
-Serialize a [`DistNetwork`](@ref) to format `to` (`"dss"`, `"pmd"`, or `"bmopf"`).
-Writing back to the format the handle was parsed from echoes the source byte for
-byte; a cross-format write reports every fidelity loss in `warnings`.
+Serialize a [`DistNetwork`](@ref) to format `to` (`"dss"`, `"pmd"`, or `"bmopf"`)
+— the distribution method of [`to_format`](@ref). Writing back to the format the
+handle was parsed from echoes the source byte for byte; a cross-format write
+reports every fidelity loss in `warnings`.
 """
-function dist_to_format(net::DistNetwork, to::AbstractString)
+function to_format(net::DistNetwork, to::AbstractString)
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
     s = GC.@preserve net ccall((:pio_dist_to_format, _lib()), Cstring,
                                (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
                                net.ptr, String(to), warnbuf, length(warnbuf), err, length(err))
-    s == C_NULL && error("PowerIO.dist_to_format: " * _cstr(err))
+    s == C_NULL && error("PowerIO.to_format(DistNetwork): " * _cstr(err))
     text = unsafe_string(s)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
     return (text, _warn_lines(warnbuf; capped=true))
 end
 
 """
-    dist_convert_file(path, to; from=nothing) -> (text, warnings)
+    convert_file(DistNetwork, path, to; from=nothing) -> (text, warnings)
 
 Convert distribution case `path` to format `to` (`"dss"`, `"pmd"`, `"bmopf"`) in
-one shot, without keeping a handle. `from` overrides extension inference (see
-[`dist_parse_file`](@ref)). Returns the converted text and the warnings (parse
-warnings plus the writer's fidelity losses, since there is no handle to query).
+one shot — the distribution overload of [`convert_file`](@ref), selected by the
+leading type. `from` overrides extension inference (see
+`parse_file(DistNetwork, ...)`). Returns the converted text and the warnings
+(parse warnings plus the writer's fidelity losses, since there is no handle to
+query).
 """
-function dist_convert_file(path::AbstractString, to::AbstractString; from=nothing)
+function convert_file(::Type{DistNetwork}, path::AbstractString, to::AbstractString; from=nothing)
     _ensure_compatible()
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
     fromc = from === nothing ? C_NULL : String(from)
-    # NOTE: the dist convert argument order is (path, to, from) — target before
-    # source — the opposite of the transmission `convert_file` (path, from, to).
+    # The dist C entry point's order is (path, to, from) — target before source.
+    # The Julia signature keeps `to` positional and `from` a keyword, matching the
+    # transmission `convert_file`, and reorders for the ccall here.
     s = try
         ccall((:pio_dist_convert_file, _lib()), Cstring,
               (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
               path, to, fromc, warnbuf, length(warnbuf), err, length(err))
     catch e
-        _feature_call_error("dist_convert_file", "pio_dist_convert_file", "dist", e)
+        _feature_call_error("convert_file", "pio_dist_convert_file", "dist", e)
     end
-    s == C_NULL && error("PowerIO.dist_convert_file: " * _cstr(err))
+    s == C_NULL && error("PowerIO.convert_file(DistNetwork): " * _cstr(err))
     text = unsafe_string(s)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
     return (text, _warn_lines(warnbuf; capped=true))
 end
 
 """
-    dist_convert_str(text, to, from) -> (text, warnings)
+    convert_str(DistNetwork, text, to, from) -> (text, warnings)
 
 Convert in-memory distribution case `text` of format `from` to format `to` (both
 required; `"dss"`, `"pmd"`, `"bmopf"`). The string sibling of
-[`dist_convert_file`](@ref); the argument order is input, target, source.
+`convert_file(DistNetwork, ...)`.
 """
-function dist_convert_str(text::AbstractString, to::AbstractString, from::AbstractString)
+function convert_str(::Type{DistNetwork}, text::AbstractString, to::AbstractString,
+                     from::AbstractString)
     _ensure_compatible()
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
@@ -182,9 +194,9 @@ function dist_convert_str(text::AbstractString, to::AbstractString, from::Abstra
               (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
               String(text), String(to), String(from), warnbuf, length(warnbuf), err, length(err))
     catch e
-        _feature_call_error("dist_convert_str", "pio_dist_convert_str", "dist", e)
+        _feature_call_error("convert_str", "pio_dist_convert_str", "dist", e)
     end
-    s == C_NULL && error("PowerIO.dist_convert_str: " * _cstr(err))
+    s == C_NULL && error("PowerIO.convert_str(DistNetwork): " * _cstr(err))
     out = unsafe_string(s)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
     return (out, _warn_lines(warnbuf; capped=true))

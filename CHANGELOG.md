@@ -15,13 +15,16 @@ functions — and a new distribution binding is added.
   the dense extractors adopt the cap/count convention, `convert_file` follows the
   v4 `(path, from, to)` argument order, and gridfm read warnings now come off the
   handle (`pio_warnings`) instead of a per-call buffer.
-- Distribution surface: `dist_parse_file` / `dist_parse_str` →
-  [`DistNetwork`](@ref), `dist_to_format`, `dist_convert_file` /
-  `dist_convert_str`, and `dist_warnings`, over the multiconductor `pio_dist_*`
-  ABI. Reads and writes OpenDSS (`"dss"`), PowerModelsDistribution ENGINEERING
-  JSON (`"pmd"`), and IEEE BMOPF JSON (`"bmopf"`). Experimental while the BMOPF
-  schema is v0.0.1; needs powerio-capi built `--features dist` (on by default in
-  the released binaries), probed by `dist_available()`.
+- Distribution surface on a new `DistNetwork` handle, over the multiconductor
+  `pio_dist_*` ABI. It shares the transmission verbs rather than prefixing:
+  `parse_file(DistNetwork, path)` / `parse_str(DistNetwork, text, fmt)` build the
+  handle (the `parse(T, x)` idiom, since Julia cannot dispatch on the return
+  type), while `to_format(net, to)` and `warnings(net)` dispatch on the handle;
+  `convert_file(DistNetwork, path, to)` / `convert_str(DistNetwork, …)` are the
+  one-shot paths. Reads and writes OpenDSS (`"dss"`), PowerModelsDistribution
+  ENGINEERING JSON (`"pmd"`), and IEEE BMOPF JSON (`"bmopf"`). Experimental while
+  the BMOPF schema is v0.0.1; needs powerio-capi built `--features dist` (on by
+  default in the released binaries), probed by `dist_available()`.
 - Binaries repinned to powerio v0.3.0.
 
 ## 0.1.4

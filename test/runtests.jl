@@ -8,18 +8,17 @@ using Aqua
         # The module must load with no C library present (the binding is lazy),
         # and its public surface must exist.
         for sym in (:Network, :parse_file, :parse_str, :from_json, :convert_file,
-                    :to_format, :to_normalized, :to_json, :to_dense, :to_matpower,
-                    :to_arrow, :ArrowTable, :write_pypsa_csv_folder, :to_powermodels,
-                    :from_powermodels, :to_powerdata, :parse_ac_power_data,
-                    :read_gridfm, :read_gridfm_scenarios,
-                    :DistNetwork, :dist_parse_file, :dist_parse_str, :dist_to_format,
-                    :dist_convert_file, :dist_convert_str, :dist_warnings)
+                    :convert_str, :to_format, :to_normalized, :to_json, :to_dense,
+                    :to_matpower, :to_arrow, :ArrowTable, :write_pypsa_csv_folder,
+                    :to_powermodels, :from_powermodels, :to_powerdata,
+                    :parse_ac_power_data, :read_gridfm, :read_gridfm_scenarios,
+                    :DistNetwork)
             @test isdefined(PowerIO, sym)
         end
         # The accessor surface the ecosystem bridges read is unexported but must exist.
         for sym in (:n_buses, :n_branches, :n_gens, :base_mva, :network_name,
                     :source_format, :reference_bus_id, :reference_bus_indices,
-                    :n_components, :is_radial, :bus_type_code,
+                    :n_components, :is_radial, :bus_type_code, :warnings,
                     :buses, :generators, :branches, :loads, :shunts, :storage, :hvdc,
                     :abi_version, :library_version, :library_available, :arrow_available,
                     :gridfm_available, :dist_available)
@@ -462,42 +461,47 @@ using Aqua
 
     @testset "distribution surface (feature-gated)" begin
         if !(PowerIO.library_available() && PowerIO.dist_available())
-            @test_skip dist_parse_file("switch.dss")
+            @test_skip parse_file(DistNetwork, "switch.dss")
         else
             dss = joinpath(@__DIR__, "data", "dist", "switch.dss")
 
-            # Parse an OpenDSS case onto its own DistNetwork handle; a clean micro
-            # case retains no parse warnings.
-            net = dist_parse_file(dss)
+            # The distribution case shares the transmission verbs: the entry points
+            # take DistNetwork as a leading type marker (the parse(T, x) idiom),
+            # to_format / warnings dispatch on the handle.
+            net = parse_file(DistNetwork, dss)
             @test net isa DistNetwork
-            @test dist_warnings(net) isa Vector{String}
+            @test PowerIO.warnings(net) isa Vector{String}
 
             # Same-format write echoes the source byte for byte and warns about nothing.
-            echo, echo_w = dist_to_format(net, "dss")
+            echo, echo_w = to_format(net, "dss")
             @test echo == read(dss, String)
             @test isempty(echo_w)
 
             # A cross-format write exercises a second writer (PMD ENGINEERING JSON)
             # and the fidelity warnings vector.
-            pmd, pmd_w = dist_to_format(net, "pmd")
+            pmd, pmd_w = to_format(net, "pmd")
             @test occursin("data_model", pmd)
             @test pmd_w isa AbstractVector{<:AbstractString}
 
             # The in-memory parser matches the file parser on the round trip.
-            net_str = dist_parse_str(read(dss, String), "dss")
-            @test first(dist_to_format(net_str, "dss")) == read(dss, String)
+            net_str = parse_str(DistNetwork, read(dss, String), "dss")
+            @test first(to_format(net_str, "dss")) == read(dss, String)
 
-            # convert_file is the one-shot path; dss -> bmopf produces JSON. Its
-            # argument order is (path, to; from=...), target before source.
-            bmopf, bmopf_w = dist_convert_file(dss, "bmopf")
+            # convert_file is the one-shot path; dss -> bmopf produces JSON. The
+            # Julia signature is (DistNetwork, path, to; from=...).
+            bmopf, bmopf_w = convert_file(DistNetwork, dss, "bmopf")
             @test !isempty(bmopf)
             @test bmopf_w isa AbstractVector{<:AbstractString}
             # convert_str matches convert_file for the same conversion.
-            cs, _ = dist_convert_str(read(dss, String), "pmd", "dss")
+            cs, _ = convert_str(DistNetwork, read(dss, String), "pmd", "dss")
             @test cs == pmd
 
+            # The shared verbs still default to Network: parsing the dss as a
+            # transmission case fails, distinct from the DistNetwork path above.
+            @test_throws ErrorException parse_file(dss)
+
             # A nonexistent path surfaces as a Julia error, not a fault.
-            @test_throws ErrorException dist_parse_file(joinpath(@__DIR__, "data", "no_such.dss"))
+            @test_throws ErrorException parse_file(DistNetwork, joinpath(@__DIR__, "data", "no_such.dss"))
         end
     end
 
