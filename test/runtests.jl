@@ -12,7 +12,7 @@ using Aqua
                     :to_matpower, :to_arrow, :ArrowTable, :write_pypsa_csv_folder,
                     :to_powermodels, :from_powermodels, :to_powerdata,
                     :parse_ac_power_data, :read_gridfm, :read_gridfm_scenarios,
-                    :DistNetwork)
+                    :arrow_available, :gridfm_available, :DistNetwork, :dist_available)
             @test isdefined(PowerIO, sym)
         end
         # The accessor surface the ecosystem bridges read is unexported but must exist.
@@ -20,8 +20,7 @@ using Aqua
                     :source_format, :reference_bus_id, :reference_bus_indices,
                     :n_components, :is_radial, :bus_type_code, :warnings,
                     :buses, :generators, :branches, :loads, :shunts, :storage, :hvdc,
-                    :abi_version, :library_version, :library_available, :arrow_available,
-                    :gridfm_available, :dist_available)
+                    :abi_version, :library_version, :library_available)
             @test isdefined(PowerIO, sym)
         end
         @test PowerIO._lib() isa AbstractString
@@ -77,6 +76,12 @@ using Aqua
             @test PowerIO.n_buses(net_from_json) == 14
             @test PowerIO.source_format(net_from_json) == "Matpower"
 
+            # powerio-json is a first-class format token under v4: parse_str reads
+            # the snapshot to_json writes, and a clean MATPOWER parse keeps no
+            # handle warnings (the v4 pio_warnings accessor).
+            @test PowerIO.n_buses(parse_str(to_json(net), "powerio-json")) == 14
+            @test isempty(PowerIO.warnings(net))
+
             # EGRET and PowerModels both use .json (fixtures produced by convert_file).
             # The positive cases confirm each fixture parses under its own format; the
             # negative cases prove `from` overrides inference, since forcing the wrong
@@ -99,6 +104,12 @@ using Aqua
             psse_text, psse_warnings = convert_file(joinpath(data, "case14.m"), "psse")
             @test !isempty(psse_text)
             @test psse_warnings isa AbstractVector{<:AbstractString}
+
+            # convert_str is the in-memory sibling of convert_file (v4 pio_convert_str);
+            # matpower -> psse matches the file conversion byte for byte.
+            cs_text, cs_warnings = convert_str(read(joinpath(data, "case14.m"), String), "psse"; from = "matpower")
+            @test cs_text == psse_text
+            @test cs_warnings isa AbstractVector{<:AbstractString}
 
             pm_text, pm_warnings = to_format(net, "powermodels-json")
             @test JSON3.read(pm_text).baseMVA == 100.0
@@ -429,6 +440,9 @@ using Aqua
             @test r.scenario == 0
             @test r.warnings isa Vector{String}
             @test !isempty(r.warnings)
+            # The lossy read's warnings attach to the handle (v4 pio_warnings), not
+            # a per-call buffer: the synthesized-bus-ids note is the signature one.
+            @test any(w -> occursin("synthesized bus ids", w), r.warnings)
             @test PowerIO.n_buses(r.network) == 14
             @test PowerIO.n_branches(r.network) == 20
             @test PowerIO.n_gens(r.network) == 5

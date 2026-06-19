@@ -25,6 +25,9 @@ functions — and a new distribution binding is added.
   ENGINEERING JSON (`"pmd"`), and IEEE BMOPF JSON (`"bmopf"`). Experimental while
   the BMOPF schema is v0.0.1; needs powerio-capi built `--features dist` (on by
   default in the released binaries), probed by `dist_available()`.
+- `convert_str(text, to; from)` — the in-memory sibling of `convert_file`, over
+  the v4 `pio_convert_str` (and `convert_str(DistNetwork, …)` for distribution).
+- `arrow_available` / `gridfm_available` / `dist_available` are now exported.
 - Binaries repinned to powerio v0.3.0.
 
 ## 0.1.4

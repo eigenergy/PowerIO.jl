@@ -48,7 +48,7 @@ export Network, parse_file, parse_str, from_json, convert_file, convert_str,
        to_format, to_normalized, to_json, to_dense, to_matpower, to_arrow,
        ArrowTable, write_pypsa_csv_folder, to_powermodels, from_powermodels,
        to_powerdata, parse_ac_power_data, read_gridfm, read_gridfm_scenarios,
-       DistNetwork
+       arrow_available, gridfm_available, DistNetwork, dist_available
 
 # --- library resolution -------------------------------------------------
 #
@@ -154,7 +154,7 @@ abi_version() = ccall((:pio_abi_version, _lib()), UInt32, ())
     library_version() -> String
 
 The `powerio-capi` crate version string the resolved library reports (e.g.
-`"0.0.1"`). Informational; [`abi_version`](@ref) is the compatibility check.
+`"0.3.0"`). Informational; [`abi_version`](@ref) is the compatibility check.
 """
 function library_version()
     s = ccall((:pio_version, _lib()), Cstring, ())
@@ -533,15 +533,15 @@ function _format_from_handle(h::NetworkHandle, to::AbstractString, what::Abstrac
     return (text, _warn_lines(warnbuf; capped=true))
 end
 
+# `matpower` flows through the one string-keyed writer like every other format
+# (v4 retired the per-format `pio_to_matpower`); a byte-exact MATPOWER round trip
+# warns about nothing, so drop the warnings and return the text alone.
 """
     to_matpower(net::Network) -> String
 
 Serialize `net` to MATPOWER `.m` text, byte exact when the input was MATPOWER. For a
 file in one shot use [`convert_file`](@ref)`(path, "matpower")`.
 """
-# `matpower` flows through the one string-keyed writer like every other format
-# (v4 retired the per-format `pio_to_matpower`); a byte-exact MATPOWER round trip
-# warns about nothing, so drop the warnings and return the text alone.
 to_matpower(net::Network) =
     first(_format_from_handle(_live_handle(net, "to_matpower"), "matpower", repr(network_name(net))))
 
@@ -599,6 +599,29 @@ end
 # Explicit transmission marker, symmetric with `convert_file(DistNetwork, ...)`.
 convert_file(::Type{Network}, path::AbstractString, to::AbstractString; from=nothing) =
     convert_file(path, to; from=from)
+
+"""
+    convert_str(text, to; from) -> (text, warnings)
+    convert_str(DistNetwork, text, to, from) -> (text, warnings)
+
+Convert in-memory case `text` to format `to` — the string sibling of
+[`convert_file`](@ref) (`pio_convert_str`). `from` is required for a transmission
+case (there is no path to infer from): the source format token. Pass
+[`DistNetwork`](@ref) first for a distribution case.
+"""
+function convert_str(text::AbstractString, to::AbstractString; from::AbstractString)
+    _ensure_compatible()
+    warnbuf = zeros(UInt8, _WARNLEN)
+    err = zeros(UInt8, _ERRLEN)
+    # v4 argument order is (text, from, to), matching pio_convert_file.
+    s = ccall((:pio_convert_str, _lib()), Cstring,
+              (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
+              String(text), String(from), to, warnbuf, length(warnbuf), err, length(err))
+    s == C_NULL && error("PowerIO.convert_str: " * _cstr(err))
+    out = unsafe_string(s)
+    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    return (out, _warn_lines(warnbuf; capped=true))
+end
 
 """
     write_pypsa_csv_folder(net::Network, out_dir) -> (out_dir, warnings)
@@ -731,8 +754,8 @@ function reference_bus_indices(net::Network)
         n = Int(ccall((:pio_ref_bus_indices, _lib()), Csize_t,
                       (Ptr{Cvoid}, Ptr{Int64}, Csize_t), h.ptr, C_NULL, 0))
         out = Vector{Int64}(undef, n)
-        ccall((:pio_ref_bus_indices, _lib()), Csize_t,
-              (Ptr{Cvoid}, Ptr{Int64}, Csize_t), h.ptr, out, n)
+        _check_filled(ccall((:pio_ref_bus_indices, _lib()), Csize_t,
+                            (Ptr{Cvoid}, Ptr{Int64}, Csize_t), h.ptr, out, n), n, "pio_ref_bus_indices")
         Vector{Int}(out)
     end
 end
@@ -792,17 +815,26 @@ end
 # raw pointer never travels alone); see `_normalize_handle` for why.
 
 # The v4 extractors take a `cap` and return the total count (write up to `cap`,
-# never overflow). The counts come from `pio_n_*` first, so `cap == count` here
-# and the return is a belt-and-braces check; any output pointer may be NULL to skip.
+# never overflow). The counts come from `pio_n_*` on the same immutable handle, so
+# `cap == count`; verifying the return catches an ABI contract violation cheaply
+# (the cap/count convention exists precisely so a short fill is detectable). Any
+# output pointer may be NULL to skip.
+function _check_filled(got, want::Int, what::AbstractString)
+    Int(got) == want || error("PowerIO: $what returned $got of $want expected " *
+                              "(a cap/count mismatch — incompatible C ABI?)")
+    return
+end
+
 function _branch_tables(h::NetworkHandle, m::Int)
     from = Vector{Int64}(undef, m); to = Vector{Int64}(undef, m)
     r = Vector{Float64}(undef, m); x = Vector{Float64}(undef, m); b = Vector{Float64}(undef, m)
     tap = Vector{Float64}(undef, m); shift = Vector{Float64}(undef, m)
     insvc = Vector{UInt8}(undef, m)
-    GC.@preserve h ccall((:pio_branches, _lib()), Csize_t,
+    got = GC.@preserve h ccall((:pio_branches, _lib()), Csize_t,
           (Ptr{Cvoid}, Ptr{Int64}, Ptr{Int64}, Ptr{Float64}, Ptr{Float64},
            Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{UInt8}, Csize_t),
           h.ptr, from, to, r, x, b, tap, shift, insvc, m)
+    _check_filled(got, m, "pio_branches")
     return (; from, to, r, x, b, tap, shift, in_service = insvc)
 end
 
@@ -810,23 +842,26 @@ function _gen_tables(h::NetworkHandle, ng::Int)
     bus = Vector{Int64}(undef, ng); pg = Vector{Float64}(undef, ng)
     pmax = Vector{Float64}(undef, ng); pmin = Vector{Float64}(undef, ng)
     insvc = Vector{UInt8}(undef, ng)
-    GC.@preserve h ccall((:pio_gens, _lib()), Csize_t,
+    got = GC.@preserve h ccall((:pio_gens, _lib()), Csize_t,
           (Ptr{Cvoid}, Ptr{Int64}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{UInt8}, Csize_t),
           h.ptr, bus, pg, pmax, pmin, insvc, ng)
+    _check_filled(got, ng, "pio_gens")
     return (; bus, pg, pmax, pmin, in_service = insvc)
 end
 
 function _bus_demand(h::NetworkHandle, n::Int)
     pd = Vector{Float64}(undef, n); qd = Vector{Float64}(undef, n)
-    GC.@preserve h ccall((:pio_bus_demand, _lib()), Csize_t,
+    got = GC.@preserve h ccall((:pio_bus_demand, _lib()), Csize_t,
           (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}, Csize_t), h.ptr, pd, qd, n)
+    _check_filled(got, n, "pio_bus_demand")
     return (pd, qd)
 end
 
 function _bus_shunt(h::NetworkHandle, n::Int)
     gs = Vector{Float64}(undef, n); bs = Vector{Float64}(undef, n)
-    GC.@preserve h ccall((:pio_bus_shunt, _lib()), Csize_t,
+    got = GC.@preserve h ccall((:pio_bus_shunt, _lib()), Csize_t,
           (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}, Csize_t), h.ptr, gs, bs, n)
+    _check_filled(got, n, "pio_bus_shunt")
     return (gs, bs)
 end
 
@@ -841,7 +876,8 @@ function _dense_from_handle(h::NetworkHandle)
         m = Int(ccall((:pio_n_branches, _lib()), Csize_t, (Ptr{Cvoid},), p))
         ng = Int(ccall((:pio_n_gens, _lib()), Csize_t, (Ptr{Cvoid},), p))
         bus_ids = Vector{Int64}(undef, n)
-        ccall((:pio_bus_ids, _lib()), Csize_t, (Ptr{Cvoid}, Ptr{Int64}, Csize_t), p, bus_ids, n)
+        _check_filled(ccall((:pio_bus_ids, _lib()), Csize_t,
+                            (Ptr{Cvoid}, Ptr{Int64}, Csize_t), p, bus_ids, n), n, "pio_bus_ids")
         pd, qd = _bus_demand(h, n)
         gs, bs = _bus_shunt(h, n)
         return (;
@@ -878,7 +914,9 @@ builds the JSON view). Fields:
 - `gen` — NamedTuple of `bus` (1-based id, one row per machine), `pg, pmax, pmin`
   (MW), `in_service`.
 - `demand`, `shunt` — NamedTuples of per-bus `(pd, qd)` and `(gs, bs)` in dense order.
-- `reference_bus::Int` — dense 0-based index of the single reference bus, or `-1`.
+- `reference_bus::Int` — dense 0-based index *into `bus_ids`* of the single
+  reference bus (not a 1-based id), or `-1` when there is no unique reference
+  (none, or several).
 - `n_components::Int`, `is_radial::Bool` — connectivity of the in-service topology.
 
 For the rich, lossless element tables (costs, extras, storage, HVDC) use the
