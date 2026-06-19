@@ -11,7 +11,9 @@ using Aqua
                     :to_format, :to_normalized, :to_json, :to_dense, :to_matpower,
                     :to_arrow, :ArrowTable, :write_pypsa_csv_folder, :to_powermodels,
                     :from_powermodels, :to_powerdata, :parse_ac_power_data,
-                    :read_gridfm, :read_gridfm_scenarios)
+                    :read_gridfm, :read_gridfm_scenarios,
+                    :DistNetwork, :dist_parse_file, :dist_parse_str, :dist_to_format,
+                    :dist_convert_file, :dist_convert_str, :dist_warnings)
             @test isdefined(PowerIO, sym)
         end
         # The accessor surface the ecosystem bridges read is unexported but must exist.
@@ -20,7 +22,7 @@ using Aqua
                     :n_components, :is_radial, :bus_type_code,
                     :buses, :generators, :branches, :loads, :shunts, :storage, :hvdc,
                     :abi_version, :library_version, :library_available, :arrow_available,
-                    :gridfm_available)
+                    :gridfm_available, :dist_available)
             @test isdefined(PowerIO, sym)
         end
         @test PowerIO._lib() isa AbstractString
@@ -182,9 +184,9 @@ using Aqua
             @test storage_raw_pd.storage[2].status == 0
             storage_pd = to_powerdata(storage_net)
             @test length(storage_pd.storage) == 1
-            # Current CI can still build against the pre-v0.2.3 C ABI until
-            # eigenergy/powerio#122 lands; that ABI rewrites normalized ids.
-            @test storage_pd.storage[1].storage_bus in (4, 2)
+            # v0.3.0 normalization preserves source bus ids, so the surviving
+            # storage unit keeps its source bus 4.
+            @test storage_pd.storage[1].storage_bus == 4
             @test storage_pd.storage[1].energy_rating == 6.0
 
             # library_available() is true here, so the ABI handshake passed: the
@@ -288,19 +290,17 @@ using Aqua
             tiny = to_normalized(tiny_net)
             @test PowerIO.n_buses(tiny) == 3                          # isolated bus 8 dropped
             @test PowerIO.n_branches(tiny) == 2                      # out-of-service + dangling dropped
-            tiny_bus_ids = [Int(b.id) for b in PowerIO.buses(tiny)]
-            preserves_source_ids = tiny_bus_ids == [1, 3, 5]
-            @test tiny_bus_ids == (preserves_source_ids ? [1, 3, 5] : [1, 2, 3])
+            # v0.3.0 normalization preserves the non-contiguous source ids 1,3,5.
+            @test [Int(b.id) for b in PowerIO.buses(tiny)] == [1, 3, 5]
             @test [String(b.kind) for b in PowerIO.buses(tiny)] == ["REF", "PV", "PQ"]
-            expected_branch_ids = preserves_source_ids ? [(1, 3), (3, 5)] : [(1, 2), (2, 3)]
-            @test [(Int(br.from), Int(br.to)) for br in PowerIO.branches(tiny)] == expected_branch_ids
+            @test [(Int(br.from), Int(br.to)) for br in PowerIO.branches(tiny)] == [(1, 3), (3, 5)]
             taps = [Float64(br.tap) for br in PowerIO.branches(tiny)]
             @test taps[1] ≈ 1.0                                      # raw tap 0 -> 1
             @test taps[2] ≈ 0.98                                     # explicit tap kept
             @test PowerIO.buses(tiny)[3].va ≈ -5 * pi / 180
             @test sort([Float64(l.p) for l in PowerIO.loads(tiny)]) ≈ [0.30, 0.50]  # 30,50 MW -> pu
             tiny_pd = to_powerdata(tiny_net)
-            @test [b.bus_i for b in tiny_pd.bus] == (preserves_source_ids ? [1, 3, 5] : [1, 2, 3])
+            @test [b.bus_i for b in tiny_pd.bus] == [1, 3, 5]
             @test [(br.f_bus, br.t_bus) for br in tiny_pd.branch] == [(1, 2), (2, 3)]
 
             # Error paths surface as Julia errors. Build the bad cases in memory.
@@ -457,6 +457,47 @@ using Aqua
 
             # A nonexistent dataset directory surfaces as a Julia error, not a fault.
             @test_throws ErrorException read_gridfm(joinpath(data, "no_such_gridfm"))
+        end
+    end
+
+    @testset "distribution surface (feature-gated)" begin
+        if !(PowerIO.library_available() && PowerIO.dist_available())
+            @test_skip dist_parse_file("switch.dss")
+        else
+            dss = joinpath(@__DIR__, "data", "dist", "switch.dss")
+
+            # Parse an OpenDSS case onto its own DistNetwork handle; a clean micro
+            # case retains no parse warnings.
+            net = dist_parse_file(dss)
+            @test net isa DistNetwork
+            @test dist_warnings(net) isa Vector{String}
+
+            # Same-format write echoes the source byte for byte and warns about nothing.
+            echo, echo_w = dist_to_format(net, "dss")
+            @test echo == read(dss, String)
+            @test isempty(echo_w)
+
+            # A cross-format write exercises a second writer (PMD ENGINEERING JSON)
+            # and the fidelity warnings vector.
+            pmd, pmd_w = dist_to_format(net, "pmd")
+            @test occursin("data_model", pmd)
+            @test pmd_w isa AbstractVector{<:AbstractString}
+
+            # The in-memory parser matches the file parser on the round trip.
+            net_str = dist_parse_str(read(dss, String), "dss")
+            @test first(dist_to_format(net_str, "dss")) == read(dss, String)
+
+            # convert_file is the one-shot path; dss -> bmopf produces JSON. Its
+            # argument order is (path, to; from=...), target before source.
+            bmopf, bmopf_w = dist_convert_file(dss, "bmopf")
+            @test !isempty(bmopf)
+            @test bmopf_w isa AbstractVector{<:AbstractString}
+            # convert_str matches convert_file for the same conversion.
+            cs, _ = dist_convert_str(read(dss, String), "pmd", "dss")
+            @test cs == pmd
+
+            # A nonexistent path surfaces as a Julia error, not a fault.
+            @test_throws ErrorException dist_parse_file(joinpath(@__DIR__, "data", "no_such.dss"))
         end
     end
 

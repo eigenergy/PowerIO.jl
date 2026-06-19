@@ -197,11 +197,11 @@ function _arrow_from_handle(h::NetworkHandle, table::Symbol, copy::Bool)
     sch = Ref(_zero(CArrowSchema))
     err = zeros(UInt8, _ERRLEN)
     rc = try
-        GC.@preserve h ccall((:pio_export_arrow, _lib()), Cint,
+        GC.@preserve h ccall((:pio_to_arrow, _lib()), Cint,
               (Ptr{Cvoid}, Cint, Ptr{CArrowArray}, Ptr{CArrowSchema}, Ptr{UInt8}, Csize_t),
               h.ptr, id, arr, sch, err, length(err))
     catch e
-        _feature_call_error("to_arrow", "pio_export_arrow", "arrow", e)
+        _feature_call_error("to_arrow", "pio_to_arrow", "arrow", e)
     end
     rc == 0 || error("PowerIO.to_arrow: " * _cstr(err))
     if copy
@@ -263,7 +263,7 @@ end
 """
     arrow_available() -> Bool
 
-True if the resolved C library exports `pio_export_arrow` (built `--features
+True if the resolved C library exports `pio_to_arrow` (built `--features
 arrow`).
 """
-arrow_available() = _exports_symbol(:pio_export_arrow)
+arrow_available() = _exports_symbol(:pio_to_arrow)

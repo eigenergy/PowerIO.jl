@@ -1,12 +1,12 @@
 # gridfm-datakit Parquet reader over the C ABI.
 #
-# `pio_read_gridfm` (powerio-capi built `--features gridfm`) reads a gridfm-datakit
-# Parquet dataset back into a network handle — the inverse of the gridfm writer, the
-# ML→classical return leg. The reader itself lives in powerio-matrix, so it ships only
-# when the C ABI is built with the gridfm feature; `gridfm_available()` probes the symbol
-# (the mirror of `arrow_available`). The read is lossy but power-flow-complete; what the
-# schema couldn't round-trip comes back in `warnings`, the same `\n`-joined warn buffer
-# `convert_file` uses.
+# `pio_read_dir` with `from = "gridfm"` (powerio-capi built `--features gridfm`) reads a
+# gridfm-datakit Parquet dataset back into a network handle — the inverse of the gridfm
+# writer, the ML→classical return leg. The reader itself lives in powerio-matrix, so it
+# ships only when the C ABI is built with the gridfm feature; `gridfm_available()` probes
+# the symbol (the mirror of `arrow_available`). The read is lossy but power-flow-complete;
+# unlike the old per-call warn buffer, v4 parks what the schema couldn't round-trip on the
+# returned handle, read back with `_handle_warnings` (`pio_warnings`).
 
 """
     read_gridfm(dir; scenario=0) -> (; network::Network, scenario::Int, warnings::Vector{String})
@@ -29,20 +29,19 @@ scenario in a batch use [`read_gridfm_scenarios`](@ref).
 """
 function read_gridfm(dir::AbstractString; scenario::Integer=0)
     _ensure_compatible()
-    warn = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
     ptr = try
-        ccall((:pio_read_gridfm, _lib()), Ptr{Cvoid},
-              (Cstring, Int64, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
-              String(dir), Int64(scenario), warn, length(warn), err, length(err))
+        ccall((:pio_read_dir, _lib()), Ptr{Cvoid},
+              (Cstring, Cstring, Int64, Ptr{UInt8}, Csize_t),
+              String(dir), "gridfm", Int64(scenario), err, length(err))
     catch e
-        _feature_call_error("read_gridfm", "pio_read_gridfm", "gridfm", e)
+        _feature_call_error("read_gridfm", "pio_read_dir", "gridfm", e)
     end
     ptr == C_NULL && error("PowerIO.read_gridfm: " * _cstr(err))
     h = NetworkHandle(ptr)
     net = Network(JSON3.read(_to_json(h)), h)
     return (; network = net, scenario = Int(scenario),
-            warnings = _warn_lines(warn; capped=true))
+            warnings = _handle_warnings(h))
 end
 
 """
@@ -58,25 +57,25 @@ function read_gridfm_scenarios(dir::AbstractString)
     return [read_gridfm(dir; scenario = id) for id in _gridfm_scenario_ids(dir)]
 end
 
-# The dataset's distinct scenario ids (ascending), via `pio_gridfm_scenario_ids`: a
-# zero-capacity probe returns the count, then a second call fills the buffer (the count /
-# caller-buffer pattern the dense extractors use).
+# The dataset's distinct scenario ids (ascending), via `pio_scenario_ids` with
+# `from = "gridfm"`: a zero-capacity probe returns the count, then a second call fills
+# the buffer (the count / caller-buffer pattern the dense extractors use).
 function _gridfm_scenario_ids(dir::AbstractString)
     err = zeros(UInt8, _ERRLEN)
     d = String(dir)
     count = try
-        ccall((:pio_gridfm_scenario_ids, _lib()), Cptrdiff_t,
-              (Cstring, Ptr{Int64}, Csize_t, Ptr{UInt8}, Csize_t),
-              d, C_NULL, 0, err, length(err))
+        ccall((:pio_scenario_ids, _lib()), Cptrdiff_t,
+              (Cstring, Cstring, Ptr{Int64}, Csize_t, Ptr{UInt8}, Csize_t),
+              d, "gridfm", C_NULL, 0, err, length(err))
     catch e
-        _feature_call_error("read_gridfm_scenarios", "pio_gridfm_scenario_ids", "gridfm", e)
+        _feature_call_error("read_gridfm_scenarios", "pio_scenario_ids", "gridfm", e)
     end
     count < 0 && error("PowerIO.read_gridfm_scenarios: " * _cstr(err))
     ids = Vector{Int64}(undef, count)
     if count > 0
-        n = ccall((:pio_gridfm_scenario_ids, _lib()), Cptrdiff_t,
-                  (Cstring, Ptr{Int64}, Csize_t, Ptr{UInt8}, Csize_t),
-                  d, ids, length(ids), err, length(err))
+        n = ccall((:pio_scenario_ids, _lib()), Cptrdiff_t,
+                  (Cstring, Cstring, Ptr{Int64}, Csize_t, Ptr{UInt8}, Csize_t),
+                  d, "gridfm", ids, length(ids), err, length(err))
         n < 0 && error("PowerIO.read_gridfm_scenarios: " * _cstr(err))
         # Unlike the dense extractors' immutable handle, both calls re-read the
         # filesystem, so the count genuinely can change between probe and fill —
@@ -90,6 +89,6 @@ end
 """
     gridfm_available() -> Bool
 
-True if the resolved C library exports `pio_read_gridfm` (built `--features gridfm`).
+True if the resolved C library exports `pio_read_dir` (built `--features gridfm`).
 """
-gridfm_available() = _exports_symbol(:pio_read_gridfm)
+gridfm_available() = _exports_symbol(:pio_read_dir)
