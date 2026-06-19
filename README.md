@@ -118,6 +118,21 @@ to_matpower(r.network)                         # gridfm → any classical format
 reads = read_gridfm_scenarios("out/case14/raw")  # one result per scenario id
 ```
 
+Multiconductor distribution cases are a separate model on their own `DistNetwork`
+handle (OpenDSS `"dss"`, PowerModelsDistribution ENGINEERING JSON `"pmd"`, IEEE
+BMOPF JSON `"bmopf"`; needs the library built with `--features dist`, on by default
+in the released binaries; `dist_available()` reports it). Experimental while the
+BMOPF schema is v0.0.1. It shares the transmission verbs: `to_format` and
+`warnings` dispatch on the handle, and the entry points take `DistNetwork` first,
+the `parse(T, x)` idiom — Julia dispatches on argument types, not the return type.
+
+```julia
+dn = parse_file(DistNetwork, "feeder.dss")               # ::DistNetwork
+text, warnings = to_format(dn, "pmd")                    # serialize; same-format write is byte exact
+dss, _ = convert_file(DistNetwork, "feeder.dss", "bmopf")  # one-shot convert
+PowerIO.warnings(dn)                                     # fidelity warnings retained on the handle
+```
+
 At first use the binding checks `pio_abi_version` against the version it targets
 and refuses a stale or mismatched library with an error stating both versions.
 
@@ -130,6 +145,7 @@ and refuses a stale or mismatched library with an error stating both versions.
 | [PowerDiff.jl](https://github.com/grid-opt-alg-lab/PowerDiff.jl) | out | PowerDiff depends on PowerIO as its parser and data layer |
 | MATPOWER / PSS/E / PowerWorld / PowerModels JSON / egret | file | `parse_file` / `convert_file` |
 | GridFM (gridfm-datakit Parquet) | in | `read_gridfm` / `read_gridfm_scenarios` |
+| OpenDSS / PowerModelsDistribution / IEEE BMOPF (distribution) | both | `parse_file(DistNetwork, …)` / `to_format` / `convert_file(DistNetwork, …)` |
 
 The `parse_file` / `to_*` naming is shared across Rust, Python, Julia, and the
 C ABI; the cross language table is in [docs/languages.md](docs/languages.md).
@@ -139,8 +155,8 @@ C ABI; the cross language table is in [docs/languages.md](docs/languages.md).
 With a sibling `powerio` checkout, build the C ABI and `using PowerIO` finds it:
 
 ```
-# in the sibling powerio checkout (arrow enables to_arrow, gridfm enables read_gridfm):
-cargo build -p powerio-capi --release --features arrow,gridfm
+# in the sibling powerio checkout (arrow → to_arrow, gridfm → read_gridfm, dist → dist_*):
+cargo build -p powerio-capi --release --features arrow,gridfm,dist
 ```
 
 For a non-sibling layout, point Julia at the library explicitly:
@@ -155,12 +171,14 @@ lazy artifact. The pipeline is described in [docs/binary.md](docs/binary.md).
 
 ## Roadmap
 
-0.1.x tracks powerio v0.2.2 (C ABI 3): 0.1.0 added the gridfm reader
-(`read_gridfm`), 0.1.1 the PyPSA CSV writer (`write_pypsa_csv_folder`) and
-`reference_bus_indices`, 0.1.2 the `n_components` / `is_radial` accessors. Next: a
-fully typed immutable `Network` mirroring the Rust model (today's view is
-JSON-backed), a Documenter site, package extensions for the PowerModels and
-ExaPowerIO bridges, and distribution through a registered `PowerIO_jll`.
+0.2.0 tracks powerio v0.3.0 (C ABI 4) and adds the multiconductor distribution
+binding (`parse_file(DistNetwork, …)` / `to_format` / `convert_file(DistNetwork, …)`)
+over OpenDSS, PowerModelsDistribution, and IEEE BMOPF. The 0.1.x line tracked C ABI 3: 0.1.0
+added the gridfm reader, 0.1.1 the PyPSA CSV writer and `reference_bus_indices`,
+0.1.2 the `n_components` / `is_radial` accessors. Next: a fully typed immutable
+`Network` mirroring the Rust model (today's view is JSON-backed), a Documenter
+site, package extensions for the PowerModels and ExaPowerIO bridges, and
+distribution through a registered `PowerIO_jll`.
 
 ## License
 

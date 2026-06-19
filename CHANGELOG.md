@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.2.0
+
+Tracks powerio v0.3.0 and its C ABI v4 (`PIO_ABI_VERSION` 4, a breaking ABI
+change). The public Julia surface is unchanged for transmission callers — the
+renamed and re-signatured C entry points are swapped underneath the same
+functions — and a new distribution binding is added.
+
+- C ABI v4 migration. The binding now targets ABI 4: every renamed `pio_*` symbol
+  is updated (`pio_normalize`, `pio_to_format` for matpower/powerio-json,
+  `pio_parse_str` for the JSON snapshot, `pio_to_arrow`, `pio_write_dir`,
+  `pio_read_dir` / `pio_scenario_ids`, `pio_ref_bus_index` /
+  `pio_ref_bus_indices`, `pio_bus_demand` / `pio_bus_shunt`, `pio_n_islands`),
+  the dense extractors adopt the cap/count convention, `convert_file` follows the
+  v4 `(path, from, to)` argument order, and gridfm read warnings now come off the
+  handle (`pio_warnings`) instead of a per-call buffer.
+- Distribution surface on a new `DistNetwork` handle, over the multiconductor
+  `pio_dist_*` ABI. It shares the transmission verbs rather than prefixing:
+  `parse_file(DistNetwork, path)` / `parse_str(DistNetwork, text, fmt)` build the
+  handle (the `parse(T, x)` idiom, since Julia cannot dispatch on the return
+  type), while `to_format(net, to)` and `warnings(net)` dispatch on the handle;
+  `convert_file(DistNetwork, path, to)` / `convert_str(DistNetwork, …)` are the
+  one-shot paths. Reads and writes OpenDSS (`"dss"`), PowerModelsDistribution
+  ENGINEERING JSON (`"pmd"`), and IEEE BMOPF JSON (`"bmopf"`). Experimental while
+  the BMOPF schema is v0.0.1; needs powerio-capi built `--features dist` (on by
+  default in the released binaries), probed by `dist_available()`.
+- `convert_str(text, to; from)` — the in-memory sibling of `convert_file`, over
+  the v4 `pio_convert_str` (and `convert_str(DistNetwork, …)` for distribution).
+- `arrow_available` / `gridfm_available` / `dist_available` are now exported.
+- Binaries repinned to powerio v0.3.0.
+
 ## 0.1.4
 
 Updates binaries to track powerio v0.2.4. No Julia binding changes. 

@@ -15,17 +15,18 @@
 using BinaryBuilder
 
 name = "PowerIO"
-# Tracks the powerio-capi *crate* version (the binary), unified with the
-# PowerIO.jl *package* version for the first release.
-version = v"0.0.1"
+# Tracks the powerio-capi *crate* version (the binary). The PowerIO.jl package
+# version moves independently (0.2.0 here); the compatibility contract is the C
+# ABI handshake, not the version number.
+version = v"0.3.0"
 
-# Must pin a commit reporting `PIO_ABI_VERSION` 3: the binding's load-time
-# handshake refuses anything else, and `to_arrow` needs the Arrow export. Pinned
-# to the v0.0.1 release tag (the right long-term anchor for a reproducible
-# build and the Yggdrasil submission).
+# Must pin a commit reporting `PIO_ABI_VERSION` 4: the binding's load-time
+# handshake refuses anything else, and `to_arrow` / the dist surface need their
+# features. Pinned to the v0.3.0 release commit (the right long-term anchor for a
+# reproducible build and the Yggdrasil submission).
 sources = [
     GitSource("https://github.com/eigenergy/powerio.git",
-              "db944afe3819b2efd67060eda056003846f8e8ad"),
+              "23bc6154e14cedf809944ff6721776562da1fe53"),
 ]
 
 # `cargo build` writes the cdylib under target/<rust_target>/release. Names differ
@@ -33,12 +34,12 @@ sources = [
 # (windows, no lib prefix, ships under bin/). `install_license` keeps AutoMerge happy.
 script = raw"""
 cd $WORKSPACE/srcdir/powerio
-# --features arrow ships pio_export_arrow (the zero-copy Arrow C Data Interface
-# export to_arrow calls); --features gridfm ships pio_read_gridfm (the
-# gridfm-datakit Parquet reader read_gridfm calls). The base ABI is identical
-# without them. NOTE: the `sources` commit above must include pio_read_gridfm
-# (powerio PR #70 and later) before re-cutting the artifact with gridfm enabled.
-cargo build --release -p powerio-capi --target ${rust_target} --features arrow,gridfm
+# --features arrow ships pio_to_arrow (the zero-copy Arrow C Data Interface export
+# to_arrow calls); --features gridfm ships pio_read_dir / pio_scenario_ids (the
+# gridfm-datakit Parquet reader read_gridfm calls); --features dist ships the
+# pio_dist_* surface (the OpenDSS / PMD / BMOPF distribution binding). The base
+# ABI is identical without them. This matches powerio's release-binaries.yml.
+cargo build --release -p powerio-capi --target ${rust_target} --features arrow,gridfm,dist
 out=target/${rust_target}/release
 if [[ "${target}" == *-mingw32* ]]; then
     install -Dvm755 "${out}/powerio_capi.dll" "${bindir}/libpowerio_capi.dll"
