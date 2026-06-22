@@ -48,7 +48,8 @@ export Network, parse_file, parse_str, from_json, convert_file, convert_str,
        to_format, to_normalized, to_json, to_dense, to_matpower, to_arrow,
        ArrowTable, write_pypsa_csv_folder, to_powermodels, from_powermodels,
        to_powerdata, parse_ac_power_data, read_gridfm, read_gridfm_scenarios,
-       arrow_available, gridfm_available, DistNetwork, dist_available
+       arrow_available, gridfm_available, DistNetwork, dist_available,
+       dist_abi_version
 
 # --- library resolution -------------------------------------------------
 #

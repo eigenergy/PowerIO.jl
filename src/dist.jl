@@ -12,11 +12,11 @@
 # surface is parse / convert / serialize only; distribution data has no
 # dense-extractor contract, its structure rides the format JSON payloads.
 #
-# EXPERIMENTAL: the `pio_dist_*` signatures are frozen under `PIO_ABI_VERSION` 4,
-# but the BMOPF schema (v0.0.1) and the JSON payloads may still evolve; pin a
-# schema vintage from the payload, not from the ABI version. The functions ship
-# only with the dist feature (on by default in the released binaries);
-# `dist_available()` probes the symbol, the mirror of `arrow_available`.
+# EXPERIMENTAL: the `pio_dist_*` signatures have their own `PIO_DIST_ABI_VERSION`
+# starting with powerio v0.3.1. The v0.3.0 dist conversion calls predate that
+# version and used target before source. The functions ship only with the dist
+# feature (on by default in the released binaries); `dist_available()` probes the
+# symbol, the mirror of `arrow_available`.
 
 # `pio_dist_network_free`, memoized per resolved path — the `_network_free_fn`
 # story for distribution handles (a `set_library!` swap must not free across
@@ -68,6 +68,23 @@ dist`, on by default in the released binaries). The mirror of
 [`arrow_available`](@ref) / [`gridfm_available`](@ref).
 """
 dist_available() = _exports_symbol(:pio_dist_parse_file)
+
+const PIO_DIST_ABI_VERSION = UInt32(1)
+
+"""
+    dist_abi_version() -> UInt32
+
+The distribution C ABI version reported by `pio_dist_abi_version()`. Returns `0`
+for v0.3.0 libraries, where the dist surface was experimental and had no separate
+version probe.
+"""
+function dist_abi_version()
+    _ensure_compatible()
+    _exports_symbol(:pio_dist_abi_version) || return UInt32(0)
+    return ccall((:pio_dist_abi_version, _lib()), UInt32, ())
+end
+
+_dist_source_before_target() = dist_abi_version() >= PIO_DIST_ABI_VERSION
 
 """
     parse_file(DistNetwork, path; from=nothing) -> DistNetwork
@@ -161,13 +178,15 @@ function convert_file(::Type{DistNetwork}, path::AbstractString, to::AbstractStr
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
     fromc = from === nothing ? C_NULL : String(from)
-    # The dist C entry point's order is (path, to, from) — target before source.
-    # The Julia signature keeps `to` positional and `from` a keyword, matching the
-    # transmission `convert_file`, and reorders for the ccall here.
+    # v0.3.0 had the experimental order (path, to, from). Dist ABI v1 corrected
+    # it to (path, from, to). Keep the Julia signature stable and key the ccall
+    # order off the explicit dist ABI probe when the library provides it.
+    source_arg, target_arg = _dist_source_before_target() ? (fromc, String(to)) :
+                             (String(to), fromc)
     s = try
         ccall((:pio_dist_convert_file, _lib()), Cstring,
               (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
-              path, to, fromc, warnbuf, length(warnbuf), err, length(err))
+              path, source_arg, target_arg, warnbuf, length(warnbuf), err, length(err))
     catch e
         _feature_call_error("convert_file", "pio_dist_convert_file", "dist", e)
     end
@@ -189,10 +208,12 @@ function convert_str(::Type{DistNetwork}, text::AbstractString, to::AbstractStri
     _ensure_compatible()
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
+    source_arg, target_arg = _dist_source_before_target() ?
+                             (String(from), String(to)) : (String(to), String(from))
     s = try
         ccall((:pio_dist_convert_str, _lib()), Cstring,
               (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
-              String(text), String(to), String(from), warnbuf, length(warnbuf), err, length(err))
+              String(text), source_arg, target_arg, warnbuf, length(warnbuf), err, length(err))
     catch e
         _feature_call_error("convert_str", "pio_dist_convert_str", "dist", e)
     end
