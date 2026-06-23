@@ -58,6 +58,13 @@ After each powerio binary release:
    (3 days for a brand-new package). TagBot then tags `vX.Y.Z` here and
    creates the GitHub release.
 
+   TagBot uses `TAGBOT_TOKEN` when present, falling back to `GITHUB_TOKEN` for
+   normal releases. Set `TAGBOT_TOKEN` to a fine grained token with contents and
+   workflows write access before asking TagBot to backfill old versions whose
+   registered commits changed `.github/workflows/*.yml`. Set `TAGBOT_SSH` to a
+   write deploy key, or reuse `DOCUMENTER_KEY`, so TagBot can push release tags
+   through SSH.
+
 A binding-only fix (no new binary) skips step 1.
 
 Version numbers: a binary-driven release registers the powerio version it wraps
