@@ -32,7 +32,8 @@ built `--features dist`).
 
 At first use the binding checks the library's ABI version (`pio_abi_version`)
 against the version it targets (`PIO_ABI_VERSION`) and refuses a stale or
-mismatched library with an error stating both versions.
+mismatched library with an error stating both versions. Distribution calls also
+check `pio_dist_abi_version` against `PIO_DIST_ABI_VERSION`.
 
 The C library resolves automatically: the bundled lazy artifact, or a sibling
 powerio build during development. Point at a custom build with
@@ -155,7 +156,7 @@ abi_version() = ccall((:pio_abi_version, _lib()), UInt32, ())
     library_version() -> String
 
 The `powerio-capi` crate version string the resolved library reports (e.g.
-`"0.3.0"`). Informational; [`abi_version`](@ref) is the compatibility check.
+`"0.3.1"`). Informational; [`abi_version`](@ref) is the compatibility check.
 """
 function library_version()
     s = ccall((:pio_version, _lib()), Cstring, ())

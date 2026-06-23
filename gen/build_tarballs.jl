@@ -16,17 +16,17 @@ using BinaryBuilder
 
 name = "PowerIO"
 # Tracks the powerio-capi *crate* version (the binary). The PowerIO.jl package
-# version moves independently (0.2.0 here); the compatibility contract is the C
-# ABI handshake, not the version number.
-version = v"0.3.0"
+# version moves independently (0.2.0 here); the ABI checks decide whether a
+# binary is usable, not the version number.
+version = v"0.3.1"
 
 # Must pin a commit reporting `PIO_ABI_VERSION` 4: the binding's load-time
 # handshake refuses anything else, and `to_arrow` / the dist surface need their
-# features. Pinned to the v0.3.0 release commit (the right long-term anchor for a
-# reproducible build and the Yggdrasil submission).
+# features. Pinned to the v0.3.1 release commit, which also reports
+# `PIO_DIST_ABI_VERSION` 1 for the distribution C ABI.
 sources = [
     GitSource("https://github.com/eigenergy/powerio.git",
-              "23bc6154e14cedf809944ff6721776562da1fe53"),
+              "fc3394ac21d7b236eb3b7557c3629aaecd9b8235"),
 ]
 
 # `cargo build` writes the cdylib under target/<rust_target>/release. Names differ

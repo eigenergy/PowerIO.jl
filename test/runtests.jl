@@ -12,7 +12,8 @@ using Aqua
                     :to_matpower, :to_arrow, :ArrowTable, :write_pypsa_csv_folder,
                     :to_powermodels, :from_powermodels, :to_powerdata,
                     :parse_ac_power_data, :read_gridfm, :read_gridfm_scenarios,
-                    :arrow_available, :gridfm_available, :DistNetwork, :dist_available)
+                    :arrow_available, :gridfm_available, :DistNetwork, :dist_available,
+                    :dist_abi_version)
             @test isdefined(PowerIO, sym)
         end
         # The accessor surface the ecosystem bridges read is unexported but must exist.
@@ -25,6 +26,7 @@ using Aqua
         end
         @test PowerIO._lib() isa AbstractString
         @test PowerIO.PIO_ABI_VERSION isa Unsigned
+        @test PowerIO.PIO_DIST_ABI_VERSION isa Unsigned
     end
 
     @testset "pure-Julia accessors (no binary)" begin
@@ -478,6 +480,7 @@ using Aqua
             @test_skip parse_file(DistNetwork, "switch.dss")
         else
             dss = joinpath(@__DIR__, "data", "dist", "switch.dss")
+            @test PowerIO.dist_abi_version() == PowerIO.PIO_DIST_ABI_VERSION
 
             # The distribution case shares the transmission verbs: the entry points
             # take DistNetwork as a leading type marker (the parse(T, x) idiom),
@@ -506,6 +509,8 @@ using Aqua
             bmopf, bmopf_w = convert_file(DistNetwork, dss, "bmopf")
             @test !isempty(bmopf)
             @test bmopf_w isa AbstractVector{<:AbstractString}
+            bmopf_hinted, _ = convert_file(DistNetwork, dss, "bmopf"; from="dss")
+            @test bmopf_hinted == bmopf
             # convert_str matches convert_file for the same conversion.
             cs, _ = convert_str(DistNetwork, read(dss, String), "pmd", "dss")
             @test cs == pmd

@@ -59,8 +59,25 @@ function _binding_abi()
     return parse(UInt32, m.captures[1])
 end
 
+# The distribution ABI version this binding targets, parsed from the source of
+# truth. Missing means this binding predates the separate dist ABI.
+function _binding_dist_abi()
+    src = read(joinpath(@__DIR__, "..", "src", "dist.jl"), String)
+    m = match(r"PIO_DIST_ABI_VERSION\s*=\s*UInt32\((\d+)\)", src)
+    m === nothing && return nothing
+    return parse(UInt32, m.captures[1])
+end
+
+function _skip_release(msg::String)
+    @warn msg
+    summary = get(ENV, "GITHUB_STEP_SUMMARY", "")
+    isempty(summary) || open(io -> println(io, msg), summary, "a")
+    exit(0)
+end
+
 # Refuse to pin binaries this binding cannot speak to: dlopen the unpacked
-# host-platform library and compare its pio_abi_version with PIO_ABI_VERSION.
+# host-platform library and compare its pio_abi_version with PIO_ABI_VERSION
+# and, when present in the binding, pio_dist_abi_version with PIO_DIST_ABI_VERSION.
 # Exit 0 without touching Artifacts.toml on a mismatch, so the scheduled
 # tracking run is a clean no-op until the lockstep binding PR merges. A summary
 # line lands in $GITHUB_STEP_SUMMARY when running under Actions.
@@ -69,19 +86,32 @@ function _check_abi(unpack::String, triplet::String)
     lib = joinpath(unpack, libsubdir, "libpowerio_capi.$(Libdl.dlext)")
     isfile(lib) || error("no $lib in the $triplet tarball")
     handle = Libdl.dlopen(lib)
-    got = try
-        ccall(Libdl.dlsym(handle, :pio_abi_version), UInt32, ())
+    try
+        got = ccall(Libdl.dlsym(handle, :pio_abi_version), UInt32, ())
+        want = _binding_abi()
+        got == want || _skip_release(
+            "skipping $tag: its binaries report ABI $got, this binding targets ABI $want; " *
+            "Artifacts.toml left untouched (repin after the lockstep binding PR merges)"
+        )
+
+        dist_want = _binding_dist_abi()
+        dist_want === nothing && return
+        dist_got = try
+            ccall(Libdl.dlsym(handle, :pio_dist_abi_version), UInt32, ())
+        catch e
+            _skip_release(
+                "skipping $tag: its binaries do not expose pio_dist_abi_version, " *
+                "this binding targets dist ABI $dist_want; Artifacts.toml left untouched. " *
+                "Underlying: $e"
+            )
+        end
+        dist_got == dist_want || _skip_release(
+            "skipping $tag: its binaries report dist ABI $dist_got, this binding targets " *
+            "dist ABI $dist_want; Artifacts.toml left untouched"
+        )
     finally
         Libdl.dlclose(handle)
     end
-    want = _binding_abi()
-    got == want && return
-    msg = "skipping $tag: its binaries report ABI $got, this binding targets ABI $want; " *
-          "Artifacts.toml left untouched (repin after the lockstep binding PR merges)"
-    @warn msg
-    summary = get(ENV, "GITHUB_STEP_SUMMARY", "")
-    isempty(summary) || open(io -> println(io, msg), summary, "a")
-    exit(0)
 end
 
 stanzas = String[]

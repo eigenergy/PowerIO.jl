@@ -9,14 +9,14 @@
 # the handle type, and the entry points that build a handle from a path or string
 # take the target type first, the `parse(T, x)` idiom — `parse_file(DistNetwork,
 # path)` — since Julia dispatches on argument types, not the return type. The
-# surface is parse / convert / serialize only; distribution data has no
-# dense-extractor contract, its structure rides the format JSON payloads.
+# surface is parse / convert / serialize only; distribution data has no dense
+# extractor surface; its structure rides the format JSON payloads.
 #
 # EXPERIMENTAL: the `pio_dist_*` signatures have their own `PIO_DIST_ABI_VERSION`
-# starting with powerio v0.3.1. The v0.3.0 dist conversion calls predate that
-# version and used target before source. The functions ship only with the dist
-# feature (on by default in the released binaries); `dist_available()` probes the
-# symbol, the mirror of `arrow_available`.
+# starting with powerio v0.3.1. PowerIO.jl requires that version before calling
+# distribution entry points. The functions ship only with the dist feature (on by
+# default in the released binaries); `dist_available()` checks the symbol and the
+# reported dist ABI version.
 
 # `pio_dist_network_free`, memoized per resolved path — the `_network_free_fn`
 # story for distribution handles (a `set_library!` swap must not free across
@@ -64,27 +64,47 @@ Base.show(io::IO, net::DistNetwork) =
     dist_available() -> Bool
 
 True if the resolved C library exports `pio_dist_parse_file` (built `--features
-dist`, on by default in the released binaries). The mirror of
-[`arrow_available`](@ref) / [`gridfm_available`](@ref).
+dist`, on by default in the released binaries) and reports the distribution ABI
+version this binding targets.
 """
-dist_available() = _exports_symbol(:pio_dist_parse_file)
+function dist_available()
+    _exports_symbol(:pio_dist_parse_file) || return false
+    try
+        _ensure_dist_compatible()
+        return true
+    catch e
+        @debug "PowerIO: dist surface unavailable or incompatible" exception = (e, catch_backtrace())
+        return false
+    end
+end
 
 const PIO_DIST_ABI_VERSION = UInt32(1)
 
 """
     dist_abi_version() -> UInt32
 
-The distribution C ABI version reported by `pio_dist_abi_version()`. Returns `0`
-for v0.3.0 libraries, where the dist surface was experimental and had no separate
-version probe.
+The distribution C ABI version reported by `pio_dist_abi_version()`. Compared
+against `PIO_DIST_ABI_VERSION`, the distribution ABI this binding targets.
 """
 function dist_abi_version()
     _ensure_compatible()
-    _exports_symbol(:pio_dist_abi_version) || return UInt32(0)
     return ccall((:pio_dist_abi_version, _lib()), UInt32, ())
 end
 
-_dist_source_before_target() = dist_abi_version() >= PIO_DIST_ABI_VERSION
+function _ensure_dist_compatible()
+    _ensure_compatible()
+    got = try
+        dist_abi_version()
+    catch e
+        error("PowerIO: the C ABI at \"$(_lib())\" has no pio_dist_abi_version; " *
+              "use powerio-capi v0.3.1 built with `--features dist`. Underlying: $e")
+    end
+    got == PIO_DIST_ABI_VERSION || error(
+        "PowerIO: distribution C ABI version mismatch: the library reports dist ABI $got, " *
+        "this PowerIO.jl targets dist ABI $(PIO_DIST_ABI_VERSION). Update the powerio-capi " *
+        "artifact or local library.")
+    return
+end
 
 """
     parse_file(DistNetwork, path; from=nothing) -> DistNetwork
@@ -98,7 +118,7 @@ warnings with [`warnings`](@ref)`(net)`. Needs `--features dist`; see
 [`dist_available`](@ref).
 """
 function parse_file(::Type{DistNetwork}, path::AbstractString; from=nothing)
-    _ensure_compatible()
+    _ensure_dist_compatible()
     err = zeros(UInt8, _ERRLEN)
     fromc = from === nothing ? C_NULL : String(from)
     ptr = try
@@ -120,7 +140,7 @@ or `"bmopf"`; required, there is no path to infer from) into a [`DistNetwork`](@
 An OpenDSS `Redirect`/`Compile` resolves against the current working directory.
 """
 function parse_str(::Type{DistNetwork}, text::AbstractString, format::AbstractString)
-    _ensure_compatible()
+    _ensure_dist_compatible()
     err = zeros(UInt8, _ERRLEN)
     ptr = try
         ccall((:pio_dist_parse_str, _lib()), Ptr{Cvoid},
@@ -139,9 +159,11 @@ end
 The fidelity warnings retained on a [`DistNetwork`](@ref) handle — everything the
 reader could not represent or had to assume — over `pio_dist_warnings`.
 """
-warnings(net::DistNetwork) =
+function warnings(net::DistNetwork)
+    _ensure_dist_compatible()
     GC.@preserve net _warnings_from((out, cap) -> ccall((:pio_dist_warnings, _lib()), Csize_t,
                                     (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), net.ptr, out, cap))
+end
 
 """
     to_format(net::DistNetwork, to) -> (text, warnings)
@@ -152,6 +174,7 @@ handle was parsed from echoes the source byte for byte; a cross-format write
 reports every fidelity loss in `warnings`.
 """
 function to_format(net::DistNetwork, to::AbstractString)
+    _ensure_dist_compatible()
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
     s = GC.@preserve net ccall((:pio_dist_to_format, _lib()), Cstring,
@@ -174,19 +197,14 @@ leading type. `from` overrides extension inference (see
 query).
 """
 function convert_file(::Type{DistNetwork}, path::AbstractString, to::AbstractString; from=nothing)
-    _ensure_compatible()
+    _ensure_dist_compatible()
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
     fromc = from === nothing ? C_NULL : String(from)
-    # v0.3.0 had the experimental order (path, to, from). Dist ABI v1 corrected
-    # it to (path, from, to). Keep the Julia signature stable and key the ccall
-    # order off the explicit dist ABI probe when the library provides it.
-    source_arg, target_arg = _dist_source_before_target() ? (fromc, String(to)) :
-                             (String(to), fromc)
     s = try
         ccall((:pio_dist_convert_file, _lib()), Cstring,
               (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
-              path, source_arg, target_arg, warnbuf, length(warnbuf), err, length(err))
+              path, fromc, String(to), warnbuf, length(warnbuf), err, length(err))
     catch e
         _feature_call_error("convert_file", "pio_dist_convert_file", "dist", e)
     end
@@ -205,15 +223,13 @@ required; `"dss"`, `"pmd"`, `"bmopf"`). The string sibling of
 """
 function convert_str(::Type{DistNetwork}, text::AbstractString, to::AbstractString,
                      from::AbstractString)
-    _ensure_compatible()
+    _ensure_dist_compatible()
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
-    source_arg, target_arg = _dist_source_before_target() ?
-                             (String(from), String(to)) : (String(to), String(from))
     s = try
         ccall((:pio_dist_convert_str, _lib()), Cstring,
               (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
-              String(text), source_arg, target_arg, warnbuf, length(warnbuf), err, length(err))
+              String(text), String(from), String(to), warnbuf, length(warnbuf), err, length(err))
     catch e
         _feature_call_error("convert_str", "pio_dist_convert_str", "dist", e)
     end

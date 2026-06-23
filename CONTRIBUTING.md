@@ -8,7 +8,7 @@ sibling checkout; the library resolves automatically from
 
 ```
 git clone https://github.com/eigenergy/powerio ../powerio
-cargo build -p powerio-capi --release --features arrow   # in ../powerio
+cargo build -p powerio-capi --release --features arrow,gridfm,dist   # in ../powerio
 julia --project=. -e 'using Pkg; Pkg.test()'
 ```
 
@@ -17,12 +17,13 @@ override the resolution; without a dev build, the bundled lazy artifact is used.
 
 ## ABI lockstep
 
-The binding targets exactly one C ABI version (`PIO_ABI_VERSION` in
+The binding targets exactly one core C ABI version (`PIO_ABI_VERSION` in
 `src/PowerIO.jl`); a mismatched library is refused at first use with an error
-stating both versions. When powerio bumps its ABI, update the constant and any
-renamed ccalls here, verify the full suite against the matching powerio branch,
-and merge the two changes back to back. The ABI history is in
-powerio's `powerio-capi/README.md`.
+stating both versions. The distribution surface has its own
+`PIO_DIST_ABI_VERSION` in `src/dist.jl`. When powerio bumps either ABI, update
+the matching constant and any renamed ccalls here, verify the full suite against
+the matching powerio branch, and merge the two changes back to back. The ABI
+history is in powerio's `powerio-capi/README.md`.
 
 ## Memory safety conventions
 
@@ -38,8 +39,10 @@ After each powerio binary release:
 
 1. Dispatch the "Update artifacts" workflow with the new powerio tag. It
    regenerates Artifacts.toml from the release tarballs and opens a PR when
-   anything changed. If the release bumped `PIO_ABI_VERSION`, update the
-   constant and the affected ccalls in that PR (see "ABI lockstep" above).
+   anything changed. The updater checks both `PIO_ABI_VERSION` and
+   `PIO_DIST_ABI_VERSION` before rewriting `Artifacts.toml`; if either changed,
+   update the matching constant and affected ccalls in that PR (see "ABI
+   lockstep" above).
 2. Merge the artifacts PR if one was opened, then dispatch "Register Package"
    with the new version (no leading v, or major/minor/patch to bump) and, for a
    breaking bump, release notes. It commits the Project.toml bump to main and
@@ -57,10 +60,10 @@ After each powerio binary release:
 
 A binding-only fix (no new binary) skips step 1.
 
-Version numbers: a binary-driven release registers the powerio version it
-wraps when that number is still free, otherwise the next patch; a binding-only
-release bumps the patch independently. The compatibility contract is the ABI
-handshake (`PIO_ABI_VERSION`), not the version number.
+Version numbers: a binary-driven release registers the powerio version it wraps
+when that number is still free, otherwise the next patch; a binding-only release
+bumps the patch independently. The ABI checks (`PIO_ABI_VERSION` and
+`PIO_DIST_ABI_VERSION`) decide whether a binary is usable, not the version number.
 
 ## Docs
 
