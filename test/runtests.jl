@@ -515,6 +515,43 @@ using Aqua
             cs, _ = convert_str(DistNetwork, read(dss, String), "pmd", "dss")
             @test cs == pmd
 
+            # The v0.3.1 artifact lacks the native fix; the v0.3.2 repin turns
+            # this regression on in ordinary package tests.
+            if VersionNumber(PowerIO.library_version()) < v"0.3.2"
+                @test_skip false
+            else
+                grounding = """
+                New Circuit.c basekv=0.4
+                New Reactor.tx_busgrounding_B179 phases=1 bus1=B179.4 bus2=B179.0 r=0.3 x=0.0
+                New Reactor.loadbusgrounding_B3230 phases=1 bus1=B3230.4 bus2=B3230.0 r=10.0 x=0.0
+                New Reactor.loadbusgrounding_B2656 phases=1 bus1=B2656.4 bus2=B2656.0 r=10.0 x=0.0
+                """
+                grounding_net = parse_str(DistNetwork, grounding, "dss")
+                @test !any(w -> occursin("reactor", lowercase(w)), PowerIO.warnings(grounding_net))
+                grounding_bmopf, grounding_w = to_format(grounding_net, "bmopf")
+                @test !any(w -> occursin("reactor", lowercase(w)) ||
+                                 occursin("ground", lowercase(w)), grounding_w)
+                grounding_doc = PowerIO._json_plain(JSON3.read(grounding_bmopf))
+                grounding_sh = grounding_doc["shunt"]
+                @test length(grounding_sh) == 3
+                @test grounding_sh["tx_busgrounding_B179"]["terminal_map"] == ["4"]
+                @test isapprox(grounding_sh["tx_busgrounding_B179"]["G_1_1"], 1 / 0.3; atol=1e-12, rtol=0)
+                @test grounding_sh["tx_busgrounding_B179"]["B_1_1"] == 0.0
+                @test grounding_sh["loadbusgrounding_B3230"]["G_1_1"] == 0.1
+
+                delta = """
+                New Circuit.c basekv=4.16
+                New Capacitor.capd bus1=b2.1.2.3 phases=3 conn=delta kvar=900 kv=4.16
+                New Reactor.rxd bus1=b3.1.2.3 phases=3 conn=delta kvar=600 kv=4.16
+                """
+                delta_bmopf, delta_w = convert_str(DistNetwork, delta, "bmopf", "dss")
+                @test !any(w -> occursin("untyped", lowercase(w)) ||
+                                 occursin("not referenced", lowercase(w)), delta_w)
+                delta_doc = PowerIO._json_plain(JSON3.read(delta_bmopf))
+                @test delta_doc["shunt"]["capd"]["B_1_2"] < 0.0
+                @test delta_doc["shunt"]["rxd"]["B_1_2"] > 0.0
+            end
+
             # The shared verbs still default to Network: parsing the dss as a
             # transmission case fails, distinct from the DistNetwork path above.
             @test_throws ErrorException parse_file(dss)
