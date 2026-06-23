@@ -121,10 +121,11 @@ reads = read_gridfm_scenarios("out/case14/raw")  # one result per scenario id
 Multiconductor distribution cases are a separate model on their own `DistNetwork`
 handle (OpenDSS `"dss"`, PowerModelsDistribution ENGINEERING JSON `"pmd"`, IEEE
 BMOPF JSON `"bmopf"`; needs the library built with `--features dist`, on by default
-in the released binaries; `dist_available()` reports it). Experimental while the
-BMOPF schema is v0.0.1. It shares the transmission verbs: `to_format` and
-`warnings` dispatch on the handle, and the entry points take `DistNetwork` first,
-the `parse(T, x)` idiom — Julia dispatches on argument types, not the return type.
+in the released binaries; `dist_available()` reports it and checks
+`PIO_DIST_ABI_VERSION == 1`). Experimental while the BMOPF schema is v0.0.1. It
+shares the transmission verbs: `to_format` and `warnings` dispatch on the handle,
+and the entry points take `DistNetwork` first, the `parse(T, x)` idiom — Julia
+dispatches on argument types, not the return type.
 
 ```julia
 dn = parse_file(DistNetwork, "feeder.dss")               # ::DistNetwork
@@ -133,8 +134,10 @@ dss, _ = convert_file(DistNetwork, "feeder.dss", "bmopf")  # one-shot convert
 PowerIO.warnings(dn)                                     # fidelity warnings retained on the handle
 ```
 
-At first use the binding checks `pio_abi_version` against the version it targets
-and refuses a stale or mismatched library with an error stating both versions.
+At first use the binding checks `pio_abi_version` against the core ABI version it
+targets and refuses a stale or mismatched library with an error stating both
+versions. Distribution entry points also check `pio_dist_abi_version` before
+calling `pio_dist_*`.
 
 ## Interop
 
@@ -171,9 +174,10 @@ lazy artifact. The pipeline is described in [docs/binary.md](docs/binary.md).
 
 ## Roadmap
 
-0.2.0 tracks powerio v0.3.0 (C ABI 4) and adds the multiconductor distribution
-binding (`parse_file(DistNetwork, …)` / `to_format` / `convert_file(DistNetwork, …)`)
-over OpenDSS, PowerModelsDistribution, and IEEE BMOPF. The 0.1.x line tracked C ABI 3: 0.1.0
+0.2.0 tracks powerio v0.3.1 (C ABI 4, distribution ABI 1) and adds the
+multiconductor distribution binding (`parse_file(DistNetwork, …)` / `to_format` /
+`convert_file(DistNetwork, …)`) over OpenDSS, PowerModelsDistribution, and IEEE
+BMOPF. The 0.1.x line tracked C ABI 3: 0.1.0
 added the gridfm reader, 0.1.1 the PyPSA CSV writer and `reference_bus_indices`,
 0.1.2 the `n_components` / `is_radial` accessors. Next: a fully typed immutable
 `Network` mirroring the Rust model (today's view is JSON-backed), a Documenter
