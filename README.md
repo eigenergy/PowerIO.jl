@@ -174,10 +174,10 @@ lazy artifact. The pipeline is described in [docs/binary.md](docs/binary.md).
 
 ## Roadmap
 
-0.2.0 tracks powerio v0.3.1 (C ABI 4, distribution ABI 1) and adds the
-multiconductor distribution binding (`parse_file(DistNetwork, …)` / `to_format` /
-`convert_file(DistNetwork, …)`) over OpenDSS, PowerModelsDistribution, and IEEE
-BMOPF. The 0.1.x line tracked C ABI 3: 0.1.0
+0.2.1 tracks powerio v0.3.1 (C ABI 4, distribution ABI 1) and repins the binary
+artifacts. 0.2.0 added the multiconductor distribution binding
+(`parse_file(DistNetwork, …)` / `to_format` / `convert_file(DistNetwork, …)`)
+over OpenDSS, PowerModelsDistribution, and IEEE BMOPF. The 0.1.x line tracked C ABI 3: 0.1.0
 added the gridfm reader, 0.1.1 the PyPSA CSV writer and `reference_bus_indices`,
 0.1.2 the `n_components` / `is_radial` accessors. Next: a fully typed immutable
 `Network` mirroring the Rust model (today's view is JSON-backed), a Documenter

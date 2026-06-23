@@ -1,10 +1,22 @@
 # Changelog
 
+## 0.2.1
+
+Tracks powerio v0.3.1, keeping core C ABI v4 (`PIO_ABI_VERSION` 4) and adding
+distribution C ABI v1 (`PIO_DIST_ABI_VERSION` 1). No transmission API changes.
+
+- Binaries repinned to powerio v0.3.1 for Linux, macOS, and Windows.
+- Distribution calls now require `pio_dist_abi_version() == 1` and use the
+  supported C one-shot conversion order `(text/path, from, to)` underneath the
+  stable Julia surface.
+- The artifact update workflow now checks core ABI, distribution ABI, and the
+  `arrow`, `gridfm`, and `dist` feature-gated symbols before opening an artifact
+  PR.
+
 ## 0.2.0
 
-Tracks powerio v0.3.1, core C ABI v4 (`PIO_ABI_VERSION` 4), and distribution C
-ABI v1 (`PIO_DIST_ABI_VERSION` 1). The public Julia surface is unchanged for
-transmission callers — the
+Tracks powerio v0.3.0 and its C ABI v4 (`PIO_ABI_VERSION` 4, a breaking ABI
+change). The public Julia surface is unchanged for transmission callers — the
 renamed and re-signatured C entry points are swapped underneath the same
 functions — and a new distribution binding is added.
 
@@ -32,9 +44,7 @@ functions — and a new distribution binding is added.
 - `convert_str(text, to; from)` — the in-memory sibling of `convert_file`, over
   the v4 `pio_convert_str` (and `convert_str(DistNetwork, …)` for distribution).
 - `arrow_available` / `gridfm_available` / `dist_available` are now exported.
-- Binaries are ready to repin to powerio v0.3.1 after that release is published;
-  `gen/update_artifacts.jl` checks both core ABI 4 and distribution ABI 1 before
-  rewriting `Artifacts.toml`.
+- Binaries repinned to powerio v0.3.0.
 
 ## 0.1.4
 
