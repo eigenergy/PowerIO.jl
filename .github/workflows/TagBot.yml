@@ -6,16 +6,13 @@ name: TagBot
 # path (TagBot re-scans all registered versions on every run).
 on:
   issue_comment:
-    types: [ created ]
+    types: [created]
   workflow_dispatch:
 
 permissions:
-  actions: read
-  checks: read
   contents: write
-  issues: read
+  issues: write
   pull-requests: read
-  statuses: read
 
 jobs:
   TagBot:
@@ -24,4 +21,9 @@ jobs:
     steps:
       - uses: JuliaRegistries/TagBot@v1
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # TAGBOT_TOKEN is optional, but fixes backfills for old registered
+          # versions whose tagged commits changed workflow files.
+          token: ${{ secrets.TAGBOT_TOKEN || secrets.GITHUB_TOKEN }}
+          # Prefer a dedicated write deploy key; reuse a Documenter key if the
+          # repository already has one.
+          ssh: ${{ secrets.TAGBOT_SSH || secrets.DOCUMENTER_KEY }}
