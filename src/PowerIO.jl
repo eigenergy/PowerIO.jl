@@ -4,9 +4,9 @@
 Julia bindings for the PowerIO Rust core: parse MATPOWER / PSS/E / PowerWorld /
 PowerModels JSON / egret JSON case files, convert between any pair (byte exact on a
 same-format round trip, maximal fidelity otherwise), and materialize an immutable
-`Network`, all through the `powerio-capi` C ABI.
+`BalancedNetwork`, all through the `powerio-capi` C ABI.
 
-Parse once with [`parse_file`](@ref) → [`Network`](@ref), then read or transform it,
+Parse once with [`parse_file`](@ref) → [`BalancedNetwork`](@ref), then read or transform it,
 all over the same C ABI:
 
 - the rich, lossless element tables via the JSON transport (every field + extras,
@@ -16,17 +16,17 @@ all over the same C ABI:
 - [`to_arrow`](@ref): one table over the Arrow C Data Interface (owned columns by
   default; zero copy with `copy=false`).
 
-[`to_normalized`](@ref) derives a per-unit / radian / filtered copy that preserves
+[`to_normalized`](@ref) derives a per unit / radian / filtered copy that preserves
 source bus ids, and
 [`to_matpower`](@ref) / [`convert_file`](@ref) serialize back out.
 
 [`read_gridfm`](@ref) / [`read_gridfm_scenarios`](@ref) read a gridfm-datakit Parquet
-dataset back into a `Network` (the ML→classical return leg; lossy but
-power-flow-complete, needs powerio-capi built `--features gridfm`).
+dataset back into a `BalancedNetwork` (the ML→classical return leg; lossy but complete
+enough for power flow, needs powerio-capi built `--features gridfm`).
 
 Multiconductor distribution cases are a separate model on their own
-[`DistNetwork`](@ref) handle, sharing the same verbs: `parse_file(DistNetwork, path)`,
-`to_format(net, to)`, `convert_file(DistNetwork, path, to)` read and write OpenDSS,
+[`MulticonductorNetwork`](@ref) handle, sharing the same verbs: `parse_file(MulticonductorNetwork, path)`,
+`to_format(net, to)`, `convert_file(MulticonductorNetwork, path, to)` read and write OpenDSS,
 PowerModelsDistribution JSON, and IEEE BMOPF JSON (experimental; needs powerio-capi
 built `--features dist`).
 
@@ -45,12 +45,13 @@ using JSON3
 using LazyArtifacts
 import Libdl
 
-export Network, parse_file, parse_str, from_json, convert_file, convert_str,
+export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_str,
        to_format, to_normalized, to_json, to_dense, to_matpower, to_arrow,
        ArrowTable, write_pypsa_csv_folder, to_powermodels, from_powermodels,
        to_powerdata, parse_ac_power_data, read_gridfm, read_gridfm_scenarios,
-       arrow_available, gridfm_available, DistNetwork, dist_available,
-       dist_abi_version
+       CompilerPackage, to_package, from_package, read_package, write_package,
+       package_model_kind, arrow_available, gridfm_available, MulticonductorNetwork,
+       dist_available, dist_abi_version
 
 # --- library resolution -------------------------------------------------
 #
@@ -244,7 +245,7 @@ end
     NetworkHandle
 
 Opaque handle to a parsed network inside the Rust core. Freed by its finalizer;
-you normally go straight to [`parse_file`](@ref), which returns a [`Network`].
+you normally go straight to [`parse_file`](@ref), which returns a [`BalancedNetwork`].
 """
 mutable struct NetworkHandle
     ptr::Ptr{Cvoid}
@@ -366,7 +367,7 @@ _handle_warnings(h::NetworkHandle) =
     GC.@preserve h _warnings_from((out, cap) -> ccall((:pio_warnings, _lib()), Csize_t,
                                   (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, out, cap))
 
-# The canonical `powerio-json` snapshot, the JSON transport `Network` is built
+# The canonical `powerio-json` snapshot, the JSON transport `BalancedNetwork` is built
 # from and `from_json` reads back. It is `pio_to_format` under the `powerio-json`
 # name (v4 folded the old `pio_to_json` into the string-keyed writer). A lossy
 # write (non-finite f64 → null) warns; this internal transport discards the
@@ -386,40 +387,42 @@ end
 # --- public surface -----------------------------------------------------
 
 """
-    Network
+    BalancedNetwork
 
 An immutable view of a parsed case, materialized from the C ABI's JSON transport.
-Raw MATPOWER units and 1-based bus ids, mirroring `powerio`'s `Network`: buses,
+Raw MATPOWER units and 1-based bus ids, mirroring `powerio`'s `BalancedNetwork`: buses,
 loads, shunts, branches, generators, storage, and hvdc tables plus `base_mva`,
 `name`, and `source_format` (the format it was read from). For now the tables are
 the parsed JSON (`net.data`).
 
-A `Network` from [`parse_file`](@ref) also keeps its live Rust [`NetworkHandle`](@ref)
+A `BalancedNetwork` from [`parse_file`](@ref) also keeps its live Rust [`NetworkHandle`](@ref)
 (`net.handle`), so the `to_*` transforms ([`to_normalized`](@ref), [`to_dense`](@ref),
 [`to_matpower`](@ref), [`to_arrow`](@ref)) work straight off it. The handle's
-finalizer frees the Rust case once the `Network` is unreachable. A `Network` constructed
+finalizer frees the Rust case once the `BalancedNetwork` is unreachable. A `BalancedNetwork` constructed
 from a bare `JSON3.Object` has `handle === nothing`; the accessors and [`to_json`](@ref) work
 on it, but the handle-only transforms error.
 """
-struct Network
+struct BalancedNetwork
     data::JSON3.Object
     handle::Union{NetworkHandle,Nothing}
 end
-Network(data::JSON3.Object) = Network(data, nothing)
+BalancedNetwork(data::JSON3.Object) = BalancedNetwork(data, nothing)
 
 # A one-line REPL summary. Uses only the JSON-backed accessors, so a handle-less
-# `Network` (built by `from_json`) shows without needing the Rust library.
-function Base.show(io::IO, net::Network)
-    print(io, "Network{", source_format(net), "}: ", n_buses(net), " buses, ",
+# `BalancedNetwork` (built by `from_json`) shows without needing the Rust library.
+function Base.show(io::IO, net::BalancedNetwork)
+    print(io, "BalancedNetwork{", source_format(net), "}: ", n_buses(net), " buses, ",
           n_branches(net), " branches, ", n_gens(net), " gens")
 end
 
-"""
-    parse_file(path; from=nothing) -> Network
-    parse_file(io::IO, format::AbstractString) -> Network
-    parse_file(DistNetwork, path; from=nothing) -> DistNetwork
+Base.@deprecate_binding Network BalancedNetwork
 
-Parse a case into a [`Network`].
+"""
+    parse_file(path; from=nothing) -> BalancedNetwork
+    parse_file(io::IO, format::AbstractString) -> BalancedNetwork
+    parse_file(MulticonductorNetwork, path; from=nothing) -> MulticonductorNetwork
+
+Parse a case into a [`BalancedNetwork`].
 
 From a file `path` the format is inferred from the extension unless `from` is given
 (needed to tell egret and PowerModels `.json` apart). From an `io` stream the
@@ -430,52 +433,52 @@ Accepted format tokens (case-insensitive): `"matpower"`/`"m"`, `"powermodels-jso
 `"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`, `"psse"`/`"raw"`,
 `"powerworld"`/`"aux"`.
 
-Pass [`DistNetwork`](@ref) as the first argument to parse a multiconductor
-distribution case instead (`parse_file(DistNetwork, path)`); `Network` is the
+Pass [`MulticonductorNetwork`](@ref) as the first argument to parse a multiconductor
+distribution case instead (`parse_file(MulticonductorNetwork, path)`); `BalancedNetwork` is the
 default, the `parse(T, x)` idiom. See the `src/dist.jl` surface.
 """
 function parse_file(path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)
-    return Network(JSON3.read(_to_json(h)), h)
+    return BalancedNetwork(JSON3.read(_to_json(h)), h)
 end
 function parse_file(io::IO, format::AbstractString)
     h = _parse_handle_str(read(io, String), format)
-    return Network(JSON3.read(_to_json(h)), h)
+    return BalancedNetwork(JSON3.read(_to_json(h)), h)
 end
-# Explicit transmission marker, symmetric with `parse_file(DistNetwork, ...)`.
-parse_file(::Type{Network}, path::AbstractString; from=nothing) = parse_file(path; from=from)
+# Explicit transmission marker, symmetric with `parse_file(MulticonductorNetwork, ...)`.
+parse_file(::Type{BalancedNetwork}, path::AbstractString; from=nothing) = parse_file(path; from=from)
 
 """
-    parse_str(text, format="matpower") -> Network
-    parse_str(DistNetwork, text, format) -> DistNetwork
+    parse_str(text, format="matpower") -> BalancedNetwork
+    parse_str(MulticonductorNetwork, text, format) -> MulticonductorNetwork
 
-Parse in-memory case text into a [`Network`](@ref). This is the string sibling of
+Parse in-memory case text into a [`BalancedNetwork`](@ref). This is the string sibling of
 `parse_file(io, format)`, matching the Rust, Python, and C interfaces. Pass
-[`DistNetwork`](@ref) first for a distribution case.
+[`MulticonductorNetwork`](@ref) first for a distribution case.
 """
 parse_str(text::AbstractString, format::AbstractString="matpower") =
     parse_file(IOBuffer(String(text)), format)
-parse_str(::Type{Network}, text::AbstractString, format::AbstractString="matpower") =
+parse_str(::Type{BalancedNetwork}, text::AbstractString, format::AbstractString="matpower") =
     parse_str(text, format)
 
 """
-    from_json(text) -> Network
+    from_json(text) -> BalancedNetwork
 
-Rebuild a live [`Network`](@ref) from the JSON transport produced by
+Rebuild a live [`BalancedNetwork`](@ref) from the JSON transport produced by
 [`to_json`](@ref). The result has a Rust handle, so `to_*` transforms work on it.
 """
 function from_json(text::AbstractString)
     h = _from_json_handle(text)
-    return Network(JSON3.read(_to_json(h)), h)
+    return BalancedNetwork(JSON3.read(_to_json(h)), h)
 end
 
-# The live Rust handle a Network-first transform needs; a manually constructed
-# Network has none, and a finalized handle is non-`nothing` but null. Name the
+# The live Rust handle a BalancedNetwork-first transform needs; a manually constructed
+# BalancedNetwork has none, and a finalized handle is non-`nothing` but null. Name the
 # function that needs it.
-function _live_handle(net::Network, fname::AbstractString)
+function _live_handle(net::BalancedNetwork, fname::AbstractString)
     h = net.handle
     (h === nothing || h.ptr == C_NULL) && error(
-        "PowerIO.$fname: this Network has no live network handle (produce it with parse_file, parse_str, or from_json).")
+        "PowerIO.$fname: this BalancedNetwork has no live network handle (produce it with parse_file, parse_str, or from_json).")
     return h
 end
 
@@ -494,7 +497,7 @@ function _normalize_handle(h::NetworkHandle)
 end
 
 """
-    to_normalized(net::Network) -> Network
+    to_normalized(net::BalancedNetwork) -> BalancedNetwork
 
 A computation-ready copy of `net`: per unit (powers ÷ `base_mva`), angles in
 radians, transformer tap `0 → 1`, out-of-service and isolated elements dropped,
@@ -505,18 +508,18 @@ becomes `PQ`). `source_format` of the result is `"Normalized"`.
 Needs `net`'s live Rust handle (from [`parse_file`](@ref)). Errors if `base_mva` is
 not positive or no reference bus can be established.
 """
-function to_normalized(net::Network)
+function to_normalized(net::BalancedNetwork)
     hn = _normalize_handle(_live_handle(net, "to_normalized"))
-    return Network(JSON3.read(_to_json(hn)), hn)
+    return BalancedNetwork(JSON3.read(_to_json(hn)), hn)
 end
 
 """
-    to_json(net::Network) -> String
+    to_json(net::BalancedNetwork) -> String
 
 Serialize `net` to the C ABI's JSON transport, the same text [`from_json`](@ref)
 reads back. Uses the live handle when present, else the cached `net.data`.
 """
-function to_json(net::Network)
+function to_json(net::BalancedNetwork)
     h = net.handle
     # A finalized handle (explicit `finalize(net.handle)`) is non-`nothing` but
     # null; the cached-data fallback covers it like the handleless case.
@@ -539,33 +542,33 @@ end
 # (v4 retired the per-format `pio_to_matpower`); a byte-exact MATPOWER round trip
 # warns about nothing, so drop the warnings and return the text alone.
 """
-    to_matpower(net::Network) -> String
+    to_matpower(net::BalancedNetwork) -> String
 
 Serialize `net` to MATPOWER `.m` text, byte exact when the input was MATPOWER. For a
 file in one shot use [`convert_file`](@ref)`(path, "matpower")`.
 """
-to_matpower(net::Network) =
+to_matpower(net::BalancedNetwork) =
     first(_format_from_handle(_live_handle(net, "to_matpower"), "matpower", repr(network_name(net))))
 
 """
-    to_format(net::Network, to) -> (text, warnings)
-    to_format(net::DistNetwork, to) -> (text, warnings)
+    to_format(net::BalancedNetwork, to) -> (text, warnings)
+    to_format(net::MulticonductorNetwork, to) -> (text, warnings)
 
 Serialize a parsed network to format `to` without reparsing the input file.
 Returns the target text and any fidelity warnings. Dispatches on the handle type,
-so a [`DistNetwork`](@ref) writes the distribution formats.
+so a [`MulticonductorNetwork`](@ref) writes the distribution formats.
 """
-to_format(net::Network, to::AbstractString) =
+to_format(net::BalancedNetwork, to::AbstractString) =
     _format_from_handle(_live_handle(net, "to_format"), to, repr(network_name(net)))
 
 """
-    warnings(net::Network) -> Vector{String}
-    warnings(net::DistNetwork) -> Vector{String}
+    warnings(net::BalancedNetwork) -> Vector{String}
+    warnings(net::MulticonductorNetwork) -> Vector{String}
 
 The fidelity warnings retained on a live handle (`pio_warnings`) — what the reader
-could not represent or had to assume. Empty for a handle-less [`Network`](@ref).
+could not represent or had to assume. Empty for a handle-less [`BalancedNetwork`](@ref).
 """
-function warnings(net::Network)
+function warnings(net::BalancedNetwork)
     h = net.handle
     (h === nothing || h.ptr == C_NULL) && return String[]
     return _handle_warnings(h)
@@ -573,7 +576,7 @@ end
 
 """
     convert_file(path, to; from=nothing) -> (text, warnings)
-    convert_file(DistNetwork, path, to; from=nothing) -> (text, warnings)
+    convert_file(MulticonductorNetwork, path, to; from=nothing) -> (text, warnings)
 
 Convert `path` to format `to`. All five formats read and write, so any pair
 converts. A same-format conversion is byte exact; a cross-format one is
@@ -581,7 +584,7 @@ maximal fidelity and reports whatever the target can't carry in `warnings`. Toke
 (case-insensitive): `"matpower"`/`"m"`, `"powermodels-json"`/`"powermodels"`/`"pm"`,
 `"egret-json"`/`"egret"`, `"psse"`/`"raw"`, `"powerworld"`/`"aux"`. `from` overrides
 extension inference (needed to tell egret and PowerModels `.json` apart). Pass
-[`DistNetwork`](@ref) first to convert a distribution case.
+[`MulticonductorNetwork`](@ref) first to convert a distribution case.
 """
 function convert_file(path::AbstractString, to::AbstractString; from=nothing)
     _ensure_compatible()
@@ -598,18 +601,18 @@ function convert_file(path::AbstractString, to::AbstractString; from=nothing)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
     return (text, _warn_lines(warnbuf; capped=true))
 end
-# Explicit transmission marker, symmetric with `convert_file(DistNetwork, ...)`.
-convert_file(::Type{Network}, path::AbstractString, to::AbstractString; from=nothing) =
+# Explicit transmission marker, symmetric with `convert_file(MulticonductorNetwork, ...)`.
+convert_file(::Type{BalancedNetwork}, path::AbstractString, to::AbstractString; from=nothing) =
     convert_file(path, to; from=from)
 
 """
     convert_str(text, to; from) -> (text, warnings)
-    convert_str(DistNetwork, text, to, from) -> (text, warnings)
+    convert_str(MulticonductorNetwork, text, to, from) -> (text, warnings)
 
 Convert in-memory case `text` to format `to` — the string sibling of
 [`convert_file`](@ref) (`pio_convert_str`). `from` is required for a transmission
 case (there is no path to infer from): the source format token. Pass
-[`DistNetwork`](@ref) first for a distribution case.
+[`MulticonductorNetwork`](@ref) first for a distribution case.
 """
 function convert_str(text::AbstractString, to::AbstractString; from::AbstractString)
     _ensure_compatible()
@@ -626,7 +629,7 @@ function convert_str(text::AbstractString, to::AbstractString; from::AbstractStr
 end
 
 """
-    write_pypsa_csv_folder(net::Network, out_dir) -> (out_dir, warnings)
+    write_pypsa_csv_folder(net::BalancedNetwork, out_dir) -> (out_dir, warnings)
 
 Write `net` as a PyPSA CSV folder under `out_dir` (created if absent) — the
 directory-shaped inverse of `parse_file(out_dir; from="pypsa-csv")`, where the
@@ -635,7 +638,7 @@ the output directory and any fidelity warnings the writer reports for fields the
 PyPSA static-network CSV schema can't carry. Needs `net`'s live Rust handle
 (from [`parse_file`](@ref)).
 """
-function write_pypsa_csv_folder(net::Network, out_dir::AbstractString)
+function write_pypsa_csv_folder(net::BalancedNetwork, out_dir::AbstractString)
     h = _live_handle(net, "write_pypsa_csv_folder")
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
@@ -652,7 +655,7 @@ end
 # --- accessor surface ---------------------------------------------------
 #
 # The v0.0.1 surface bridges read: the parsed element tables plus a few scalars.
-# Element field names mirror the Rust `Network` (powerio/src/network.rs) and are
+# Element field names mirror the Rust `BalancedNetwork` (powerio/src/network.rs) and are
 # the stable contract — raw MATPOWER units (MW/MVAr, degrees), 1-based bus ids,
 # out-of-service elements retained, so a consumer normalizes as it sees fit:
 #
@@ -677,31 +680,31 @@ end
 # The fully typed struct mirroring `network.rs` and the dense-extraction fast path
 # are v0.1.0 (issue #2); these views are enough for the ecosystem bridges.
 
-n_buses(net::Network) = length(net.data.buses)
-n_branches(net::Network) = length(net.data.branches)
-base_mva(net::Network) = Float64(net.data.base_mva)
+n_buses(net::BalancedNetwork) = length(net.data.buses)
+n_branches(net::BalancedNetwork) = length(net.data.branches)
+base_mva(net::BalancedNetwork) = Float64(net.data.base_mva)
 
 """
     network_name(net) -> String
 
 The case name carried through from the source file.
 """
-network_name(net::Network) = String(net.data.name)
+network_name(net::BalancedNetwork) = String(net.data.name)
 
 "Buses, in source order (1-based ids preserved). See the accessor-surface note."
-buses(net::Network) = net.data.buses
+buses(net::BalancedNetwork) = net.data.buses
 "Generators, one per machine (`bus` repeats when a bus has several)."
-generators(net::Network) = net.data.generators
+generators(net::BalancedNetwork) = net.data.generators
 "Branches (lines and transformers), in source order."
-branches(net::Network) = net.data.branches
+branches(net::BalancedNetwork) = net.data.branches
 "First-class loads (PSS/E and PowerModels keep several per bus; MATPOWER splits its bus row)."
-loads(net::Network) = net.data.loads
+loads(net::BalancedNetwork) = net.data.loads
 "First-class bus shunts."
-shunts(net::Network) = net.data.shunts
+shunts(net::BalancedNetwork) = net.data.shunts
 "First-class storage units; empty unless the source carries them (PowerModels, egret)."
-storage(net::Network) = net.data.storage
+storage(net::BalancedNetwork) = net.data.storage
 "Two-terminal HVDC lines (MATPOWER `dcline`); empty unless the source carries them."
-hvdc(net::Network) = net.data.hvdc
+hvdc(net::BalancedNetwork) = net.data.hvdc
 
 """
     n_gens(net) -> Int
@@ -709,7 +712,7 @@ hvdc(net::Network) = net.data.hvdc
 Number of generator rows (one per machine; `bus` repeats). Matches `pio_n_gens`:
 every row, not in-service-filtered.
 """
-n_gens(net::Network) = length(net.data.generators)
+n_gens(net::BalancedNetwork) = length(net.data.generators)
 
 """
     source_format(net) -> String
@@ -718,7 +721,7 @@ The format the case was read from, verbatim from the Rust `SourceFormat` enum:
 one of `"Matpower"`, `"PowerModelsJson"`, `"EgretJson"`, `"Psse"`, `"PowerWorld"`,
 `"InMemory"`, `"Normalized"` (the last is the output of [`to_normalized`](@ref)).
 """
-source_format(net::Network) = String(net.data.source_format)
+source_format(net::BalancedNetwork) = String(net.data.source_format)
 
 """
     reference_bus_id(net) -> Union{Int,Nothing}
@@ -728,7 +731,7 @@ has `kind == "REF"`. This mirrors the "exactly one" rule of the C ABI's
 `pio_ref_bus_index` (which returns a dense 0-based index, not an id), but returns
 the 1-based id space the other accessors use.
 """
-function reference_bus_id(net::Network)
+function reference_bus_id(net::BalancedNetwork)
     ref = nothing
     for b in net.data.buses
         if String(b.kind) == "REF"
@@ -748,7 +751,7 @@ when exactly one bus is `REF` — this returns all of them (zero, one, or many) 
 dense indices. Map an index back to a 1-based id with `to_dense(net).bus_ids`.
 Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
 """
-function reference_bus_indices(net::Network)
+function reference_bus_indices(net::BalancedNetwork)
     h = _live_handle(net, "reference_bus_indices")
     # v4 folds the count and fill into one `pio_ref_bus_indices(net, out, cap)`
     # (writes up to `cap`, returns the total): size with a null buffer, then fill.
@@ -769,7 +772,7 @@ Number of connected components of the in-service topology, as the C ABI computes
 (`pio_n_islands`). The same quantity as `to_dense(net).n_components`, without
 building the dense view. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
 """
-function n_components(net::Network)
+function n_components(net::BalancedNetwork)
     h = _live_handle(net, "n_components")
     return Int(GC.@preserve h ccall((:pio_n_islands, _lib()), Csize_t, (Ptr{Cvoid},), h.ptr))
 end
@@ -781,7 +784,7 @@ Whether the in-service topology is radial (a forest), as the C ABI computes it
 (`pio_is_radial`). The same quantity as `to_dense(net).is_radial`, without building
 the dense view. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
 """
-function is_radial(net::Network)
+function is_radial(net::BalancedNetwork)
     h = _live_handle(net, "is_radial")
     return (GC.@preserve h ccall((:pio_is_radial, _lib()), Cint, (Ptr{Cvoid},), h.ptr)) != 0
 end
@@ -867,7 +870,7 @@ function _bus_shunt(h::NetworkHandle, n::Int)
     return (gs, bs)
 end
 
-# Dense numeric extraction off a live handle, shared by the Network and path
+# Dense numeric extraction off a live handle, shared by the BalancedNetwork and path
 # methods. The whole body runs under GC.@preserve h: a dozen ccalls with Julia
 # allocations between them, exactly the shape where a finalizer racing the raw
 # pointer would be a use after free.
@@ -898,12 +901,12 @@ function _dense_from_handle(h::NetworkHandle)
 end
 
 """
-    to_dense(net::Network) -> NamedTuple
+    to_dense(net::BalancedNetwork) -> NamedTuple
     to_dense(path; from=nothing) -> NamedTuple
 
 Pull a case's numeric tables as dense typed arrays straight from the C ABI,
 skipping the JSON transport (the fast path for matrix assembly). Takes a parsed
-[`Network`](@ref) (via its live handle) or a `path` to parse first (which never
+[`BalancedNetwork`](@ref) (via its live handle) or a `path` to parse first (which never
 builds the JSON view). Fields:
 
 - `n`, `m`, `ng` — bus / branch / generator counts.
@@ -922,10 +925,10 @@ builds the JSON view). Fields:
 - `n_components::Int`, `is_radial::Bool` — connectivity of the in-service topology.
 
 For the rich, lossless element tables (costs, extras, storage, HVDC) use the
-accessors on a [`parse_file`](@ref) `Network`; for self-describing columnar export
+accessors on a [`parse_file`](@ref) `BalancedNetwork`; for self-describing columnar export
 use [`to_arrow`](@ref).
 """
-to_dense(net::Network) = _dense_from_handle(_live_handle(net, "to_dense"))
+to_dense(net::BalancedNetwork) = _dense_from_handle(_live_handle(net, "to_dense"))
 function to_dense(path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)
     try
@@ -946,20 +949,20 @@ _has(obj, key::Symbol) = key in keys(obj)
 _get(obj, key::Symbol, default) = _has(obj, key) ? getproperty(obj, key) : default
 
 """
-    to_powermodels(net::Network) -> Dict{String,Any}
+    to_powermodels(net::BalancedNetwork) -> Dict{String,Any}
 
 Convert a parsed network to a PowerModels network data dictionary through the
 PowerIO writer. This is the post-parse network data shape PowerModels.jl consumes.
 """
-function to_powermodels(net::Network)
+function to_powermodels(net::BalancedNetwork)
     text, _ = to_format(net, "powermodels-json")
     return _json_plain(JSON3.read(text))
 end
 
 """
-    from_powermodels(data) -> Network
+    from_powermodels(data) -> BalancedNetwork
 
-Build a PowerIO [`Network`](@ref) from PowerModels network data. `data` may be a
+Build a PowerIO [`BalancedNetwork`](@ref) from PowerModels network data. `data` may be a
 Julia dictionary / NamedTuple or a JSON string.
 """
 from_powermodels(data) = parse_str(JSON3.write(data), "powermodels-json")
@@ -1054,7 +1057,7 @@ function _branch_coeffs(r::T, x::T, b_fr::T, b_to::T, g_fr::T, g_to::T,
     )
 end
 
-function _to_powerdata_normalized(net::Network, ::Type{T}) where {T<:Real}
+function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Real}
     base = _powerdata_real(base_mva(net), T, "network", :base_mva)
     raw_buses = collect(buses(net))
     kept_ids = [Int(b.id) for b in raw_buses]
@@ -1228,7 +1231,7 @@ reads. With the default `filtered=true`, values are derived from
 branch angle fields are radians, and branch/generator bus references are indices
 into the bus vector.
 """
-function to_powerdata(net::Network; filtered::Bool=true, T::Type{<:Real}=Float64)
+function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}=Float64)
     if filtered
         norm = source_format(net) == "Normalized" ? net : to_normalized(net)
         return _to_powerdata_normalized(norm, T)
@@ -1440,11 +1443,11 @@ to_powerdata(path::AbstractString; from=nothing, filtered::Bool=true,
     parse_ac_power_data(input; from=nothing, filtered=true, T=Float64) -> NamedTuple
 
 Return the NamedTuple shape consumed by ExaModelsPower's `build_polar_opf`,
-`build_rect_opf`, and `build_dcopf`. `input` may be a [`Network`](@ref) or a path.
+`build_rect_opf`, and `build_dcopf`. `input` may be a [`BalancedNetwork`](@ref) or a path.
 """
 function parse_ac_power_data(input; from=nothing, filtered::Bool=true,
                              T::Type{<:Real}=Float64)
-    pd = input isa Network ? to_powerdata(input; filtered=filtered, T=T) :
+    pd = input isa BalancedNetwork ? to_powerdata(input; filtered=filtered, T=T) :
          to_powerdata(String(input); from=from, filtered=filtered, T=T)
     empty_storage = NamedTuple{(:i,),Tuple{Int64}}[]
     storage_rows = isempty(pd.storage) ? empty_storage : pd.storage
@@ -1478,6 +1481,7 @@ end
 
 include("arrow.jl")
 include("gridfm.jl")
+include("package.jl")
 include("dist.jl")
 
 end # module
