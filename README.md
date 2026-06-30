@@ -2,7 +2,7 @@
 
 <p align="center">
   <img
-    src="https://raw.githubusercontent.com/eigenergy/powerio/main/docs/assets/powerio-logo.svg"
+    src="https://raw.githubusercontent.com/eigenergy/powerio/main/docs/src/assets/powerio-logo.svg"
     alt="PowerIO logo"
     width="120"
   >
@@ -26,7 +26,7 @@ the target cannot represent as warnings.
 
 <p align="center">
   <img
-    src="https://raw.githubusercontent.com/eigenergy/powerio/main/docs/assets/powerio-hero.png"
+    src="https://raw.githubusercontent.com/eigenergy/powerio/main/docs/src/assets/powerio-hero.png"
     alt="PowerIO format and matrix flow"
     width="720"
   >
