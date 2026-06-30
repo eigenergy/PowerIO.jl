@@ -676,6 +676,27 @@ using Aqua
             cs, _ = convert_str(MulticonductorNetwork, read(dss, String), "pmd", "dss")
             @test cs == pmd
 
+            gen_dss = joinpath(@__DIR__, "data", "dist", "generator.dss")
+            gen_net = parse_file(MulticonductorNetwork, gen_dss)
+            gen_pmd, _ = to_format(gen_net, "pmd")
+            gen_pmd_doc = PowerIO._json_plain(JSON3.read(gen_pmd))
+            @test haskey(gen_pmd_doc, "generator")
+            @test haskey(gen_pmd_doc["generator"], "g1")
+
+            gen_bmopf, gen_bmopf_w = to_format(gen_net, "bmopf")
+            gen_bmopf_doc = PowerIO._json_plain(JSON3.read(gen_bmopf))
+            if haskey(gen_bmopf_doc, "generator")
+                @test haskey(gen_bmopf_doc["generator"], "g1")
+            elseif VersionNumber(PowerIO.library_version()) < v"0.4.0"
+                @test haskey(gen_bmopf_doc, "load")
+                @test haskey(gen_bmopf_doc["load"], "g1")
+                @test any(w -> occursin("fixed P/Q generation encoded as BMOPF negative load", w),
+                          gen_bmopf_w)
+                @test_skip haskey(gen_bmopf_doc, "generator")
+            else
+                @test haskey(gen_bmopf_doc, "generator")
+            end
+
             # The v0.3.1 artifact lacks the native fix; the v0.3.2 repin turns
             # this regression on in ordinary package tests.
             if VersionNumber(PowerIO.library_version()) < v"0.3.2"
