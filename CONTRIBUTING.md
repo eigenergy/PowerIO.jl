@@ -8,7 +8,7 @@ sibling checkout; the library resolves automatically from
 
 ```
 git clone https://github.com/eigenergy/powerio ../powerio
-cargo build -p powerio-capi --release --features arrow,gridfm,dist   # in ../powerio
+cargo build -p powerio-capi --release --features arrow,gridfm,dist,pkg   # in ../powerio
 julia --project=. -e 'using Pkg; Pkg.test()'
 ```
 
@@ -20,10 +20,12 @@ override the resolution; without a dev build, the bundled lazy artifact is used.
 The binding targets exactly one core C ABI version (`PIO_ABI_VERSION` in
 `src/PowerIO.jl`); a mismatched library is refused at first use with an error
 stating both versions. The distribution surface has its own
-`PIO_DIST_ABI_VERSION` in `src/dist.jl`. When powerio bumps either ABI, update
-the matching constant and any renamed ccalls here, verify the full suite against
-the matching powerio branch, and merge the two changes back to back. The ABI
-history is in powerio's `powerio-capi/README.md`.
+`PIO_DIST_ABI_VERSION` in `src/dist.jl`. The package surface is additive and
+feature probed through `pio_package_*`; no third ABI integer is used. When
+powerio bumps either ABI, update the matching constant and any renamed ccalls
+here, verify the full suite against the matching powerio branch, and merge the
+two changes back to back. The ABI history is in powerio's
+`powerio-capi/README.md`.
 
 ## Memory safety conventions
 

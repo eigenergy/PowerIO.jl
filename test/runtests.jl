@@ -7,15 +7,22 @@ using Aqua
     @testset "loads and exposes its surface" begin
         # The module must load with no C library present (the binding is lazy),
         # and its public surface must exist.
-        for sym in (:Network, :parse_file, :parse_str, :from_json, :convert_file,
+        for sym in (:BalancedNetwork, :parse_file, :parse_str, :from_json, :convert_file,
                     :convert_str, :to_format, :to_normalized, :to_json, :to_dense,
                     :to_matpower, :to_arrow, :ArrowTable, :write_pypsa_csv_folder,
                     :to_powermodels, :from_powermodels, :to_powerdata,
                     :parse_ac_power_data, :read_gridfm, :read_gridfm_scenarios,
-                    :arrow_available, :gridfm_available, :DistNetwork, :dist_available,
+                    :CompilerPackage, :to_package, :from_package, :read_package,
+                    :write_package, :package_model_kind, :package_available,
+                    :validate_package, :package_validation, :package_diagnostics,
+                    :multiconductor_to_balanced_preflight,
+                    :lower_multiconductor_to_balanced,
+                    :arrow_available, :gridfm_available, :MulticonductorNetwork, :dist_available,
                     :dist_abi_version)
             @test isdefined(PowerIO, sym)
         end
+        @test isdefined(PowerIO, :Network) # deprecated compatibility binding
+        @test isdefined(PowerIO, :DistNetwork) # deprecated compatibility binding
         # The accessor surface the ecosystem bridges read is unexported but must exist.
         for sym in (:n_buses, :n_branches, :n_gens, :base_mva, :network_name,
                     :source_format, :reference_bus_id, :reference_bus_indices,
@@ -31,9 +38,9 @@ using Aqua
 
     @testset "pure-Julia accessors (no binary)" begin
         # `reference_bus_id` and `bus_type_code` are pure functions of the parsed JSON,
-        # so build a `Network` straight from a JSON3 object and exercise every branch
+        # so build a `BalancedNetwork` straight from a JSON3 object and exercise every branch
         # without the native library.
-        mk(buses) = PowerIO.Network(JSON3.read(JSON3.write((; buses = buses))))
+        mk(buses) = PowerIO.BalancedNetwork(JSON3.read(JSON3.write((; buses = buses))))
 
         # REF at array position 2 but id 7: a "returns the index" bug would read 2;
         # the id is 7. This pins the accessor to the id field, not the position.
@@ -133,6 +140,40 @@ using Aqua
             @test ac.baseMVA == [100.0]
             @test ac.ref_buses == [1]
             @test ac.gen[1].c == pdata.gen[1].c
+
+            if !package_available()
+                @test_skip to_package(net)
+            else
+                pkg = to_package(net)
+                @test pkg isa CompilerPackage
+                @test package_model_kind(pkg) == :balanced
+                pkg_doc = JSON3.read(to_json(pkg))
+                @test pkg_doc.schema_version == PowerIO.PIO_PACKAGE_SCHEMA_VERSION
+                @test pkg_doc.model_kind == "balanced"
+                @test pkg_doc.model.kind == "balanced"
+                @test pkg_doc.model.balanced_network.base_mva == 100.0
+                @test package_validation(pkg).status == "ok"
+                @test isempty(package_diagnostics(pkg))
+                validated = validate_package(pkg)
+                @test package_validation(validated).status == "ok"
+                @test any(p -> p.name == "balanced.structure", package_validation(validated).passes)
+                from_pkg = from_package(pkg)
+                @test from_pkg isa BalancedNetwork
+                @test PowerIO.n_buses(from_pkg) == 14
+                @test PowerIO.to_dense(from_pkg).gen.bus == PowerIO.to_dense(net).gen.bus
+
+                pkg_path = joinpath(mktempdir(), "case14.pio.json")
+                @test write_package(pkg_path, pkg) == pkg_path
+                @test package_model_kind(read_package(pkg_path)) == :balanced
+                @test PowerIO.n_branches(from_package(read(pkg_path, String))) == 20
+
+                pkg_with_solver = to_package(net; include_solver_metadata=true)
+                meta = pkg_with_solver.derived.normalized_solver_tables
+                @test meta.pass == "balanced-to-normalized-solver-tables"
+                @test meta.row_counts.buses == 14
+                @test meta.row_counts.arcs == 40
+                @test meta.bus_ids == collect(1:14)
+            end
 
             pv_noref = """
             function mpc = pv_noref
@@ -261,7 +302,7 @@ using Aqua
                 @test JSON3.write(net.data[k]) == JSON3.write(nets.data[k])
             end
 
-            # Each Network-first to_* transform agrees with its path / convert counterpart.
+            # Each BalancedNetwork-first to_* transform agrees with its path / convert counterpart.
             @test to_dense(net).gen.bus == to_dense(joinpath(data, "case14.m")).gen.bus
             @test to_dense(net).branch.x ≈ to_dense(joinpath(data, "case14.m")).branch.x
             # to_matpower(net) equals the file->MATPOWER conversion (byte-exact) and round-trips.
@@ -269,10 +310,10 @@ using Aqua
             @test PowerIO.n_buses(parse_file(IOBuffer(to_matpower(net)), "matpower")) == 14
             @test JSON3.read(to_json(net)).base_mva == PowerIO.base_mva(net)
 
-            # to_json works on a handle-less Network (built straight from JSON); every
+            # to_json works on a handle-less BalancedNetwork (built straight from JSON); every
             # handle-only transform refuses it with a clear error. The guard fires before
             # any feature-specific ccall, so to_arrow throws even without the arrow build.
-            jsononly = PowerIO.Network(JSON3.read(to_json(net)))
+            jsononly = PowerIO.BalancedNetwork(JSON3.read(to_json(net)))
             @test jsononly.handle === nothing
             @test to_json(jsononly) isa String
             @test_throws ErrorException to_dense(jsononly)
@@ -384,12 +425,57 @@ using Aqua
             @test gen.bus == d.gen.bus
             @test gen.pg ≈ d.gen.pg
 
-            # Every table's row count matches the JSON view's element count.
+            function optional_arrow(table)
+                try
+                    return to_arrow(m, table)
+                catch e
+                    if occursin("does not support table", sprint(showerror, e))
+                        return nothing
+                    end
+                    rethrow()
+                end
+            end
+
+            # Every raw table's row count matches the JSON view's element count.
             net = parse_file(m)
             @test length(to_arrow(m, :shunt).bus) == length(PowerIO.shunts(net))
             @test length(to_arrow(m, :branch).from) == length(PowerIO.branches(net))
+            switch = optional_arrow(:switch)
+            if switch === nothing
+                @test_skip to_arrow(m, :switch)
+            else
+                @test isempty(switch.from)
+            end
 
-            # The Network-first method matches the path method.
+            # Normalized solver tables use dense 0-based indices and per unit/radian values.
+            solver_bus = optional_arrow(:solver_bus)
+            if solver_bus === nothing
+                @test_skip to_arrow(m, :solver_bus)
+            else
+                @test solver_bus.index == collect(0:13)
+                @test solver_bus.bus_id == collect(1:14)
+                @test solver_bus.source_row[2] == 1
+                @test solver_bus.pd[2] ≈ 21.7 / 100.0
+                @test solver_bus.is_reference[1] == 0x01
+
+                solver_branch = to_arrow(m, :solver_branch)
+                @test length(solver_branch.index) == 20
+                @test solver_branch.from_bus_index[1] == 0
+                @test solver_branch.to_bus_index[1] == 1
+
+                solver_arc = to_arrow(m, :solver_arc)
+                @test length(solver_arc.index) == 40
+                @test solver_arc.branch_index[1:2] == [0, 0]
+                @test solver_arc.terminal[1:2] == [0, 1]
+
+                solver_gen = to_arrow(m, :solver_gen)
+                @test solver_gen.bus_index == [0, 1, 2, 5, 7]
+                @test isempty(to_arrow(m, :solver_storage).index)
+                @test isempty(to_arrow(m, :solver_hvdc).index)
+                @test isempty(to_arrow(m, :solver_switch).index)
+            end
+
+            # The BalancedNetwork-first method matches the path method.
             @test to_arrow(net, :bus).id == collect(1:14)
 
             @test_throws ArgumentError to_arrow(m, :nonesuch)
@@ -435,10 +521,10 @@ using Aqua
             data = joinpath(@__DIR__, "data")
             single = joinpath(data, "case14_gridfm", "raw")
 
-            # Read one scenario back into a Network: counts, base_mva, and
+            # Read one scenario back into a BalancedNetwork: counts, base_mva, and
             # source_format match the source, and the lossy read reports warnings.
             r = read_gridfm(single)
-            @test r.network isa Network
+            @test r.network isa BalancedNetwork
             @test r.scenario == 0
             @test r.warnings isa Vector{String}
             @test !isempty(r.warnings)
@@ -458,11 +544,11 @@ using Aqua
 
             # The NamedTuple is positionally unpackable, mirroring Python's GridfmRead.
             net, scen, warns = read_gridfm(single)
-            @test net isa Network
+            @test net isa BalancedNetwork
             @test scen == 0
             @test warns isa Vector{String}
 
-            # A batch dataset rebuilds one Network per scenario id, ascending; a
+            # A batch dataset rebuilds one BalancedNetwork per scenario id, ascending; a
             # specific scenario can be selected.
             batch = joinpath(data, "case14_gridfm_batch", "raw")
             reads = read_gridfm_scenarios(batch)
@@ -477,16 +563,16 @@ using Aqua
 
     @testset "distribution surface (feature-gated)" begin
         if !(PowerIO.library_available() && PowerIO.dist_available())
-            @test_skip parse_file(DistNetwork, "switch.dss")
+            @test_skip parse_file(MulticonductorNetwork, "switch.dss")
         else
             dss = joinpath(@__DIR__, "data", "dist", "switch.dss")
             @test PowerIO.dist_abi_version() == PowerIO.PIO_DIST_ABI_VERSION
 
             # The distribution case shares the transmission verbs: the entry points
-            # take DistNetwork as a leading type marker (the parse(T, x) idiom),
+            # take MulticonductorNetwork as a leading type marker (the parse(T, x) idiom),
             # to_format / warnings dispatch on the handle.
-            net = parse_file(DistNetwork, dss)
-            @test net isa DistNetwork
+            net = parse_file(MulticonductorNetwork, dss)
+            @test net isa MulticonductorNetwork
             @test PowerIO.warnings(net) isa Vector{String}
 
             # Same-format write echoes the source byte for byte and warns about nothing.
@@ -499,21 +585,117 @@ using Aqua
             pmd, pmd_w = to_format(net, "pmd")
             @test occursin("data_model", pmd)
             @test pmd_w isa AbstractVector{<:AbstractString}
+            pmd_net = parse_str(MulticonductorNetwork, pmd, "pmd")
+            @test pmd_net isa MulticonductorNetwork
+            @test PowerIO.warnings(pmd_net) isa Vector{String}
+
+            if package_available()
+                multi_pkg = to_package(net)
+                @test multi_pkg isa CompilerPackage
+                @test package_model_kind(multi_pkg) == :multiconductor
+
+                z3 = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+                r3 = [[0.01, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.01]]
+                x3 = [[0.10, 0.0, 0.0], [0.0, 0.10, 0.0], [0.0, 0.0, 0.10]]
+                ready_pkg = CompilerPackage(JSON3.write((
+                    schema = PowerIO.PIO_PACKAGE_SCHEMA_URL,
+                    schema_version = PowerIO.PIO_PACKAGE_SCHEMA_VERSION,
+                    producer = (tool = "PowerIO.jl test", version = "0"),
+                    model_kind = "multiconductor",
+                    model = (
+                        kind = "multiconductor",
+                        multiconductor_network = (
+                            name = nothing,
+                            base_frequency = 60.0,
+                            buses = [
+                                (id = "sourcebus", terminals = ["1", "2", "3"], grounded = String[],
+                                 v_min = nothing, v_max = nothing, vpn_min = nothing, vpn_max = nothing,
+                                 vpp_min = nothing, vpp_max = nothing, vsym_min = nothing,
+                                 vsym_max = nothing, extras = (;)),
+                                (id = "loadbus", terminals = ["1", "2", "3"], grounded = String[],
+                                 v_min = nothing, v_max = nothing, vpn_min = nothing, vpn_max = nothing,
+                                 vpp_min = nothing, vpp_max = nothing, vsym_min = nothing,
+                                 vsym_max = nothing, extras = (;)),
+                            ],
+                            linecodes = [(
+                                name = "lc", n_conductors = 3, r_series = r3, x_series = x3,
+                                g_from = z3, b_from = z3, g_to = z3, b_to = z3,
+                                i_max = nothing, s_max = nothing, extras = (;),
+                            )],
+                            lines = [(
+                                name = "l1", bus_from = "sourcebus", bus_to = "loadbus",
+                                terminal_map_from = ["1", "2", "3"],
+                                terminal_map_to = ["1", "2", "3"],
+                                linecode = "lc", length = 1.0, extras = (;),
+                            )],
+                            switches = [], transformers = [], loads = [], generators = [],
+                            shunts = [],
+                            sources = [(
+                                name = "source", bus = "sourcebus", terminal_map = ["1", "2", "3"],
+                                v_magnitude = [240.0, 240.0, 240.0],
+                                v_angle = [0.0, -2.0 * pi / 3.0, 2.0 * pi / 3.0],
+                                extras = (;),
+                            )],
+                            untyped = [], commands = [], options = [], warnings = String[],
+                            source_format = nothing, extras = (;),
+                        ),
+                    ),
+                    origin = (kind = "in_memory",),
+                    validation = (
+                        status = "ok",
+                        counts = (fatal = 0, error = 0, warning = 0, info = 0, debug = 0),
+                    ),
+                )))
+                report = multiconductor_to_balanced_preflight(ready_pkg; base_mva = 50.0)
+                @test report.status == "ok"
+                @test report.base_mva == 50.0
+                lowered = lower_multiconductor_to_balanced(ready_pkg; base_mva = 75.0)
+                @test package_model_kind(lowered) == :balanced
+                @test lowered.model.balanced_network.base_mva == 75.0
+                @test lowered.lowering_history[1].pass == "multiconductor-to-balanced"
+                @test PowerIO.n_buses(from_package(ready_pkg)) == 2
+            else
+                @test_skip to_package(net)
+            end
 
             # The in-memory parser matches the file parser on the round trip.
-            net_str = parse_str(DistNetwork, read(dss, String), "dss")
+            net_str = parse_str(MulticonductorNetwork, read(dss, String), "dss")
             @test first(to_format(net_str, "dss")) == read(dss, String)
 
             # convert_file is the one-shot path; dss -> bmopf produces JSON. The
-            # Julia signature is (DistNetwork, path, to; from=...).
-            bmopf, bmopf_w = convert_file(DistNetwork, dss, "bmopf")
+            # Julia signature is (MulticonductorNetwork, path, to; from=...).
+            bmopf, bmopf_w = convert_file(MulticonductorNetwork, dss, "bmopf")
             @test !isempty(bmopf)
             @test bmopf_w isa AbstractVector{<:AbstractString}
-            bmopf_hinted, _ = convert_file(DistNetwork, dss, "bmopf"; from="dss")
+            bmopf_net = parse_str(MulticonductorNetwork, bmopf, "bmopf")
+            @test bmopf_net isa MulticonductorNetwork
+            @test PowerIO.warnings(bmopf_net) isa Vector{String}
+            bmopf_hinted, _ = convert_file(MulticonductorNetwork, dss, "bmopf"; from="dss")
             @test bmopf_hinted == bmopf
             # convert_str matches convert_file for the same conversion.
-            cs, _ = convert_str(DistNetwork, read(dss, String), "pmd", "dss")
+            cs, _ = convert_str(MulticonductorNetwork, read(dss, String), "pmd", "dss")
             @test cs == pmd
+
+            gen_dss = joinpath(@__DIR__, "data", "dist", "generator.dss")
+            gen_net = parse_file(MulticonductorNetwork, gen_dss)
+            gen_pmd, _ = to_format(gen_net, "pmd")
+            gen_pmd_doc = PowerIO._json_plain(JSON3.read(gen_pmd))
+            @test haskey(gen_pmd_doc, "generator")
+            @test haskey(gen_pmd_doc["generator"], "g1")
+
+            gen_bmopf, gen_bmopf_w = to_format(gen_net, "bmopf")
+            gen_bmopf_doc = PowerIO._json_plain(JSON3.read(gen_bmopf))
+            if haskey(gen_bmopf_doc, "generator")
+                @test haskey(gen_bmopf_doc["generator"], "g1")
+            elseif VersionNumber(PowerIO.library_version()) < v"0.4.0"
+                @test haskey(gen_bmopf_doc, "load")
+                @test haskey(gen_bmopf_doc["load"], "g1")
+                @test any(w -> occursin("fixed P/Q generation encoded as BMOPF negative load", w),
+                          gen_bmopf_w)
+                @test_skip haskey(gen_bmopf_doc, "generator")
+            else
+                @test haskey(gen_bmopf_doc, "generator")
+            end
 
             # The v0.3.1 artifact lacks the native fix; the v0.3.2 repin turns
             # this regression on in ordinary package tests.
@@ -526,7 +708,7 @@ using Aqua
                 New Reactor.loadbusgrounding_B3230 phases=1 bus1=B3230.4 bus2=B3230.0 r=10.0 x=0.0
                 New Reactor.loadbusgrounding_B2656 phases=1 bus1=B2656.4 bus2=B2656.0 r=10.0 x=0.0
                 """
-                grounding_net = parse_str(DistNetwork, grounding, "dss")
+                grounding_net = parse_str(MulticonductorNetwork, grounding, "dss")
                 @test !any(w -> occursin("reactor", lowercase(w)), PowerIO.warnings(grounding_net))
                 grounding_bmopf, grounding_w = to_format(grounding_net, "bmopf")
                 @test !any(w -> occursin("reactor", lowercase(w)) ||
@@ -544,7 +726,7 @@ using Aqua
                 New Capacitor.capd bus1=b2.1.2.3 phases=3 conn=delta kvar=900 kv=4.16
                 New Reactor.rxd bus1=b3.1.2.3 phases=3 conn=delta kvar=600 kv=4.16
                 """
-                delta_bmopf, delta_w = convert_str(DistNetwork, delta, "bmopf", "dss")
+                delta_bmopf, delta_w = convert_str(MulticonductorNetwork, delta, "bmopf", "dss")
                 @test !any(w -> occursin("untyped", lowercase(w)) ||
                                  occursin("not referenced", lowercase(w)), delta_w)
                 delta_doc = PowerIO._json_plain(JSON3.read(delta_bmopf))
@@ -552,12 +734,12 @@ using Aqua
                 @test delta_doc["shunt"]["rxd"]["B_1_2"] > 0.0
             end
 
-            # The shared verbs still default to Network: parsing the dss as a
-            # transmission case fails, distinct from the DistNetwork path above.
+            # The shared verbs still default to BalancedNetwork: parsing the dss as a
+            # transmission case fails, distinct from the MulticonductorNetwork path above.
             @test_throws ErrorException parse_file(dss)
 
             # A nonexistent path surfaces as a Julia error, not a fault.
-            @test_throws ErrorException parse_file(DistNetwork, joinpath(@__DIR__, "data", "no_such.dss"))
+            @test_throws ErrorException parse_file(MulticonductorNetwork, joinpath(@__DIR__, "data", "no_such.dss"))
         end
     end
 

@@ -5,8 +5,9 @@
 #      tarballs, upload them to a PowerIO.jl GitHub release, and reference them from
 #      the package's Artifacts.toml. The build prints each tarball's sha256 and the
 #      artifact's git-tree-sha1; paste those into Artifacts.toml.
-#   2. Yggdrasil PowerIO_jll (issue #1, later): submit this file to Yggdrasil
-#      essentially unchanged; PowerIO's `_lib()` then swaps to PowerIO_jll.
+#   2. PowerIO_jll (issue #1, later): submit this file to the Julia binary
+#      distribution flow once the source pin points at a release commit that
+#      exports every C ABI surface PowerIO.jl needs.
 #
 # Run:  julia build_tarballs.jl --verbose   (add a platform triplet to build one)
 # Drop i686-w64-mingw32: the Rust toolchain target is troublesome and 32-bit Windows
@@ -21,9 +22,10 @@ name = "PowerIO"
 version = v"0.3.1"
 
 # Must pin a commit reporting `PIO_ABI_VERSION` 4: the binding's load-time
-# handshake refuses anything else, and `to_arrow` / the dist surface need their
-# features. Pinned to the v0.3.1 release commit, which also reports
-# `PIO_DIST_ABI_VERSION` 1 for the distribution C ABI.
+# handshake refuses anything else, and `to_arrow` / the dist / package surfaces
+# need their features. This pin is the current artifact release; advance it to
+# the first powerio-capi release commit that exports `PIO_PKG` before publishing
+# a package capable JLL.
 sources = [
     GitSource("https://github.com/eigenergy/powerio.git",
               "fc3394ac21d7b236eb3b7557c3629aaecd9b8235"),
@@ -37,9 +39,15 @@ cd $WORKSPACE/srcdir/powerio
 # --features arrow ships pio_to_arrow (the zero-copy Arrow C Data Interface export
 # to_arrow calls); --features gridfm ships pio_read_dir / pio_scenario_ids (the
 # gridfm-datakit Parquet reader read_gridfm calls); --features dist ships the
-# pio_dist_* surface (the OpenDSS / PMD / BMOPF distribution binding). The base
-# ABI is identical without them. This matches powerio's release-binaries.yml.
-cargo build --release -p powerio-capi --target ${rust_target} --features arrow,gridfm,dist
+# pio_dist_* surface (the OpenDSS / PMD / BMOPF distribution binding);
+# --features pkg ships the pio_package_* surface. The base ABI is identical
+# without them. This matches powerio's release-binaries.yml when the source pin
+# has the pkg feature.
+features=arrow,gridfm,dist
+if grep -q '^pkg = ' powerio-capi/Cargo.toml; then
+    features="${features},pkg"
+fi
+cargo build --release -p powerio-capi --target ${rust_target} --features "${features}"
 out=target/${rust_target}/release
 if [[ "${target}" == *-mingw32* ]]; then
     install -Dvm755 "${out}/powerio_capi.dll" "${bindir}/libpowerio_capi.dll"

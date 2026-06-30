@@ -4,20 +4,20 @@
 # gridfm-datakit Parquet dataset back into a network handle — the inverse of the gridfm
 # writer, the ML→classical return leg. The reader itself lives in powerio-matrix, so it
 # ships only when the C ABI is built with the gridfm feature; `gridfm_available()` probes
-# the symbol (the mirror of `arrow_available`). The read is lossy but power-flow-complete;
+# the symbol (the mirror of `arrow_available`). The read is lossy but complete enough for power flow;
 # unlike the old per-call warn buffer, v4 parks what the schema couldn't round-trip on the
 # returned handle, read back with `_handle_warnings` (`pio_warnings`).
 
 """
-    read_gridfm(dir; scenario=0) -> (; network::Network, scenario::Int, warnings::Vector{String})
+    read_gridfm(dir; scenario=0) -> (; network::BalancedNetwork, scenario::Int, warnings::Vector{String})
 
-Read one `scenario` of a gridfm-datakit Parquet dataset back into a [`Network`](@ref) —
+Read one `scenario` of a gridfm-datakit Parquet dataset back into a [`BalancedNetwork`](@ref) —
 the inverse of the gridfm writer. `dir` resolves leniently: the `raw/` directory holding
 the parquet files, a `<case>/` directory with a `raw/` child, or a parent with one
 `*/raw/` child. `scenario` selects one snapshot from a batch (`0`, the base case, by
 default).
 
-The read is lossy but power-flow-complete: it recovers bus types, voltages and limits,
+The read is lossy but complete enough for power flow: it recovers bus types, voltages and limits,
 nodal load and shunt totals, generator dispatch and bounds, branch
 `r/x/b/tap/shift/rate_a`/angle-limits, and `base_mva` — enough to write a runnable case —
 but not original bus ids (synthesized `1..n`), per-element load/shunt granularity,
@@ -39,7 +39,7 @@ function read_gridfm(dir::AbstractString; scenario::Integer=0)
     end
     ptr == C_NULL && error("PowerIO.read_gridfm: " * _cstr(err))
     h = NetworkHandle(ptr)
-    net = Network(JSON3.read(_to_json(h)), h)
+    net = BalancedNetwork(JSON3.read(_to_json(h)), h)
     return (; network = net, scenario = Int(scenario),
             warnings = _handle_warnings(h))
 end

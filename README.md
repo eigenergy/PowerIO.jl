@@ -9,7 +9,7 @@
 </p>
 
 Julia bindings for [PowerIO](https://github.com/eigenergy/powerio), which reads
-power system case files into a typed `Network`, writes them back, and converts
+power system case files into a typed `BalancedNetwork`, writes them back, and converts
 between formats. The Rust core does the parsing and the byte-exact write, so a
 case reads identically in Julia, Python, C/C++, and Rust.
 
@@ -46,6 +46,7 @@ Working on the binding itself needs a local C ABI build; see Develop below.
 using PowerIO
 
 net = parse_file("case14.m")
+net isa BalancedNetwork
 PowerIO.n_buses(net), PowerIO.n_gens(net), PowerIO.base_mva(net)
 PowerIO.source_format(net)        # "Matpower"
 PowerIO.reference_bus_id(net)     # the slack bus id (or nothing)
@@ -70,8 +71,10 @@ Serialization and the structured transport:
 to_matpower(net)                   # ::String, byte exact when the input was MATPOWER
 to_json(net)                       # the JSON transport
 to_format(net, "powermodels-json") # (text, warnings)
-from_json(to_json(net))            # Network with a live handle
+from_json(to_json(net))            # BalancedNetwork with a live handle
 ```
+
+`Network` is kept as a deprecated compatibility alias for `BalancedNetwork`.
 
 `to_normalized` derives a computation-ready copy: powers per unit, angles in
 radians, tap `0 → 1`, out-of-service and isolated elements dropped, source bus
@@ -94,23 +97,53 @@ d.reference_bus, d.n_components, d.is_radial
 ```
 
 `to_arrow` brings one table across the Arrow C Data Interface (needs the library
-built with `--features arrow`; `arrow_available()` reports it). By default it
-returns a NamedTuple of **owned** Julia Vectors (Tables.jl-shaped, flows into
-`Arrow.write`, `DataFrame`, etc.), so there is no lifetime caveat. `copy=false`
-returns a zero-copy `ArrowTable` whose columns view the producer's memory; keep it
-alive while reading them. For the numeric tables alone, `to_dense` is a copy-free,
-`unsafe_wrap`-free fast path (the C ABI fills Julia-owned buffers).
+built with `--features arrow`; `arrow_available()` reports it). Raw selectors are
+`:bus`, `:branch`, `:gen`, `:load`, `:shunt`, and `:switch`; normalized solver
+selectors are `:solver_bus`, `:solver_load`, `:solver_shunt`, `:solver_branch`,
+`:solver_switch`, `:solver_arc`, `:solver_gen`, `:solver_storage`, and
+`:solver_hvdc`. By default it returns a NamedTuple of **owned** Julia Vectors
+(Tables.jl-shaped, flows into `Arrow.write`, `DataFrame`, etc.), so there is no
+lifetime caveat. `copy=false` returns a zero-copy `ArrowTable` whose columns view
+the producer's memory; keep it alive while reading them. For the numeric tables
+alone, `to_dense` is a copy-free, `unsafe_wrap`-free fast path (the C ABI fills
+Julia-owned buffers). If a selector reports an unknown table id, rebuild
+`powerio-capi` from a matching commit or repin the artifact.
 
 ```julia
-t = to_arrow(net, :branch)                  # :bus, :branch, :gen, :load, :shunt; owned columns
+t = to_arrow(net, :branch)                  # raw table, owned columns
 t.from, t.x, t.tap
+sb = to_arrow(net, :solver_bus)             # normalized solver table
+sb.index, sb.bus_id, sb.pd                  # dense 0-based ids, per unit values
 z = to_arrow(net, :branch; copy=false)      # zero-copy views; keep `z` alive while reading
 ```
 
-`read_gridfm` reads a gridfm-datakit Parquet dataset back into a `Network` — the
+`.pio.json` compiler packages are readable and writable through the native
+`pio_package_*` C ABI surface:
+
+```julia
+pkg = to_package(net)                         # ::CompilerPackage, model_kind = :balanced
+json = to_json(pkg)                           # .pio.json envelope
+from_package(json)                            # BalancedNetwork with a live handle
+pkg2 = to_package(net; include_solver_metadata=true)
+```
+
+`include_solver_metadata=true` records the compact normalized solver table
+identity block used by `powerio-pkg`. Multiconductor packages can be preflighted
+and explicitly lowered:
+
+```julia
+mpkg = to_package(parse_file(MulticonductorNetwork, "feeder.dss"))
+report = multiconductor_to_balanced_preflight(mpkg)
+bpkg = lower_multiconductor_to_balanced(mpkg)
+```
+
+These calls need a C library built with the default `pkg` feature.
+
+`read_gridfm` reads a gridfm-datakit Parquet dataset back into a `BalancedNetwork` — the
 inverse of the gridfm writer, the ML→classical return leg (needs the library built
 with `--features gridfm`; `gridfm_available()` reports it). The read is lossy but
-power-flow-complete; what the schema can't round-trip comes back in `warnings`.
+complete enough for power flow; what the schema can't round-trip comes back in
+`warnings`.
 
 ```julia
 r = read_gridfm("out/case14/raw")              # (; network, scenario, warnings)
@@ -118,19 +151,19 @@ to_matpower(r.network)                         # gridfm → any classical format
 reads = read_gridfm_scenarios("out/case14/raw")  # one result per scenario id
 ```
 
-Multiconductor distribution cases are a separate model on their own `DistNetwork`
+Multiconductor distribution cases are a separate model on their own `MulticonductorNetwork`
 handle (OpenDSS `"dss"`, PowerModelsDistribution ENGINEERING JSON `"pmd"`, IEEE
 BMOPF JSON `"bmopf"`; needs the library built with `--features dist`, on by default
 in the released binaries; `dist_available()` reports it and checks
 `PIO_DIST_ABI_VERSION == 1`). Experimental while the BMOPF schema is v0.0.1. It
 shares the transmission verbs: `to_format` and `warnings` dispatch on the handle,
-and the entry points take `DistNetwork` first, the `parse(T, x)` idiom — Julia
+and the entry points take `MulticonductorNetwork` first, the `parse(T, x)` idiom — Julia
 dispatches on argument types, not the return type.
 
 ```julia
-dn = parse_file(DistNetwork, "feeder.dss")               # ::DistNetwork
+dn = parse_file(MulticonductorNetwork, "feeder.dss")               # ::MulticonductorNetwork
 text, warnings = to_format(dn, "pmd")                    # serialize; same-format write is byte exact
-dss, _ = convert_file(DistNetwork, "feeder.dss", "bmopf")  # one-shot convert
+dss, _ = convert_file(MulticonductorNetwork, "feeder.dss", "bmopf")  # one-shot convert
 PowerIO.warnings(dn)                                     # fidelity warnings retained on the handle
 ```
 
@@ -145,10 +178,11 @@ calling `pio_dist_*`.
 |---|---|---|
 | PowerModels.jl | both | `to_powermodels` / `from_powermodels` |
 | ExaPowerIO.jl / ExaModelsPower.jl | out | `to_powerdata` / `parse_ac_power_data` feeding `build_polar_opf` / `build_rect_opf` / `build_dcopf` |
+| powerio-pkg `.pio.json` | balanced both | `to_package` / `from_package` / `read_package` / `write_package` |
 | [PowerDiff.jl](https://github.com/grid-opt-alg-lab/PowerDiff.jl) | out | PowerDiff depends on PowerIO as its parser and data layer |
 | MATPOWER / PSS/E / PowerWorld / PowerModels JSON / egret | file | `parse_file` / `convert_file` |
 | GridFM (gridfm-datakit Parquet) | in | `read_gridfm` / `read_gridfm_scenarios` |
-| OpenDSS / PowerModelsDistribution / IEEE BMOPF (distribution) | both | `parse_file(DistNetwork, …)` / `to_format` / `convert_file(DistNetwork, …)` |
+| OpenDSS / PowerModelsDistribution / IEEE BMOPF (distribution) | both | `parse_file(MulticonductorNetwork, …)` / `to_format` / `convert_file(MulticonductorNetwork, …)` |
 
 The `parse_file` / `to_*` naming is shared across Rust, Python, Julia, and the
 C ABI; the cross language table is in [docs/languages.md](docs/languages.md).
@@ -158,8 +192,8 @@ C ABI; the cross language table is in [docs/languages.md](docs/languages.md).
 With a sibling `powerio` checkout, build the C ABI and `using PowerIO` finds it:
 
 ```
-# in the sibling powerio checkout (arrow → to_arrow, gridfm → read_gridfm, dist → dist_*):
-cargo build -p powerio-capi --release --features arrow,gridfm,dist
+# in the sibling powerio checkout:
+cargo build -p powerio-capi --release --features arrow,gridfm,dist,pkg
 ```
 
 For a non-sibling layout, point Julia at the library explicitly:
@@ -176,11 +210,11 @@ lazy artifact. The pipeline is described in [docs/binary.md](docs/binary.md).
 
 0.2.1 tracks powerio v0.3.1 (C ABI 4, distribution ABI 1) and repins the binary
 artifacts. 0.2.0 added the multiconductor distribution binding
-(`parse_file(DistNetwork, …)` / `to_format` / `convert_file(DistNetwork, …)`)
+(`parse_file(MulticonductorNetwork, …)` / `to_format` / `convert_file(MulticonductorNetwork, …)`)
 over OpenDSS, PowerModelsDistribution, and IEEE BMOPF. The 0.1.x line tracked C ABI 3: 0.1.0
 added the gridfm reader, 0.1.1 the PyPSA CSV writer and `reference_bus_indices`,
 0.1.2 the `n_components` / `is_radial` accessors. Next: a fully typed immutable
-`Network` mirroring the Rust model (today's view is JSON-backed), a Documenter
+`BalancedNetwork` mirroring the Rust model (today's view is JSON-backed), a Documenter
 site, package extensions for the PowerModels and ExaPowerIO bridges, and
 distribution through a registered `PowerIO_jll`.
 

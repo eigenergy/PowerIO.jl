@@ -1,12 +1,12 @@
 # Columnar export over the Arrow C Data Interface.
 #
-# `pio_export_arrow` (powerio-capi built `--features arrow`) lends one raw network
-# table as an Arrow struct array across the C Data Interface: self-describing, the
-# in-memory sibling of the JSON transport and the dense extractors. Arrow.jl is an
-# IPC-format reader and does not import the C Data Interface, so we decode the two
-# FFI structs here directly: read the schema's child fields and, per column, either
-# copy the data buffer into an owned Julia Vector (the default) or wrap it in place
-# (`copy=false`, zero copy).
+# `pio_to_arrow` (powerio-capi built `--features arrow`) lends one raw or
+# normalized solver table as an Arrow struct array across the C Data Interface.
+# The table is self-describing, the in-memory sibling of the JSON transport and
+# the dense extractors. Arrow.jl is an IPC-format reader and does not import the
+# C Data Interface, so we decode the two FFI structs here directly: read the
+# schema's child fields and, per column, either copy the data buffer into an
+# owned Julia Vector (the default) or wrap it in place (`copy=false`, zero copy).
 #
 # Reading a foreign buffer is inherently one unsafe op; the design keeps it bounded.
 # `copy=true` (default) memcpys each column out while the producer is provably alive,
@@ -63,7 +63,23 @@ function _arrow_eltype(fmt::AbstractString)
     throw(ArgumentError("PowerIO.to_arrow: unsupported Arrow column format $(repr(fmt))"))
 end
 
-const _ARROW_TABLE_IDS = (bus = Cint(0), branch = Cint(1), gen = Cint(2), load = Cint(3), shunt = Cint(4))
+const _ARROW_TABLE_IDS = (
+    bus = Cint(0),
+    branch = Cint(1),
+    gen = Cint(2),
+    load = Cint(3),
+    shunt = Cint(4),
+    switch = Cint(5),
+    solver_bus = Cint(6),
+    solver_load = Cint(7),
+    solver_shunt = Cint(8),
+    solver_branch = Cint(9),
+    solver_switch = Cint(10),
+    solver_arc = Cint(11),
+    solver_gen = Cint(12),
+    solver_storage = Cint(13),
+    solver_hvdc = Cint(14),
+)
 
 # Release the producer's array and schema (frees the columnar buffers). Each
 # release callback NULLs its own struct's `release`, so a second call is a no-op —
@@ -187,7 +203,7 @@ function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArro
 end
 
 # Export one table off a live handle over the Arrow C Data Interface, shared by the
-# Network and path methods of `to_arrow`. Takes the handle and preserves it across
+# BalancedNetwork and path methods of `to_arrow`. Takes the handle and preserves it across
 # the ccall (see `_normalize_handle` for why the raw pointer never travels alone).
 function _arrow_from_handle(h::NetworkHandle, table::Symbol, copy::Bool)
     id = get(_ARROW_TABLE_IDS, table, nothing)
@@ -203,7 +219,15 @@ function _arrow_from_handle(h::NetworkHandle, table::Symbol, copy::Bool)
     catch e
         _feature_call_error("to_arrow", "pio_to_arrow", "arrow", e)
     end
-    rc == 0 || error("PowerIO.to_arrow: " * _cstr(err))
+    if rc != 0
+        msg = _cstr(err)
+        if occursin("unknown Arrow table id", msg)
+            error("PowerIO.to_arrow: the loaded C library does not support table " *
+                  "$(repr(table)) (id $(Int(id))). Rebuild powerio-capi from a " *
+                  "matching commit or repin the PowerIO.jl artifact.")
+        end
+        error("PowerIO.to_arrow: " * msg)
+    end
     if copy
         # The columns are owned copies: release the producer before returning, and
         # on a decode error (a contract violation: unknown format code, child count
@@ -227,13 +251,17 @@ function _arrow_from_handle(h::NetworkHandle, table::Symbol, copy::Bool)
 end
 
 """
-    to_arrow(net::Network, table::Symbol; copy=true) -> NamedTuple | ArrowTable
+    to_arrow(net::BalancedNetwork, table::Symbol; copy=true) -> NamedTuple | ArrowTable
     to_arrow(path, table::Symbol; from=nothing, copy=true) -> NamedTuple | ArrowTable
 
-Export one raw network table over the Arrow C Data Interface. `table` is `:bus`,
-`:branch`, `:gen`, `:load`, or `:shunt`; the columns are the parsed network fields
-with 1-based (external) bus ids, the same id space as [`to_dense`](@ref). Takes a
-parsed [`Network`](@ref) (via its live handle) or a `path` to parse first. Needs
+Export one network table over the Arrow C Data Interface. Raw table selectors are
+`:bus`, `:branch`, `:gen`, `:load`, `:shunt`, and `:switch`; those columns are
+the parsed network fields with 1-based (external) bus ids, the same id space as
+[`to_dense`](@ref). Normalized solver table selectors are `:solver_bus`,
+`:solver_load`, `:solver_shunt`, `:solver_branch`, `:solver_switch`,
+`:solver_arc`, `:solver_gen`, `:solver_storage`, and `:solver_hvdc`; those
+columns use dense 0-based row ids and per unit/radian values. Takes a parsed
+[`BalancedNetwork`](@ref) (via its live handle) or a `path` to parse first. Needs
 powerio-capi built `--features arrow`; see [`arrow_available`](@ref).
 
 `copy=true` (default) returns a NamedTuple of **owned** Julia Vectors and releases
@@ -246,7 +274,7 @@ but only the `copy=true` NamedTuple is Tables.jl-shaped (flows into
 Vector. For the numeric tables alone, [`to_dense`](@ref) is a copy-free,
 `unsafe_wrap`-free fast path.
 """
-function to_arrow(net::Network, table::Symbol; copy::Bool=true)
+function to_arrow(net::BalancedNetwork, table::Symbol; copy::Bool=true)
     return _arrow_from_handle(_live_handle(net, "to_arrow"), table, copy)
 end
 function to_arrow(path::AbstractString, table::Symbol; from=nothing, copy::Bool=true)
@@ -264,6 +292,7 @@ end
     arrow_available() -> Bool
 
 True if the resolved C library exports `pio_to_arrow` (built `--features
-arrow`).
+arrow`). This checks the Arrow entry point, not that the loaded library supports
+every table selector this binding knows about.
 """
 arrow_available() = _exports_symbol(:pio_to_arrow)
