@@ -117,7 +117,8 @@ sb.index, sb.bus_id, sb.pd                  # dense 0-based ids, per unit values
 z = to_arrow(net, :branch; copy=false)      # zero-copy views; keep `z` alive while reading
 ```
 
-`.pio.json` compiler packages are readable and writable for balanced payloads:
+`.pio.json` compiler packages are readable and writable through the native
+`pio_package_*` C ABI surface:
 
 ```julia
 pkg = to_package(net)                         # ::CompilerPackage, model_kind = :balanced
@@ -127,10 +128,16 @@ pkg2 = to_package(net; include_solver_metadata=true)
 ```
 
 `include_solver_metadata=true` records the compact normalized solver table
-identity block used by `powerio-pkg`; it needs a C library with the current Arrow
-solver table ids. Multiconductor package payloads are detected but not
-materialized or lowered in Julia yet because `powerio-pkg` does not expose those
-passes through the C ABI.
+identity block used by `powerio-pkg`. Multiconductor packages can be preflighted
+and explicitly lowered:
+
+```julia
+mpkg = to_package(parse_file(MulticonductorNetwork, "feeder.dss"))
+report = multiconductor_to_balanced_preflight(mpkg)
+bpkg = lower_multiconductor_to_balanced(mpkg)
+```
+
+These calls need a C library built with the default `pkg` feature.
 
 `read_gridfm` reads a gridfm-datakit Parquet dataset back into a `BalancedNetwork` — the
 inverse of the gridfm writer, the ML→classical return leg (needs the library built
@@ -185,8 +192,8 @@ C ABI; the cross language table is in [docs/languages.md](docs/languages.md).
 With a sibling `powerio` checkout, build the C ABI and `using PowerIO` finds it:
 
 ```
-# in the sibling powerio checkout (arrow → to_arrow, gridfm → read_gridfm, dist → dist_*):
-cargo build -p powerio-capi --release --features arrow,gridfm,dist
+# in the sibling powerio checkout:
+cargo build -p powerio-capi --release --features arrow,gridfm,dist,pkg
 ```
 
 For a non-sibling layout, point Julia at the library explicitly:

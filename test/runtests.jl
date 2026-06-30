@@ -13,7 +13,10 @@ using Aqua
                     :to_powermodels, :from_powermodels, :to_powerdata,
                     :parse_ac_power_data, :read_gridfm, :read_gridfm_scenarios,
                     :CompilerPackage, :to_package, :from_package, :read_package,
-                    :write_package, :package_model_kind,
+                    :write_package, :package_model_kind, :package_available,
+                    :validate_package, :package_validation, :package_diagnostics,
+                    :multiconductor_to_balanced_preflight,
+                    :lower_multiconductor_to_balanced,
                     :arrow_available, :gridfm_available, :MulticonductorNetwork, :dist_available,
                     :dist_abi_version)
             @test isdefined(PowerIO, sym)
@@ -138,56 +141,39 @@ using Aqua
             @test ac.ref_buses == [1]
             @test ac.gen[1].c == pdata.gen[1].c
 
-            pkg = to_package(net)
-            @test pkg isa CompilerPackage
-            @test package_model_kind(pkg) == :balanced
-            pkg_doc = JSON3.read(to_json(pkg))
-            @test pkg_doc.schema_version == PowerIO.PIO_PACKAGE_SCHEMA_VERSION
-            @test pkg_doc.model_kind == "balanced"
-            @test pkg_doc.model.kind == "balanced"
-            @test pkg_doc.model.balanced_network.base_mva == 100.0
-            from_pkg = from_package(pkg)
-            @test from_pkg isa BalancedNetwork
-            @test PowerIO.n_buses(from_pkg) == 14
-            @test PowerIO.to_dense(from_pkg).gen.bus == PowerIO.to_dense(net).gen.bus
+            if !package_available()
+                @test_skip to_package(net)
+            else
+                pkg = to_package(net)
+                @test pkg isa CompilerPackage
+                @test package_model_kind(pkg) == :balanced
+                pkg_doc = JSON3.read(to_json(pkg))
+                @test pkg_doc.schema_version == PowerIO.PIO_PACKAGE_SCHEMA_VERSION
+                @test pkg_doc.model_kind == "balanced"
+                @test pkg_doc.model.kind == "balanced"
+                @test pkg_doc.model.balanced_network.base_mva == 100.0
+                @test package_validation(pkg).status == "ok"
+                @test isempty(package_diagnostics(pkg))
+                validated = validate_package(pkg)
+                @test package_validation(validated).status == "ok"
+                @test any(p -> p.name == "balanced.structure", package_validation(validated).passes)
+                from_pkg = from_package(pkg)
+                @test from_pkg isa BalancedNetwork
+                @test PowerIO.n_buses(from_pkg) == 14
+                @test PowerIO.to_dense(from_pkg).gen.bus == PowerIO.to_dense(net).gen.bus
 
-            pkg_path = joinpath(mktempdir(), "case14.pio.json")
-            @test write_package(pkg_path, pkg) == pkg_path
-            @test package_model_kind(read_package(pkg_path)) == :balanced
-            @test PowerIO.n_branches(from_package(read(pkg_path, String))) == 20
+                pkg_path = joinpath(mktempdir(), "case14.pio.json")
+                @test write_package(pkg_path, pkg) == pkg_path
+                @test package_model_kind(read_package(pkg_path)) == :balanced
+                @test PowerIO.n_branches(from_package(read(pkg_path, String))) == 20
 
-            try
                 pkg_with_solver = to_package(net; include_solver_metadata=true)
                 meta = pkg_with_solver.derived.normalized_solver_tables
                 @test meta.pass == "balanced-to-normalized-solver-tables"
                 @test meta.row_counts.buses == 14
                 @test meta.row_counts.arcs == 40
                 @test meta.bus_ids == collect(1:14)
-            catch e
-                if occursin("does not support table", sprint(showerror, e))
-                    @test_skip to_package(net; include_solver_metadata=true)
-                else
-                    rethrow()
-                end
             end
-
-            multi_pkg = JSON3.write((
-                schema = PowerIO.PIO_PACKAGE_SCHEMA_URL,
-                schema_version = PowerIO.PIO_PACKAGE_SCHEMA_VERSION,
-                producer = (tool = "test", version = "0"),
-                model_kind = "multiconductor",
-                model = (kind = "multiconductor", multiconductor_network = (;)),
-                origin = (kind = "in_memory",),
-                validation = (status = "ok", counts = (fatal = 0, error = 0, warning = 0, info = 0, debug = 0)),
-                summary = (elements = (;),),
-            ))
-            err = try
-                from_package(multi_pkg)
-                nothing
-            catch e
-                sprint(showerror, e)
-            end
-            @test occursin("multiconductor packages require powerio-pkg C ABI support", err)
 
             pv_noref = """
             function mpc = pv_noref
@@ -602,6 +588,75 @@ using Aqua
             pmd_net = parse_str(MulticonductorNetwork, pmd, "pmd")
             @test pmd_net isa MulticonductorNetwork
             @test PowerIO.warnings(pmd_net) isa Vector{String}
+
+            if package_available()
+                multi_pkg = to_package(net)
+                @test multi_pkg isa CompilerPackage
+                @test package_model_kind(multi_pkg) == :multiconductor
+
+                z3 = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+                r3 = [[0.01, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.01]]
+                x3 = [[0.10, 0.0, 0.0], [0.0, 0.10, 0.0], [0.0, 0.0, 0.10]]
+                ready_pkg = CompilerPackage(JSON3.write((
+                    schema = PowerIO.PIO_PACKAGE_SCHEMA_URL,
+                    schema_version = PowerIO.PIO_PACKAGE_SCHEMA_VERSION,
+                    producer = (tool = "PowerIO.jl test", version = "0"),
+                    model_kind = "multiconductor",
+                    model = (
+                        kind = "multiconductor",
+                        multiconductor_network = (
+                            name = nothing,
+                            base_frequency = 60.0,
+                            buses = [
+                                (id = "sourcebus", terminals = ["1", "2", "3"], grounded = String[],
+                                 v_min = nothing, v_max = nothing, vpn_min = nothing, vpn_max = nothing,
+                                 vpp_min = nothing, vpp_max = nothing, vsym_min = nothing,
+                                 vsym_max = nothing, extras = (;)),
+                                (id = "loadbus", terminals = ["1", "2", "3"], grounded = String[],
+                                 v_min = nothing, v_max = nothing, vpn_min = nothing, vpn_max = nothing,
+                                 vpp_min = nothing, vpp_max = nothing, vsym_min = nothing,
+                                 vsym_max = nothing, extras = (;)),
+                            ],
+                            linecodes = [(
+                                name = "lc", n_conductors = 3, r_series = r3, x_series = x3,
+                                g_from = z3, b_from = z3, g_to = z3, b_to = z3,
+                                i_max = nothing, s_max = nothing, extras = (;),
+                            )],
+                            lines = [(
+                                name = "l1", bus_from = "sourcebus", bus_to = "loadbus",
+                                terminal_map_from = ["1", "2", "3"],
+                                terminal_map_to = ["1", "2", "3"],
+                                linecode = "lc", length = 1.0, extras = (;),
+                            )],
+                            switches = [], transformers = [], loads = [], generators = [],
+                            shunts = [],
+                            sources = [(
+                                name = "source", bus = "sourcebus", terminal_map = ["1", "2", "3"],
+                                v_magnitude = [240.0, 240.0, 240.0],
+                                v_angle = [0.0, -2.0 * pi / 3.0, 2.0 * pi / 3.0],
+                                extras = (;),
+                            )],
+                            untyped = [], commands = [], options = [], warnings = String[],
+                            source_format = nothing, extras = (;),
+                        ),
+                    ),
+                    origin = (kind = "in_memory",),
+                    validation = (
+                        status = "ok",
+                        counts = (fatal = 0, error = 0, warning = 0, info = 0, debug = 0),
+                    ),
+                )))
+                report = multiconductor_to_balanced_preflight(ready_pkg; base_mva = 50.0)
+                @test report.status == "ok"
+                @test report.base_mva == 50.0
+                lowered = lower_multiconductor_to_balanced(ready_pkg; base_mva = 75.0)
+                @test package_model_kind(lowered) == :balanced
+                @test lowered.model.balanced_network.base_mva == 75.0
+                @test lowered.lowering_history[1].pass == "multiconductor-to-balanced"
+                @test PowerIO.n_buses(from_package(ready_pkg)) == 2
+            else
+                @test_skip to_package(net)
+            end
 
             # The in-memory parser matches the file parser on the round trip.
             net_str = parse_str(MulticonductorNetwork, read(dss, String), "dss")

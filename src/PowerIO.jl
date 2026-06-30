@@ -30,6 +30,11 @@ Multiconductor distribution cases are a separate model on their own
 PowerModelsDistribution JSON, and IEEE BMOPF JSON (experimental; needs powerio-capi
 built `--features dist`).
 
+`.pio.json` compiler packages use the `pio_package_*` C ABI surface. They can
+wrap balanced and multiconductor handles, run package validation, expose
+structured diagnostics, and explicitly lower supported multiconductor packages
+to balanced packages.
+
 At first use the binding checks the library's ABI version (`pio_abi_version`)
 against the version it targets (`PIO_ABI_VERSION`) and refuses a stale or
 mismatched library with an error stating both versions. Distribution calls also
@@ -50,8 +55,10 @@ export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_
        ArrowTable, write_pypsa_csv_folder, to_powermodels, from_powermodels,
        to_powerdata, parse_ac_power_data, read_gridfm, read_gridfm_scenarios,
        CompilerPackage, to_package, from_package, read_package, write_package,
-       package_model_kind, arrow_available, gridfm_available, MulticonductorNetwork,
-       dist_available, dist_abi_version
+       package_model_kind, package_available, validate_package, package_validation,
+       package_diagnostics, multiconductor_to_balanced_preflight,
+       lower_multiconductor_to_balanced, arrow_available, gridfm_available,
+       MulticonductorNetwork, dist_available, dist_abi_version
 
 # --- library resolution -------------------------------------------------
 #
@@ -63,8 +70,8 @@ export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_
 # released yet) degrades to the sibling/loader-path fallback instead of breaking
 # module load.
 #
-# Once a Yggdrasil `PowerIO_jll` is registered (issue #1, non-blocking) this whole
-# block becomes `using PowerIO_jll` and `_lib() = PowerIO_jll.libpowerio_capi`.
+# Once a `PowerIO_jll` is registered (issue #1, non-blocking) this whole block
+# becomes `using PowerIO_jll` and `_lib() = PowerIO_jll.libpowerio_capi`.
 
 const _LIBRARY = Ref{String}("")   # explicit dev override; "" means unset
 const _RESOLVED = Ref{String}("")  # memoized non-override resolution (artifact/loader path)
@@ -1481,7 +1488,7 @@ end
 
 include("arrow.jl")
 include("gridfm.jl")
-include("package.jl")
 include("dist.jl")
+include("package.jl")
 
 end # module

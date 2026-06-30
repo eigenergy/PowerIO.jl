@@ -7,17 +7,17 @@ per-platform binary; users never compile it.
 
 1. A version tag on [eigenergy/powerio](https://github.com/eigenergy/powerio)
    triggers its `release-binaries` workflow, which builds
-   `libpowerio_capi.<triplet>.tar.gz` with the `arrow`, `gridfm`, and `dist`
-   features for Linux glibc (x86_64, aarch64), macOS (x86_64, arm64), and
-   Windows (x86_64), and attaches the five tarballs to the GitHub release. Each
+   `libpowerio_capi.<triplet>.tar.gz` with the `arrow`, `gridfm`, `dist`, and
+   `pkg` features for Linux glibc (x86_64, aarch64), macOS (x86_64, arm64),
+   and Windows (x86_64), and attaches the five tarballs to the GitHub release. Each
    tarball
    holds the cdylib under `lib/` (`bin/` on Windows), the C header under
    `include/`, and the licenses.
 2. In this repository, `julia gen/update_artifacts.jl <tag>` downloads the five
    tarballs, computes each one's sha256 and unpacked git-tree-sha1, and rewrites
-   `Artifacts.toml`. The script verifies the core ABI and distribution ABI
-   before writing. The "Update artifacts" workflow runs this and opens the PR;
-   the release ceremony around it is in CONTRIBUTING.md.
+   `Artifacts.toml`. The script verifies the core ABI, distribution ABI, and
+   package feature before writing. The "Update artifacts" workflow runs this and
+   opens the PR; the release ceremony around it is in CONTRIBUTING.md.
 3. `Artifacts.toml` is lazy: nothing downloads at `Pkg.add`; the tarball for the
    current platform is fetched on the first call that needs the library.
 
@@ -34,7 +34,7 @@ per-platform binary; users never compile it.
 On an unsupported platform the artifact lookup fails and the fallbacks keep a
 local build working.
 
-## Yggdrasil
+## JLL
 
 A `PowerIO_jll` built from `gen/build_tarballs.jl` (the BinaryBuilder recipe)
 is the planned long-term distribution; current releases use the artifact

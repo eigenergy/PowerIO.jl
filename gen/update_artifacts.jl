@@ -76,8 +76,9 @@ function _skip_release(msg::String)
 end
 
 # Refuse to pin binaries this binding cannot speak to: dlopen the unpacked
-# host-platform library and compare its pio_abi_version with PIO_ABI_VERSION
-# and, when present in the binding, pio_dist_abi_version with PIO_DIST_ABI_VERSION.
+# host-platform library and compare its pio_abi_version with PIO_ABI_VERSION,
+# when present in the binding pio_dist_abi_version with PIO_DIST_ABI_VERSION,
+# and the additive package feature through pio_has_feature("pkg").
 # Exit 0 without touching Artifacts.toml on a mismatch, so the scheduled
 # tracking run is a clean no-op until the lockstep binding PR merges. A summary
 # line lands in $GITHUB_STEP_SUMMARY when running under Actions.
@@ -95,19 +96,37 @@ function _check_abi(unpack::String, triplet::String)
         )
 
         dist_want = _binding_dist_abi()
-        dist_want === nothing && return
-        dist_got = try
-            ccall(Libdl.dlsym(handle, :pio_dist_abi_version), UInt32, ())
-        catch e
-            _skip_release(
-                "skipping $tag: its binaries do not expose pio_dist_abi_version, " *
-                "this binding targets dist ABI $dist_want; Artifacts.toml left untouched. " *
-                "Underlying: $e"
+        if dist_want !== nothing
+            dist_got = try
+                ccall(Libdl.dlsym(handle, :pio_dist_abi_version), UInt32, ())
+            catch e
+                _skip_release(
+                    "skipping $tag: its binaries do not expose pio_dist_abi_version, " *
+                    "this binding targets dist ABI $dist_want; Artifacts.toml left untouched. " *
+                    "Underlying: $e"
+                )
+            end
+            dist_got == dist_want || _skip_release(
+                "skipping $tag: its binaries report dist ABI $dist_got, this binding targets " *
+                "dist ABI $dist_want; Artifacts.toml left untouched"
             )
         end
-        dist_got == dist_want || _skip_release(
-            "skipping $tag: its binaries report dist ABI $dist_got, this binding targets " *
-            "dist ABI $dist_want; Artifacts.toml left untouched"
+
+        pkg_feature = try
+            ccall(Libdl.dlsym(handle, :pio_has_feature), Cint, (Cstring,), "pkg")
+        catch e
+            _skip_release(
+                "skipping $tag: its binaries do not expose pio_has_feature for the package " *
+                "surface check; Artifacts.toml left untouched. Underlying: $e"
+            )
+        end
+        pkg_feature == 1 || _skip_release(
+            "skipping $tag: its binaries do not report the pkg feature; " *
+            "Artifacts.toml left untouched"
+        )
+        Libdl.dlsym(handle, :pio_package_parse_str; throw_error=false) !== nothing || _skip_release(
+            "skipping $tag: its binaries report pkg but do not expose pio_package_parse_str; " *
+            "Artifacts.toml left untouched"
         )
     finally
         Libdl.dlclose(handle)
