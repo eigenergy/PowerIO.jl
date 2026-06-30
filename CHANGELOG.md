@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.3.0
+
+Tracks powerio v0.4.0, keeping core C ABI v4 (`PIO_ABI_VERSION` 4) and
+distribution C ABI v1 (`PIO_DIST_ABI_VERSION` 1). Breaking under pre-1.0 SemVer:
+the primary parsed model names are now `BalancedNetwork` and
+`MulticonductorNetwork`; `Network` and `DistNetwork` remain as deprecated
+compatibility bindings.
+
+- Binaries repinned to powerio v0.4.0 for Linux, macOS, and Windows. The shipped
+  C ABI artifacts include the `arrow`, `gridfm`, `dist`, and `pkg` features.
+- `.pio.json` compiler package support through `CompilerPackage`, `to_package`,
+  `from_package`, `read_package`, `write_package`, `validate_package`,
+  `package_validation`, and `package_diagnostics`.
+- Multiconductor packages can be checked and explicitly lowered to balanced
+  packages with `multiconductor_to_balanced_preflight` and
+  `lower_multiconductor_to_balanced`.
+- `to_arrow` adds raw `:switch` output plus normalized solver table selectors:
+  `:solver_bus`, `:solver_load`, `:solver_shunt`, `:solver_branch`,
+  `:solver_switch`, `:solver_arc`, `:solver_gen`, `:solver_storage`, and
+  `:solver_hvdc`.
+- The distribution test suite now covers the OpenDSS generator to BMOPF
+  regression from BMOPFTools.jl #190. With powerio v0.4.0, fixed P/Q OpenDSS
+  generators emit as BMOPF `generator` entries instead of negative `load`
+  entries.
+- Artifact update tooling now refuses binaries that lack the package feature,
+  so future artifact PRs cannot silently drop the `pio_package_*` surface.
+
+## 0.2.3
+
+Tracks powerio v0.3.3, keeping core C ABI v4 and distribution C ABI v1. No
+Julia API changes.
+
+- Binaries repinned to powerio v0.3.3 for Linux, macOS, and Windows.
+- Pulls in upstream parser, distribution, MCP, and display API fixes from
+  powerio v0.3.3.
+
+## 0.2.2
+
+Tracks powerio v0.3.2, keeping core C ABI v4 and distribution C ABI v1. No
+Julia API changes.
+
+- Binaries repinned to powerio v0.3.2 for Linux, macOS, and Windows.
+- Pulls in upstream OpenDSS to BMOPF shunt conversion fixes, including
+  grounding reactors and delta capacitor or reactor banks.
+
 ## 0.2.1
 
 Tracks powerio v0.3.1, keeping core C ABI v4 (`PIO_ABI_VERSION` 4) and adding
