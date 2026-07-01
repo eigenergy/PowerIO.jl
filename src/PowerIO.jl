@@ -30,7 +30,7 @@ Multiconductor distribution cases are a separate model on their own
 PowerModelsDistribution JSON, and IEEE BMOPF JSON (experimental; needs powerio-capi
 built `--features dist`).
 
-`.pio.json` compiler packages use the `pio_package_*` C ABI surface. They can
+`.pio.json` network packages use the `pio_package_*` C ABI surface. They can
 wrap balanced and multiconductor handles, run package validation, expose
 structured diagnostics, and explicitly lower supported multiconductor packages
 to balanced packages.
@@ -54,9 +54,11 @@ export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_
        to_format, to_normalized, to_json, to_dense, to_matpower, to_arrow,
        ArrowTable, write_pypsa_csv_folder, to_powermodels, from_powermodels,
        to_powerdata, parse_ac_power_data, read_gridfm, read_gridfm_scenarios,
-       CompilerPackage, to_package, from_package, read_package, write_package,
+       parse_goc3_json, goc3_status_flags, goc3_add_status_flags!,
+       NetworkPackage, CompilerPackage, to_package, from_package, read_package, write_package,
        package_model_kind, package_available, validate_package, package_validation,
-       package_diagnostics, multiconductor_to_balanced_preflight,
+       package_diagnostics, package_operating_points, materialize_operating_point,
+       multiconductor_to_balanced_preflight,
        lower_multiconductor_to_balanced, arrow_available, gridfm_available,
        MulticonductorNetwork, dist_available, dist_abi_version
 
@@ -1490,5 +1492,6 @@ include("arrow.jl")
 include("gridfm.jl")
 include("dist.jl")
 include("package.jl")
+include("goc3.jl")
 
 end # module
