@@ -2,7 +2,9 @@
 
 ## 0.5.0
 
-Tracks powerio v0.5.0, keeping core C ABI v4 and distribution C ABI v1.
+Tracks powerio v0.5.0, keeping core C ABI v4 and distribution C ABI v1. No
+Julia API changes; the minor bump is breaking only in the pre-1.0 SemVer sense
+and puts the version in lockstep with powerio going forward.
 
 - Binaries repinned to powerio v0.5.0 for Linux, macOS, and Windows.
 - Parser routing picks up GO Challenge 3 JSON input and Surge JSON read and
