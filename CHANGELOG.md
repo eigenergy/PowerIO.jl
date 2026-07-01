@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.0
+
+Tracks powerio v0.4.0, keeping core C ABI v4 and distribution C ABI v1. Binding
+only release: the shipped binaries are unchanged. Breaking under pre-1.0 SemVer
+versioning, though the Julia surface itself is additive: the primary package
+type name is now `NetworkPackage`, and `CompilerPackage` remains as a
+compatibility alias.
+
+- `.pio.json` operating point support: `package_operating_points` returns the
+  package operating point series, and `materialize_operating_point` applies one
+  point to produce a static package. On binaries that predate the operating
+  point C surface, `package_operating_points` reads the envelope directly and
+  `materialize_operating_point` errors with rebuild guidance.
+- `parse_goc3_json` builds the GO Challenge 3 scheduling lookup shape used by
+  SCOPF clients, so client packages do not need to carry their own JSON dataset
+  parser. `goc3_status_flags` and `goc3_add_status_flags!` derive unit
+  commitment transition flags. These helpers are pure Julia and work with any
+  binary.
+
 ## 0.3.0
 
 Tracks powerio v0.4.0, keeping core C ABI v4 (`PIO_ABI_VERSION` 4) and
