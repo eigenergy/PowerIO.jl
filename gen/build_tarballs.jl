@@ -17,18 +17,17 @@ using BinaryBuilder
 
 name = "PowerIO"
 # Tracks the powerio-capi *crate* version (the binary). The PowerIO.jl package
-# version moves independently (0.2.0 here); the ABI checks decide whether a
-# binary is usable, not the version number.
-version = v"0.3.1"
+# version moves independently; the ABI checks decide whether a binary is
+# usable, not the version number.
+version = v"0.5.0"
 
 # Must pin a commit reporting `PIO_ABI_VERSION` 4: the binding's load-time
 # handshake refuses anything else, and `to_arrow` / the dist / package surfaces
-# need their features. This pin is the current artifact release; advance it to
-# the first powerio-capi release commit that exports `PIO_PKG` before publishing
-# a package capable JLL.
+# need their features. This pin is the powerio v0.5.0 release commit, which
+# exports the full `PIO_PKG` package surface.
 sources = [
     GitSource("https://github.com/eigenergy/powerio.git",
-              "fc3394ac21d7b236eb3b7557c3629aaecd9b8235"),
+              "b9d57b0a32ad9628e36ec7ba30aa5d60167e6089"),
 ]
 
 # `cargo build` writes the cdylib under target/<rust_target>/release. Names differ
