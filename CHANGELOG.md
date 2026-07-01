@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0
+
+Tracks powerio v0.5.0, keeping core C ABI v4 and distribution C ABI v1.
+
+- Binaries repinned to powerio v0.5.0 for Linux, macOS, and Windows.
+- Parser routing picks up GO Challenge 3 JSON input and Surge JSON read and
+  write.
+- The operating point C surface is fully live: `materialize_operating_point`
+  works against the shipped binaries, and `package_operating_points` uses
+  `pio_package_operating_points_json` instead of the envelope fallback.
+- Pulls in powerio v0.5.0 parser fixes: PSS/E v34/v35 revision aware record
+  layouts, PSLF parallel load and shunt ids, a work budget on the PowerWorld
+  `.pwb` table location search, and GO Challenge 3 reader fixes (line charging
+  with additional shunts, transformer control ranges, initial status handling).
+
 ## 0.4.0
 
 Tracks powerio v0.4.0, keeping core C ABI v4 and distribution C ABI v1. Binding
