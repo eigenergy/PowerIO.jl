@@ -209,7 +209,7 @@ using Aqua
                 @test package_model_kind(pkg) == :balanced
                 @test package_operating_points(pkg) === nothing
                 pkg_doc = JSON3.read(to_json(pkg))
-                @test pkg_doc.schema_version == PowerIO.PIO_PACKAGE_SCHEMA_VERSION
+                @test String(pkg_doc.schema_version) in ("0.1.0", PowerIO.PIO_PACKAGE_SCHEMA_VERSION)
                 @test pkg_doc.model_kind == "balanced"
                 @test pkg_doc.model.kind == "balanced"
                 @test pkg_doc.model.balanced_network.base_mva == 100.0

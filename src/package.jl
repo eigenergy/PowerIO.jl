@@ -108,6 +108,12 @@ function _package_diagnostics_json(h::PackageHandle, fname::AbstractString)
     return text
 end
 
+_package_operating_points_available() =
+    _exports_symbol(:pio_package_operating_points_json)
+
+_package_materialize_operating_point_available() =
+    _exports_symbol(:pio_package_materialize_operating_point)
+
 function _package_validation_handle(pkg::NetworkPackage, fname::AbstractString)
     h = _package_parse_str_handle(to_json(pkg), fname)
     err = zeros(UInt8, _ERRLEN)
@@ -232,6 +238,9 @@ end
 Return the package operating point series as a JSON3 value, or `nothing`.
 """
 function package_operating_points(pkg::NetworkPackage)
+    if !_package_operating_points_available()
+        return get(pkg.data, :operating_points, nothing)
+    end
     h = _package_parse_str_handle(to_json(pkg), "package_operating_points")
     value = JSON3.read(_package_operating_points_json(h, "package_operating_points"))
     return value === nothing ? nothing : value
@@ -244,6 +253,10 @@ Return a static package with operating point `index` applied. Indices are zero
 based to match the `.pio.json` payload.
 """
 function materialize_operating_point(pkg::NetworkPackage, index::Integer)
+    _package_materialize_operating_point_available() || error(
+        "PowerIO.materialize_operating_point: the C ABI at \"$(_lib())\" does not export " *
+        "pio_package_materialize_operating_point. Rebuild powerio-capi from the matching " *
+        "PowerIO branch.")
     h = _package_parse_str_handle(to_json(pkg), "materialize_operating_point")
     err = zeros(UInt8, _ERRLEN)
     ptr = GC.@preserve h ccall((:pio_package_materialize_operating_point, _lib()), Ptr{Cvoid},
