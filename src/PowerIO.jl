@@ -60,7 +60,8 @@ export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_
        package_diagnostics, package_operating_points, materialize_operating_point,
        multiconductor_to_balanced_preflight,
        lower_multiconductor_to_balanced, arrow_available, gridfm_available,
-       MulticonductorNetwork, dist_available, dist_abi_version
+       MulticonductorNetwork, dist_available, dist_abi_version,
+       calc_branch_t, calc_branch_y, correct_voltage_angle_differences!, build_ref
 
 # --- library resolution -------------------------------------------------
 #
@@ -1493,5 +1494,6 @@ include("gridfm.jl")
 include("dist.jl")
 include("package.jl")
 include("goc3.jl")
+include("network_utils.jl")
 
 end # module
