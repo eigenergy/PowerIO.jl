@@ -209,7 +209,10 @@ using Aqua
                 @test package_model_kind(pkg) == :balanced
                 @test package_operating_points(pkg) === nothing
                 pkg_doc = JSON3.read(to_json(pkg))
-                @test String(pkg_doc.schema_version) == PowerIO.PIO_PACKAGE_SCHEMA_VERSION
+                # Same major is the reader contract; byte equality broke this
+                # suite on every additive envelope bump in powerio.
+                @test VersionNumber(String(pkg_doc.schema_version)).major ==
+                      VersionNumber(PowerIO.PIO_PACKAGE_SCHEMA_VERSION).major
                 @test pkg_doc.model_kind == "balanced"
                 @test pkg_doc.model.kind == "balanced"
                 @test pkg_doc.model.balanced_network.base_mva == 100.0
