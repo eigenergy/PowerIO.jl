@@ -233,6 +233,11 @@
         @test PowerIO.n_buses(bare) == PowerIO.n_buses(routed)
         @test PowerIO.warnings(bare) isa Vector{String}
         @test_throws ErrorException to_format(bare, "dss")
+        payload_round_trip = MulticonductorNetwork(JSON3.read(JSON3.write(routed.data)))
+        @test payload_round_trip.handle === nothing
+        @test PowerIO.n_buses(payload_round_trip) == PowerIO.n_buses(routed)
+        @test PowerIO.source_format(payload_round_trip) == PowerIO.source_format(routed)
+        @test PowerIO.warnings(payload_round_trip) == PowerIO.warnings(bare)
         if package_available()
             @test_throws ErrorException to_package(bare)
         end

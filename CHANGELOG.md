@@ -29,11 +29,11 @@ on the Julia side.
   directed error naming the package lowering pass.
 - `NetworkHandle` renames to `BalancedNetworkHandle`; the distribution handle
   is `MulticonductorNetworkHandle`. Deprecated bindings cover the old names.
-- PowerModels-style reference utilities in the PowerModels bridge
+- PowerModels reference utilities in the PowerModels bridge
   (unexported, use qualified): `PowerIO.calc_branch_t`,
   `PowerIO.calc_branch_y`, `PowerIO.correct_voltage_angle_differences!`,
   `PowerIO.build_ref` (#51, #55).
-- Internal reorganization: `src/PowerIO.jl` split along its section seams;
+- Internal reorganization: `src/PowerIO.jl` split into focused source files;
   tests split per area; the Documenter site rebuilt with topical pages.
 
 ## 0.5.0
