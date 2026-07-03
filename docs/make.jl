@@ -13,7 +13,15 @@ makedocs(;
         canonical = "https://eigenergy.github.io/PowerIO.jl",
         edit_link = "main",
     ),
-    pages = ["Home" => "index.md"],
+    pages = [
+        "Home" => "index.md",
+        "Transmission networks" => "transmission.md",
+        "Distribution networks" => "distribution.md",
+        "Ecosystem interop" => "interop.md",
+        "Binary distribution" => "binary.md",
+        "Language APIs" => "languages.md",
+        "API reference" => "api.md",
+    ],
 )
 
 deploydocs(; repo = "github.com/eigenergy/PowerIO.jl.git", devbranch = "main")

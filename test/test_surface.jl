@@ -1,0 +1,53 @@
+@testset "loads and exposes its surface" begin
+    # The module must load with no C library present (the binding is lazy),
+    # and its public surface must exist.
+    for sym in (:BalancedNetwork, :parse_file, :parse_str, :from_json, :convert_file,
+                :convert_str, :to_format, :to_normalized, :to_json, :to_dense,
+                :to_matpower, :to_arrow, :ArrowTable, :write_pypsa_csv_folder,
+                :to_powermodels, :from_powermodels, :to_powerdata,
+                :parse_ac_power_data, :read_gridfm, :read_gridfm_scenarios,
+                :parse_goc3_json, :goc3_status_flags, :goc3_add_status_flags!,
+                :NetworkPackage, :CompilerPackage, :to_package, :from_package, :read_package,
+                :write_package, :package_model_kind, :package_available,
+                :validate_package, :package_validation, :package_diagnostics,
+                :package_operating_points, :materialize_operating_point,
+                :multiconductor_to_balanced_preflight,
+                :lower_multiconductor_to_balanced,
+                :arrow_available, :gridfm_available, :MulticonductorNetwork, :dist_available,
+                :dist_abi_version)
+        @test isdefined(PowerIO, sym)
+    end
+    @test isdefined(PowerIO, :Network) # deprecated compatibility binding
+    @test isdefined(PowerIO, :DistNetwork) # deprecated compatibility binding
+    # The accessor surface the ecosystem bridges read is unexported but must exist.
+    for sym in (:n_buses, :n_branches, :n_gens, :base_mva, :network_name,
+                :source_format, :reference_bus_id, :reference_bus_indices,
+                :n_components, :is_radial, :bus_type_code, :warnings,
+                :buses, :generators, :branches, :loads, :shunts, :storage, :hvdc,
+                :abi_version, :library_version, :library_available)
+        @test isdefined(PowerIO, sym)
+    end
+    @test PowerIO._lib() isa AbstractString
+    @test PowerIO.PIO_ABI_VERSION isa Unsigned
+    @test PowerIO.PIO_DIST_ABI_VERSION isa Unsigned
+end
+
+@testset "pure-Julia accessors (no binary)" begin
+    # `reference_bus_id` and `bus_type_code` are pure functions of the parsed JSON,
+    # so build a `BalancedNetwork` straight from a JSON3 object and exercise every branch
+    # without the native library.
+    mk(buses) = PowerIO.BalancedNetwork(JSON3.read(JSON3.write((; buses = buses))))
+
+    # REF at array position 2 but id 7: a "returns the index" bug would read 2;
+    # the id is 7. This pins the accessor to the id field, not the position.
+    one_ref = mk([(id = 4, kind = "PQ"), (id = 7, kind = "REF"), (id = 9, kind = "PV")])
+    @test PowerIO.reference_bus_id(one_ref) == 7
+    @test PowerIO.reference_bus_id(mk([(id = 1, kind = "REF"), (id = 2, kind = "REF")])) === nothing
+    @test PowerIO.reference_bus_id(mk([(id = 1, kind = "PQ"), (id = 2, kind = "PV")])) === nothing
+
+    @test PowerIO.bus_type_code("PQ") == 1
+    @test PowerIO.bus_type_code("PV") == 2
+    @test PowerIO.bus_type_code("REF") == 3
+    @test PowerIO.bus_type_code("ISOLATED") == 4
+    @test_throws ArgumentError PowerIO.bus_type_code("SLACK")
+end
