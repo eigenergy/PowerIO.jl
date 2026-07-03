@@ -221,6 +221,10 @@
         @test_throws ErrorException to_format(net, "matpower")
         @test_throws ErrorException parse_file(BalancedNetwork, dss)
         @test_throws ErrorException parse_file(dss; from="matpower")
+        # The parse_str marker must pin the model too, not route on the token.
+        @test_throws ErrorException parse_str(BalancedNetwork, dss_text, "dss")
+        mtext = read(joinpath(@__DIR__, "data", "case14.m"), String)
+        @test parse_str(BalancedNetwork, mtext, "matpower") isa BalancedNetwork
 
         # A handle-less MulticonductorNetwork (payload only): accessors and
         # warnings work, the handle transforms refuse directedly.

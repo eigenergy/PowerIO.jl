@@ -97,8 +97,12 @@ routes to the multiconductor parser, like the bare [`parse_file`](@ref).
 """
 parse_str(text::AbstractString, format::AbstractString="matpower") =
     parse_file(IOBuffer(String(text)), format)
-parse_str(::Type{BalancedNetwork}, text::AbstractString, format::AbstractString="matpower") =
-    parse_str(text, format)
+# Explicit transmission marker: bypasses the format routing, so it reaches the
+# balanced parser no matter the token (symmetric with parse_file(BalancedNetwork, ...)).
+function parse_str(::Type{BalancedNetwork}, text::AbstractString, format::AbstractString="matpower")
+    h = _parse_handle_str(String(text), format)
+    return BalancedNetwork(JSON3.read(_to_json(h)), h)
+end
 
 """
     from_json(text) -> BalancedNetwork
