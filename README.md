@@ -25,8 +25,8 @@ Supported transmission formats (each reads and writes, so any pair converts):
 
 A same-format round trip is byte exact; cross-format conversion reports fields
 the target cannot represent as warnings. Multiconductor distribution cases
-(OpenDSS, PowerModelsDistribution JSON, IEEE BMOPF JSON) parse through the
-separate `MulticonductorNetwork` model; see the
+(OpenDSS, PowerModelsDistribution JSON, IEEE BMOPF JSON) parse into the
+separate `MulticonductorNetwork` model through the same verbs; see the
 [distribution guide](https://eigenergy.github.io/PowerIO.jl/distribution/).
 
 <p align="center">
@@ -77,10 +77,11 @@ to_powerdata(net)                  # ExaPowerIO PowerData NamedTuple
 to_package(net)                    # .pio.json compiler package
 ```
 
-Distribution cases share the verbs, selected by a leading type argument:
+Distribution cases share the verbs, routed by format:
 
 ```julia
-dn = parse_file(MulticonductorNetwork, "feeder.dss")
+dn = parse_file("feeder.dss")        # ::MulticonductorNetwork, element tables + handle
+PowerIO.buses(dn), PowerIO.lines(dn), PowerIO.transformers(dn)
 text, warnings = to_format(dn, "pmd")
 ```
 
@@ -100,11 +101,11 @@ versions. Distribution entry points also check `pio_dist_abi_version`.
 |---|---|---|
 | PowerModels.jl | both | `to_powermodels` / `from_powermodels` |
 | ExaPowerIO.jl / ExaModelsPower.jl | out | `to_powerdata` / `parse_ac_power_data` feeding `build_polar_opf` / `build_rect_opf` / `build_dcopf` |
-| powerio-pkg `.pio.json` | balanced both | `to_package` / `from_package` / `read_package` / `write_package` |
+| powerio-pkg `.pio.json` | both models | `to_package` / `from_package` / `read_package` / `write_package` |
 | [PowerDiff.jl](https://github.com/grid-opt-alg-lab/PowerDiff.jl) | out | PowerDiff depends on PowerIO as its parser and data layer |
 | MATPOWER / PSS/E / PowerWorld / PowerModels JSON / egret | file | `parse_file` / `convert_file` |
 | GridFM (gridfm-datakit Parquet) | in | `read_gridfm` / `read_gridfm_scenarios` |
-| OpenDSS / PowerModelsDistribution / IEEE BMOPF (distribution) | both | `parse_file(MulticonductorNetwork, …)` / `to_format` / `convert_file(MulticonductorNetwork, …)` |
+| OpenDSS / PowerModelsDistribution / IEEE BMOPF (distribution) | both | format-routed `parse_file` / `to_format` / `convert_file` |
 
 The `parse_file` / `to_*` naming is shared across Rust, Python, Julia, and the
 C ABI; the cross language table is in

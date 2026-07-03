@@ -90,7 +90,11 @@
             @test package_model_kind(lowered) == :balanced
             @test lowered.model.balanced_network.base_mva == 75.0
             @test lowered.lowering_history[1].pass == "multiconductor-to-balanced"
-            @test PowerIO.n_buses(from_package(ready_pkg)) == 2
+            if PowerIO._exports_symbol(:pio_package_to_multiconductor_network)
+                @test PowerIO.n_buses(from_package(ready_pkg)) == 2
+            else
+                @test_skip PowerIO.n_buses(from_package(ready_pkg)) == 2
+            end
         else
             @test_skip to_package(net)
         end
@@ -171,9 +175,92 @@
             @test delta_doc["shunt"]["rxd"]["B_1_2"] > 0.0
         end
 
-        # The shared verbs still default to BalancedNetwork: parsing the dss as a
-        # transmission case fails, distinct from the MulticonductorNetwork path above.
-        @test_throws ErrorException parse_file(dss)
+        # The bare verb routes on the format: a .dss path parses into a
+        # data-carrying MulticonductorNetwork, symmetric with the balanced side.
+        routed = parse_file(dss)
+        @test routed isa MulticonductorNetwork
+        @test PowerIO.n_buses(routed) > 0
+        @test !isempty(PowerIO.buses(routed))
+        @test PowerIO.source_format(routed) == "dss"
+        @test PowerIO.base_frequency(routed) > 0
+        @test occursin("buses", sprint(show, routed))
+        # Materialization must not disturb the retained source: the echo tier
+        # still writes the file back byte for byte.
+        @test first(to_format(routed, "dss")) == read(dss, String)
+
+        # Bare-verb routing agrees with the marker forms, for every entry point
+        # and token spelling.
+        dss_text = read(dss, String)
+        @test parse_str(dss_text, "dss") isa MulticonductorNetwork
+        @test parse_file(IOBuffer(dss_text), "dss") isa MulticonductorNetwork
+        @test parse_file(dss; from="OpenDSS") isa MulticonductorNetwork
+        @test first(convert_file(dss, "bmopf")) == bmopf
+        @test first(convert_str(dss_text, "pmd"; from="dss")) == pmd
+
+        # Every token the Julia routing claims resolves in the core (drift canary
+        # for the mirrored name tables in convert.rs / routing.rs / dist.jl):
+        # a wrong-format parse failure is fine, an unrecognized token is drift.
+        for token in PowerIO._DIST_FORMAT_KEYS
+            err = try
+                parse_str(MulticonductorNetwork, "not a case", token)
+                nothing
+            catch e
+                sprint(showerror, e)
+            end
+            @test err === nothing || !occursin("unknown distribution format", err)
+        end
+
+        # Cross-model requests are directed errors, both directions, and the
+        # explicit BalancedNetwork marker bypasses routing to the balanced
+        # parser, whose error names the distribution surface.
+        @test_throws ErrorException convert_file(dss, "matpower")
+        @test occursin("lower_multiconductor_to_balanced",
+                       try convert_file(dss, "matpower"); "" catch e; sprint(showerror, e) end)
+        @test_throws ErrorException convert_file(joinpath(@__DIR__, "data", "case14.m"), "bmopf")
+        @test_throws ErrorException convert_str(dss_text, "matpower"; from="dss")
+        @test_throws ErrorException to_format(net, "matpower")
+        @test_throws ErrorException parse_file(BalancedNetwork, dss)
+        @test_throws ErrorException parse_file(dss; from="matpower")
+
+        # A handle-less MulticonductorNetwork (payload only): accessors and
+        # warnings work, the handle transforms refuse directedly.
+        bare = MulticonductorNetwork(routed.data)
+        @test bare.handle === nothing
+        @test PowerIO.n_buses(bare) == PowerIO.n_buses(routed)
+        @test PowerIO.warnings(bare) isa Vector{String}
+        @test_throws ErrorException to_format(bare, "dss")
+        if package_available()
+            @test_throws ErrorException to_package(bare)
+        end
+
+        if package_available() && PowerIO._exports_symbol(:pio_package_to_multiconductor_network)
+            # from_package returns the model the package holds; the rebuilt
+            # handle serializes (fresh serialization, no echo expectation).
+            back = from_package(to_package(routed))
+            @test back isa MulticonductorNetwork
+            @test PowerIO.n_buses(back) == PowerIO.n_buses(routed)
+            @test first(to_format(back, "bmopf")) == first(to_format(routed, "bmopf"))
+            # A .pio.json path routes through the package reader to the right
+            # model, for both kinds.
+            dir = mktempdir()
+            mpath = joinpath(dir, "feeder.pio.json")
+            write_package(mpath, routed)
+            @test parse_file(mpath) isa MulticonductorNetwork
+            bpath = joinpath(dir, "case14.pio.json")
+            write_package(bpath, parse_file(joinpath(@__DIR__, "data", "case14.m")))
+            @test parse_file(bpath) isa BalancedNetwork
+        end
+
+        # A distribution flavored bare .json routes automatically off the
+        # core's classifier (pio_classify_str).
+        if PowerIO._classify_family(pmd) === :distribution
+            dir = mktempdir()
+            jpath = joinpath(dir, "feeder.json")
+            write(jpath, pmd)
+            @test parse_file(jpath) isa MulticonductorNetwork
+        else
+            @test_skip false  # library predates pio_classify_str
+        end
 
         # A nonexistent path surfaces as a Julia error, not a fault.
         @test_throws ErrorException parse_file(MulticonductorNetwork, joinpath(@__DIR__, "data", "no_such.dss"))

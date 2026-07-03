@@ -159,11 +159,12 @@ end
 
 function to_package(net::MulticonductorNetwork)
     _ensure_dist_compatible()
+    h = _live_dist_handle(net, "to_package")
     err = zeros(UInt8, _ERRLEN)
     ptr = try
-        GC.@preserve net ccall((:pio_package_from_multiconductor_network, _lib()), Ptr{Cvoid},
-                               (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
-                               net.ptr, err, length(err))
+        GC.@preserve h ccall((:pio_package_from_multiconductor_network, _lib()), Ptr{Cvoid},
+                             (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
+                             h.ptr, err, length(err))
     catch e
         _feature_call_error("to_package", "pio_package_from_multiconductor_network", "pkg", e)
     end
@@ -172,8 +173,13 @@ function to_package(net::MulticonductorNetwork)
     return NetworkPackage(_package_to_json(pkg, "to_package"))
 end
 
-to_package(path::AbstractString; from=nothing, include_solver_metadata::Bool=false) =
-    to_package(parse_file(path; from=from); include_solver_metadata=include_solver_metadata)
+function to_package(path::AbstractString; from=nothing, include_solver_metadata::Bool=false)
+    net = parse_file(path; from=from)
+    net isa MulticonductorNetwork || return to_package(net; include_solver_metadata=include_solver_metadata)
+    include_solver_metadata && throw(ArgumentError(
+        "PowerIO.to_package: include_solver_metadata applies only to balanced cases"))
+    return to_package(net)
+end
 
 """
     package_model_kind(pkg::NetworkPackage) -> Symbol
@@ -303,20 +309,55 @@ function lower_multiconductor_to_balanced(pkg::NetworkPackage; base_mva::Real=10
     return NetworkPackage(_package_to_json(lowered, "lower_multiconductor_to_balanced"))
 end
 
-"""
-    from_package(pkg::NetworkPackage) -> BalancedNetwork
-    from_package(text::AbstractString) -> BalancedNetwork
+# Extract an owned network handle from a parsed package handle via one of the
+# payload inverses (`pio_package_to_balanced_network` /
+# `pio_package_to_multiconductor_network`); shared by both from_package arms.
+function _package_extract_ptr(pkg::NetworkPackage, sym::Symbol)
+    h = _package_parse_str_handle(to_json(pkg), "from_package")
+    err = zeros(UInt8, _ERRLEN)
+    # ccall needs a literal symbol, so resolve the entry point by hand; the
+    # un-dlclosed handle pins the library, as in `_network_free_fn`.
+    _exports_symbol(sym) || error(
+        "PowerIO.from_package: the C ABI at \"$(_lib())\" predates the package payload " *
+        "extraction inverses ($sym). Update the powerio-capi artifact or local library.")
+    ptr = try
+        fn = Libdl.dlsym(Libdl.dlopen(_lib()), sym)
+        GC.@preserve h ccall(fn, Ptr{Cvoid},
+                             (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
+    catch e
+        _feature_call_error("from_package", String(sym), "pkg", e)
+    end
+    ptr == C_NULL && error("PowerIO.from_package: " * _cstr(err))
+    return ptr
+end
 
-Read a `.pio.json` package back into a live [`BalancedNetwork`](@ref). Balanced
-payloads load directly; multiconductor payloads are explicitly lowered through
-Rust's multiconductor to balanced pass first.
+"""
+    from_package(pkg::NetworkPackage) -> BalancedNetwork | MulticonductorNetwork
+    from_package(text::AbstractString)
+
+Read a `.pio.json` package back into the live model its envelope declares: a
+[`BalancedNetwork`](@ref) for a balanced payload, a
+[`MulticonductorNetwork`](@ref) for a multiconductor one. Lowering a
+multiconductor package to balanced stays explicit, through
+[`lower_multiconductor_to_balanced`](@ref). A handle rebuilt from a package
+retains no source text, so a same-format write is a fresh serialization, not
+a byte-exact echo.
 """
 function from_package(pkg::NetworkPackage)
     kind = _ensure_package_kind_consistent(pkg)
     if kind == "balanced"
-        return from_json(JSON3.write(pkg.data.model.balanced_network))
+        # The payload extraction inverse landed after 0.5.1; the payload is the
+        # same struct powerio-json serializes, so older libraries rebuild
+        # through the transport instead.
+        _exports_symbol(:pio_package_to_balanced_network) ||
+            return from_json(JSON3.write(pkg.data.model.balanced_network))
+        h = BalancedNetworkHandle(_package_extract_ptr(pkg, :pio_package_to_balanced_network))
+        return BalancedNetwork(JSON3.read(_to_json(h)), h)
     elseif kind == "multiconductor"
-        return from_package(lower_multiconductor_to_balanced(pkg))
+        _ensure_dist_compatible()
+        h = MulticonductorNetworkHandle(
+            _package_extract_ptr(pkg, :pio_package_to_multiconductor_network))
+        return MulticonductorNetwork(_dist_data(h), h)
     else
         error("PowerIO.from_package: unsupported package model_kind `$kind`")
     end

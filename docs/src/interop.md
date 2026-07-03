@@ -8,7 +8,7 @@
 | GridFM (gridfm-datakit Parquet) | in | [`read_gridfm`](@ref) / [`read_gridfm_scenarios`](@ref) |
 | GO Challenge 3 JSON | in | [`parse_goc3_json`](@ref) |
 | [PowerDiff.jl](https://github.com/grid-opt-alg-lab/PowerDiff.jl) | out | PowerDiff depends on PowerIO as its parser and data layer |
-| OpenDSS / PMD / IEEE BMOPF | both | [Distribution networks](distribution.md) |
+| OpenDSS / PMD / IEEE BMOPF | both | format-routed `parse_file` / `to_format`; see [Distribution networks](distribution.md) |
 
 ## PowerModels.jl
 

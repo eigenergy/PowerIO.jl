@@ -9,7 +9,7 @@ loads, shunts, branches, generators, storage, and hvdc tables plus `base_mva`,
 `name`, and `source_format` (the format it was read from). For now the tables are
 the parsed JSON (`net.data`).
 
-A `BalancedNetwork` from [`parse_file`](@ref) also keeps its live Rust [`NetworkHandle`](@ref)
+A `BalancedNetwork` from [`parse_file`](@ref) also keeps its live Rust [`BalancedNetworkHandle`](@ref)
 (`net.handle`), so the `to_*` transforms ([`to_normalized`](@ref), [`to_dense`](@ref),
 [`to_matpower`](@ref), [`to_arrow`](@ref)) work straight off it. The handle's
 finalizer frees the Rust case once the `BalancedNetwork` is unreachable. A `BalancedNetwork` constructed
@@ -18,7 +18,7 @@ on it, but the handle-only transforms error.
 """
 struct BalancedNetwork
     data::JSON3.Object
-    handle::Union{NetworkHandle,Nothing}
+    handle::Union{BalancedNetworkHandle,Nothing}
 end
 BalancedNetwork(data::JSON3.Object) = BalancedNetwork(data, nothing)
 
@@ -32,43 +32,68 @@ end
 Base.@deprecate_binding Network BalancedNetwork
 
 """
-    parse_file(path; from=nothing) -> BalancedNetwork
-    parse_file(io::IO, format::AbstractString) -> BalancedNetwork
+    parse_file(path; from=nothing) -> BalancedNetwork | MulticonductorNetwork
+    parse_file(io::IO, format::AbstractString)
+    parse_file(BalancedNetwork, path; from=nothing) -> BalancedNetwork
     parse_file(MulticonductorNetwork, path; from=nothing) -> MulticonductorNetwork
 
-Parse a case into a [`BalancedNetwork`].
+Parse a case. The bare verb routes on the format and returns the model the
+file holds: transmission cases (MATPOWER, PSS/E, PowerWorld, PowerModels JSON,
+egret JSON) parse into a [`BalancedNetwork`](@ref), multiconductor distribution
+cases (OpenDSS, PMD, BMOPF) into a [`MulticonductorNetwork`](@ref), and a
+`.pio.json` package into whichever model its envelope declares.
 
-From a file `path` the format is inferred from the extension unless `from` is given
-(needed to tell egret and PowerModels `.json` apart). From an `io` stream the
-`format` is required (there is no extension); parse in-memory text by wrapping it,
-`parse_file(IOBuffer(text), "matpower")`.
+From a file `path` the format is inferred: by extension (`.m`, `.raw`, `.aux`,
+`.dss`, `.pio.json`), and for a bare `.json` by the same top level markers the
+core parsers use (`pio_classify_str`), unless `from` is given. From an `io`
+stream the `format` is required (there is no extension); parse in-memory text
+by wrapping it, `parse_file(IOBuffer(text), "matpower")`.
 
-Accepted format tokens (case-insensitive): `"matpower"`/`"m"`, `"powermodels-json"`/
-`"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`, `"psse"`/`"raw"`,
-`"powerworld"`/`"aux"`.
+Accepted format tokens (case-insensitive): `"matpower"`/`"m"`,
+`"powermodels-json"`/`"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`,
+`"psse"`/`"raw"`, `"powerworld"`/`"aux"`; distribution: `"dss"`/`"opendss"`,
+`"pmd"`/`"engineering"`, `"bmopf"`.
 
-Pass [`MulticonductorNetwork`](@ref) as the first argument to parse a multiconductor
-distribution case instead (`parse_file(MulticonductorNetwork, path)`); `BalancedNetwork` is the
-default, the `parse(T, x)` idiom. See the `src/dist.jl` surface.
+The type-marker forms pin the model when the routed return type would be
+ambiguous to a reader: `parse_file(BalancedNetwork, path)` and
+`parse_file(MulticonductorNetwork, path)` — the `parse(T, x)` idiom.
 """
 function parse_file(path::AbstractString; from=nothing)
+    if from !== nothing && _is_dist_format(from)
+        return parse_file(MulticonductorNetwork, path; from=from)
+    end
+    if from === nothing
+        _is_package_path(path) && return from_package(read_package(path))
+        _is_dss_path(path) && return parse_file(MulticonductorNetwork, path)
+        if lowercase(splitext(String(path))[2]) == ".json" && isfile(path)
+            fam = _classify_family(read(path, String))
+            fam === :distribution && return parse_file(MulticonductorNetwork, path)
+            fam === :package && return from_package(read_package(path))
+        end
+    end
     h = _parse_handle(path; from=from)
     return BalancedNetwork(JSON3.read(_to_json(h)), h)
 end
 function parse_file(io::IO, format::AbstractString)
+    _is_dist_format(format) && return parse_str(MulticonductorNetwork, read(io, String), format)
     h = _parse_handle_str(read(io, String), format)
     return BalancedNetwork(JSON3.read(_to_json(h)), h)
 end
-# Explicit transmission marker, symmetric with `parse_file(MulticonductorNetwork, ...)`.
-parse_file(::Type{BalancedNetwork}, path::AbstractString; from=nothing) = parse_file(path; from=from)
+# Explicit transmission marker, symmetric with `parse_file(MulticonductorNetwork, ...)`:
+# bypasses the format routing, so it reaches the balanced parser no matter the
+# extension.
+function parse_file(::Type{BalancedNetwork}, path::AbstractString; from=nothing)
+    h = _parse_handle(path; from=from)
+    return BalancedNetwork(JSON3.read(_to_json(h)), h)
+end
 
 """
-    parse_str(text, format="matpower") -> BalancedNetwork
+    parse_str(text, format="matpower") -> BalancedNetwork | MulticonductorNetwork
     parse_str(MulticonductorNetwork, text, format) -> MulticonductorNetwork
 
-Parse in-memory case text into a [`BalancedNetwork`](@ref). This is the string sibling of
-`parse_file(io, format)`, matching the Rust, Python, and C interfaces. Pass
-[`MulticonductorNetwork`](@ref) first for a distribution case.
+Parse in-memory case text — the string sibling of `parse_file(io, format)`,
+matching the Rust, Python, and C interfaces. A distribution `format` token
+routes to the multiconductor parser, like the bare [`parse_file`](@ref).
 """
 parse_str(text::AbstractString, format::AbstractString="matpower") =
     parse_file(IOBuffer(String(text)), format)
@@ -102,12 +127,12 @@ end
 # GC triggered between extracting `h.ptr` and the ccall could finalize `h` and
 # hand the Rust side a freed pointer. Every helper that lowers a handle to a raw
 # pointer carries the same guard.
-function _normalize_handle(h::NetworkHandle)
+function _normalize_handle(h::BalancedNetworkHandle)
     err = zeros(UInt8, _ERRLEN)
     ptr = GC.@preserve h ccall((:pio_normalize, _lib()), Ptr{Cvoid},
                                (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
     ptr == C_NULL && error("PowerIO.to_normalized: " * _cstr(err))
-    return NetworkHandle(ptr)
+    return BalancedNetworkHandle(ptr)
 end
 
 """
@@ -140,7 +165,7 @@ function to_json(net::BalancedNetwork)
     return (h === nothing || h.ptr == C_NULL) ? JSON3.write(net.data) : _to_json(h)
 end
 
-function _format_from_handle(h::NetworkHandle, to::AbstractString, what::AbstractString)
+function _format_from_handle(h::BalancedNetworkHandle, to::AbstractString, what::AbstractString)
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
     s = GC.@preserve h ccall((:pio_to_format, _lib()), Cstring,
@@ -192,8 +217,11 @@ end
     convert_file(path, to; from=nothing) -> (text, warnings)
     convert_file(MulticonductorNetwork, path, to; from=nothing) -> (text, warnings)
 
-Convert `path` to format `to`. All five formats read and write, so any pair
-converts. A same-format conversion is byte exact; a cross-format one is
+Convert `path` to format `to`, routing on the formats like [`parse_file`](@ref):
+distribution tokens and `.dss` paths go through the multiconductor converter,
+and a cross-model request (e.g. `.dss` to `"matpower"`) is a directed error —
+lowering is explicit, through the package pass. Within the transmission
+family all five formats read and write, so any pair converts. A same-format conversion is byte exact; a cross-format one is
 maximal fidelity and reports whatever the target can't carry in `warnings`. Tokens
 (case-insensitive): `"matpower"`/`"m"`, `"powermodels-json"`/`"powermodels"`/`"pm"`,
 `"egret-json"`/`"egret"`, `"psse"`/`"raw"`, `"powerworld"`/`"aux"`. `from` overrides
@@ -201,6 +229,20 @@ extension inference (needed to tell egret and PowerModels `.json` apart). Pass
 [`MulticonductorNetwork`](@ref) first to convert a distribution case.
 """
 function convert_file(path::AbstractString, to::AbstractString; from=nothing)
+    dist_to = _is_dist_format(to)
+    dist_src = (from !== nothing && _is_dist_format(from)) ||
+               (from === nothing && _is_dss_path(path))
+    if dist_to
+        # A balanced source cannot become multiconductor; a `.json`/unknown
+        # source goes to the distribution converter, whose own inference and
+        # errors apply.
+        balanced_src = (from !== nothing && !_is_dist_format(from)) ||
+                       (from === nothing &&
+                        lowercase(splitext(String(path))[2]) in (".m", ".raw", ".aux", ".epc", ".pwb"))
+        balanced_src && _cross_model_error("convert_file")
+        return convert_file(MulticonductorNetwork, path, to; from=from)
+    end
+    dist_src && _cross_model_error("convert_file")
     _ensure_compatible()
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
@@ -229,6 +271,10 @@ case (there is no path to infer from): the source format token. Pass
 [`MulticonductorNetwork`](@ref) first for a distribution case.
 """
 function convert_str(text::AbstractString, to::AbstractString; from::AbstractString)
+    dist_to = _is_dist_format(to)
+    dist_from = _is_dist_format(from)
+    dist_to && dist_from && return convert_str(MulticonductorNetwork, text, to, from)
+    (dist_to || dist_from) && _cross_model_error("convert_str")
     _ensure_compatible()
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)

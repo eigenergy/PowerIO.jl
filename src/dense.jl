@@ -10,7 +10,7 @@
 # and gen `bus` (the same id space — invert `bus_ids` to map an endpoint to a dense
 # row), degrees for `shift`, total line charging in `b`, raw `tap` (0 means 1).
 #
-# Every helper takes the NetworkHandle and preserves it across its ccalls (the
+# Every helper takes the BalancedNetworkHandle and preserves it across its ccalls (the
 # raw pointer never travels alone); see `_normalize_handle` for why.
 
 # The v4 extractors take a `cap` and return the total count (write up to `cap`,
@@ -24,7 +24,7 @@ function _check_filled(got, want::Int, what::AbstractString)
     return
 end
 
-function _branch_tables(h::NetworkHandle, m::Int)
+function _branch_tables(h::BalancedNetworkHandle, m::Int)
     from = Vector{Int64}(undef, m); to = Vector{Int64}(undef, m)
     r = Vector{Float64}(undef, m); x = Vector{Float64}(undef, m); b = Vector{Float64}(undef, m)
     tap = Vector{Float64}(undef, m); shift = Vector{Float64}(undef, m)
@@ -37,7 +37,7 @@ function _branch_tables(h::NetworkHandle, m::Int)
     return (; from, to, r, x, b, tap, shift, in_service = insvc)
 end
 
-function _gen_tables(h::NetworkHandle, ng::Int)
+function _gen_tables(h::BalancedNetworkHandle, ng::Int)
     bus = Vector{Int64}(undef, ng); pg = Vector{Float64}(undef, ng)
     pmax = Vector{Float64}(undef, ng); pmin = Vector{Float64}(undef, ng)
     insvc = Vector{UInt8}(undef, ng)
@@ -48,7 +48,7 @@ function _gen_tables(h::NetworkHandle, ng::Int)
     return (; bus, pg, pmax, pmin, in_service = insvc)
 end
 
-function _bus_demand(h::NetworkHandle, n::Int)
+function _bus_demand(h::BalancedNetworkHandle, n::Int)
     pd = Vector{Float64}(undef, n); qd = Vector{Float64}(undef, n)
     got = GC.@preserve h ccall((:pio_bus_demand, _lib()), Csize_t,
           (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}, Csize_t), h.ptr, pd, qd, n)
@@ -56,7 +56,7 @@ function _bus_demand(h::NetworkHandle, n::Int)
     return (pd, qd)
 end
 
-function _bus_shunt(h::NetworkHandle, n::Int)
+function _bus_shunt(h::BalancedNetworkHandle, n::Int)
     gs = Vector{Float64}(undef, n); bs = Vector{Float64}(undef, n)
     got = GC.@preserve h ccall((:pio_bus_shunt, _lib()), Csize_t,
           (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}, Csize_t), h.ptr, gs, bs, n)
@@ -68,7 +68,7 @@ end
 # methods. The whole body runs under GC.@preserve h: a dozen ccalls with Julia
 # allocations between them, exactly the shape where a finalizer racing the raw
 # pointer would be a use after free.
-function _dense_from_handle(h::NetworkHandle)
+function _dense_from_handle(h::BalancedNetworkHandle)
     GC.@preserve h begin
         p = h.ptr
         n = Int(ccall((:pio_n_buses, _lib()), Csize_t, (Ptr{Cvoid},), p))

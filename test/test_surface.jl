@@ -24,9 +24,12 @@
                 :source_format, :reference_bus_id, :reference_bus_indices,
                 :n_components, :is_radial, :bus_type_code, :warnings,
                 :buses, :generators, :branches, :loads, :shunts, :storage, :hvdc,
+                :lines, :linecodes, :switches, :transformers, :sources,
+                :base_frequency,
                 :abi_version, :library_version, :library_available)
         @test isdefined(PowerIO, sym)
     end
+    @test isdefined(PowerIO, :NetworkHandle)  # deprecated alias of BalancedNetworkHandle
     @test PowerIO._lib() isa AbstractString
     @test PowerIO.PIO_ABI_VERSION isa Unsigned
     @test PowerIO.PIO_DIST_ABI_VERSION isa Unsigned
@@ -44,6 +47,25 @@ end
     @test PowerIO.reference_bus_id(one_ref) == 7
     @test PowerIO.reference_bus_id(mk([(id = 1, kind = "REF"), (id = 2, kind = "REF")])) === nothing
     @test PowerIO.reference_bus_id(mk([(id = 1, kind = "PQ"), (id = 2, kind = "PV")])) === nothing
+
+    # The multiconductor accessors are pure functions of the payload, so a
+    # handle-less MulticonductorNetwork built from bare JSON exercises them
+    # without the native library.
+    mn = PowerIO.MulticonductorNetwork(JSON3.read(JSON3.write((;
+        name = "t", base_frequency = 60.0, source_format = "dss",
+        buses = [(id = "a", terminals = ["1"]), (id = "b", terminals = ["1"])],
+        linecodes = [], lines = [(name = "l1", bus_from = "a", bus_to = "b")],
+        switches = [], transformers = [],
+        loads = [(name = "d1", bus = "b")], generators = [], shunts = [],
+        sources = [], warnings = ["w1"]))))
+    @test mn.handle === nothing
+    @test PowerIO.n_buses(mn) == 2
+    @test length(PowerIO.lines(mn)) == 1
+    @test PowerIO.network_name(mn) == "t"
+    @test PowerIO.source_format(mn) == "dss"
+    @test PowerIO.base_frequency(mn) == 60.0
+    @test PowerIO.warnings(mn) == ["w1"]
+    @test sprint(show, mn) == "MulticonductorNetwork{dss}: 2 buses, 1 lines, 1 loads"
 
     @test PowerIO.bus_type_code("PQ") == 1
     @test PowerIO.bus_type_code("PV") == 2

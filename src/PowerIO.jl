@@ -24,11 +24,14 @@ source bus ids, and
 dataset back into a `BalancedNetwork` (the ML→classical return leg; lossy but complete
 enough for power flow, needs powerio-capi built `--features gridfm`).
 
-Multiconductor distribution cases are a separate model on their own
-[`MulticonductorNetwork`](@ref) handle, sharing the same verbs: `parse_file(MulticonductorNetwork, path)`,
-`to_format(net, to)`, `convert_file(MulticonductorNetwork, path, to)` read and write OpenDSS,
-PowerModelsDistribution JSON, and IEEE BMOPF JSON (experimental; needs powerio-capi
-built `--features dist`).
+Multiconductor distribution cases are a separate model, [`MulticonductorNetwork`](@ref),
+with the same shape as the balanced side: element tables (`net.data`) next to a
+live handle. The bare verbs route on the format — `parse_file("feeder.dss")`,
+`convert_file("feeder.dss", "bmopf")`, `parse_file("case.pio.json")` — and the
+type-marker forms (`parse_file(MulticonductorNetwork, path)`) stay as the
+explicit spelling. OpenDSS, PowerModelsDistribution JSON, and IEEE BMOPF JSON
+read and write (experimental; needs powerio-capi built `--features dist`, plus
+`pkg` for the element tables).
 
 `.pio.json` network packages use the `pio_package_*` C ABI surface. They can
 wrap balanced and multiconductor handles, run package validation, expose
@@ -62,7 +65,7 @@ export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_
        lower_multiconductor_to_balanced, arrow_available, gridfm_available,
        MulticonductorNetwork, dist_available, dist_abi_version
 
-include("capi.jl")        # library resolution, ABI handshake, NetworkHandle, buffer helpers
+include("capi.jl")        # library resolution, ABI handshake, BalancedNetworkHandle, buffer helpers
 include("network.jl")     # BalancedNetwork and the parse / convert / serialize verbs
 include("accessors.jl")   # the JSON-backed element tables and scalar accessors
 include("dense.jl")       # to_dense: numeric tables straight from the C ABI extractors
