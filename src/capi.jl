@@ -163,6 +163,20 @@ function _exports_symbol(sym::Symbol)
     end
 end
 
+# Classify in-memory JSON by the core's cross-domain markers
+# (`pio_classify_str`): :transmission, :distribution, :package, :ambiguous, or
+# :unknown. Older libraries lack the symbol; :unavailable keeps the caller on
+# its pre-classify behavior (balanced inference and its errors).
+function _classify_family(text::AbstractString)
+    _exports_symbol(:pio_classify_str) || return :unavailable
+    _ensure_compatible()
+    buf = zeros(UInt8, 64)
+    n = ccall((:pio_classify_str, _lib()), Csize_t,
+              (Cstring, Ptr{UInt8}, Csize_t), String(text), buf, length(buf))
+    n == 0 && return :unknown
+    return Symbol(first(split(_cstr(buf), ':')))
+end
+
 const _ERRLEN = 512
 # Per-call fidelity warnings (pio_to_format / pio_convert_file / pio_write_dir)
 # can run long on a lossy conversion; give them headroom. Overflow truncates
@@ -187,14 +201,14 @@ function _network_free_fn()
 end
 
 """
-    NetworkHandle
+    BalancedNetworkHandle
 
 Opaque handle to a parsed network inside the Rust core. Freed by its finalizer;
 you normally go straight to [`parse_file`](@ref), which returns a [`BalancedNetwork`].
 """
-mutable struct NetworkHandle
+mutable struct BalancedNetworkHandle
     ptr::Ptr{Cvoid}
-    function NetworkHandle(ptr::Ptr{Cvoid})
+    function BalancedNetworkHandle(ptr::Ptr{Cvoid})
         ptr == C_NULL && error("PowerIO: null network handle")
         # Resolve before `new`: a failed lookup must not strand a handle with
         # no finalizer attached.
@@ -207,6 +221,8 @@ mutable struct NetworkHandle
         return h
     end
 end
+
+Base.@deprecate_binding NetworkHandle BalancedNetworkHandle
 
 # Directed error for when the ccall itself fails to dispatch — a missing library or
 # undefined symbol — instead of a raw ccall fault far from the resolution site.
@@ -240,7 +256,7 @@ function _parse_handle(path::AbstractString; from=nothing)
         _lib_call_error(e)
     end
     ptr == C_NULL && error("PowerIO.parse_file: " * _cstr(err))
-    return NetworkHandle(ptr)
+    return BalancedNetworkHandle(ptr)
 end
 
 # In-memory sibling of `_parse_handle`: parse `text` under an explicit `format`
@@ -256,7 +272,7 @@ function _parse_handle_str(text::AbstractString, format::AbstractString)
         _lib_call_error(e)
     end
     ptr == C_NULL && error("PowerIO.parse_str: " * _cstr(err))
-    return NetworkHandle(ptr)
+    return BalancedNetworkHandle(ptr)
 end
 
 # `from_json` rebuilds from the canonical `powerio-json` snapshot, the format
@@ -266,15 +282,22 @@ end
 function _from_json_handle(text::AbstractString)
     _ensure_compatible()
     err = zeros(UInt8, _ERRLEN)
+    # The function form on powerio 0.6.0, the token route on older libraries
+    # (drop with the other fallbacks once the 0.6.0 artifact is pinned, #189).
     ptr = try
-        ccall((:pio_parse_str, _lib()), Ptr{Cvoid},
-              (Cstring, Cstring, Ptr{UInt8}, Csize_t),
-              String(text), "powerio-json", err, length(err))
+        if _exports_symbol(:pio_from_json)
+            ccall((:pio_from_json, _lib()), Ptr{Cvoid},
+                  (Cstring, Ptr{UInt8}, Csize_t), String(text), err, length(err))
+        else
+            ccall((:pio_parse_str, _lib()), Ptr{Cvoid},
+                  (Cstring, Cstring, Ptr{UInt8}, Csize_t),
+                  String(text), "powerio-json", err, length(err))
+        end
     catch e
         _lib_call_error(e)
     end
     ptr == C_NULL && error("PowerIO.from_json: " * _cstr(err))
-    return NetworkHandle(ptr)
+    return BalancedNetworkHandle(ptr)
 end
 
 # `buf` must stay rooted across the unsafe_string read; without the preserve the
@@ -308,7 +331,7 @@ function _warnings_from(query)
     return _warn_lines(buf)
 end
 
-_handle_warnings(h::NetworkHandle) =
+_handle_warnings(h::BalancedNetworkHandle) =
     GC.@preserve h _warnings_from((out, cap) -> ccall((:pio_warnings, _lib()), Csize_t,
                                   (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, out, cap))
 
@@ -317,9 +340,20 @@ _handle_warnings(h::NetworkHandle) =
 # name (v4 folded the old `pio_to_json` into the string-keyed writer). A lossy
 # write (non-finite f64 → null) warns; this internal transport discards the
 # warnbuf since the accessors read straight off the JSON.
-function _to_json(h::NetworkHandle)
-    warnbuf = zeros(UInt8, _WARNLEN)
+function _to_json(h::BalancedNetworkHandle)
     err = zeros(UInt8, _ERRLEN)
+    # One call on powerio 0.6.0: pio_to_json, byte identical to the
+    # powerio-json writer. Older libraries take the format token route;
+    # drop that branch once the 0.6.0 artifact is pinned (#189).
+    if _exports_symbol(:pio_to_json)
+        s = GC.@preserve h ccall((:pio_to_json, _lib()), Cstring,
+                                 (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
+        s == C_NULL && error("PowerIO: to_json failed: " * _cstr(err))
+        json = unsafe_string(s)
+        ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+        return json
+    end
+    warnbuf = zeros(UInt8, _WARNLEN)
     s = GC.@preserve h ccall((:pio_to_format, _lib()), Cstring,
                              (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
                              h.ptr, "powerio-json", warnbuf, length(warnbuf), err, length(err))

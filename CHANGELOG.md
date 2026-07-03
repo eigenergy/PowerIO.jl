@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.6.0
+
+Tracks powerio v0.6.0 in lockstep, keeping core C ABI v4 and distribution C
+ABI v1 (the core additions are additive symbols, probed at runtime). Breaking
+on the Julia side.
+
+- The bare verbs route on format: `parse_file("feeder.dss")` returns a
+  `MulticonductorNetwork`, `parse_file("case.pio.json")` returns whichever
+  model the package declares, and a bare `.json` routes on the core's
+  cross-domain classifier (`pio_classify_str`). The type-marker forms
+  (`parse_file(BalancedNetwork, path)`, `parse_file(MulticonductorNetwork,
+  path)`) pin a model explicitly and bypass routing. `parse_file(path)`'s
+  return type is now a union over the two models.
+- `MulticonductorNetwork` carries its element tables: `data::JSON3.Object`
+  (the `pio-payload-multiconductor/1` payload) next to the live handle,
+  with accessors (`buses`, `lines`, `linecodes`, `switches`, `transformers`,
+  `loads`, `generators`, `shunts`, `sources`, `n_buses`, `base_frequency`,
+  `network_name`, `source_format`) and a count-based `show`. The old
+  opaque-pointer struct (`MulticonductorNetwork(ptr)`, `.ptr`) is gone;
+  handles live in `net.handle`.
+- `from_package` returns the model the package holds. The silent
+  multiconductor to balanced lowering is gone;
+  `lower_multiconductor_to_balanced` remains the explicit pass. A handle
+  rebuilt from a package retains no source text, so a same-format write is a
+  fresh serialization, not a byte-exact echo.
+- Cross-model conversion (`convert_file("feeder.dss", "matpower")`) is a
+  directed error naming the package lowering pass.
+- `NetworkHandle` renames to `BalancedNetworkHandle`; the distribution handle
+  is `MulticonductorNetworkHandle`. Deprecated bindings cover the old names.
+- PowerModels reference utilities in the PowerModels bridge
+  (unexported, use qualified): `PowerIO.calc_branch_t`,
+  `PowerIO.calc_branch_y`, `PowerIO.correct_voltage_angle_differences!`,
+  `PowerIO.build_ref` (#51, #55).
+- Internal reorganization: `src/PowerIO.jl` split into focused source files;
+  tests split per area; the Documenter site rebuilt with topical pages.
+
 ## 0.5.0
 
 Tracks powerio v0.5.0, keeping core C ABI v4 and distribution C ABI v1. No

@@ -205,7 +205,7 @@ end
 # Export one table off a live handle over the Arrow C Data Interface, shared by the
 # BalancedNetwork and path methods of `to_arrow`. Takes the handle and preserves it across
 # the ccall (see `_normalize_handle` for why the raw pointer never travels alone).
-function _arrow_from_handle(h::NetworkHandle, table::Symbol, copy::Bool)
+function _arrow_from_handle(h::BalancedNetworkHandle, table::Symbol, copy::Bool)
     id = get(_ARROW_TABLE_IDS, table, nothing)
     id === nothing && throw(ArgumentError(
         "PowerIO.to_arrow: unknown table $(repr(table)); expected one of $(keys(_ARROW_TABLE_IDS))"))
