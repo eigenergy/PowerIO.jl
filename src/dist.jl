@@ -11,12 +11,12 @@
 # and `to_format` / `warnings` dispatch on the network type.
 #
 # Like `BalancedNetwork`, a parsed `MulticonductorNetwork` carries its element
-# tables (`net.data`, the `pio-payload-multiconductor/1` payload) next to the
-# live Rust handle. The payload materializes through the package machinery —
-# wrap the handle (`pio_package_from_multiconductor_network`), serialize the
-# envelope, take `model.multiconductor_network` — because the payload is
-# deliberately not a converter-boundary format: `.pio.json` carries it between
-# PowerIO consumers, BMOPF JSON is the exchange format for everything else.
+# tables (`net.data`) next to the live Rust handle. The tables come from
+# `pio_dist_to_json`: the model JSON, the same object a `.pio.json` document
+# carries under `model.multiconductor_network`. That JSON is deliberately not
+# a case format the converter knows — `.pio.json` carries cases between
+# PowerIO consumers with their metadata, BMOPF JSON is the exchange format
+# for everything else.
 #
 # EXPERIMENTAL: the `pio_dist_*` signatures carry their own
 # `PIO_DIST_ABI_VERSION` starting with powerio v0.3.1. PowerIO.jl requires that
@@ -199,20 +199,29 @@ function _dist_parse_handle_str(text::AbstractString, format::AbstractString)
     return MulticonductorNetworkHandle(ptr)
 end
 
-# Materialize the element tables of a live handle: wrap it in a package
-# (`pio_package_from_multiconductor_network`), serialize the envelope, and take
-# `model.multiconductor_network` — the payload the envelope names
-# `pio-payload-multiconductor/1`. Needs the pkg feature next to dist (both on
-# by default in released binaries). The wrap handle frees eagerly.
+# Materialize the element tables of a live handle: one call,
+# `pio_dist_to_json`, returning the model JSON a `.pio.json` document carries
+# under `model.multiconductor_network`. A library predating the call (powerio
+# 0.5.x) takes the long way through the package machinery instead — clone into
+# a package, serialize the whole document, take the model field; drop that
+# branch once the 0.6.0 artifact is pinned.
 function _dist_data(h::MulticonductorNetworkHandle)
     err = zeros(UInt8, _ERRLEN)
+    if _exports_symbol(:pio_dist_to_json)
+        s = GC.@preserve h ccall((:pio_dist_to_json, _lib()), Cstring,
+                                 (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
+        s == C_NULL && error("PowerIO: could not serialize the multiconductor model: " * _cstr(err))
+        text = unsafe_string(s)
+        ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+        return JSON3.read(text)
+    end
     ptr = try
         GC.@preserve h ccall((:pio_package_from_multiconductor_network, _lib()), Ptr{Cvoid},
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
     catch e
         _feature_call_error("parse_file", "pio_package_from_multiconductor_network", "pkg", e)
     end
-    ptr == C_NULL && error("PowerIO: could not materialize the multiconductor payload: " * _cstr(err))
+    ptr == C_NULL && error("PowerIO: could not materialize the multiconductor model: " * _cstr(err))
     pkg = PackageHandle(ptr)
     doc = JSON3.read(_package_to_json(pkg, "parse_file"))
     finalize(pkg)
