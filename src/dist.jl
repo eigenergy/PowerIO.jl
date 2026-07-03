@@ -199,33 +199,17 @@ function _dist_parse_handle_str(text::AbstractString, format::AbstractString)
     return MulticonductorNetworkHandle(ptr)
 end
 
-# Materialize the element tables of a live handle: one call,
-# `pio_dist_to_json`, returning the model JSON a `.pio.json` document carries
-# under `model.multiconductor_network`. A library predating the call (powerio
-# 0.5.x) takes the long way through the package machinery instead — clone into
-# a package, serialize the whole document, take the model field; drop that
-# branch once the 0.6.0 artifact is pinned.
+# Materialize the element tables of a live handle with `pio_dist_to_json`,
+# returning the model JSON a `.pio.json` document carries under
+# `model.multiconductor_network`.
 function _dist_data(h::MulticonductorNetworkHandle)
     err = zeros(UInt8, _ERRLEN)
-    if _exports_symbol(:pio_dist_to_json)
-        s = GC.@preserve h ccall((:pio_dist_to_json, _lib()), Cstring,
-                                 (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
-        s == C_NULL && error("PowerIO: could not serialize the multiconductor model: " * _cstr(err))
-        text = unsafe_string(s)
-        ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
-        return JSON3.read(text)
-    end
-    ptr = try
-        GC.@preserve h ccall((:pio_package_from_multiconductor_network, _lib()), Ptr{Cvoid},
+    s = GC.@preserve h ccall((:pio_dist_to_json, _lib()), Cstring,
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
-    catch e
-        _feature_call_error("parse_file", "pio_package_from_multiconductor_network", "pkg", e)
-    end
-    ptr == C_NULL && error("PowerIO: could not materialize the multiconductor model: " * _cstr(err))
-    pkg = PackageHandle(ptr)
-    doc = JSON3.read(_package_to_json(pkg, "parse_file"))
-    finalize(pkg)
-    return doc.model.multiconductor_network
+    s == C_NULL && error("PowerIO: could not serialize the multiconductor model: " * _cstr(err))
+    text = unsafe_string(s)
+    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    return JSON3.read(text)
 end
 
 # The live Rust handle a MulticonductorNetwork-first transform needs; a

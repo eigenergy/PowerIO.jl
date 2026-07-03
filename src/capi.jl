@@ -275,24 +275,14 @@ function _parse_handle_str(text::AbstractString, format::AbstractString)
     return BalancedNetworkHandle(ptr)
 end
 
-# `from_json` rebuilds from the canonical `powerio-json` snapshot, the format
-# `_to_json` writes; it is `pio_parse_str` under the `powerio-json` name (the v4
-# ABI folded the old `pio_from_json` into the one string-keyed parser, validated
-# on read). The distinct label keeps the error pointed at `from_json`.
+# `from_json` rebuilds from the canonical JSON snapshot `_to_json` writes.
+# The distinct label keeps the error pointed at `from_json`.
 function _from_json_handle(text::AbstractString)
     _ensure_compatible()
     err = zeros(UInt8, _ERRLEN)
-    # The function form on powerio 0.6.0, the token route on older libraries
-    # (drop with the other fallbacks once the 0.6.0 artifact is pinned, #189).
     ptr = try
-        if _exports_symbol(:pio_from_json)
-            ccall((:pio_from_json, _lib()), Ptr{Cvoid},
-                  (Cstring, Ptr{UInt8}, Csize_t), String(text), err, length(err))
-        else
-            ccall((:pio_parse_str, _lib()), Ptr{Cvoid},
-                  (Cstring, Cstring, Ptr{UInt8}, Csize_t),
-                  String(text), "powerio-json", err, length(err))
-        end
+        ccall((:pio_from_json, _lib()), Ptr{Cvoid},
+              (Cstring, Ptr{UInt8}, Csize_t), String(text), err, length(err))
     catch e
         _lib_call_error(e)
     end
@@ -335,28 +325,12 @@ _handle_warnings(h::BalancedNetworkHandle) =
     GC.@preserve h _warnings_from((out, cap) -> ccall((:pio_warnings, _lib()), Csize_t,
                                   (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, out, cap))
 
-# The canonical `powerio-json` snapshot, the JSON transport `BalancedNetwork` is built
-# from and `from_json` reads back. It is `pio_to_format` under the `powerio-json`
-# name (v4 folded the old `pio_to_json` into the string-keyed writer). A lossy
-# write (non-finite f64 → null) warns; this internal transport discards the
-# warnbuf since the accessors read straight off the JSON.
+# The canonical JSON snapshot `BalancedNetwork` is built from and `from_json`
+# reads back.
 function _to_json(h::BalancedNetworkHandle)
     err = zeros(UInt8, _ERRLEN)
-    # One call on powerio 0.6.0: pio_to_json, byte identical to the
-    # powerio-json writer. Older libraries take the format token route;
-    # drop that branch once the 0.6.0 artifact is pinned (#189).
-    if _exports_symbol(:pio_to_json)
-        s = GC.@preserve h ccall((:pio_to_json, _lib()), Cstring,
-                                 (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
-        s == C_NULL && error("PowerIO: to_json failed: " * _cstr(err))
-        json = unsafe_string(s)
-        ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
-        return json
-    end
-    warnbuf = zeros(UInt8, _WARNLEN)
-    s = GC.@preserve h ccall((:pio_to_format, _lib()), Cstring,
-                             (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
-                             h.ptr, "powerio-json", warnbuf, length(warnbuf), err, length(err))
+    s = GC.@preserve h ccall((:pio_to_json, _lib()), Cstring,
+                             (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
     s == C_NULL && error("PowerIO: to_json failed: " * _cstr(err))
     json = unsafe_string(s)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)

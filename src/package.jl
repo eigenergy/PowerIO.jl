@@ -346,11 +346,6 @@ a byte-exact echo.
 function from_package(pkg::NetworkPackage)
     kind = _ensure_package_kind_consistent(pkg)
     if kind == "balanced"
-        # The payload extraction inverse landed after 0.5.1; the payload is the
-        # same struct powerio-json serializes, so older libraries rebuild
-        # through the transport instead.
-        _exports_symbol(:pio_package_to_balanced_network) ||
-            return from_json(JSON3.write(pkg.data.model.balanced_network))
         h = BalancedNetworkHandle(_package_extract_ptr(pkg, :pio_package_to_balanced_network))
         return BalancedNetwork(JSON3.read(_to_json(h)), h)
     elseif kind == "multiconductor"
