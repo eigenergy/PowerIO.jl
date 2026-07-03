@@ -1,4 +1,4 @@
-@testset "PowerModels-style reference utilities" begin
+@testset "PowerModels reference utilities" begin
     # Pure parts first: no binary needed.
     @testset "calc_branch_t / calc_branch_y" begin
         branch = Dict{String,Any}("br_r" => 0.01938, "br_x" => 0.05917,
@@ -27,7 +27,7 @@
         @test wide["branch"]["1"]["angmin"] == -1.0472
         @test wide["branch"]["1"]["angmax"] == 1.0472
 
-        # Both-zero bounds open to ±pad.
+        # Two zero bounds open to ±pad.
         zero_pad = mk(0.0, 0.0)
         PowerIO.correct_voltage_angle_differences!(zero_pad)
         @test zero_pad["branch"]["1"]["angmin"] == -1.0472
@@ -42,7 +42,7 @@
         PowerIO.correct_voltage_angle_differences!(custom; default_pad=0.5)
         @test custom["branch"]["1"]["angmin"] == -0.5
 
-        # A branch-less dict is a no-op, not an error.
+        # A dict without branches is a no-op, not an error.
         @test PowerIO.correct_voltage_angle_differences!(Dict{String,Any}()) == Dict{String,Any}()
     end
 

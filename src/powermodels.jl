@@ -28,7 +28,7 @@ Julia dictionary / NamedTuple or a JSON string.
 from_powermodels(data) = parse_str(JSON3.write(data), "powermodels-json")
 from_powermodels(data::AbstractString) = parse_str(data, "powermodels-json")
 
-# --- PowerModels-style reference utilities -------------------------------
+# --- PowerModels reference utilities -------------------------------------
 #
 # Helpers for the `Dict{String,Any}` network data returned by
 # `to_powermodels`, matching the semantics of their PowerModels.jl namesakes
