@@ -8,26 +8,35 @@
   >
 </p>
 
-Julia bindings for [PowerIO](https://github.com/eigenergy/powerio), which reads
-power system case files into a typed `BalancedNetwork`, writes them back, and converts
-between formats. The Rust core does the parsing and the byte exact write, so a
-case reads identically in Julia, Python, C/C++, and Rust.
+Julia entry point for [PowerIO](https://github.com/eigenergy/powerio): parser,
+compiler package, and IR infrastructure for power system software. The Rust
+core reads case files, writes them back, converts between formats, and exposes
+the same model through Julia, Python, C/C++, and Rust.
 
 **Documentation: [eigenergy.github.io/PowerIO.jl](https://eigenergy.github.io/PowerIO.jl)**
 
-Supported transmission formats (each reads and writes, so any pair converts):
+Supported transmission formats:
 
 - [MATPOWER](https://matpower.org/) `.m`
-- [PSS/E](https://www.siemens.com/global/en/products/energy/grid-software/planning/pss-software/pss-e.html) `.raw` revision 33
+- [PSS/E](https://www.siemens.com/global/en/products/energy/grid-software/planning/pss-software/pss-e.html) `.raw` revisions 33, 34, and 35
 - [PowerWorld](https://www.powerworld.com/WebHelp/Content/MainDocumentation_HTML/Case_Formats.htm) `.aux`
+- PSLF EPC
 - [PowerModels.jl](https://github.com/lanl-ansi/PowerModels.jl) network data JSON
 - [egret](https://pypi.org/project/gridx-egret/) `ModelData` JSON
+- pandapower JSON
+- PyPSA CSV folders
+- Surge JSON
+- PowerIO JSON transport
 
-A same-format round trip is byte exact; cross-format conversion reports fields
-the target cannot represent as warnings. Multiconductor distribution cases
-(OpenDSS, PowerModelsDistribution JSON, IEEE BMOPF JSON) parse into the
-separate `MulticonductorNetwork` model through the same verbs; see the
+Each classical exchange format reads and writes where the Rust core has a
+writer, so any supported pair converts. A same format round trip is byte exact;
+cross format conversion reports fields the target cannot represent as warnings.
+Multiconductor distribution cases (OpenDSS, PowerModelsDistribution JSON, IEEE
+BMOPF JSON) parse into the separate `MulticonductorNetwork` model through the
+same verbs; see the
 [distribution guide](https://eigenergy.github.io/PowerIO.jl/distribution/).
+GridFM Parquet readback and GO Challenge 3 helpers round out the data import
+surface.
 
 <p align="center">
   <img
@@ -68,13 +77,16 @@ The main transforms off a parsed network:
 
 ```julia
 to_normalized(net)                 # per unit, radians, filtered copy
+to_normalized(net; clamp_angle_bounds=true)
 to_dense(net)                      # dense typed arrays for matrix assembly
 to_arrow(net, :branch)             # one table over the Arrow C Data Interface
+to_arrow(net, :bprime)             # matrix Arrow COO selectors
 to_matpower(net)                   # byte exact when the input was MATPOWER
 to_format(net, "powermodels-json") # (text, warnings)
 to_powermodels(net)                # PowerModels.jl network data Dict
 to_powerdata(net)                  # ExaPowerIO PowerData NamedTuple
 to_package(net)                    # .pio.json compiler package
+features()                         # optional C ABI surfaces
 ```
 
 Distribution cases share the verbs, routed by format:
@@ -100,10 +112,12 @@ versions. Distribution entry points also check `pio_dist_abi_version`.
 | Target | Direction | Mechanism |
 |---|---|---|
 | PowerModels.jl | both | `to_powermodels` / `from_powermodels` |
+| BMOPFTools.jl | both | PowerIO backed OpenDSS / BMOPF conversion |
 | ExaPowerIO.jl / ExaModelsPower.jl | out | `to_powerdata` / `parse_ac_power_data` feeding `build_polar_opf` / `build_rect_opf` / `build_dcopf` |
+| PowerGridPlanning.jl | out | `to_powermodels`, `build_ref`, and angle repair helpers |
 | powerio-pkg `.pio.json` | both models | `to_package` / `from_package` / `read_package` / `write_package` |
 | [PowerDiff.jl](https://github.com/grid-opt-alg-lab/PowerDiff.jl) | out | PowerDiff depends on PowerIO as its parser and data layer |
-| MATPOWER / PSS/E / PowerWorld / PowerModels JSON / egret | file | `parse_file` / `convert_file` |
+| MATPOWER / PSS/E / PowerWorld / PSLF / PowerModels JSON / egret / pandapower / PyPSA / Surge | file | `parse_file` / `convert_file` |
 | GridFM (gridfm-datakit Parquet) | in | `read_gridfm` / `read_gridfm_scenarios` |
 | OpenDSS / PowerModelsDistribution / IEEE BMOPF (distribution) | both | format-routed `parse_file` / `to_format` / `convert_file` |
 
@@ -125,17 +139,24 @@ For a non-sibling layout, point Julia at the library explicitly:
 ```julia
 PowerIO.set_library!("/path/to/libpowerio_capi.dylib")
 # or: ENV["POWERIO_CAPI"] = "...path..."  before `using PowerIO`
+
+# Save the override in LocalPreferences.toml for this Julia environment:
+PowerIO.set_library!("/path/to/libpowerio_capi.dylib"; persist=true)
+PowerIO.clear_library!(persist=true)
 ```
 
 The artifact pipeline behind released versions is described in
 [docs/src/binary.md](docs/src/binary.md).
 
-## Roadmap
+## Version line
 
-0.6.1 tracks powerio v0.6.1 in lockstep (C ABI 4, distribution ABI 1). Next: a fully typed immutable `BalancedNetwork` mirroring
-the Rust model (today's view is JSON-backed), package extensions for the
-PowerModels and ExaPowerIO bridges, and distribution through a registered
-`PowerIO_jll`. Version history is in [CHANGELOG.md](CHANGELOG.md).
+0.6.1 tracks powerio v0.6.1 in lockstep: core C ABI 4, distribution C ABI 1,
+with the Arrow, matrix, GridFM, distribution, and package surfaces enabled in
+the released artifacts. The Julia package stays thin around the C ABI while
+owning stable Julia entry points for parsing, conversion, packages, dense
+tables, Arrow tables, distribution networks, GridFM, and ecosystem interop.
+`PowerIO_jll` remains the later distribution cleanup. Version history is in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

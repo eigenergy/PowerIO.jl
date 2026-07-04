@@ -1,10 +1,11 @@
 """
     PowerIO
 
-Julia bindings for the PowerIO Rust core: parse MATPOWER / PSS/E / PowerWorld /
-PowerModels JSON / egret JSON case files, convert between any pair (byte exact on a
-same-format round trip, maximal fidelity otherwise), and materialize an immutable
-`BalancedNetwork`, all through the `powerio-capi` C ABI.
+Julia entry point for the PowerIO Rust core: parser, compiler package, and IR
+infrastructure for power system software. Parse MATPOWER, PSS/E, PowerWorld,
+PSLF EPC, PowerModels JSON, egret JSON, pandapower JSON, PyPSA CSV, Surge JSON,
+and PowerIO JSON cases, convert between supported pairs, and materialize an
+immutable `BalancedNetwork`, all through the `powerio-capi` C ABI.
 
 Parse once with [`parse_file`](@ref) → [`BalancedNetwork`](@ref), then read or transform it,
 all over the same C ABI:
@@ -14,7 +15,8 @@ all over the same C ABI:
 - [`to_dense`](@ref): the numeric tables as dense typed arrays for matrix assembly,
   straight from the C ABI extractors, no JSON.
 - [`to_arrow`](@ref): one table over the Arrow C Data Interface (owned columns by
-  default; zero copy with `copy=false`).
+  default; zero copy with `copy=false`), including matrix COO selectors when the
+  matrix surface is present.
 
 [`to_normalized`](@ref) derives a per unit / radian / filtered copy that preserves
 source bus ids, and
@@ -45,12 +47,14 @@ check `pio_dist_abi_version` against `PIO_DIST_ABI_VERSION`.
 
 The C library resolves automatically: the bundled lazy artifact, or a sibling
 powerio build during development. Point at a custom build with
-[`set_library!`](@ref) or the `POWERIO_CAPI` environment variable.
+[`set_library!`](@ref), the `POWERIO_CAPI` environment variable, or a persisted
+Preferences.jl override.
 """
 module PowerIO
 
 using JSON3
 using LazyArtifacts
+using Preferences: load_preference, set_preferences!
 import Libdl
 
 export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_str,
@@ -64,7 +68,7 @@ export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_
        package_diagnostics, package_operating_points, materialize_operating_point,
        multiconductor_to_balanced_preflight,
        lower_multiconductor_to_balanced, arrow_available, gridfm_available,
-       matrix_available, MulticonductorNetwork, dist_available, dist_abi_version
+       matrix_available, features, MulticonductorNetwork, dist_available, dist_abi_version
 
 include("capi.jl")        # library resolution, ABI handshake, BalancedNetworkHandle, buffer helpers
 include("network.jl")     # BalancedNetwork and the parse / convert / serialize verbs
@@ -76,6 +80,7 @@ include("arrow.jl")       # Arrow C Data Interface export (feature arrow)
 include("gridfm.jl")      # gridfm-datakit Parquet reader (feature gridfm)
 include("dist.jl")        # MulticonductorNetwork distribution surface (feature dist)
 include("package.jl")     # .pio.json network packages (feature pkg)
+include("features.jl")    # public feature probe summary
 include("goc3.jl")        # GO Challenge 3 JSON helpers (pure Julia)
 
 end # module

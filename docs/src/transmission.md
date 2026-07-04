@@ -13,10 +13,13 @@ represent as warnings.
 | Format | Tokens | Extension |
 |---|---|---|
 | MATPOWER | `"matpower"`, `"m"` | `.m` |
-| PSS/E revision 33 | `"psse"`, `"raw"` | `.raw` |
+| PSS/E revisions 33, 34, and 35 | `"psse"`, `"raw"` | `.raw` |
 | PowerWorld | `"powerworld"`, `"aux"` | `.aux` |
+| PSLF EPC | `"pslf"`, `"epc"` | `.epc` |
 | PowerModels.jl network data JSON | `"powermodels-json"`, `"powermodels"`, `"pm"` | `.json` |
 | egret ModelData JSON | `"egret-json"`, `"egret"` | `.json` |
+| pandapower JSON | `"pandapower-json"`, `"pandapower"` | `.json` |
+| Surge JSON | `"surge-json"`, `"surge"` | `.json` |
 | PowerIO JSON transport | `"powerio-json"` | — |
 | PyPSA static network CSV | `"pypsa-csv"` | directory |
 | GridFM Parquet dataset | — (see [`read_gridfm`](@ref)) | directory |
@@ -77,7 +80,12 @@ source bus ids preserved, bus types inferred.
 ```julia
 norm = to_normalized(net)
 PowerIO.source_format(norm)   # "Normalized"
+
+norm = to_normalized(net; clamp_angle_bounds=true, angle_bound_pad=pi / 3)
 ```
+
+The angle clamp option repairs PowerModels style branch angle bounds during
+normalization. The default `to_normalized(net)` preserves the source bounds.
 
 ## Serializing
 
@@ -118,6 +126,8 @@ it). Raw selectors are `:bus`, `:branch`, `:gen`, `:load`, `:shunt`, and
 ```julia
 t = to_arrow(net, :branch)              # NamedTuple of owned Julia Vectors
 sb = to_arrow(net, :solver_bus)         # dense 0-based ids, per unit values
+ybus = to_arrow(net, :ybus)             # COO matrix table
+b = to_arrow(net, :bprime)
 z = to_arrow(net, :branch; copy=false)  # zero-copy ArrowTable; keep it alive while reading
 ```
 
@@ -125,3 +135,7 @@ The default returns owned columns (Tables.jl shaped, flows into
 `Arrow.write`, `DataFrame`, etc.) with no lifetime caveat. `copy=false`
 returns a zero-copy [`ArrowTable`](@ref) whose columns view the producer's
 memory.
+
+Matrix selectors are `:ybus`, `:incidence`, `:bprime`, and `:bdoubleprime`.
+They return Arrow COO tables for consumers that want sparse matrix assembly
+without reimplementing parser semantics.

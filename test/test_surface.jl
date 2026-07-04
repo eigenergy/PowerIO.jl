@@ -14,7 +14,7 @@
                 :package_operating_points, :materialize_operating_point,
                 :multiconductor_to_balanced_preflight,
                 :lower_multiconductor_to_balanced,
-                :arrow_available, :gridfm_available, :matrix_available,
+                :arrow_available, :gridfm_available, :matrix_available, :features,
                 :MulticonductorNetwork, :dist_available, :dist_abi_version)
         @test isdefined(PowerIO, sym)
     end
@@ -34,6 +34,20 @@
     @test PowerIO._lib() isa AbstractString
     @test PowerIO.PIO_ABI_VERSION isa Unsigned
     @test PowerIO.PIO_DIST_ABI_VERSION isa Unsigned
+
+    f = PowerIO.features()
+    @test propertynames(f) == (:arrow, :matrix, :gridfm, :dist, :package)
+    @test f.arrow == PowerIO.arrow_available()
+    @test f.matrix == PowerIO.matrix_available()
+    @test f.gridfm == PowerIO.gridfm_available()
+    @test f.dist == PowerIO.dist_available()
+    @test f.package == PowerIO.package_available()
+
+    lib = PowerIO._lib()
+    PowerIO.set_library!(lib)
+    @test PowerIO._lib() == lib
+    PowerIO.clear_library!()
+    @test PowerIO._lib() isa AbstractString
 end
 
 @testset "pure-Julia accessors (no binary)" begin

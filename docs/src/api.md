@@ -76,6 +76,13 @@ Modules = [PowerIO]
 Pages = ["goc3.jl"]
 ```
 
+## Feature probes
+
+```@autodocs
+Modules = [PowerIO]
+Pages = ["features.jl"]
+```
+
 ## Library resolution and ABI
 
 ```@autodocs

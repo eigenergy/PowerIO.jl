@@ -1,40 +1,79 @@
 # --- library resolution -------------------------------------------------
 #
-# Resolution order: an explicit dev override (`POWERIO_CAPI` / `set_library!`)
-# first, then the bundled `powerio_capi` artifact (the registered-release path),
-# then a sibling `../powerio` checkout's `target/{release,debug}` build (zero-config
-# tandem dev), then a plain `libpowerio_capi` on the loader path. The artifact lookup
-# is lazy and guarded, so a not-yet-populated `Artifacts.toml` (the binary isn't
-# released yet) degrades to the sibling/loader-path fallback instead of breaking
-# module load.
+# Resolution order: an in-session dev override (`set_library!`) first, then the
+# `POWERIO_CAPI` environment variable, then a Preferences.jl library setting,
+# then the bundled `powerio_capi` artifact (the registered release path), then a
+# sibling `../powerio` checkout's `target/{release,debug}` build, then a plain
+# `libpowerio_capi` on the loader path. The artifact lookup is lazy and guarded,
+# so a not-yet-populated `Artifacts.toml` degrades to the sibling/loader path
+# fallback instead of breaking module load.
 #
 # Once a `PowerIO_jll` is registered (issue #1, non-blocking) this whole block
 # becomes `using PowerIO_jll` and `_lib() = PowerIO_jll.libpowerio_capi`.
 
-const _LIBRARY = Ref{String}("")   # explicit dev override; "" means unset
-const _RESOLVED = Ref{String}("")  # memoized non-override resolution (artifact/loader path)
+const _SESSION_LIBRARY = Ref{String}("")    # set_library! override; "" means unset
+const _ENV_LIBRARY = Ref{String}("")        # POWERIO_CAPI captured at module init
+const _PREFERRED_LIBRARY = Ref{String}("")  # Preferences.jl override
+const _RESOLVED = Ref{String}("")           # memoized artifact / loader path resolution
+const _LIBRARY_PREFERENCE = "library"
 
 function __init__()
-    # Only the explicit override is read at init; the artifact/loader-path
-    # fallback is resolved (and memoized) lazily in `_lib()`.
-    _LIBRARY[] = get(ENV, "POWERIO_CAPI", "")
+    # Overrides are read at init; the artifact/loader path fallback is resolved
+    # and memoized lazily in `_lib()`.
+    _SESSION_LIBRARY[] = ""
+    _ENV_LIBRARY[] = get(ENV, "POWERIO_CAPI", "")
+    _PREFERRED_LIBRARY[] = _library_preference()
 end
 
 """
-    set_library!(path)
+    set_library!(path; persist=false)
 
 Point PowerIO at a locally built `libpowerio_capi` (`cargo build -p powerio-capi
 --release` in the PowerIO Rust tree → `target/release/libpowerio_capi.{dylib,so}`).
-A development override that wins over the bundled artifact.
+An in-session override wins over `POWERIO_CAPI`, the saved Preferences.jl
+override, and the bundled artifact. Pass `persist=true` to save the path in the
+active environment's `LocalPreferences.toml`.
 """
-function set_library!(path::AbstractString)
-    _LIBRARY[] = String(path)
+function set_library!(path::AbstractString; persist::Bool=false)
+    _SESSION_LIBRARY[] = String(path)
+    if persist
+        set_preferences!(@__MODULE__, _LIBRARY_PREFERENCE => String(path); force=true)
+        _PREFERRED_LIBRARY[] = String(path)
+    end
     _ABI_OK[] = false  # the new library must pass its own handshake
     return
 end
 
+"""
+    clear_library!(; persist=false)
+
+Clear the in-session library override. Pass `persist=true` to also clear the
+saved Preferences.jl `library` override. `POWERIO_CAPI`, when set, still wins on
+this session's next call.
+"""
+function clear_library!(; persist::Bool=false)
+    _SESSION_LIBRARY[] = ""
+    if persist
+        set_preferences!(@__MODULE__, _LIBRARY_PREFERENCE => missing; force=true)
+        _PREFERRED_LIBRARY[] = _library_preference()
+    else
+        _PREFERRED_LIBRARY[] = _library_preference()
+    end
+    _ABI_OK[] = false
+    return
+end
+
+function _library_preference()
+    value = load_preference(@__MODULE__, _LIBRARY_PREFERENCE, "";
+                            disable_invalidation=true)
+    value isa AbstractString || return ""
+    return String(value)
+end
+
 function _lib()
-    isempty(_LIBRARY[]) || return _LIBRARY[]
+    isempty(_SESSION_LIBRARY[]) || return _SESSION_LIBRARY[]
+    isempty(_ENV_LIBRARY[]) || return _ENV_LIBRARY[]
+    isempty(_PREFERRED_LIBRARY[]) || return _PREFERRED_LIBRARY[]
     isempty(_RESOLVED[]) || return _RESOLVED[]
     return _RESOLVED[] = _artifact_lib()  # resolve once; bounds a failed lazy fetch to one attempt
 end
@@ -229,7 +268,7 @@ Base.@deprecate_binding NetworkHandle BalancedNetworkHandle
 _lib_call_error(e) = error(
     "PowerIO: could not call the C ABI at \"$(_lib())\": build it " *
     "(`cargo build -p powerio-capi --release` in a sibling powerio checkout) " *
-    "or set POWERIO_CAPI / call `set_library!`. Underlying: $e")
+    "or call `set_library!` / set POWERIO_CAPI. Underlying: $e")
 
 # Sibling of `_lib_call_error` for the feature-gated entry points: the ccall threw
 # because the resolved library lacks `sym`. Anything other than the missing

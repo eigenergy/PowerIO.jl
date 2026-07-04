@@ -27,12 +27,18 @@ per-platform binary; users never compile it.
 
 1. `PowerIO.set_library!(path)` / the `POWERIO_CAPI` environment variable
    (the dev override),
-2. the `powerio_capi` artifact,
-3. a sibling `powerio` checkout's `target/{release,debug}` build,
-4. a plain `libpowerio_capi` on the loader path.
+2. the saved Preferences.jl `library` override,
+3. the `powerio_capi` artifact,
+4. a sibling `powerio` checkout's `target/{release,debug}` build,
+5. a plain `libpowerio_capi` on the loader path.
 
 On an unsupported platform the artifact lookup fails and the fallbacks keep a
 local build working.
+
+```julia
+PowerIO.set_library!("/path/to/libpowerio_capi.dylib"; persist=true)
+PowerIO.clear_library!(persist=true)
+```
 
 ## JLL
 
