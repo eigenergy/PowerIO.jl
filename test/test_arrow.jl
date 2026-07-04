@@ -109,5 +109,43 @@
         close(z2)
         finalize(z2)
         @test true
+
+        function f64_bits(xs)
+            ["0x" * string(reinterpret(UInt64, Float64(x)); base=16, pad=16) for x in xs]
+        end
+
+        function check_matrix_fixture(case_name)
+            path = joinpath(data, case_name)
+            fixture_path = joinpath(data, "capi_matrix",
+                                    replace(case_name, ".m" => "_arrow_coo.json"))
+            fixture = PowerIO._json_plain(JSON3.read(read(fixture_path, String)))
+            for table_name in ("ybus", "incidence", "bprime", "bdoubleprime")
+                got = to_arrow(path, Symbol(table_name))
+                expected = fixture["tables"][table_name]
+                @test got.table == expected["table"]
+                @test got.row_count == expected["row_count"]
+                @test got.col_count == expected["col_count"]
+                @test got.row_index == expected["row_index"]
+                @test got.col_index == expected["col_index"]
+                if table_name == "ybus"
+                    @test f64_bits(got.g) == expected["g_bits"]
+                    @test f64_bits(got.b) == expected["b_bits"]
+                else
+                    @test f64_bits(got.value) == expected["value_bits"]
+                end
+            end
+        end
+
+        if PowerIO.matrix_available()
+            check_matrix_fixture("case9.m")
+            check_matrix_fixture("case30.m")
+            zmat = to_arrow(m, :bprime; copy=false)
+            @test zmat.row_count == 14
+            @test zmat.col_count == 14
+            @test zmat.row_index isa PowerIO.ArrowColumn{Int64}
+            close(zmat)
+        else
+            @test_throws ErrorException to_arrow(m, :bprime)
+        end
     end
 end

@@ -131,6 +131,8 @@ end
 # GC triggered between extracting `h.ptr` and the ccall could finalize `h` and
 # hand the Rust side a freed pointer. Every helper that lowers a handle to a raw
 # pointer carries the same guard.
+const POWER_MODELS_ANGLE_BOUND_PAD = 1.0472
+
 function _normalize_handle(h::BalancedNetworkHandle)
     err = zeros(UInt8, _ERRLEN)
     ptr = GC.@preserve h ccall((:pio_normalize, _lib()), Ptr{Cvoid},
@@ -139,8 +141,23 @@ function _normalize_handle(h::BalancedNetworkHandle)
     return BalancedNetworkHandle(ptr)
 end
 
+function _normalize_handle_with_options(h::BalancedNetworkHandle,
+                                        clamp_angle_bounds::Bool,
+                                        angle_bound_pad::Real)
+    _exports_symbol(:pio_normalize_with_options) || error(
+        "PowerIO.to_normalized_with_options: the C ABI at \"$(_lib())\" does not export " *
+        "pio_normalize_with_options. Rebuild powerio-capi from the matching PowerIO branch.")
+    err = zeros(UInt8, _ERRLEN)
+    ptr = GC.@preserve h ccall((:pio_normalize_with_options, _lib()), Ptr{Cvoid},
+                               (Ptr{Cvoid}, Cint, Cdouble, Ptr{UInt8}, Csize_t),
+                               h.ptr, clamp_angle_bounds ? Cint(1) : Cint(0),
+                               Cdouble(angle_bound_pad), err, length(err))
+    ptr == C_NULL && error("PowerIO.to_normalized_with_options: " * _cstr(err))
+    return BalancedNetworkHandle(ptr)
+end
+
 """
-    to_normalized(net::BalancedNetwork) -> BalancedNetwork
+    to_normalized(net::BalancedNetwork; clamp_angle_bounds=false, angle_bound_pad=nothing) -> BalancedNetwork
 
 A computation-ready copy of `net`: per unit (powers ÷ `base_mva`), angles in
 radians, transformer tap `0 → 1`, out-of-service and isolated elements dropped,
@@ -149,12 +166,31 @@ keeps `REF` if the source marked it so, else becomes `PV`; a generator-less bus
 becomes `PQ`). `source_format` of the result is `"Normalized"`.
 
 Needs `net`'s live Rust handle (from [`parse_file`](@ref)). Errors if `base_mva` is
-not positive or no reference bus can be established.
+not positive or no reference bus can be established. `clamp_angle_bounds=true`
+also applies the PowerModels angle difference repair in the Rust normalize pass.
 """
-function to_normalized(net::BalancedNetwork)
-    hn = _normalize_handle(_live_handle(net, "to_normalized"))
+function to_normalized(net::BalancedNetwork; clamp_angle_bounds::Bool=false,
+                       angle_bound_pad::Union{Nothing,Real}=nothing)
+    h = _live_handle(net, "to_normalized")
+    hn = if clamp_angle_bounds || angle_bound_pad !== nothing
+        pad = angle_bound_pad === nothing ? POWER_MODELS_ANGLE_BOUND_PAD : angle_bound_pad
+        _normalize_handle_with_options(h, clamp_angle_bounds, pad)
+    else
+        _normalize_handle(h)
+    end
     return BalancedNetwork(JSON3.read(_to_json(hn)), hn)
 end
+
+"""
+    to_normalized_with_options(net::BalancedNetwork; clamp_angle_bounds=false, angle_bound_pad=nothing)
+
+Compatibility spelling for [`to_normalized`](@ref) with explicit normalize
+options.
+"""
+to_normalized_with_options(net::BalancedNetwork; clamp_angle_bounds::Bool=false,
+                           angle_bound_pad::Union{Nothing,Real}=nothing) =
+    to_normalized(net; clamp_angle_bounds=clamp_angle_bounds,
+                  angle_bound_pad=angle_bound_pad)
 
 """
     to_json(net::BalancedNetwork) -> String

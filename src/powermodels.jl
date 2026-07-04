@@ -66,31 +66,72 @@ function calc_branch_y(branch::Dict{String,<:Any})
     return real(y), imag(y)
 end
 
-"""
-    PowerIO.correct_voltage_angle_differences!(network_data::Dict; default_pad=1.0472)
-
-Clamp branch angle difference bounds to `±default_pad` (≈ π/3 rad) when the
-stored bounds are at or outside `±π/2`, or when both are zero. The legacy
-MATPOWER correction `PowerModels.correct_voltage_angle_differences!` applies,
-except this version is silent where PowerModels logs each clamp. Angles are
-radians, the convention of [`to_powermodels`](@ref) output.
-"""
-function correct_voltage_angle_differences!(network_data::Dict{String,<:Any};
-                                            default_pad=1.0472)
-    for (_, branch) in get(network_data, "branch", Dict{String,Any}())
+function _correct_branch_angle_differences!(branch_table, default_pad)
+    for (_, branch) in branch_table
         angmin = branch["angmin"]
         angmax = branch["angmax"]
-
-        if angmin <= -pi / 2
-            branch["angmin"] = -default_pad
-        end
-        if angmax >= pi / 2
-            branch["angmax"] = default_pad
-        end
+        angmin <= -pi / 2 && (branch["angmin"] = -default_pad)
+        angmax >= pi / 2 && (branch["angmax"] = default_pad)
         if angmin == 0.0 && angmax == 0.0
             branch["angmin"] = -default_pad
             branch["angmax"] = default_pad
         end
+    end
+    return branch_table
+end
+
+function _branch_key_from_source(branch_table, source_id)
+    if source_id isa AbstractVector && length(source_id) >= 2 && string(source_id[1]) == "branch"
+        row = source_id[2]
+        haskey(branch_table, row) && return row
+        row_int = try
+            Int(row)
+        catch
+            nothing
+        end
+        row_int !== nothing && haskey(branch_table, row_int) && return row_int
+        row_string = string(row)
+        haskey(branch_table, row_string) && return row_string
+        for (id, branch) in branch_table
+            get(branch, "index", nothing) == row && return id
+        end
+    end
+    return nothing
+end
+
+"""
+    PowerIO.correct_voltage_angle_differences!(network_data::Dict; default_pad=1.0472)
+
+Clamp branch angle difference bounds to `±default_pad` (≈ π/3 rad). Full
+PowerModels network data routes through PowerIO's normalize pass when the loaded
+C ABI exports it; a bare branch table, or an older artifact without normalize
+options, keeps the PowerModels helper behavior. Angles are radians, the
+convention of [`to_powermodels`](@ref) output.
+"""
+function correct_voltage_angle_differences!(network_data::Dict{String,<:Any};
+                                            default_pad=POWER_MODELS_ANGLE_BOUND_PAD)
+    branch_table = get(network_data, "branch", Dict{String,Any}())
+    isempty(branch_table) && return network_data
+    if !haskey(network_data, "baseMVA") || !haskey(network_data, "bus") ||
+       !_exports_symbol(:pio_normalize_with_options)
+        _correct_branch_angle_differences!(branch_table, default_pad)
+        return network_data
+    end
+    corrected = to_normalized(
+        from_powermodels(network_data);
+        clamp_angle_bounds=true,
+        angle_bound_pad=default_pad,
+    )
+    _correct_branch_angle_differences!(branch_table, default_pad)
+    corrected_pm = to_powermodels(corrected)
+    corrected_rows = sort(collect(values(get(corrected_pm, "branch", Dict{String,Any}())));
+                          by = br -> br["index"])
+    for (fixed_pm, fixed) in zip(corrected_rows, branches(corrected))
+        id = _branch_key_from_source(branch_table, get(fixed_pm, "source_id", nothing))
+        id === nothing && continue
+        branch = branch_table[id]
+        branch["angmin"] = fixed["angmin"]
+        branch["angmax"] = fixed["angmax"]
     end
     return network_data
 end
@@ -151,7 +192,9 @@ function build_ref(network_data::Dict{String,<:Any})
                            v["f_bus"] in active_buses &&
                            v["t_bus"] in active_buses)
 
-    correct_voltage_angle_differences!(Dict{String,Any}("branch" => ref[:branch]))
+    ref_data = copy(network_data)
+    ref_data["branch"] = ref[:branch]
+    correct_voltage_angle_differences!(ref_data)
 
     ref[:arcs_from] = [(i, branch["f_bus"], branch["t_bus"]) for (i, branch) in ref[:branch]]
     ref[:arcs_to]   = [(i, branch["t_bus"], branch["f_bus"]) for (i, branch) in ref[:branch]]

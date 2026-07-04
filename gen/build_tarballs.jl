@@ -1,13 +1,7 @@
-# BinaryBuilder recipe for the powerio-capi C ABI (libpowerio_capi).
-#
-# Two uses, one recipe:
-#   1. Self-hosted distribution (issue #8, now): cross-compile the per-platform
-#      tarballs, upload them to a PowerIO.jl GitHub release, and reference them from
-#      the package's Artifacts.toml. The build prints each tarball's sha256 and the
-#      artifact's git-tree-sha1; paste those into Artifacts.toml.
-#   2. PowerIO_jll (issue #1, later): submit this file to the Julia binary
-#      distribution flow once the source pin points at a release commit that
-#      exports every C ABI surface PowerIO.jl needs.
+# BinaryBuilder recipe for a future PowerIO_jll. Current PowerIO.jl releases use
+# eigenergy/powerio's release-binaries workflow plus gen/update_artifacts.jl, not
+# this recipe. Before submitting a JLL, update the source pin and version to a
+# release commit that exports every C ABI surface PowerIO.jl needs.
 #
 # Run:  julia build_tarballs.jl --verbose   (add a platform triplet to build one)
 # Drop i686-w64-mingw32: the Rust toolchain target is troublesome and 32-bit Windows
@@ -21,10 +15,8 @@ name = "PowerIO"
 # usable, not the version number.
 version = v"0.5.0"
 
-# Must pin a commit reporting `PIO_ABI_VERSION` 4: the binding's load-time
-# handshake refuses anything else, and `to_arrow` / the dist / package surfaces
-# need their features. This pin is the powerio v0.5.0 release commit, which
-# exports the full `PIO_PKG` package surface.
+# Historical pin for the JLL prototype. The release artifact pipeline does not
+# use it.
 sources = [
     GitSource("https://github.com/eigenergy/powerio.git",
               "b9d57b0a32ad9628e36ec7ba30aa5d60167e6089"),
@@ -35,14 +27,14 @@ sources = [
 # (windows, no lib prefix, ships under bin/). `install_license` keeps AutoMerge happy.
 script = raw"""
 cd $WORKSPACE/srcdir/powerio
-# --features arrow ships pio_to_arrow (the zero-copy Arrow C Data Interface export
-# to_arrow calls); --features gridfm ships pio_read_dir / pio_scenario_ids (the
-# gridfm-datakit Parquet reader read_gridfm calls); --features dist ships the
-# pio_dist_* surface (the OpenDSS / PMD / BMOPF distribution binding);
-# --features pkg ships the pio_package_* surface. The base ABI is identical
-# without them. This matches powerio's release-binaries.yml when the source pin
-# has the pkg feature.
+# --features arrow ships pio_to_arrow; --features matrix ships the matrix COO
+# Arrow tables when the pinned source supports them; --features gridfm ships
+# pio_read_dir / pio_scenario_ids; --features dist ships pio_dist_*;
+# --features pkg ships pio_package_*.
 features=arrow,gridfm,dist
+if grep -q '^matrix = ' powerio-capi/Cargo.toml; then
+    features="${features},matrix"
+fi
 if grep -q '^pkg = ' powerio-capi/Cargo.toml; then
     features="${features},pkg"
 fi

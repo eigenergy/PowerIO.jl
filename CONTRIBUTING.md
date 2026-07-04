@@ -8,7 +8,7 @@ sibling checkout; the library resolves automatically from
 
 ```
 git clone https://github.com/eigenergy/powerio ../powerio
-cargo build -p powerio-capi --release --features arrow,gridfm,dist,pkg   # in ../powerio
+cargo build -p powerio-capi --release --features arrow,matrix,gridfm,dist,pkg   # in ../powerio
 julia --project=. -e 'using Pkg; Pkg.test()'
 ```
 
@@ -42,7 +42,8 @@ After each powerio binary release:
 1. Dispatch the "Update artifacts" workflow with the new powerio tag. It
    regenerates Artifacts.toml from the release tarballs and opens a PR when
    anything changed. The updater checks both `PIO_ABI_VERSION` and
-   `PIO_DIST_ABI_VERSION` before rewriting `Artifacts.toml`; if either changed,
+   `PIO_DIST_ABI_VERSION` before rewriting `Artifacts.toml`, and checks the
+   arrow, matrix, gridfm, dist, and package surfaces; if either ABI changed,
    update the matching constant and affected ccalls in that PR (see "ABI
    lockstep" above).
 2. Merge the artifacts PR if one was opened, then dispatch "Register Package"
@@ -61,11 +62,13 @@ After each powerio binary release:
    creates the GitHub release.
 
    TagBot uses `TAGBOT_TOKEN` when present, falling back to `GITHUB_TOKEN` for
-   normal releases. Set `TAGBOT_TOKEN` to a fine grained token with contents and
-   workflows write access before asking TagBot to backfill old versions whose
-   registered commits changed `.github/workflows/*.yml`. Set `TAGBOT_SSH` to a
-   write deploy key, or reuse `DOCUMENTER_KEY`, so TagBot can push release tags
-   through SSH.
+   normal releases. Issue #44 is a manual `v0.0.1` backfill because the tagged
+   commit changed workflow files. To resolve it, create a fine grained
+   `TAGBOT_TOKEN` with contents and workflows write access, add it as a repo
+   Actions secret, then run the TagBot workflow manually. If that still fails,
+   run `gh release create v0.0.1 --target a6a9b00a --generate-notes` locally.
+   Set `TAGBOT_SSH` to a write deploy key, or reuse `DOCUMENTER_KEY`, so TagBot
+   can push release tags through SSH.
 
 A binding-only fix (no new binary) skips step 1.
 

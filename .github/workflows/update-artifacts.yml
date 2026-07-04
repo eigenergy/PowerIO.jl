@@ -84,7 +84,7 @@ jobs:
           # The ccall testsets skip when the library is unavailable, so assert
           # the repinned artifact actually resolves and passes the handshake —
           # otherwise a download flake would let Pkg.test pass vacuously.
-          julia --project=. -e 'using PowerIO; PowerIO.library_available() || error("the repinned artifact did not resolve or failed the core ABI check"); PowerIO.arrow_available() || error("the repinned artifact is missing the arrow feature"); PowerIO.gridfm_available() || error("the repinned artifact is missing the gridfm feature"); PowerIO.dist_available() || error("the repinned artifact is missing the dist feature or dist ABI")'
+          julia --project=. -e 'using PowerIO; PowerIO.library_available() || error("the repinned artifact did not resolve or failed the core ABI check"); PowerIO.arrow_available() || error("the repinned artifact is missing the arrow feature"); PowerIO.matrix_available() || error("the repinned artifact is missing the matrix feature"); PowerIO.gridfm_available() || error("the repinned artifact is missing the gridfm feature"); PowerIO.dist_available() || error("the repinned artifact is missing the dist feature or dist ABI")'
           julia --project=. -e 'using Pkg; Pkg.test()'
       - name: Open a pull request
         env:
@@ -109,5 +109,5 @@ jobs:
           else
             gh pr create \
               --title "release: artifact hashes from powerio $TAG" \
-              --body "Regenerates Artifacts.toml from the $TAG release of eigenergy/powerio. The core and distribution ABI versions matched the binding, and the test suite passed against these binaries before this PR opened. After merging, dispatch the Register Package workflow with the new version."
+              --body "Regenerates Artifacts.toml from the $TAG release of eigenergy/powerio. The core and distribution ABI versions matched the binding, the required feature surfaces were present, and the test suite passed against these binaries before this PR opened. After merging, dispatch the Register Package workflow with the new version."
           fi
