@@ -51,21 +51,31 @@ function _host_triplet()
     return ""
 end
 
+# Parse an ABI constant from the source files that may own it after the module
+# split. Keep this textual so the release updater can run before package
+# instantiation.
+function _binding_uint32_const(name::AbstractString, files)
+    re = Regex("\\b$(name)\\s*=\\s*UInt32\\((\\d+)\\)")
+    for file in files
+        path = joinpath(@__DIR__, "..", "src", file)
+        isfile(path) || continue
+        m = match(re, read(path, String))
+        m === nothing || return parse(UInt32, m.captures[1])
+    end
+    return nothing
+end
+
 # The ABI version this binding targets, parsed from the source of truth.
 function _binding_abi()
-    src = read(joinpath(@__DIR__, "..", "src", "PowerIO.jl"), String)
-    m = match(r"PIO_ABI_VERSION\s*=\s*UInt32\((\d+)\)", src)
-    m === nothing && error("PIO_ABI_VERSION not found in src/PowerIO.jl")
-    return parse(UInt32, m.captures[1])
+    value = _binding_uint32_const("PIO_ABI_VERSION", ("capi.jl", "PowerIO.jl"))
+    value === nothing && error("PIO_ABI_VERSION not found in src/capi.jl or src/PowerIO.jl")
+    return value
 end
 
 # The distribution ABI version this binding targets, parsed from the source of
 # truth. Missing means this binding predates the separate dist ABI.
 function _binding_dist_abi()
-    src = read(joinpath(@__DIR__, "..", "src", "dist.jl"), String)
-    m = match(r"PIO_DIST_ABI_VERSION\s*=\s*UInt32\((\d+)\)", src)
-    m === nothing && return nothing
-    return parse(UInt32, m.captures[1])
+    return _binding_uint32_const("PIO_DIST_ABI_VERSION", ("dist.jl", "PowerIO.jl"))
 end
 
 function _skip_release(msg::String)

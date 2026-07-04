@@ -1,0 +1,197 @@
+@testset "C ABI round trip" begin
+    if !PowerIO.library_available()
+        @info "libpowerio_capi not found (set POWERIO_CAPI to a local build); skipping ccall tests"
+        @test_skip parse_file("case14.m")
+    else
+        data = joinpath(@__DIR__, "data")
+        net = parse_file(joinpath(data, "case14.m"))
+        @test PowerIO.n_buses(net) == 14
+        @test PowerIO.n_branches(net) == 20
+        @test PowerIO.n_gens(net) == 5
+        @test PowerIO.base_mva(net) == 100.0
+        @test PowerIO.source_format(net) == "Matpower"
+        @test PowerIO.reference_bus_id(net) == 1
+        @test isempty(PowerIO.storage(net))
+        @test isempty(PowerIO.hvdc(net))
+
+        # `from` hint threads through to pio_parse_file.
+        net_hinted = parse_file(joinpath(data, "case14.m"); from = "matpower")
+        @test PowerIO.n_buses(net_hinted) == 14
+
+        text_in = read(joinpath(data, "case14.m"), String)
+        net_from_text = parse_str(text_in, "matpower")
+        @test PowerIO.n_buses(net_from_text) == 14
+        @test PowerIO.source_format(net_from_text) == "Matpower"
+
+        net_from_json = from_json(to_json(net))
+        @test PowerIO.n_buses(net_from_json) == 14
+        @test PowerIO.source_format(net_from_json) == "Matpower"
+
+        # powerio-json is a first-class format token under v4: parse_str reads
+        # the snapshot to_json writes, and a clean MATPOWER parse keeps no
+        # handle warnings (the v4 pio_warnings accessor).
+        @test PowerIO.n_buses(parse_str(to_json(net), "powerio-json")) == 14
+        @test isempty(PowerIO.warnings(net))
+
+        # EGRET and PowerModels both use .json (fixtures produced by convert_file).
+        # The positive cases confirm each fixture parses under its own format; the
+        # negative cases prove `from` overrides inference, since forcing the wrong
+        # reader on a well-formed file fails.
+        egret = parse_file(joinpath(data, "case14.egret.json"); from = "egret")
+        @test PowerIO.n_buses(egret) == 14
+        @test PowerIO.source_format(egret) == "EgretJson"
+        pm = parse_file(joinpath(data, "case14.pm.json"); from = "powermodels")
+        @test PowerIO.n_buses(pm) == 14
+        @test PowerIO.source_format(pm) == "PowerModelsJson"
+        @test_throws ErrorException parse_file(joinpath(data, "case14.pm.json"); from = "egret")
+        @test_throws ErrorException parse_file(joinpath(data, "case14.egret.json"); from = "powermodels")
+
+        # Same-format conversion is byte-exact and warning-free.
+        text, warnings = convert_file(joinpath(data, "case14.m"), "matpower")
+        @test occursin("mpc.bus", text)
+        @test isempty(warnings)
+
+        # A cross-format target exercises a second writer and the warnings vector.
+        psse_text, psse_warnings = convert_file(joinpath(data, "case14.m"), "psse")
+        @test !isempty(psse_text)
+        @test psse_warnings isa AbstractVector{<:AbstractString}
+
+        # convert_str is the in-memory sibling of convert_file (v4 pio_convert_str);
+        # matpower -> psse matches the file conversion byte for byte.
+        cs_text, cs_warnings = convert_str(read(joinpath(data, "case14.m"), String), "psse"; from = "matpower")
+        @test cs_text == psse_text
+        @test cs_warnings isa AbstractVector{<:AbstractString}
+
+        pm_text, pm_warnings = to_format(net, "powermodels-json")
+        @test JSON3.read(pm_text).baseMVA == 100.0
+        @test pm_warnings isa AbstractVector{<:AbstractString}
+        pm_dict = to_powermodels(net)
+        @test haskey(pm_dict, "bus")
+        @test PowerIO.n_buses(from_powermodels(pm_dict)) == 14
+
+        pdata = to_powerdata(net)
+        @test pdata.baseMVA == 100.0
+        @test length(pdata.bus) == 14
+        @test length(pdata.arc) == 2 * length(pdata.branch)
+        @test pdata.gen[1].bus == 1
+        @test pdata.gen[1].n == 3
+        @test pdata.gen[1].c[1] ≈ 430.292599
+        @test pdata.gen[1].c[2] ≈ 2000.0
+        @test pdata.gen[1].c[3] ≈ 0.0
+        ac = parse_ac_power_data(net)
+        @test ac.baseMVA == [100.0]
+        @test ac.ref_buses == [1]
+        @test ac.gen[1].c == pdata.gen[1].c
+
+        if !package_available()
+            @test_skip to_package(net)
+        else
+            pkg = to_package(net)
+            @test pkg isa NetworkPackage
+            @test pkg isa CompilerPackage
+            @test package_model_kind(pkg) == :balanced
+            @test package_operating_points(pkg) === nothing
+            pkg_doc = JSON3.read(to_json(pkg))
+            # Same major is the reader contract; byte equality broke this
+            # suite on every additive envelope bump in powerio.
+            @test VersionNumber(String(pkg_doc.schema_version)).major ==
+                  VersionNumber(PowerIO.PIO_PACKAGE_SCHEMA_VERSION).major
+            @test pkg_doc.model_kind == "balanced"
+            @test pkg_doc.model.kind == "balanced"
+            @test pkg_doc.model.balanced_network.base_mva == 100.0
+            @test package_validation(pkg).status == "ok"
+            @test isempty(package_diagnostics(pkg))
+            validated = validate_package(pkg)
+            @test package_validation(validated).status == "ok"
+            @test any(p -> p.name == "balanced.structure", package_validation(validated).passes)
+            from_pkg = from_package(pkg)
+            @test from_pkg isa BalancedNetwork
+            @test PowerIO.n_buses(from_pkg) == 14
+            @test PowerIO.to_dense(from_pkg).gen.bus == PowerIO.to_dense(net).gen.bus
+
+            pkg_path = joinpath(mktempdir(), "case14.pio.json")
+            @test write_package(pkg_path, pkg) == pkg_path
+            @test package_model_kind(read_package(pkg_path)) == :balanced
+            @test PowerIO.n_branches(from_package(read(pkg_path, String))) == 20
+
+            pkg_with_solver = to_package(net; include_solver_metadata=true)
+            meta = pkg_with_solver.derived.normalized_solver_tables
+            @test meta.pass == "balanced-to-normalized-solver-tables"
+            @test meta.row_counts.buses == 14
+            @test meta.row_counts.arcs == 40
+            @test meta.bus_ids == collect(1:14)
+        end
+
+        pv_noref = """
+        function mpc = pv_noref
+        mpc.version = '2';
+        mpc.baseMVA = 100;
+        mpc.bus = [
+            1 2 0 0 0 0 1 1.0 0 138 1 1.1 0.9;
+            2 1 10 4 0 0 1 1.0 -1 138 1 1.1 0.9;
+        ];
+        mpc.gen = [
+            1 50 0 50 -50 1 100 1 100 0;
+        ];
+        mpc.branch = [
+            1 2 0.01 0.1 0 100 100 100 0 0 1 -30 30;
+        ];
+        mpc.gencost = [
+            2 0 0 3 0.01 20 0;
+        ];
+        """
+        pv_ac = parse_ac_power_data(parse_str(pv_noref, "matpower"))
+        @test pv_ac.ref_buses == [1]
+        @test pv_ac.bus[1].type == 3
+
+        bad_branch = replace(pv_noref, "0.01 0.1" => "NaN 0.1")
+        bad_err = try
+            to_powerdata(parse_str(bad_branch, "matpower"))
+            nothing
+        catch e
+            e
+        end
+        @test bad_err isa ArgumentError
+        @test occursin("PowerIO.to_powerdata: branch 1", sprint(showerror, bad_err))
+
+        storage_text = """
+        function mpc = storage_case
+        mpc.baseMVA = 100;
+        mpc.bus = [
+            1 3 0 0 0 0 1 1 0 345 1 1.1 0.9;
+            4 1 0 0 0 0 1 1 0 345 1 1.1 0.9;
+        ];
+        mpc.branch = [
+            1 4 0.01 0.05 0.02 0 0 0 0 0 1 -360 360;
+        ];
+        mpc.gen = [
+            1 10 0 100 -100 1 100 1 20 0;
+        ];
+        mpc.gencost = [
+            2 0 0 3 0 1 0;
+        ];
+        mpc.storage = [
+            4 0.0 0.0 1.00 600.0 300.0 216.0 0.9 0.85 1000 -1000 1000 0.1 0.01 0 0 1;
+            1 0.0 0.0 0.50 200.0 100.0 100.0 0.95 0.9 500 -500 500 0.2 0.02 0 0 0;
+        ];
+        """
+        storage_net = parse_str(storage_text, "matpower")
+        storage_raw_pd = to_powerdata(storage_net; filtered=false)
+        @test length(storage_raw_pd.storage) == 2
+        @test storage_raw_pd.storage[1].storage_bus == 4
+        @test storage_raw_pd.storage[1].energy_rating == 6.0
+        @test storage_raw_pd.storage[2].storage_bus == 1
+        @test storage_raw_pd.storage[2].status == 0
+        storage_pd = to_powerdata(storage_net)
+        @test length(storage_pd.storage) == 1
+        # v0.3.0 normalization preserves source bus ids, so the surviving
+        # storage unit keeps its source bus 4.
+        @test storage_pd.storage[1].storage_bus == 4
+        @test storage_pd.storage[1].energy_rating == 6.0
+
+        # library_available() is true here, so the ABI handshake passed: the
+        # library's ABI version must equal the one this binding targets.
+        @test PowerIO.abi_version() == PowerIO.PIO_ABI_VERSION
+        @test !isempty(PowerIO.library_version())
+    end
+end

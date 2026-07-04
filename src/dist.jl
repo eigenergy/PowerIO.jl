@@ -1,22 +1,29 @@
 # Multiconductor distribution surface over the C ABI (`pio_dist_*`, powerio-capi
 # built `--features dist`).
 #
-# Transmission cases (balanced positive sequence) flow through `BalancedNetwork` and
-# multiconductor unbalanced cases through `MulticonductorNetwork` — a different model on its
-# own handle, parsed from and written to OpenDSS (`"dss"`), PowerModelsDistribution
-# ENGINEERING JSON (`"pmd"`), and the IEEE BMOPF Taskforce JSON (`"bmopf"`). The
-# two share the verbs rather than prefixing: `to_format` / `warnings` dispatch on
-# the handle type, and the entry points that build a handle from a path or string
-# take the target type first, the `parse(T, x)` idiom — `parse_file(MulticonductorNetwork,
-# path)` — since Julia dispatches on argument types, not the return type. The
-# surface is parse / convert / serialize only; distribution data has no dense
-# extractor surface; its structure rides the format JSON payloads.
+# Transmission cases (balanced positive sequence) flow through `BalancedNetwork`
+# and multiconductor unbalanced cases through `MulticonductorNetwork` — a
+# different model on its own handle, parsed from and written to OpenDSS
+# (`"dss"`), PowerModelsDistribution ENGINEERING JSON (`"pmd"`), and the IEEE
+# BMOPF Taskforce JSON (`"bmopf"`). The two share the verbs: the bare verbs
+# route on the format (see `parse_file`), the type-marker forms
+# (`parse_file(MulticonductorNetwork, path)`) stay as the explicit spelling,
+# and `to_format` / `warnings` dispatch on the network type.
 #
-# EXPERIMENTAL: the `pio_dist_*` signatures have their own `PIO_DIST_ABI_VERSION`
-# starting with powerio v0.3.1. PowerIO.jl requires that version before calling
-# distribution entry points. The functions ship only with the dist feature (on by
-# default in the released binaries); `dist_available()` checks the symbol and the
-# reported dist ABI version.
+# Like `BalancedNetwork`, a parsed `MulticonductorNetwork` carries its element
+# tables (`net.data`) next to the live Rust handle. The tables come from
+# `pio_dist_to_json`: the model JSON, the same object a `.pio.json` document
+# carries under `model.multiconductor_network`. That JSON is deliberately not
+# a case format the converter knows — `.pio.json` carries cases between
+# PowerIO consumers with their metadata, BMOPF JSON is the exchange format
+# for everything else.
+#
+# EXPERIMENTAL: the `pio_dist_*` signatures carry their own
+# `PIO_DIST_ABI_VERSION` starting with powerio v0.3.1. PowerIO.jl requires that
+# version before calling distribution entry points. The functions ship only
+# with the dist feature (on by default in the released binaries), and the data
+# materialization additionally needs the pkg feature; `dist_available()` checks
+# the symbol and the reported dist ABI version.
 
 # `pio_dist_network_free`, memoized per resolved path — the `_network_free_fn`
 # story for distribution handles (a `set_library!` swap must not free across
@@ -33,17 +40,16 @@ function _dist_network_free_fn()
 end
 
 """
-    MulticonductorNetwork
+    MulticonductorNetworkHandle
 
-Opaque handle to a parsed multiconductor distribution case inside the Rust core,
-the distribution sibling of [`NetworkHandle`](@ref). Build one with
-`parse_file(MulticonductorNetwork, path)` / `parse_str(MulticonductorNetwork, text, format)` and
-serialize it with [`to_format`](@ref)`(net, to)`. Freed by its finalizer.
-EXPERIMENTAL; see the `src/dist.jl` note.
+Opaque handle to a parsed multiconductor distribution case inside the Rust
+core, the distribution sibling of [`BalancedNetworkHandle`](@ref). Freed by its
+finalizer; you normally go straight to [`parse_file`](@ref), which returns a
+[`MulticonductorNetwork`](@ref) carrying the handle next to the element tables.
 """
-mutable struct MulticonductorNetwork
+mutable struct MulticonductorNetworkHandle
     ptr::Ptr{Cvoid}
-    function MulticonductorNetwork(ptr::Ptr{Cvoid})
+    function MulticonductorNetworkHandle(ptr::Ptr{Cvoid})
         ptr == C_NULL && error("PowerIO: null distribution network handle")
         # Resolve the free fn before `new`: a failed lookup must not strand a
         # handle with no finalizer attached.
@@ -57,8 +63,39 @@ mutable struct MulticonductorNetwork
     end
 end
 
-Base.show(io::IO, net::MulticonductorNetwork) =
-    print(io, "MulticonductorNetwork(", net.ptr == C_NULL ? "freed" : "live", ")")
+Base.show(io::IO, h::MulticonductorNetworkHandle) =
+    print(io, "MulticonductorNetworkHandle(", h.ptr == C_NULL ? "freed" : "live", ")")
+
+"""
+    MulticonductorNetwork
+
+An immutable view of a parsed multiconductor distribution case: the element
+tables (`net.data`, the `pio-payload-multiconductor/1` payload: `buses`,
+`linecodes`, `lines`, `switches`, `transformers`, `loads`, `generators`,
+`shunts`, `sources`, plus `base_frequency`, `name`, `source_format`, and the
+parse `warnings`) next to the live Rust handle the `to_*` transforms run off.
+String bus ids, ordered string terminal names, SI units, radians.
+
+Build one with [`parse_file`](@ref)`("feeder.dss")` (the bare verb routes on
+the format) or the explicit `parse_file(MulticonductorNetwork, path)`. A
+`MulticonductorNetwork` constructed from a bare payload object has
+`handle === nothing`; the accessors work on it, but the handle transforms
+([`to_format`](@ref), [`to_package`](@ref)) error. JSON carry with provenance
+is [`to_package`](@ref) / [`from_package`](@ref); exchange with tools outside
+PowerIO is `to_format(net, "bmopf")`.
+"""
+struct MulticonductorNetwork
+    data::JSON3.Object
+    handle::Union{MulticonductorNetworkHandle,Nothing}
+end
+MulticonductorNetwork(data::JSON3.Object) = MulticonductorNetwork(data, nothing)
+
+function Base.show(io::IO, net::MulticonductorNetwork)
+    sf = source_format(net)
+    print(io, "MulticonductorNetwork{", sf === nothing ? "?" : sf, "}: ",
+          n_buses(net), " buses, ", length(net.data.lines), " lines, ",
+          length(net.data.loads), " loads")
+end
 
 Base.@deprecate_binding DistNetwork MulticonductorNetwork
 
@@ -108,18 +145,32 @@ function _ensure_dist_compatible()
     return
 end
 
-"""
-    parse_file(MulticonductorNetwork, path; from=nothing) -> MulticonductorNetwork
+# --- format routing -------------------------------------------------------
+#
+# The bare verbs route between the two models on format tokens and file
+# extensions. The token set mirrors the core's name tables
+# (powerio-dist/src/convert.rs `dist_target_from_name` and
+# powerio/src/format/routing.rs `distribution_format_from_name`); the
+# drift-canary test feeds every claimed token back through the core.
 
-Parse a distribution case file into a [`MulticonductorNetwork`](@ref) — the distribution
-overload of [`parse_file`](@ref), selected by passing the target type first (the
-`parse(T, x)` idiom). The format is inferred from the file unless `from` is given:
-`.dss` is OpenDSS, a `.json` with the ENGINEERING `data_model` key is PMD,
-otherwise BMOPF JSON. `from` tokens: `"dss"`, `"pmd"`, `"bmopf"`. Read parse
-warnings with [`warnings`](@ref)`(net)`. Needs `--features dist`; see
-[`dist_available`](@ref).
-"""
-function parse_file(::Type{MulticonductorNetwork}, path::AbstractString; from=nothing)
+_canonical_format_key(s) = replace(lowercase(String(s)), "-" => "", "_" => "")
+const _DIST_FORMAT_KEYS = Set(["dss", "opendss", "pmd", "pmdjson", "engineering",
+                               "bmopf", "bmopfjson"])
+_is_dist_format(s) = _canonical_format_key(s) in _DIST_FORMAT_KEYS
+_is_dss_path(p) = lowercase(splitext(String(p))[2]) == ".dss"
+_is_package_path(p) = endswith(lowercase(String(p)), ".pio.json")
+
+# The directed error for a cross-model conversion request. There is no
+# implicit lowering: multiconductor → balanced picks a base_mva and drops
+# per-phase detail, so the explicit package pass owns it.
+_cross_model_error(fname::AbstractString) = error(
+    "PowerIO.$fname: no implicit conversion between the multiconductor and balanced " *
+    "models. Lower explicitly: to_package(net) |> lower_multiconductor_to_balanced " *
+    "|> from_package, then serialize the balanced result.")
+
+# --- parse and materialize ------------------------------------------------
+
+function _dist_parse_handle(path::AbstractString; from=nothing)
     _ensure_dist_compatible()
     err = zeros(UInt8, _ERRLEN)
     fromc = from === nothing ? C_NULL : String(from)
@@ -131,17 +182,10 @@ function parse_file(::Type{MulticonductorNetwork}, path::AbstractString; from=no
         _feature_call_error("parse_file", "pio_dist_parse_file", "dist", e)
     end
     ptr == C_NULL && error("PowerIO.parse_file(MulticonductorNetwork): " * _cstr(err))
-    return MulticonductorNetwork(ptr)
+    return MulticonductorNetworkHandle(ptr)
 end
 
-"""
-    parse_str(MulticonductorNetwork, text, format) -> MulticonductorNetwork
-
-Parse in-memory distribution case `text` of the named `format` (`"dss"`, `"pmd"`,
-or `"bmopf"`; required, there is no path to infer from) into a [`MulticonductorNetwork`](@ref).
-An OpenDSS `Redirect`/`Compile` resolves against the current working directory.
-"""
-function parse_str(::Type{MulticonductorNetwork}, text::AbstractString, format::AbstractString)
+function _dist_parse_handle_str(text::AbstractString, format::AbstractString)
     _ensure_dist_compatible()
     err = zeros(UInt8, _ERRLEN)
     ptr = try
@@ -152,36 +196,169 @@ function parse_str(::Type{MulticonductorNetwork}, text::AbstractString, format::
         _feature_call_error("parse_str", "pio_dist_parse_str", "dist", e)
     end
     ptr == C_NULL && error("PowerIO.parse_str(MulticonductorNetwork): " * _cstr(err))
-    return MulticonductorNetwork(ptr)
+    return MulticonductorNetworkHandle(ptr)
 end
+
+# Materialize the element tables of a live handle: one call,
+# `pio_dist_to_json`, returning the model JSON a `.pio.json` document carries
+# under `model.multiconductor_network`. A library predating the call (powerio
+# 0.5.x) takes the long way through the package machinery instead — clone into
+# a package, serialize the whole document, take the model field; drop that
+# branch once the 0.6.0 artifact is pinned.
+function _dist_data(h::MulticonductorNetworkHandle)
+    err = zeros(UInt8, _ERRLEN)
+    if _exports_symbol(:pio_dist_to_json)
+        s = GC.@preserve h ccall((:pio_dist_to_json, _lib()), Cstring,
+                                 (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
+        s == C_NULL && error("PowerIO: could not serialize the multiconductor model: " * _cstr(err))
+        text = unsafe_string(s)
+        ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+        return JSON3.read(text)
+    end
+    ptr = try
+        GC.@preserve h ccall((:pio_package_from_multiconductor_network, _lib()), Ptr{Cvoid},
+                             (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
+    catch e
+        _feature_call_error("parse_file", "pio_package_from_multiconductor_network", "pkg", e)
+    end
+    ptr == C_NULL && error("PowerIO: could not materialize the multiconductor model: " * _cstr(err))
+    pkg = PackageHandle(ptr)
+    doc = JSON3.read(_package_to_json(pkg, "parse_file"))
+    finalize(pkg)
+    return doc.model.multiconductor_network
+end
+
+# The live Rust handle a MulticonductorNetwork-first transform needs; a
+# payload-only network has none, and a finalized handle is non-`nothing` but
+# null. Name the function that needs it.
+function _live_dist_handle(net::MulticonductorNetwork, fname::AbstractString)
+    h = net.handle
+    (h === nothing || h.ptr == C_NULL) && error(
+        "PowerIO.$fname: this MulticonductorNetwork has no live network handle " *
+        "(produce it with parse_file, parse_str, or from_package).")
+    return h
+end
+
+"""
+    parse_file(MulticonductorNetwork, path; from=nothing) -> MulticonductorNetwork
+
+Parse a distribution case file — the explicit form of the format-routed
+[`parse_file`](@ref)`(path)`, selected by passing the target type first (the
+`parse(T, x)` idiom). The format is inferred from the file unless `from` is
+given: `.dss` is OpenDSS, a `.json` with the ENGINEERING `data_model` key is
+PMD, otherwise BMOPF JSON. `from` tokens: `"dss"`, `"pmd"`, `"bmopf"`. Read
+parse warnings with [`warnings`](@ref)`(net)`. Needs `--features dist`; see
+[`dist_available`](@ref).
+"""
+function parse_file(::Type{MulticonductorNetwork}, path::AbstractString; from=nothing)
+    h = _dist_parse_handle(path; from=from)
+    return MulticonductorNetwork(_dist_data(h), h)
+end
+
+"""
+    parse_str(MulticonductorNetwork, text, format) -> MulticonductorNetwork
+
+Parse in-memory distribution case `text` of the named `format` (`"dss"`,
+`"pmd"`, or `"bmopf"`; required, there is no path to infer from) — the explicit
+form of the format-routed [`parse_str`](@ref)`(text, format)`. An OpenDSS
+`Redirect`/`Compile` resolves against the current working directory.
+"""
+function parse_str(::Type{MulticonductorNetwork}, text::AbstractString, format::AbstractString)
+    h = _dist_parse_handle_str(text, format)
+    return MulticonductorNetwork(_dist_data(h), h)
+end
+
+# --- accessors -------------------------------------------------------------
+#
+# Pure functions of the materialized payload: they work on a handle-less
+# `MulticonductorNetwork` too. String bus ids, SI units, radians — the payload
+# conventions, not the balanced accessors' MATPOWER ones. Unexported, like the
+# balanced accessor surface.
+
+n_buses(net::MulticonductorNetwork) = length(net.data.buses)
+
+"Buses, in source order: string ids, ordered `terminals`, explicit `grounded` terminals."
+buses(net::MulticonductorNetwork) = net.data.buses
+"Lines (conductor-level), each with `terminal_map_from` / `terminal_map_to` and a `linecode`."
+lines(net::MulticonductorNetwork) = net.data.lines
+"Line codes: per-unit-length impedance and shunt matrices, row-major, SI."
+linecodes(net::MulticonductorNetwork) = net.data.linecodes
+"Switches, with the same terminal maps as lines."
+switches(net::MulticonductorNetwork) = net.data.switches
+"Transformers: windings with terminal maps, connection kinds, and impedances."
+transformers(net::MulticonductorNetwork) = net.data.transformers
+"Loads, each with a `terminal_map` and a voltage model."
+loads(net::MulticonductorNetwork) = net.data.loads
+"Generators, each with a `terminal_map`."
+generators(net::MulticonductorNetwork) = net.data.generators
+"Shunts, each with a `terminal_map` and conductance/susceptance matrices."
+shunts(net::MulticonductorNetwork) = net.data.shunts
+"Voltage sources, each with a `terminal_map` and per-terminal magnitude/angle."
+sources(net::MulticonductorNetwork) = net.data.sources
+
+"""
+    base_frequency(net::MulticonductorNetwork) -> Float64
+
+The system frequency in Hz.
+"""
+base_frequency(net::MulticonductorNetwork) = Float64(net.data.base_frequency)
+
+"""
+    network_name(net::MulticonductorNetwork) -> Union{String,Nothing}
+
+The case name, or `nothing` when the source carries none (unlike the balanced
+accessor, which always has one).
+"""
+network_name(net::MulticonductorNetwork) =
+    net.data.name === nothing ? nothing : String(net.data.name)
+
+"""
+    source_format(net::MulticonductorNetwork) -> Union{String,Nothing}
+
+The format the case was read from, as the payload spells it — note the
+casing differs from the balanced accessor's PascalCase `SourceFormat` names —
+or `nothing` for an in-memory model.
+"""
+source_format(net::MulticonductorNetwork) =
+    net.data.source_format === nothing ? nothing : String(net.data.source_format)
 
 """
     warnings(net::MulticonductorNetwork) -> Vector{String}
 
-The fidelity warnings retained on a [`MulticonductorNetwork`](@ref) handle — everything the
-reader could not represent or had to assume — over `pio_dist_warnings`.
+The parse warnings — everything the reader could not represent or had to
+assume. Read from the live handle (`pio_dist_warnings`) when there is one,
+else from the payload's `warnings` field, so they survive a package round trip.
 """
 function warnings(net::MulticonductorNetwork)
-    _ensure_dist_compatible()
-    GC.@preserve net _warnings_from((out, cap) -> ccall((:pio_dist_warnings, _lib()), Csize_t,
-                                    (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), net.ptr, out, cap))
+    h = net.handle
+    if h !== nothing && h.ptr != C_NULL
+        _ensure_dist_compatible()
+        return GC.@preserve h _warnings_from((out, cap) -> ccall((:pio_dist_warnings, _lib()), Csize_t,
+                                             (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, out, cap))
+    end
+    return String[String(w) for w in net.data.warnings]
 end
+
+# --- serialize and convert --------------------------------------------------
 
 """
     to_format(net::MulticonductorNetwork, to) -> (text, warnings)
 
-Serialize a [`MulticonductorNetwork`](@ref) to format `to` (`"dss"`, `"pmd"`, or `"bmopf"`)
-— the distribution method of [`to_format`](@ref). Writing back to the format the
-handle was parsed from echoes the source byte for byte; a cross-format write
-reports every fidelity loss in `warnings`.
+Serialize a [`MulticonductorNetwork`](@ref) to format `to` (`"dss"`, `"pmd"`, or
+`"bmopf"`) — the distribution method of [`to_format`](@ref). Writing back to
+the format the handle was parsed from echoes the source byte for byte; a
+cross-format write reports every fidelity loss in `warnings`. A balanced target
+is a directed error: lowering is explicit, through the package pass.
 """
 function to_format(net::MulticonductorNetwork, to::AbstractString)
+    _is_dist_format(to) || _cross_model_error("to_format")
+    h = _live_dist_handle(net, "to_format")
     _ensure_dist_compatible()
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
-    s = GC.@preserve net ccall((:pio_dist_to_format, _lib()), Cstring,
-                               (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
-                               net.ptr, String(to), warnbuf, length(warnbuf), err, length(err))
+    s = GC.@preserve h ccall((:pio_dist_to_format, _lib()), Cstring,
+                             (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
+                             h.ptr, String(to), warnbuf, length(warnbuf), err, length(err))
     s == C_NULL && error("PowerIO.to_format(MulticonductorNetwork): " * _cstr(err))
     text = unsafe_string(s)
     ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
@@ -191,12 +368,11 @@ end
 """
     convert_file(MulticonductorNetwork, path, to; from=nothing) -> (text, warnings)
 
-Convert distribution case `path` to format `to` (`"dss"`, `"pmd"`, `"bmopf"`) in
-one shot — the distribution overload of [`convert_file`](@ref), selected by the
-leading type. `from` overrides extension inference (see
-`parse_file(MulticonductorNetwork, ...)`). Returns the converted text and the warnings
-(parse warnings plus the writer's fidelity losses, since there is no handle to
-query).
+Convert distribution case `path` to format `to` (`"dss"`, `"pmd"`, `"bmopf"`)
+in one shot — the explicit form of the format-routed [`convert_file`](@ref).
+`from` overrides extension inference (see `parse_file(MulticonductorNetwork, ...)`).
+Returns the converted text and the warnings (parse warnings plus the writer's
+fidelity losses, since there is no handle to query).
 """
 function convert_file(::Type{MulticonductorNetwork}, path::AbstractString, to::AbstractString; from=nothing)
     _ensure_dist_compatible()
@@ -219,8 +395,8 @@ end
 """
     convert_str(MulticonductorNetwork, text, to, from) -> (text, warnings)
 
-Convert in-memory distribution case `text` of format `from` to format `to` (both
-required; `"dss"`, `"pmd"`, `"bmopf"`). The string sibling of
+Convert in-memory distribution case `text` of format `from` to format `to`
+(both required; `"dss"`, `"pmd"`, `"bmopf"`). The string sibling of
 `convert_file(MulticonductorNetwork, ...)`.
 """
 function convert_str(::Type{MulticonductorNetwork}, text::AbstractString, to::AbstractString,
