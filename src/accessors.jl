@@ -63,9 +63,11 @@ n_gens(net::BalancedNetwork) = length(net.data.generators)
 """
     source_format(net) -> String
 
-The format the case was read from, verbatim from the Rust `SourceFormat` enum:
-one of `"Matpower"`, `"PowerModelsJson"`, `"EgretJson"`, `"Psse"`, `"PowerWorld"`,
-`"InMemory"`, `"Normalized"` (the last is the output of [`to_normalized`](@ref)).
+The format the case was read from, verbatim from the Rust `SourceFormat` enum.
+Examples include `"Matpower"`, `"PowerModelsJson"`, `"EgretJson"`, `"Psse"`,
+`"PowerWorld"`, `"PandapowerJson"`, `"Pslf"`, `"PypsaCsv"`, `"Gridfm"`,
+`"SurgeJson"`, `"InMemory"`, and `"Normalized"` (the last is the output of
+[`to_normalized`](@ref)).
 """
 source_format(net::BalancedNetwork) = String(net.data.source_format)
 

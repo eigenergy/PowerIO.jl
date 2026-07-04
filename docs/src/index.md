@@ -1,9 +1,9 @@
 # PowerIO.jl
 
-Julia bindings for [PowerIO](https://github.com/eigenergy/powerio), a Rust
-core that reads power system case files, writes them back, and converts
-between formats. The Rust core does the parsing and the byte exact write, so a
-case reads identically in Julia, Python, C/C++, and Rust.
+Julia entry point for [PowerIO](https://github.com/eigenergy/powerio): parser,
+compiler package, and IR infrastructure for power system software. The Rust
+core reads case files, writes them back, converts between formats, and exposes
+the same model through Julia, Python, C/C++, and Rust.
 
 ```julia
 using PowerIO
@@ -26,7 +26,8 @@ local build; see [Binary distribution](binary.md).
 ## Two network models
 
 - [`BalancedNetwork`](@ref) — transmission: balanced positive sequence cases
-  (MATPOWER, PSS/E, PowerWorld, PowerModels JSON, egret JSON). See
+  (MATPOWER, PSS/E, PowerWorld, PSLF EPC, PowerModels JSON, egret JSON,
+  pandapower JSON, PyPSA CSV folders, Surge JSON). See
   [Transmission networks](transmission.md).
 - [`MulticonductorNetwork`](@ref) — distribution: multiconductor unbalanced
   cases (OpenDSS, PowerModelsDistribution JSON, IEEE BMOPF JSON). See
@@ -55,4 +56,5 @@ At first use the binding checks the library's ABI version
 (`pio_abi_version`) against the version it targets and refuses a stale or
 mismatched library with an error stating both versions. Distribution calls
 also check `pio_dist_abi_version`. [`PowerIO.library_available`](@ref) probes
-without throwing.
+without throwing, and [`PowerIO.features`](@ref) reports the optional Arrow,
+matrix, GridFM, distribution, and package surfaces.

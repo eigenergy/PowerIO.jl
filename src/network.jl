@@ -38,10 +38,11 @@ Base.@deprecate_binding Network BalancedNetwork
     parse_file(MulticonductorNetwork, path; from=nothing) -> MulticonductorNetwork
 
 Parse a case. The bare verb routes on the format and returns the model the
-file holds: transmission cases (MATPOWER, PSS/E, PowerWorld, PowerModels JSON,
-egret JSON) parse into a [`BalancedNetwork`](@ref), multiconductor distribution
-cases (OpenDSS, PMD, BMOPF) into a [`MulticonductorNetwork`](@ref), and a
-`.pio.json` package into whichever model its envelope declares.
+file holds: transmission cases (MATPOWER, PSS/E, PowerWorld, PSLF EPC,
+PowerModels JSON, egret JSON, pandapower JSON, PyPSA CSV folders, Surge JSON)
+parse into a [`BalancedNetwork`](@ref), multiconductor distribution cases
+(OpenDSS, PMD, BMOPF) into a [`MulticonductorNetwork`](@ref), and a `.pio.json`
+package into whichever model its envelope declares.
 
 From a file `path` the format is inferred: by extension (`.m`, `.raw`, `.aux`,
 `.dss`, `.pio.json`), and for a bare `.json` by the same top level markers the
@@ -51,8 +52,10 @@ by wrapping it, `parse_file(IOBuffer(text), "matpower")`.
 
 Accepted format tokens (case-insensitive): `"matpower"`/`"m"`,
 `"powermodels-json"`/`"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`,
-`"psse"`/`"raw"`, `"powerworld"`/`"aux"`; distribution: `"dss"`/`"opendss"`,
-`"pmd"`/`"engineering"`, `"bmopf"`.
+`"psse"`/`"raw"`, `"powerworld"`/`"aux"`, `"pslf"`/`"epc"`,
+`"pandapower-json"`/`"pandapower"`, `"surge-json"`/`"surge"`,
+`"pypsa-csv"`; distribution: `"dss"`/`"opendss"`, `"pmd"`/`"engineering"`,
+`"bmopf"`.
 
 The type-marker forms pin the model when the routed return type would be
 ambiguous to a reader: `parse_file(BalancedNetwork, path)` and
@@ -260,12 +263,14 @@ end
 Convert `path` to format `to`, routing on the formats like [`parse_file`](@ref):
 distribution tokens and `.dss` paths go through the multiconductor converter,
 and a cross-model request (e.g. `.dss` to `"matpower"`) is a directed error —
-lowering is explicit, through the package pass. Within the transmission
-family all five formats read and write, so any pair converts. A same-format conversion is byte exact; a cross-format one is
-maximal fidelity and reports whatever the target can't carry in `warnings`. Tokens
+lowering is explicit, through the package pass. Within the transmission family
+supported writer pairs convert. A same format conversion is byte exact; a cross
+format one reports whatever the target can't carry in `warnings`. Tokens
 (case-insensitive): `"matpower"`/`"m"`, `"powermodels-json"`/`"powermodels"`/`"pm"`,
-`"egret-json"`/`"egret"`, `"psse"`/`"raw"`, `"powerworld"`/`"aux"`. `from` overrides
-extension inference (needed to tell egret and PowerModels `.json` apart). Pass
+`"egret-json"`/`"egret"`, `"psse"`/`"raw"`, `"powerworld"`/`"aux"`,
+`"pslf"`/`"epc"`, `"pandapower-json"`/`"pandapower"`, `"surge-json"`/`"surge"`,
+`"pypsa-csv"`. `from` overrides extension inference (needed to tell egret,
+PowerModels, pandapower, and Surge `.json` files apart). Pass
 [`MulticonductorNetwork`](@ref) first to convert a distribution case.
 """
 function convert_file(path::AbstractString, to::AbstractString; from=nothing)

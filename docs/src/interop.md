@@ -3,7 +3,9 @@
 | Target | Direction | Mechanism |
 |---|---|---|
 | PowerModels.jl | both | [`to_powermodels`](@ref) / [`from_powermodels`](@ref) |
+| BMOPFTools.jl | both | PowerIO backed OpenDSS / BMOPF conversion |
 | ExaModelsPower.jl / ExaPowerIO.jl | out | [`to_powerdata`](@ref) / [`parse_ac_power_data`](@ref) |
+| PowerGridPlanning.jl | out | [`to_powermodels`](@ref), `PowerIO.build_ref`, and angle repair helpers |
 | powerio-pkg `.pio.json` | both | [`to_package`](@ref) / [`from_package`](@ref) / [`read_package`](@ref) / [`write_package`](@ref) |
 | GridFM (gridfm-datakit Parquet) | in | [`read_gridfm`](@ref) / [`read_gridfm_scenarios`](@ref) |
 | GO Challenge 3 JSON | in | [`parse_goc3_json`](@ref) |
@@ -22,6 +24,28 @@ data = to_powermodels(net)      # Dict{String,Any} with "bus", "branch", "gen", 
 net2 = from_powermodels(data)
 ```
 
+PowerIO also exposes the reference dict helpers that several PowerModels style
+packages need:
+
+```julia
+data = to_powermodels(parse_file("case14.m"))
+PowerIO.correct_voltage_angle_differences!(data)
+ref = PowerIO.build_ref(data)
+```
+
+## BMOPFTools.jl
+
+BMOPFTools uses the distribution side for OpenDSS and BMOPF exchange. Keep
+PowerIO at 0.6.1 or newer when relying on transformer neutral impedance,
+core shunt/leakage fields, n-winding transformer data, and generator handling.
+
+```julia
+using BMOPFTools
+
+net = BMOPFTools.from_dss("Master.dss")
+BMOPFTools.to_dss(net, "out/")
+```
+
 ## ExaModelsPower.jl
 
 [`to_powerdata`](@ref) returns a NamedTuple in ExaPowerIO's `PowerData`
@@ -33,6 +57,30 @@ consumed by ExaModelsPower's `build_polar_opf`, `build_rect_opf`, and
 pd = to_powerdata("case14.m")
 ac = parse_ac_power_data("case14.m")
 ac.bus, ac.gen, ac.branch, ac.arc, ac.ref_buses
+```
+
+ExaModelsPower can use that parser path directly and keep ExaPowerIO for test
+data artifacts:
+
+```julia
+using ExaModelsPower
+
+model, vars, cons = ExaModelsPower.ac_opf_model("case14.m")
+model, vars, cons = ExaModelsPower.dcopf_model("case.raw")
+```
+
+## PowerGridPlanning.jl
+
+PowerGridPlanning can preserve its `load_network` API while delegating parser
+semantics, PowerModels reference construction, and branch angle repair to
+PowerIO.
+
+```julia
+using PowerGridPlanning
+
+network = PowerGridPlanning.load_network("case14.m")
+data = PowerIO.to_powermodels(PowerIO.parse_file("case14.m"))
+ref = PowerIO.build_ref(data)
 ```
 
 ## `.pio.json` network packages

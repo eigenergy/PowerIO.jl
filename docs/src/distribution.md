@@ -10,7 +10,10 @@ the format.
 The surface is experimental while the BMOPF schema is v0.0.1, and needs the
 library built with `--features dist` (the element tables also need `pkg`; both
 are on by default in the released binaries). [`dist_available`](@ref) reports
-whether the resolved library has it.
+whether the resolved library has it. The v0.6.1 release carries the current
+distribution fidelity work: OpenDSS generator and IBR/control data, transformer
+neutral impedance, core shunt and leakage data, and n-winding transformer
+structure where the target format can express it.
 
 ## Formats
 
@@ -19,6 +22,7 @@ whether the resolved library has it.
 | OpenDSS | `"dss"` | `.dss` |
 | PowerModelsDistribution ENGINEERING JSON | `"pmd"` | `.json` |
 | IEEE BMOPF Taskforce JSON | `"bmopf"` | `.json` |
+| PowerIO package JSON | `"powerio-json"` | `.pio.json` |
 
 A `.dss` path routes by extension. A bare `.json` routes by the same top level
 markers the core parsers use (the ENGINEERING `data_model` key means PMD, BMOPF
