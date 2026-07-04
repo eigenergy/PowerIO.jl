@@ -54,7 +54,8 @@ using LazyArtifacts
 import Libdl
 
 export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_str,
-       to_format, to_normalized, to_json, to_dense, to_matpower, to_arrow,
+       to_format, to_normalized, to_normalized_with_options, to_json, to_dense,
+       to_matpower, to_arrow,
        ArrowTable, write_pypsa_csv_folder, to_powermodels, from_powermodels,
        to_powerdata, parse_ac_power_data, read_gridfm, read_gridfm_scenarios,
        parse_goc3_json, goc3_status_flags, goc3_add_status_flags!,
@@ -63,7 +64,7 @@ export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_
        package_diagnostics, package_operating_points, materialize_operating_point,
        multiconductor_to_balanced_preflight,
        lower_multiconductor_to_balanced, arrow_available, gridfm_available,
-       MulticonductorNetwork, dist_available, dist_abi_version
+       matrix_available, MulticonductorNetwork, dist_available, dist_abi_version
 
 include("capi.jl")        # library resolution, ABI handshake, BalancedNetworkHandle, buffer helpers
 include("network.jl")     # BalancedNetwork and the parse / convert / serialize verbs

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.1
+
+Tracks powerio v0.6.1, keeping core C ABI v4 and distribution C ABI v1.
+
+- `to_normalized` accepts `clamp_angle_bounds=true` and `angle_bound_pad`, using
+  the new C ABI normalize options. `to_normalized_with_options` is the explicit
+  spelling.
+- `to_arrow` adds matrix COO table selectors: `:ybus`, `:incidence`, `:bprime`,
+  and `:bdoubleprime`. `matrix_available()` probes whether the loaded C ABI was
+  built with that surface.
+- The artifact updater now rejects binaries missing the matrix Arrow feature.
+- Release notes document the TagBot #44 manual backfill path for `v0.0.1`.
+
 ## 0.6.0
 
 Tracks powerio v0.6.0 in lockstep, keeping core C ABI v4 and distribution C

@@ -79,7 +79,13 @@ const _ARROW_TABLE_IDS = (
     solver_gen = Cint(12),
     solver_storage = Cint(13),
     solver_hvdc = Cint(14),
+    ybus = Cint(15),
+    incidence = Cint(16),
+    bprime = Cint(17),
+    bdoubleprime = Cint(18),
 )
+
+const _MATRIX_ARROW_TABLES = Set((:ybus, :incidence, :bprime, :bdoubleprime))
 
 # Release the producer's array and schema (frees the columnar buffers). Each
 # release callback NULLs its own struct's `release`, so a second call is a no-op —
@@ -184,7 +190,49 @@ end
 
 # Decode the struct array into a NamedTuple of columns (owned copies if `copy`, else
 # zero-copy views), one per child field.
-function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArrowSchema}; copy::Bool)
+function _metadata_i32(ptr::Ptr{UInt8}, offset::Int)
+    raw = UInt32(unsafe_load(ptr + offset)) |
+          (UInt32(unsafe_load(ptr + offset + 1)) << 8) |
+          (UInt32(unsafe_load(ptr + offset + 2)) << 16) |
+          (UInt32(unsafe_load(ptr + offset + 3)) << 24)
+    return Int(reinterpret(Int32, raw))
+end
+
+function _schema_metadata(s::CArrowSchema)
+    s.metadata == C_NULL && return Dict{String,String}()
+    ptr = Ptr{UInt8}(s.metadata)
+    offset = 0
+    npairs = _metadata_i32(ptr, offset)
+    npairs < 0 && error("PowerIO.to_arrow: negative Arrow metadata pair count")
+    offset += sizeof(Int32)
+    out = Dict{String,String}()
+    for _ in 1:npairs
+        klen = _metadata_i32(ptr, offset)
+        klen < 0 && error("PowerIO.to_arrow: negative Arrow metadata key length")
+        offset += sizeof(Int32)
+        key = unsafe_string(ptr + offset, klen)
+        offset += klen
+        vlen = _metadata_i32(ptr, offset)
+        vlen < 0 && error("PowerIO.to_arrow: negative Arrow metadata value length")
+        offset += sizeof(Int32)
+        value = unsafe_string(ptr + offset, vlen)
+        offset += vlen
+        out[key] = value
+    end
+    return out
+end
+
+function _with_matrix_metadata(cols::NamedTuple, table::Symbol,
+                               metadata::Dict{String,String})
+    table in _MATRIX_ARROW_TABLES || return cols
+    reported = get(metadata, "powerio.table", String(table))
+    row_count = parse(Int, metadata["powerio.row_count"])
+    col_count = parse(Int, metadata["powerio.col_count"])
+    return (; cols..., table=reported, row_count, col_count)
+end
+
+function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArrowSchema};
+                       copy::Bool, table::Symbol)
     a, s = arr[], sch[]
     nrows = a.length
     ncols = Int(a.n_children)
@@ -199,7 +247,8 @@ function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArro
         names[i] = Symbol(unsafe_string(child_sch.name))
         cols[i] = _column(T, child_arr, nrows, names[i], arr, copy)
     end
-    return NamedTuple{Tuple(names)}(Tuple(cols))
+    decoded = NamedTuple{Tuple(names)}(Tuple(cols))
+    return _with_matrix_metadata(decoded, table, _schema_metadata(s))
 end
 
 # Export one table off a live handle over the Arrow C Data Interface, shared by the
@@ -233,7 +282,7 @@ function _arrow_from_handle(h::BalancedNetworkHandle, table::Symbol, copy::Bool)
         # on a decode error (a contract violation: unknown format code, child count
         # mismatch) release too so the buffers don't leak.
         cols = try
-            _decode_arrow(arr, sch; copy=true)
+            _decode_arrow(arr, sch; copy=true, table=table)
         catch
             _release_ffi!(arr, sch)
             rethrow()
@@ -245,8 +294,8 @@ function _arrow_from_handle(h::BalancedNetworkHandle, table::Symbol, copy::Bool)
     # releases the producer even if decoding throws — then wrap each view so every
     # column roots the owner on its own.
     buffers = ArrowBuffers(arr, sch)
-    cols = _decode_arrow(arr, sch; copy=false)
-    rooted = map(v -> ArrowColumn(v, buffers), cols)
+    cols = _decode_arrow(arr, sch; copy=false, table=table)
+    rooted = map(v -> v isa AbstractVector ? ArrowColumn(v, buffers) : v, cols)
     return ArrowTable(rooted, buffers)
 end
 
@@ -260,9 +309,12 @@ the parsed network fields with 1-based (external) bus ids, the same id space as
 [`to_dense`](@ref). Normalized solver table selectors are `:solver_bus`,
 `:solver_load`, `:solver_shunt`, `:solver_branch`, `:solver_switch`,
 `:solver_arc`, `:solver_gen`, `:solver_storage`, and `:solver_hvdc`; those
-columns use dense 0-based row ids and per unit/radian values. Takes a parsed
-[`BalancedNetwork`](@ref) (via its live handle) or a `path` to parse first. Needs
-powerio-capi built `--features arrow`; see [`arrow_available`](@ref).
+columns use dense 0-based row ids and per unit/radian values. Matrix selectors
+are `:ybus`, `:incidence`, `:bprime`, and `:bdoubleprime`; they return COO
+columns plus `table`, `row_count`, and `col_count` from schema metadata. Takes
+a parsed [`BalancedNetwork`](@ref) (via its live handle) or a `path` to parse
+first. Needs powerio-capi built `--features arrow`; matrix selectors also need
+`--features matrix`; see [`arrow_available`](@ref) and [`matrix_available`](@ref).
 
 `copy=true` (default) returns a NamedTuple of **owned** Julia Vectors and releases
 the producer before returning: plain arrays, no lifetime caveat. `copy=false`
@@ -296,3 +348,20 @@ arrow`). This checks the Arrow entry point, not that the loaded library supports
 every table selector this binding knows about.
 """
 arrow_available() = _exports_symbol(:pio_to_arrow)
+
+"""
+    matrix_available() -> Bool
+
+True if the resolved C library exports `pio_to_arrow` and was built with the
+matrix Arrow table surface.
+"""
+function matrix_available()
+    arrow_available() || return false
+    _exports_symbol(:pio_matrix_available) || return false
+    try
+        return ccall((:pio_matrix_available, _lib()), Cint, ()) != 0
+    catch e
+        @debug "PowerIO: pio_matrix_available probe failed" exception = (e, catch_backtrace())
+        return false
+    end
+end

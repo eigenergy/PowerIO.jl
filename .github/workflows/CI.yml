@@ -54,10 +54,15 @@ jobs:
           workspaces: powerio
       - name: Build powerio-capi
         if: steps.powerio.outputs.available == 'true'
-        # --features arrow,gridfm,dist so the to_arrow, read_gridfm, and dist tests
-        # run against real pio_to_arrow / pio_read_dir / pio_dist_* symbols instead of
-        # skipping (arrow_available() / gridfm_available() / dist_available() gate them).
-        run: cargo build -p powerio-capi --release --features arrow,gridfm,dist --manifest-path powerio/Cargo.toml
+        # Build the optional surfaces the checked-out Rust branch supports. Before
+        # the v0.6.1 Rust PRs merge, matrix and normalize options tests skip; once
+        # they land, this job exercises them.
+        run: |
+          features=arrow,gridfm,dist,pkg
+          if grep -q '^matrix = ' powerio/powerio-capi/Cargo.toml; then
+            features=arrow,matrix,gridfm,dist,pkg
+          fi
+          cargo build -p powerio-capi --release --features "$features" --manifest-path powerio/Cargo.toml
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
         env:

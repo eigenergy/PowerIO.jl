@@ -117,7 +117,7 @@ With a sibling `powerio` checkout, build the C ABI and `using PowerIO` finds it:
 
 ```
 # in the sibling powerio checkout:
-cargo build -p powerio-capi --release --features arrow,gridfm,dist,pkg
+cargo build -p powerio-capi --release --features arrow,matrix,gridfm,dist,pkg
 ```
 
 For a non-sibling layout, point Julia at the library explicitly:
@@ -132,7 +132,7 @@ The artifact pipeline behind released versions is described in
 
 ## Roadmap
 
-0.6.0 tracks powerio v0.6.0 in lockstep (C ABI 4, distribution ABI 1). Next: a fully typed immutable `BalancedNetwork` mirroring
+0.6.1 tracks powerio v0.6.1 in lockstep (C ABI 4, distribution ABI 1). Next: a fully typed immutable `BalancedNetwork` mirroring
 the Rust model (today's view is JSON-backed), package extensions for the
 PowerModels and ExaPowerIO bridges, and distribution through a registered
 `PowerIO_jll`. Version history is in [CHANGELOG.md](CHANGELOG.md).

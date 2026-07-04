@@ -88,7 +88,7 @@ end
 # Refuse to pin binaries this binding cannot speak to: dlopen the unpacked
 # host-platform library and compare its pio_abi_version with PIO_ABI_VERSION,
 # when present in the binding pio_dist_abi_version with PIO_DIST_ABI_VERSION,
-# and the additive package feature through pio_has_feature("pkg").
+# and the additive matrix/package features through pio_has_feature.
 # Exit 0 without touching Artifacts.toml on a mismatch, so the scheduled
 # tracking run is a clean no-op until the lockstep binding PR merges. A summary
 # line lands in $GITHUB_STEP_SUMMARY when running under Actions.
@@ -122,12 +122,39 @@ function _check_abi(unpack::String, triplet::String)
             )
         end
 
-        pkg_feature = try
-            ccall(Libdl.dlsym(handle, :pio_has_feature), Cint, (Cstring,), "pkg")
+        has_feature = try
+            Libdl.dlsym(handle, :pio_has_feature)
         catch e
             _skip_release(
-                "skipping $tag: its binaries do not expose pio_has_feature for the package " *
-                "surface check; Artifacts.toml left untouched. Underlying: $e"
+                "skipping $tag: its binaries do not expose pio_has_feature for the feature " *
+                "surface checks; Artifacts.toml left untouched. Underlying: $e"
+            )
+        end
+
+        matrix_feature = ccall(has_feature, Cint, (Cstring,), "matrix")
+        matrix_feature == 1 || _skip_release(
+            "skipping $tag: its binaries do not report the matrix feature; " *
+            "Artifacts.toml left untouched"
+        )
+        matrix_available = try
+            ccall(Libdl.dlsym(handle, :pio_matrix_available), Cint, ())
+        catch e
+            _skip_release(
+                "skipping $tag: its binaries do not expose pio_matrix_available; " *
+                "Artifacts.toml left untouched. Underlying: $e"
+            )
+        end
+        matrix_available == 1 || _skip_release(
+            "skipping $tag: its binaries do not enable matrix Arrow tables; " *
+            "Artifacts.toml left untouched"
+        )
+
+        pkg_feature = try
+            ccall(has_feature, Cint, (Cstring,), "pkg")
+        catch e
+            _skip_release(
+                "skipping $tag: its binaries could not report the package feature; " *
+                "Artifacts.toml left untouched. Underlying: $e"
             )
         end
         pkg_feature == 1 || _skip_release(

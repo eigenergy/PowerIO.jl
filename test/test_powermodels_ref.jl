@@ -21,29 +21,51 @@
             "branch" => Dict{String,Any}(
                 "1" => Dict{String,Any}("angmin" => angmin, "angmax" => angmax)))
 
-        # At or beyond ±π/2 clamps to the default pad.
+        # Branch-only callers keep the PowerModels helper semantics.
         wide = mk(-2pi, 2pi)
         PowerIO.correct_voltage_angle_differences!(wide)
-        @test wide["branch"]["1"]["angmin"] == -1.0472
-        @test wide["branch"]["1"]["angmax"] == 1.0472
+        @test wide["branch"]["1"]["angmin"] == -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
+        @test wide["branch"]["1"]["angmax"] == PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
 
-        # Two zero bounds open to ±pad.
         zero_pad = mk(0.0, 0.0)
         PowerIO.correct_voltage_angle_differences!(zero_pad)
-        @test zero_pad["branch"]["1"]["angmin"] == -1.0472
-        @test zero_pad["branch"]["1"]["angmax"] == 1.0472
+        @test zero_pad["branch"]["1"]["angmin"] == -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
+        @test zero_pad["branch"]["1"]["angmax"] == PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
 
-        # In-range bounds are untouched; a custom pad threads through.
         ok = mk(-0.4, 0.3)
         PowerIO.correct_voltage_angle_differences!(ok)
         @test ok["branch"]["1"]["angmin"] == -0.4
         @test ok["branch"]["1"]["angmax"] == 0.3
-        custom = mk(-2pi, 2pi)
-        PowerIO.correct_voltage_angle_differences!(custom; default_pad=0.5)
-        @test custom["branch"]["1"]["angmin"] == -0.5
+
+        branch_custom = mk(-2pi, 2pi)
+        PowerIO.correct_voltage_angle_differences!(branch_custom; default_pad=0.5)
+        @test branch_custom["branch"]["1"]["angmin"] == -0.5
 
         # A dict without branches is a no-op, not an error.
         @test PowerIO.correct_voltage_angle_differences!(Dict{String,Any}()) == Dict{String,Any}()
+
+        pm = to_powermodels(parse_file(joinpath(@__DIR__, "data", "angle_bounds_clamp.m")))
+        PowerIO.correct_voltage_angle_differences!(pm)
+        @test pm["branch"]["1"]["angmin"] == -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
+        @test pm["branch"]["1"]["angmax"] == PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
+        @test pm["branch"]["2"]["angmin"] == -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
+        @test pm["branch"]["2"]["angmax"] == PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
+        @test pm["branch"]["3"]["angmin"] ≈ -pi / 6
+        @test pm["branch"]["3"]["angmax"] ≈ pi / 6
+
+        custom = to_powermodels(parse_file(joinpath(@__DIR__, "data", "angle_bounds_clamp.m")))
+        PowerIO.correct_voltage_angle_differences!(custom; default_pad=0.5)
+        @test custom["branch"]["1"]["angmin"] == -0.5
+        @test custom["branch"]["1"]["angmax"] == 0.5
+
+        dropped = to_powermodels(parse_file(joinpath(@__DIR__, "data", "angle_bounds_clamp.m")))
+        dropped["branch"]["2"]["br_status"] = 0
+        dropped["branch"]["3"]["angmin"] = -2pi
+        dropped["branch"]["3"]["angmax"] = 2pi
+        PowerIO.correct_voltage_angle_differences!(dropped)
+        @test dropped["branch"]["1"]["angmin"] == -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
+        @test dropped["branch"]["2"]["angmin"] == -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
+        @test dropped["branch"]["3"]["angmin"] == -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
     end
 
     @testset "build_ref" begin
@@ -68,8 +90,8 @@
             @test sum(length, values(ref[:bus_arcs])) == 40
             @test sum(length, values(ref[:bus_loads])) == 11
 
-            # case14 ships ±360° bounds, so every surviving branch clamps —
-            # on the ref copies, never on the input dict.
+            # case14 ships ±360° bounds, so every surviving branch clamps on
+            # the ref copies, never on the input dict.
             @test all(br["angmin"] == -1.0472 && br["angmax"] == 1.0472
                       for (_, br) in ref[:branch])
             @test pm["branch"]["1"]["angmin"] ≈ -2pi
