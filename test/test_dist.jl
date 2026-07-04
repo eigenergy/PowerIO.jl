@@ -90,11 +90,7 @@
             @test package_model_kind(lowered) == :balanced
             @test lowered.model.balanced_network.base_mva == 75.0
             @test lowered.lowering_history[1].pass == "multiconductor-to-balanced"
-            if PowerIO._exports_symbol(:pio_package_to_multiconductor_network)
-                @test PowerIO.n_buses(from_package(ready_pkg)) == 2
-            else
-                @test_skip PowerIO.n_buses(from_package(ready_pkg)) == 2
-            end
+            @test PowerIO.n_buses(from_package(ready_pkg)) == 2
         else
             @test_skip to_package(net)
         end
@@ -124,56 +120,41 @@
         @test haskey(gen_pmd_doc, "generator")
         @test haskey(gen_pmd_doc["generator"], "g1")
 
-        gen_bmopf, gen_bmopf_w = to_format(gen_net, "bmopf")
+        gen_bmopf, _ = to_format(gen_net, "bmopf")
         gen_bmopf_doc = PowerIO._json_plain(JSON3.read(gen_bmopf))
-        if haskey(gen_bmopf_doc, "generator")
-            @test haskey(gen_bmopf_doc["generator"], "g1")
-        elseif VersionNumber(PowerIO.library_version()) < v"0.4.0"
-            @test haskey(gen_bmopf_doc, "load")
-            @test haskey(gen_bmopf_doc["load"], "g1")
-            @test any(w -> occursin("fixed P/Q generation encoded as BMOPF negative load", w),
-                      gen_bmopf_w)
-            @test_skip haskey(gen_bmopf_doc, "generator")
-        else
-            @test haskey(gen_bmopf_doc, "generator")
-        end
+        @test haskey(gen_bmopf_doc, "generator")
+        @test haskey(gen_bmopf_doc["generator"], "g1")
 
-        # The v0.3.1 artifact lacks the native fix; the v0.3.2 repin turns
-        # this regression on in ordinary package tests.
-        if VersionNumber(PowerIO.library_version()) < v"0.3.2"
-            @test_skip false
-        else
-            grounding = """
-            New Circuit.c basekv=0.4
-            New Reactor.tx_busgrounding_B179 phases=1 bus1=B179.4 bus2=B179.0 r=0.3 x=0.0
-            New Reactor.loadbusgrounding_B3230 phases=1 bus1=B3230.4 bus2=B3230.0 r=10.0 x=0.0
-            New Reactor.loadbusgrounding_B2656 phases=1 bus1=B2656.4 bus2=B2656.0 r=10.0 x=0.0
-            """
-            grounding_net = parse_str(MulticonductorNetwork, grounding, "dss")
-            @test !any(w -> occursin("reactor", lowercase(w)), PowerIO.warnings(grounding_net))
-            grounding_bmopf, grounding_w = to_format(grounding_net, "bmopf")
-            @test !any(w -> occursin("reactor", lowercase(w)) ||
-                             occursin("ground", lowercase(w)), grounding_w)
-            grounding_doc = PowerIO._json_plain(JSON3.read(grounding_bmopf))
-            grounding_sh = grounding_doc["shunt"]
-            @test length(grounding_sh) == 3
-            @test grounding_sh["tx_busgrounding_B179"]["terminal_map"] == ["4"]
-            @test isapprox(grounding_sh["tx_busgrounding_B179"]["G_1_1"], 1 / 0.3; atol=1e-12, rtol=0)
-            @test grounding_sh["tx_busgrounding_B179"]["B_1_1"] == 0.0
-            @test grounding_sh["loadbusgrounding_B3230"]["G_1_1"] == 0.1
+        grounding = """
+        New Circuit.c basekv=0.4
+        New Reactor.tx_busgrounding_B179 phases=1 bus1=B179.4 bus2=B179.0 r=0.3 x=0.0
+        New Reactor.loadbusgrounding_B3230 phases=1 bus1=B3230.4 bus2=B3230.0 r=10.0 x=0.0
+        New Reactor.loadbusgrounding_B2656 phases=1 bus1=B2656.4 bus2=B2656.0 r=10.0 x=0.0
+        """
+        grounding_net = parse_str(MulticonductorNetwork, grounding, "dss")
+        @test !any(w -> occursin("reactor", lowercase(w)), PowerIO.warnings(grounding_net))
+        grounding_bmopf, grounding_w = to_format(grounding_net, "bmopf")
+        @test !any(w -> occursin("reactor", lowercase(w)) ||
+                         occursin("ground", lowercase(w)), grounding_w)
+        grounding_doc = PowerIO._json_plain(JSON3.read(grounding_bmopf))
+        grounding_sh = grounding_doc["shunt"]
+        @test length(grounding_sh) == 3
+        @test grounding_sh["tx_busgrounding_B179"]["terminal_map"] == ["4"]
+        @test isapprox(grounding_sh["tx_busgrounding_B179"]["G_1_1"], 1 / 0.3; atol=1e-12, rtol=0)
+        @test grounding_sh["tx_busgrounding_B179"]["B_1_1"] == 0.0
+        @test grounding_sh["loadbusgrounding_B3230"]["G_1_1"] == 0.1
 
-            delta = """
-            New Circuit.c basekv=4.16
-            New Capacitor.capd bus1=b2.1.2.3 phases=3 conn=delta kvar=900 kv=4.16
-            New Reactor.rxd bus1=b3.1.2.3 phases=3 conn=delta kvar=600 kv=4.16
-            """
-            delta_bmopf, delta_w = convert_str(MulticonductorNetwork, delta, "bmopf", "dss")
-            @test !any(w -> occursin("untyped", lowercase(w)) ||
-                             occursin("not referenced", lowercase(w)), delta_w)
-            delta_doc = PowerIO._json_plain(JSON3.read(delta_bmopf))
-            @test delta_doc["shunt"]["capd"]["B_1_2"] < 0.0
-            @test delta_doc["shunt"]["rxd"]["B_1_2"] > 0.0
-        end
+        delta = """
+        New Circuit.c basekv=4.16
+        New Capacitor.capd bus1=b2.1.2.3 phases=3 conn=delta kvar=900 kv=4.16
+        New Reactor.rxd bus1=b3.1.2.3 phases=3 conn=delta kvar=600 kv=4.16
+        """
+        delta_bmopf, delta_w = convert_str(MulticonductorNetwork, delta, "bmopf", "dss")
+        @test !any(w -> occursin("untyped", lowercase(w)) ||
+                         occursin("not referenced", lowercase(w)), delta_w)
+        delta_doc = PowerIO._json_plain(JSON3.read(delta_bmopf))
+        @test delta_doc["shunt"]["capd"]["B_1_2"] < 0.0
+        @test delta_doc["shunt"]["rxd"]["B_1_2"] > 0.0
 
         # The bare verb routes on the format: a .dss path parses into a
         # data-carrying MulticonductorNetwork, symmetric with the balanced side.
@@ -242,7 +223,7 @@
             @test_throws ErrorException to_package(bare)
         end
 
-        if package_available() && PowerIO._exports_symbol(:pio_package_to_multiconductor_network)
+        if package_available()
             # from_package returns the model the package holds; the rebuilt
             # handle serializes (fresh serialization, no echo expectation).
             back = from_package(to_package(routed))
@@ -262,14 +243,11 @@
 
         # A distribution flavored bare .json routes automatically off the
         # core's classifier (pio_classify_str).
-        if PowerIO._classify_family(pmd) === :distribution
-            dir = mktempdir()
-            jpath = joinpath(dir, "feeder.json")
-            write(jpath, pmd)
-            @test parse_file(jpath) isa MulticonductorNetwork
-        else
-            @test_skip false  # library predates pio_classify_str
-        end
+        @test PowerIO._classify_family(pmd) === :distribution
+        dir = mktempdir()
+        jpath = joinpath(dir, "feeder.json")
+        write(jpath, pmd)
+        @test parse_file(jpath) isa MulticonductorNetwork
 
         # A nonexistent path surfaces as a Julia error, not a fault.
         @test_throws ErrorException parse_file(MulticonductorNetwork, joinpath(@__DIR__, "data", "no_such.dss"))
