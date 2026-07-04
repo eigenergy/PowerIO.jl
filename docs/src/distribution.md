@@ -15,6 +15,10 @@ distribution fidelity work: OpenDSS generator and IBR/control data, transformer
 neutral impedance, core shunt and leakage data, and n-winding transformer
 structure where the target format can express it.
 
+[`dist_capabilities`](@ref) reports finer BMOPF export capabilities. Downstream
+packages should use it instead of checking PowerIO version strings when they
+need a v0.6.2 distribution fidelity fix.
+
 ## Formats
 
 | Format | Token | Extension |
@@ -70,6 +74,7 @@ PowerIO.n_buses(net)
 PowerIO.base_frequency(net)     # Hz
 PowerIO.network_name(net)       # Union{String,Nothing}
 PowerIO.source_format(net)      # "dss", "pmd-json", "bmopf-json", or nothing
+PowerIO.dist_capabilities()     # BMOPF export fidelity flags
 ```
 
 ## Carrying and exchanging cases

@@ -1,3 +1,106 @@
+@testset "distribution capabilities" begin
+    caps = PowerIO.dist_capabilities()
+    @test keys(caps) == (
+        :dist,
+        :schema_version,
+        :bmopf_fixed_taps,
+        :bmopf_center_tap_leakage,
+        :bmopf_delta_wye_leakage,
+        :bmopf_delta_roll,
+        :bmopf_voltage_source_merge,
+        :bmopf_transformer_diagnostics,
+    )
+    @test caps.dist == PowerIO.dist_available()
+    @test caps.schema_version === nothing || caps.schema_version isa AbstractString
+    @test caps.bmopf_fixed_taps isa Bool
+    @test caps.bmopf_center_tap_leakage isa Bool
+    @test caps.bmopf_delta_wye_leakage isa Bool
+    @test caps.bmopf_delta_roll isa Bool
+    @test caps.bmopf_voltage_source_merge isa Bool
+    @test caps.bmopf_transformer_diagnostics isa Bool
+end
+
+function _bmopf_doc_from_dss(text)
+    bmopf, warnings = convert_str(MulticonductorNetwork, text, "bmopf", "dss")
+    return PowerIO._json_plain(JSON3.read(bmopf)), collect(String, warnings)
+end
+
+@testset "BMOPF v0.6.2 fidelity gates" begin
+    caps = PowerIO.dist_capabilities()
+    required = (
+        :bmopf_fixed_taps,
+        :bmopf_center_tap_leakage,
+        :bmopf_delta_wye_leakage,
+        :bmopf_delta_roll,
+        :bmopf_voltage_source_merge,
+        :bmopf_transformer_diagnostics,
+    )
+    if !(PowerIO.library_available() && PowerIO.dist_available() &&
+         all(k -> getproperty(caps, k), required))
+        @test_skip "BMOPF v0.6.2 fidelity capabilities not available"
+    else
+        tap_doc, tap_w = _bmopf_doc_from_dss("""
+        New Circuit.c basekv=12.47
+        New Transformer.t phases=3 windings=2 buses=[source.1.2.3 load.1.2.3] conns=[wye wye] kvs=[12.47 0.48] kvas=[500 500] xhl=5 taps=[1.025 1.0]
+        """)
+        t1 = tap_doc["transformer"]["single_phase"]["t_1"]
+        @test t1["tap"] == 1.025
+        @test !haskey(t1, "tap_min")
+        @test !haskey(t1, "tap_max")
+        @test !any(w -> occursin("tap", lowercase(w)) && occursin("dropped", lowercase(w)), tap_w)
+
+        ct_doc, _ = _bmopf_doc_from_dss("""
+        New Circuit.c basekv=7.2
+        New Transformer.ct phases=1 windings=3 buses=[source.1 load.1 load.2] conns=[wye wye wye] kvs=[7.2 0.12 0.12] kvas=[25 25 25] xhl=2 xht=2 xlt=1
+        """)
+        ct = ct_doc["transformer"]["center_tap"]["ct"]
+        @test ct["terminal_map_to"] == ["1", "4", "2"]
+        @test ct["v_nom_to"] == 120
+        @test ct["x_series_to"] > 0
+
+        dw_doc, dw_w = _bmopf_doc_from_dss("""
+        New Circuit.c basekv=12.47
+        New Transformer.dw phases=3 windings=2 buses=[source.1.2.3 load.1.2.3.4] conns=[delta wye] kvs=[12.47 0.48] kvas=[500 500] xhl=5
+        """)
+        dw = dw_doc["transformer"]["delta_wye"]["dw"]
+        @test dw["x_series"] > 0
+        @test !any(w -> occursin("delta_wye", lowercase(w)) ||
+                         occursin("leakage", lowercase(w)), dw_w)
+
+        nw_doc, _ = _bmopf_doc_from_dss("""
+        New Circuit.c basekv=12.47
+        New Transformer.nw phases=3 windings=3 buses=[source.1.2.3 mid.1.2.3 load.1.2.3] conns=[delta wye wye] kvs=[12.47 4.16 0.48] kvas=[1000 1000 1000] xhl=5 xht=6 xlt=2
+        """)
+        windings = nw_doc["transformer"]["n_winding"]["nw"]["windings"]
+        delta_windings = [w for w in windings if get(w, "configuration", nothing) == "DELTA"]
+        @test !isempty(delta_windings)
+        @test all(w -> get(w, "delta_roll", nothing) == -1, delta_windings)
+
+        src_doc, src_w = _bmopf_doc_from_dss("""
+        New Circuit.c basekv=0.4
+        New Vsource.sa bus1=b.1 phases=1 basekv=0.23 angle=0
+        New Vsource.sb bus1=b.2 phases=1 basekv=0.23 angle=-120
+        New Vsource.sc bus1=b.3 phases=1 basekv=0.23 angle=120
+        """)
+        b_sources = Dict(k => v for (k, v) in src_doc["voltage_source"] if v["bus"] == "b")
+        @test length(b_sources) == 1
+        src = only(values(b_sources))
+        @test src["terminal_map"] == ["1", "2", "3", "4"]
+        @test length(src["v_magnitude"]) == length(src["terminal_map"])
+        @test length(src["v_angle"]) == length(src["terminal_map"])
+        @test !any(w -> occursin("expects exactly one source", lowercase(w)), src_w)
+
+        _, unsupported_w = _bmopf_doc_from_dss("""
+        New Circuit.c basekv=12.47
+        New Transformer.r phases=3 windings=2 buses=[source.1.2.3 load.1.2.3] conns=[wye wye] kvs=[12.47 0.48] kvas=[500 500] xhl=5
+        New RegControl.rc transformer=r winding=2 vreg=120 band=2
+        """)
+        @test any(w -> occursin("transformer", lowercase(w)) ||
+                       occursin("regcontrol", lowercase(w)) ||
+                       occursin("code", lowercase(w)), unsupported_w)
+    end
+end
+
 @testset "distribution surface (feature-gated)" begin
     if !(PowerIO.library_available() && PowerIO.dist_available())
         @test_skip parse_file(MulticonductorNetwork, "switch.dss")

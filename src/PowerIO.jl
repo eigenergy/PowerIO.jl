@@ -68,7 +68,8 @@ export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_
        package_diagnostics, package_operating_points, materialize_operating_point,
        multiconductor_to_balanced_preflight,
        lower_multiconductor_to_balanced, arrow_available, gridfm_available,
-       matrix_available, features, MulticonductorNetwork, dist_available, dist_abi_version
+       matrix_available, features, MulticonductorNetwork, dist_available, dist_abi_version,
+       dist_capabilities
 
 include("capi.jl")        # library resolution, ABI handshake, BalancedNetworkHandle, buffer helpers
 include("network.jl")     # BalancedNetwork and the parse / convert / serialize verbs
