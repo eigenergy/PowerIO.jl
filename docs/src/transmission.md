@@ -50,9 +50,9 @@ handle; read it with [`PowerIO.warnings`](@ref).
 
 ## Inspecting a case
 
-The element tables mirror the Rust `BalancedNetwork` and are the stable
-contract: raw source units, 1-based bus ids, out-of-service elements
-retained. Consumers normalize as they see fit.
+The element tables mirror the Rust `BalancedNetwork`: raw source units,
+1-based bus ids, out-of-service elements retained. Consumers normalize as they
+see fit.
 
 ```julia
 PowerIO.buses(net)          # id, kind, vm, va (deg), base_kv, vmax, vmin, ...

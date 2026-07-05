@@ -1,7 +1,7 @@
 # Distribution networks
 
 Multiconductor distribution cases parse into a [`MulticonductorNetwork`](@ref):
-element tables (`net.data`) next to a live handle into the Rust core, the same
+a live handle into the Rust core plus lazy element tables (`net.data`), the same
 shape as a [`BalancedNetwork`](@ref). Distribution data is unbalanced and per
 phase, so the two models never merge — string bus ids, ordered terminal names,
 explicit grounding, SI units, radians — but the verbs are shared and route on
@@ -59,7 +59,10 @@ a directed error: lowering is explicit, through the package pass below.
 
 The element tables mirror the core's multiconductor model (the
 `pio-payload-multiconductor/1` payload) and work without the library once
-materialized:
+materialized. `PowerIO.n_buses`, `PowerIO.base_frequency`, `PowerIO.network_name`,
+`PowerIO.source_format`, `PowerIO.warnings`, and REPL display read from the live
+handle without forcing `net.data` when the C library exports
+`pio_dist_summary_json`.
 
 ```julia
 PowerIO.buses(net)          # string ids, ordered terminals, explicit grounding

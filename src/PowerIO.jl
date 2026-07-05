@@ -27,8 +27,8 @@ dataset back into a `BalancedNetwork` (the ML→classical return leg; lossy but 
 enough for power flow, needs powerio-capi built `--features gridfm`).
 
 Multiconductor distribution cases are a separate model, [`MulticonductorNetwork`](@ref),
-with the same shape as the balanced side: element tables (`net.data`) next to a
-live handle. The bare verbs route on the format — `parse_file("feeder.dss")`,
+with the same shape as the balanced side: a live handle and lazy element tables
+(`net.data`). The bare verbs route on the format — `parse_file("feeder.dss")`,
 `convert_file("feeder.dss", "bmopf")`, `parse_file("case.pio.json")` — and the
 type-marker forms (`parse_file(MulticonductorNetwork, path)`) stay as the
 explicit spelling. OpenDSS, PowerModelsDistribution JSON, and IEEE BMOPF JSON

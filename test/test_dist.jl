@@ -121,13 +121,21 @@ end
     else
         dss = joinpath(@__DIR__, "data", "dist", "switch.dss")
         @test PowerIO.dist_abi_version() == PowerIO.PIO_DIST_ABI_VERSION
+        has_dist_summary = PowerIO._exports_symbol(:pio_dist_summary_json)
 
         # The distribution case shares the transmission verbs: the entry points
         # take MulticonductorNetwork as a leading type marker (the parse(T, x) idiom),
         # to_format / warnings dispatch on the handle.
         net = parse_file(MulticonductorNetwork, dss)
         @test net isa MulticonductorNetwork
+        @test getfield(net, :data) === nothing
         @test PowerIO.warnings(net) isa Vector{String}
+        @test getfield(net, :data) === nothing
+        @test PowerIO.n_buses(net) == 4
+        @test PowerIO.source_format(net) == "dss"
+        @test PowerIO.base_frequency(net) == 60.0
+        @test occursin("MulticonductorNetwork{dss}", sprint(show, net))
+        has_dist_summary && @test getfield(net, :data) === nothing
         if PowerIO._dist_graph_available()
             graph = PowerIO._json_plain(to_graph(net))
             @test length(graph["buses"]) == 4
@@ -143,6 +151,7 @@ end
         echo, echo_w = to_format(net, "dss")
         @test echo == read(dss, String)
         @test isempty(echo_w)
+        has_dist_summary && @test getfield(net, :data) === nothing
 
         # A cross-format write exercises a second writer (PMD ENGINEERING JSON)
         # and the fidelity warnings vector.
@@ -152,6 +161,7 @@ end
         pmd_net = parse_str(MulticonductorNetwork, pmd, "pmd")
         @test pmd_net isa MulticonductorNetwork
         @test PowerIO.warnings(pmd_net) isa Vector{String}
+        @test getfield(pmd_net, :data) === nothing
 
         if package_available()
             multi_pkg = to_package(net)
@@ -224,7 +234,9 @@ end
 
         # The in-memory parser matches the file parser on the round trip.
         net_str = parse_str(MulticonductorNetwork, read(dss, String), "dss")
+        @test getfield(net_str, :data) === nothing
         @test first(to_format(net_str, "dss")) == read(dss, String)
+        @test getfield(net_str, :data) === nothing
 
         # convert_file is the one-shot path; dss -> bmopf produces JSON. The
         # Julia signature is (MulticonductorNetwork, path, to; from=...).
@@ -284,14 +296,19 @@ end
         @test delta_doc["shunt"]["rxd"]["B_1_2"] > 0.0
 
         # The bare verb routes on the format: a .dss path parses into a
-        # data-carrying MulticonductorNetwork, symmetric with the balanced side.
+        # handle-carrying MulticonductorNetwork, symmetric with the balanced side.
         routed = parse_file(dss)
         @test routed isa MulticonductorNetwork
+        @test getfield(routed, :data) === nothing
         @test PowerIO.n_buses(routed) > 0
-        @test !isempty(PowerIO.buses(routed))
         @test PowerIO.source_format(routed) == "dss"
         @test PowerIO.base_frequency(routed) > 0
         @test occursin("buses", sprint(show, routed))
+        has_dist_summary && @test getfield(routed, :data) === nothing
+        @test !isempty(PowerIO.buses(routed))
+        materialized = routed.data
+        @test getfield(routed, :data) === materialized
+        @test routed.data === materialized
         # Materialization must not disturb the retained source: the echo tier
         # still writes the file back byte for byte.
         @test first(to_format(routed, "dss")) == read(dss, String)
@@ -355,8 +372,11 @@ end
             # handle serializes (fresh serialization, no echo expectation).
             back = from_package(to_package(routed))
             @test back isa MulticonductorNetwork
+            @test getfield(back, :data) === nothing
             @test PowerIO.n_buses(back) == PowerIO.n_buses(routed)
+            has_dist_summary && @test getfield(back, :data) === nothing
             @test first(to_format(back, "bmopf")) == first(to_format(routed, "bmopf"))
+            has_dist_summary && @test getfield(back, :data) === nothing
             # A .pio.json path routes through the package reader to the right
             # model, for both kinds.
             dir = mktempdir()

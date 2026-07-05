@@ -33,7 +33,7 @@ GridFM API: `pio_read_dir` and `pio_scenario_ids`.
 
 Package API: `pio_package_parse_file`, `pio_package_parse_str`, `pio_package_free`, `pio_package_to_json`, `pio_package_from_balanced_network`, `pio_package_from_multiconductor_network`, `pio_package_to_balanced_network`, `pio_package_to_multiconductor_network`, `pio_package_validate`, `pio_package_validation_json`, `pio_package_diagnostics_json`, `pio_package_operating_points_json`, `pio_package_study_json`, `pio_package_materialize_operating_point`, `pio_package_materialize_study_commit`, `pio_package_multiconductor_to_balanced_preflight_json`, and `pio_package_lower_multiconductor_to_balanced`.
 
-Distribution API: `pio_dist_abi_version`, `pio_dist_capabilities_json`, `pio_dist_parse_file`, `pio_dist_parse_str`, `pio_dist_network_free`, `pio_dist_warnings`, `pio_dist_to_json`, `pio_dist_graph_json`, `pio_dist_to_format`, `pio_dist_convert_file`, and `pio_dist_convert_str`.
+Distribution API: `pio_dist_abi_version`, `pio_dist_capabilities_json`, `pio_dist_parse_file`, `pio_dist_parse_str`, `pio_dist_network_free`, `pio_dist_warnings`, `pio_dist_summary_json`, `pio_dist_to_json`, `pio_dist_graph_json`, `pio_dist_to_format`, `pio_dist_convert_file`, and `pio_dist_convert_str`.
 
 ## Guarantees
 
@@ -47,7 +47,7 @@ C strings returned by Rust are copied with `unsafe_string` before `pio_string_fr
 
 The Arrow decoder validates the C Data Interface struct shape before dereferencing child or buffer pointers. A malformed successful Arrow return throws a Julia error instead of reading from null or inconsistent pointers.
 
-Concurrent reads through the same network handle follow the C header contract. Public package validation does not mutate a shared package handle; it parses the immutable JSON package into a temporary handle, validates that handle, and materializes a new JSON package.
+Concurrent reads through the same network handle use the C header's read only rules. Public package validation does not mutate a shared package handle; it parses the immutable JSON package into a temporary handle, validates that handle, and materializes a new JSON package.
 
 ## Remaining Conditions
 

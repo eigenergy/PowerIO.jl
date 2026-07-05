@@ -432,7 +432,7 @@ function from_package(pkg::NetworkPackage)
     elseif kind == "multiconductor"
         ptr, lib = _package_extract_ptr(pkg, :pio_package_to_multiconductor_network)
         h = MulticonductorNetworkHandle(ptr, lib)
-        return MulticonductorNetwork(_dist_data(h), h)
+        return MulticonductorNetwork(h)
     else
         error("PowerIO.from_package: unsupported package model_kind `$kind`")
     end
