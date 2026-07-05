@@ -34,6 +34,13 @@ Modules = [PowerIO]
 Pages = ["dense.jl"]
 ```
 
+## Matrices
+
+```@autodocs
+Modules = [PowerIO]
+Pages = ["matrix.jl"]
+```
+
 ## Arrow export
 
 ```@autodocs

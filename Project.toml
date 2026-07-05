@@ -8,6 +8,7 @@ JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 LazyArtifacts = "4af54fe1-eca0-43a8-85a7-787d91b784e3"
 Libdl = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
 Preferences = "21216c6a-2e73-6563-6e65-726566657250"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
 # Native bridges land as package extensions at v0.1.0 (PowerModels, ExaPowerIO), so
 # a user only pays for the ecosystem they load:
@@ -22,6 +23,7 @@ JSON3 = "1"
 LazyArtifacts = "1"
 Libdl = "1"
 Preferences = "1"
+SparseArrays = "1"
 Test = "1"
 julia = "1.9"
 

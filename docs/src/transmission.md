@@ -120,23 +120,18 @@ d.reference_bus, d.n_components, d.is_radial
 [`to_arrow`](@ref) brings one table across the Arrow C Data Interface (needs
 the library built with `--features arrow`; [`arrow_available`](@ref) reports
 it). Raw selectors are `:bus`, `:branch`, `:gen`, `:load`, `:shunt`, and
-`:switch`; normalized solver selectors are `:solver_bus`, `:solver_load`,
-`:solver_shunt`, `:solver_branch`, `:solver_switch`, `:solver_arc`,
-`:solver_gen`, `:solver_storage`, and `:solver_hvdc`.
+`:switch`. Specialized normalized tables are available for consumers that need
+the Rust row index space directly.
 
 ```julia
 t = to_arrow(net, :branch)              # NamedTuple of owned Julia Vectors
-sb = to_arrow(net, :solver_bus)         # dense 0-based ids, per unit values
-ybus = to_arrow(net, :ybus)             # COO matrix table
-b = to_arrow(net, :bprime)
-z = to_arrow(net, :branch; copy=false)  # zero-copy ArrowTable; keep it alive while reading
+z = to_arrow(net, :branch; copy=false)  # zero copy ArrowTable; close when done
 ```
 
 The default returns owned columns (Tables.jl shaped, flows into
 `Arrow.write`, `DataFrame`, etc.) with no lifetime caveat. `copy=false`
-returns a zero-copy [`ArrowTable`](@ref) whose columns view the producer's
-memory.
+returns a zero copy [`ArrowTable`](@ref) whose columns view the producer's
+memory. Extracted columns root the buffers themselves; reads after `close(z)`
+throw a Julia error.
 
-Matrix selectors are `:ybus`, `:incidence`, `:bprime`, and `:bdoubleprime`.
-They return Arrow COO tables for consumers that want sparse matrix assembly
-without reimplementing parser semantics.
+See [Matrices](matrices.md) for the Rust computed sparse matrix API.
