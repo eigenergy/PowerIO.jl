@@ -44,6 +44,8 @@ network type; the type-marker forms (`parse_file(BalancedNetwork, path)`,
 
 - [Transmission networks](transmission.md) — parse, inspect, normalize,
   serialize, and extract dense arrays from a `BalancedNetwork`.
+- [Matrices](matrices.md) — Rust computed sparse matrices as Julia native
+  arrays and PowerModels shaped wrappers.
 - [Distribution networks](distribution.md) — the `MulticonductorNetwork`
   surface: parse and convert OpenDSS, PMD, and BMOPF cases.
 - [Ecosystem interop](interop.md) — the bridges: PowerModels.jl,

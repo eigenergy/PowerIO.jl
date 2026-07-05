@@ -16,6 +16,7 @@ makedocs(;
     pages = [
         "Home" => "index.md",
         "Transmission networks" => "transmission.md",
+        "Matrices" => "matrices.md",
         "Distribution networks" => "distribution.md",
         "Ecosystem interop" => "interop.md",
         "Binary distribution" => "binary.md",

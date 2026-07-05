@@ -56,10 +56,12 @@ using JSON3
 using LazyArtifacts
 using Preferences: load_preference, set_preferences!
 import Libdl
+import SparseArrays
 
 export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_str,
        to_format, to_normalized, to_normalized_with_options, to_json, to_dense,
-       to_matpower, to_arrow,
+       to_matpower, to_arrow, calc_admittance_matrix, calc_susceptance_matrix,
+       calc_incidence_matrix, calc_bprime_matrix, calc_bdoubleprime_matrix,
        ArrowTable, write_pypsa_csv_folder, to_powermodels, from_powermodels,
        to_powerdata, parse_ac_power_data, read_gridfm, read_gridfm_scenarios,
        parse_goc3_json, goc3_status_flags, goc3_add_status_flags!,
@@ -79,6 +81,7 @@ include("dense.jl")       # to_dense: numeric tables straight from the C ABI ext
 include("powermodels.jl") # PowerModels.jl network data bridge
 include("powerdata.jl")   # ExaPowerIO / ExaModelsPower PowerData bridge
 include("arrow.jl")       # Arrow C Data Interface export (feature arrow)
+include("matrix.jl")      # sparse matrices computed by the Rust matrix surface
 include("gridfm.jl")      # gridfm-datakit Parquet reader (feature gridfm)
 include("dist.jl")        # MulticonductorNetwork distribution surface (feature dist)
 include("graphs.jl")      # graph projections for balanced and multiconductor models

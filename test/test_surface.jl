@@ -3,7 +3,9 @@
     # and its public surface must exist.
     for sym in (:BalancedNetwork, :parse_file, :parse_str, :from_json, :convert_file,
                 :convert_str, :to_format, :to_normalized, :to_normalized_with_options,
-                :to_json, :to_dense, :to_matpower, :to_arrow, :ArrowTable,
+                :to_json, :to_dense, :to_matpower, :to_arrow, :calc_admittance_matrix,
+                :calc_susceptance_matrix, :calc_incidence_matrix, :calc_bprime_matrix,
+                :calc_bdoubleprime_matrix, :ArrowTable,
                 :write_pypsa_csv_folder,
                 :to_powermodels, :from_powermodels, :to_powerdata,
                 :parse_ac_power_data, :read_gridfm, :read_gridfm_scenarios,
@@ -33,6 +35,8 @@
                 :abi_version, :library_version, :library_available)
         @test isdefined(PowerIO, sym)
     end
+    @test isdefined(PowerIO, :AdmittanceMatrix)
+    @test :AdmittanceMatrix ∉ names(PowerIO)
     @test isdefined(PowerIO, :NetworkHandle)  # deprecated alias of BalancedNetworkHandle
     @test PowerIO._lib() isa AbstractString
     @test PowerIO.PIO_ABI_VERSION isa Unsigned

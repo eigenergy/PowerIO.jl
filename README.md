@@ -91,8 +91,12 @@ The main transforms off a parsed network:
 to_normalized(net)                 # per unit, radians, filtered copy
 to_normalized(net; clamp_angle_bounds=true)
 to_dense(net)                      # dense typed arrays for matrix assembly
+calc_admittance_matrix(net).matrix # Ybus as SparseMatrixCSC{ComplexF64}
+calc_susceptance_matrix(net).matrix
+calc_incidence_matrix(net)
+calc_bprime_matrix(net).matrix     # Rust B' positive Laplacian
 to_arrow(net, :branch)             # one table over the Arrow C Data Interface
-to_arrow(net, :bprime)             # matrix Arrow COO selectors
+to_arrow(net, :bprime)             # lower level matrix COO table
 to_matpower(net)                   # byte exact when the input was MATPOWER
 to_format(net, "powermodels-json") # (text, warnings)
 to_powermodels(net)                # PowerModels.jl network data Dict
