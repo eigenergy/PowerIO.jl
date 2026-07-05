@@ -11,6 +11,18 @@ using SparseArrays
         @test_throws ErrorException calc_incidence_matrix(m)
         @test_throws ErrorException calc_bprime_matrix(m)
         @test_throws ErrorException calc_bdoubleprime_matrix(m)
+    elseif try
+        to_arrow(m, :matrix_bus)
+        false
+    catch e
+        !occursin("does not support table", sprint(showerror, e)) && rethrow()
+        true
+    end
+        @test_throws ErrorException calc_admittance_matrix(m)
+        @test_throws ErrorException calc_susceptance_matrix(m)
+        @test_throws ErrorException calc_incidence_matrix(m)
+        @test_throws ErrorException calc_bprime_matrix(m)
+        @test_throws ErrorException calc_bdoubleprime_matrix(m)
     else
         net = parse_file(m)
 

@@ -261,7 +261,7 @@ end
             @test branch_axis.to_bus_id == expected_branch["to_bus_id"]
         end
 
-        if PowerIO.matrix_available()
+        if PowerIO.matrix_available() && matrix_bus !== nothing
             check_matrix_fixture("case9.m")
             check_matrix_fixture("case30.m")
             zmat = to_arrow(m, :bprime; copy=false)
@@ -275,6 +275,8 @@ end
             @test zaxis.bus_id[1] == 1
             close(zmat)
             close(zaxis)
+        elseif PowerIO.matrix_available()
+            @test_skip to_arrow(m, :matrix_bus)
         else
             @test_throws ErrorException to_arrow(m, :bprime)
         end

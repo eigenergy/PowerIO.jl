@@ -292,10 +292,10 @@ function _with_matrix_metadata(cols::NamedTuple, table::Symbol,
                                metadata::Dict{String,String})
     table in _MATRIX_ARROW_TABLES || return cols
     reported = get(metadata, "powerio.table", String(table))
-    schema_version = metadata["powerio.schema_version"]
-    format = metadata["powerio.format"]
-    row_axis = metadata["powerio.row_axis"]
-    col_axis = metadata["powerio.col_axis"]
+    schema_version = get(metadata, "powerio.schema_version", "")
+    format = get(metadata, "powerio.format", "coo")
+    row_axis = get(metadata, "powerio.row_axis", "solver_bus")
+    col_axis = get(metadata, "powerio.col_axis", table == :incidence ? "solver_branch" : "solver_bus")
     row_count = parse(Int, metadata["powerio.row_count"])
     col_count = parse(Int, metadata["powerio.col_count"])
     return (; cols..., table=reported, schema_version, format, row_axis, col_axis,
