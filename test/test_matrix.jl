@@ -22,16 +22,16 @@ using SparseArrays
             coo.col_count,
         )
 
-        solver_bus_maps(net) = begin
-            sb = to_arrow(net, :solver_bus)
-            idx_to_bus = Vector{Int}(undef, length(sb.index))
-            for k in eachindex(sb.index)
-                idx_to_bus[sb.index[k] + 1] = sb.bus_id[k]
+        matrix_bus_maps(net) = begin
+            axis = to_arrow(net, :matrix_bus)
+            idx_to_bus = Vector{Int}(undef, length(axis.index))
+            for k in eachindex(axis.index)
+                idx_to_bus[axis.index[k] + 1] = axis.bus_id[k]
             end
             idx_to_bus, Dict(id => idx for (idx, id) in enumerate(idx_to_bus))
         end
 
-        idx_to_bus, bus_to_idx = solver_bus_maps(net)
+        idx_to_bus, bus_to_idx = matrix_bus_maps(net)
 
         ybus_coo = to_arrow(m, :ybus)
         ybus_expected = sparse_from_coo(ybus_coo, ybus_coo.g .+ im .* ybus_coo.b)
@@ -63,6 +63,8 @@ using SparseArrays
         @test bdoubleprime.matrix == bdoubleprime_expected
 
         incidence_coo = to_arrow(m, :incidence)
+        @test incidence_coo.row_axis == "matrix_bus"
+        @test incidence_coo.col_axis == "matrix_branch"
         incidence_expected = sparse_from_coo(incidence_coo, incidence_coo.value)
         incidence = calc_incidence_matrix(m)
         @test incidence isa SparseMatrixCSC{Float64,Int}

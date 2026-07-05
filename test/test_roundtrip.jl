@@ -93,7 +93,7 @@
             @test package_operating_points(pkg) === nothing
             @test package_study(pkg) === nothing
             pkg_doc = JSON3.read(to_json(pkg))
-            # Same major is the reader contract; byte equality broke this
+            # Same major is the reader policy; byte equality broke this
             # suite on every additive envelope bump in powerio.
             @test VersionNumber(String(pkg_doc.schema_version)).major ==
                   VersionNumber(PowerIO.PIO_PACKAGE_SCHEMA_VERSION).major

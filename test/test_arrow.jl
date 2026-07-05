@@ -103,6 +103,23 @@ end
             @test isempty(to_arrow(m, :solver_switch).index)
         end
 
+        matrix_bus = optional_arrow(:matrix_bus)
+        if matrix_bus === nothing
+            @test_skip to_arrow(m, :matrix_bus)
+        else
+            @test matrix_bus.index == collect(0:13)
+            @test matrix_bus.bus_id == collect(1:14)
+            @test matrix_bus.source_row == collect(0:13)
+            @test matrix_bus.is_reference[1] == 0x01
+            @test all(==(0), matrix_bus.component)
+
+            matrix_branch = to_arrow(m, :matrix_branch)
+            @test matrix_branch.index == collect(0:19)
+            @test matrix_branch.source_row == collect(0:19)
+            @test matrix_branch.from_bus_id[1] == 1
+            @test matrix_branch.to_bus_id[1] == 2
+        end
+
         # The BalancedNetwork-first method matches the path method.
         @test to_arrow(net, :bus).id == collect(1:14)
 
@@ -213,6 +230,10 @@ end
                 got = to_arrow(path, Symbol(table_name))
                 expected = fixture["tables"][table_name]
                 @test got.table == expected["table"]
+                @test got.schema_version == expected["schema_version"]
+                @test got.format == expected["format"]
+                @test got.row_axis == expected["row_axis"]
+                @test got.col_axis == expected["col_axis"]
                 @test got.row_count == expected["row_count"]
                 @test got.col_count == expected["col_count"]
                 @test got.row_index == expected["row_index"]
@@ -224,16 +245,36 @@ end
                     @test f64_bits(got.value) == expected["value_bits"]
                 end
             end
+            bus_axis = to_arrow(path, :matrix_bus)
+            expected_bus = fixture["axes"]["matrix_bus"]
+            @test bus_axis.index == expected_bus["index"]
+            @test bus_axis.bus_id == expected_bus["bus_id"]
+            @test bus_axis.source_row == expected_bus["source_row"]
+            @test bus_axis.is_reference == UInt8.(expected_bus["is_reference"])
+            @test bus_axis.component == expected_bus["component"]
+
+            branch_axis = to_arrow(path, :matrix_branch)
+            expected_branch = fixture["axes"]["matrix_branch"]
+            @test branch_axis.index == expected_branch["index"]
+            @test branch_axis.source_row == expected_branch["source_row"]
+            @test branch_axis.from_bus_id == expected_branch["from_bus_id"]
+            @test branch_axis.to_bus_id == expected_branch["to_bus_id"]
         end
 
         if PowerIO.matrix_available()
             check_matrix_fixture("case9.m")
             check_matrix_fixture("case30.m")
             zmat = to_arrow(m, :bprime; copy=false)
+            @test zmat.row_axis == "matrix_bus"
+            @test zmat.col_axis == "matrix_bus"
             @test zmat.row_count == 14
             @test zmat.col_count == 14
             @test zmat.row_index isa PowerIO.ArrowColumn{Int64}
+            zaxis = to_arrow(m, :matrix_bus; copy=false)
+            @test zaxis.index isa PowerIO.ArrowColumn{Int64}
+            @test zaxis.bus_id[1] == 1
             close(zmat)
+            close(zaxis)
         else
             @test_throws ErrorException to_arrow(m, :bprime)
         end

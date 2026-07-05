@@ -26,21 +26,29 @@ function _matrix_network(path::AbstractString, fname::AbstractString; from=nothi
     error("PowerIO.$fname: matrix APIs currently support balanced networks only")
 end
 
-function _solver_bus_maps(net::BalancedNetwork)
-    sb = to_arrow(net, :solver_bus)
-    n = length(sb.index)
+function _matrix_bus_maps(net::BalancedNetwork)
+    axis = to_arrow(net, :matrix_bus)
+    n = length(axis.index)
     idx_to_bus = Vector{Int}(undef, n)
     seen = falses(n)
-    for k in eachindex(sb.index)
-        idx = Int(sb.index[k]) + 1
-        (1 <= idx <= n) || error("PowerIO matrix: solver bus index $(sb.index[k]) is out of range")
-        seen[idx] && error("PowerIO matrix: duplicate solver bus index $(sb.index[k])")
-        idx_to_bus[idx] = Int(sb.bus_id[k])
+    for k in eachindex(axis.index)
+        idx = Int(axis.index[k]) + 1
+        (1 <= idx <= n) || error("PowerIO matrix: matrix bus index $(axis.index[k]) is out of range")
+        seen[idx] && error("PowerIO matrix: duplicate matrix bus index $(axis.index[k])")
+        idx_to_bus[idx] = Int(axis.bus_id[k])
         seen[idx] = true
     end
-    all(seen) || error("PowerIO matrix: solver bus table is missing an index")
+    all(seen) || error("PowerIO matrix: matrix bus table is missing an index")
     bus_to_idx = Dict(id => idx for (idx, id) in enumerate(idx_to_bus))
     return idx_to_bus, bus_to_idx
+end
+
+function _check_matrix_axes(coo, table::Symbol, row_axis::AbstractString, col_axis::AbstractString)
+    getproperty(coo, :row_axis) == row_axis ||
+        error("PowerIO.$table: expected row axis $row_axis, got $(getproperty(coo, :row_axis))")
+    getproperty(coo, :col_axis) == col_axis ||
+        error("PowerIO.$table: expected col axis $col_axis, got $(getproperty(coo, :col_axis))")
+    return
 end
 
 function _sparse_from_coo(coo, values)
@@ -55,7 +63,8 @@ end
 
 function _wrapped_real_matrix(net::BalancedNetwork, table::Symbol)
     coo = to_arrow(net, table)
-    idx_to_bus, bus_to_idx = _solver_bus_maps(net)
+    _check_matrix_axes(coo, table, "matrix_bus", "matrix_bus")
+    idx_to_bus, bus_to_idx = _matrix_bus_maps(net)
     return AdmittanceMatrix(idx_to_bus, bus_to_idx, _sparse_from_coo(coo, coo.value))
 end
 
@@ -69,7 +78,8 @@ row index chosen by Rust; `idx_to_bus` maps those rows back to external bus ids.
 """
 function calc_admittance_matrix(net::BalancedNetwork)
     coo = to_arrow(net, :ybus)
-    idx_to_bus, bus_to_idx = _solver_bus_maps(net)
+    _check_matrix_axes(coo, :ybus, "matrix_bus", "matrix_bus")
+    idx_to_bus, bus_to_idx = _matrix_bus_maps(net)
     values = coo.g .+ im .* coo.b
     return AdmittanceMatrix(idx_to_bus, bus_to_idx, _sparse_from_coo(coo, values))
 end
@@ -121,11 +131,12 @@ calc_susceptance_matrix(path::AbstractString; from=nothing) =
     calc_incidence_matrix(path; from=nothing)
 
 Return the Rust computed signed incidence matrix as a
-`SparseMatrixCSC{Float64,Int}`. Rows use the dense solver bus index space and
-columns follow the in service branch order selected by Rust.
+`SparseMatrixCSC{Float64,Int}`. Rows use the `matrix_bus` axis and columns use
+the `matrix_branch` axis selected by Rust.
 """
 function calc_incidence_matrix(net::BalancedNetwork)
     coo = to_arrow(net, :incidence)
+    _check_matrix_axes(coo, :incidence, "matrix_bus", "matrix_branch")
     return _sparse_from_coo(coo, coo.value)
 end
 

@@ -55,7 +55,7 @@ _zero(::Type{CArrowSchema}) = CArrowSchema(C_NULL, C_NULL, C_NULL, 0, 0, C_NULL,
 _zero(::Type{CArrowArray}) = CArrowArray(0, 0, 0, 0, 0, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL)
 
 # Arrow C Data Interface primitive format codes -> Julia element type. Only the
-# three the powerio exporter emits are accepted; anything else is a contract change.
+# three the powerio exporter emits are accepted; anything else needs binding updates.
 function _arrow_eltype(fmt::AbstractString)
     fmt == "l" && return Int64     # int64
     fmt == "g" && return Float64   # float64 (double)
@@ -83,6 +83,8 @@ const _ARROW_TABLE_IDS = (
     incidence = Cint(16),
     bprime = Cint(17),
     bdoubleprime = Cint(18),
+    matrix_bus = Cint(19),
+    matrix_branch = Cint(20),
 )
 
 const _MATRIX_ARROW_TABLES = Set((:ybus, :incidence, :bprime, :bdoubleprime))
@@ -290,9 +292,14 @@ function _with_matrix_metadata(cols::NamedTuple, table::Symbol,
                                metadata::Dict{String,String})
     table in _MATRIX_ARROW_TABLES || return cols
     reported = get(metadata, "powerio.table", String(table))
+    schema_version = metadata["powerio.schema_version"]
+    format = metadata["powerio.format"]
+    row_axis = metadata["powerio.row_axis"]
+    col_axis = metadata["powerio.col_axis"]
     row_count = parse(Int, metadata["powerio.row_count"])
     col_count = parse(Int, metadata["powerio.col_count"])
-    return (; cols..., table=reported, row_count, col_count)
+    return (; cols..., table=reported, schema_version, format, row_axis, col_axis,
+            row_count, col_count)
 end
 
 function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArrowSchema};
@@ -350,7 +357,7 @@ function _arrow_from_handle(h::BalancedNetworkHandle, table::Symbol, copy::Bool)
     _require_release_callbacks!(arr, sch)
     if copy
         # The columns are owned copies: release the producer before returning, and
-        # on a decode error (a contract violation: unknown format code, child count
+        # on a decode error (unknown format code, child count
         # mismatch) release too so the buffers don't leak.
         cols = try
             _decode_arrow(arr, sch; copy=true, table=table)
@@ -387,7 +394,9 @@ the parsed network fields with 1-based (external) bus ids, the same id space as
 `:solver_arc`, `:solver_gen`, `:solver_storage`, and `:solver_hvdc`; those
 columns use dense 0-based row ids and per unit/radian values. Matrix selectors
 are `:ybus`, `:incidence`, `:bprime`, and `:bdoubleprime`; they return COO
-columns plus `table`, `row_count`, and `col_count` from schema metadata. Takes
+columns plus schema metadata. Matrix axis selectors are `:matrix_bus` and
+`:matrix_branch`; they map dense matrix rows and incidence columns back to source
+bus and branch rows. Takes
 a parsed [`BalancedNetwork`](@ref) (via its live handle) or a `path` to parse
 first. Needs powerio-capi built `--features arrow`; matrix selectors also need
 `--features matrix`; see [`arrow_available`](@ref) and [`matrix_available`](@ref).

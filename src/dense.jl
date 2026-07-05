@@ -15,7 +15,7 @@
 
 # The v4 extractors take a `cap` and return the total count (write up to `cap`,
 # never overflow). The counts come from `pio_n_*` on the same immutable handle, so
-# `cap == count`; verifying the return catches an ABI contract violation cheaply
+# `cap == count`; verifying the return catches an ABI mismatch cheaply
 # (the cap/count convention exists precisely so a short fill is detectable). Any
 # output pointer may be NULL to skip.
 function _check_filled(got, want::Int, what::AbstractString)

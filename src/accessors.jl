@@ -2,7 +2,7 @@
 #
 # The v0.0.1 surface bridges read: the parsed element tables plus a few scalars.
 # Element field names mirror the Rust `BalancedNetwork` (powerio/src/network.rs) and are
-# the stable contract — raw MATPOWER units (MW/MVAr, degrees), 1-based bus ids,
+# the stable binding policy: raw MATPOWER units (MW/MVAr, degrees), 1-based bus ids,
 # out-of-service elements retained, so a consumer normalizes as it sees fit:
 #
 #   bus:     id, kind ∈ {"PQ","PV","REF","ISOLATED"}, vm, va (deg), base_kv,
