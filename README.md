@@ -99,6 +99,7 @@ to_powermodels(net)                # PowerModels.jl network data Dict
 to_powerdata(net)                  # ExaPowerIO PowerData NamedTuple
 to_package(net)                    # .pio.json compiler package
 features()                         # optional C ABI surfaces
+dist_capabilities()                # BMOPF distribution fidelity flags
 ```
 
 Distribution cases share the verbs, routed by format:
@@ -106,6 +107,7 @@ Distribution cases share the verbs, routed by format:
 ```julia
 dn = parse_file("feeder.dss")        # ::MulticonductorNetwork, element tables + handle
 PowerIO.buses(dn), PowerIO.lines(dn), PowerIO.transformers(dn)
+PowerIO.dist_graph(dn)
 text, warnings = to_format(dn, "pmd")
 ```
 
@@ -162,11 +164,12 @@ The artifact pipeline behind released versions is described in
 
 ## Version line
 
-0.6.1 tracks powerio v0.6.1 in lockstep: core C ABI 4, distribution C ABI 1,
-with the Arrow, matrix, GridFM, distribution, and package surfaces enabled in
-the released artifacts. The Julia package stays thin around the C ABI while
-owning stable Julia entry points for parsing, conversion, packages, dense
-tables, Arrow tables, distribution networks, GridFM, and ecosystem interop.
+0.6.2 tracks powerio v0.6.2 in lockstep: core C ABI 4, distribution C ABI 1,
+with the Arrow, matrix, GridFM, distribution, package, BMOPF fidelity, and study
+package surfaces enabled in the released artifacts. The Julia package stays thin
+around the C ABI while owning stable Julia entry points for parsing, conversion,
+packages, dense tables, Arrow tables, distribution networks, GridFM, and
+ecosystem interop.
 `PowerIO_jll` remains the later distribution cleanup. Version history is in
 [CHANGELOG.md](CHANGELOG.md).
 

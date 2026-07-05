@@ -65,11 +65,12 @@ export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_
        parse_goc3_json, goc3_status_flags, goc3_add_status_flags!,
        NetworkPackage, CompilerPackage, to_package, from_package, read_package, write_package,
        package_model_kind, package_available, validate_package, package_validation,
-       package_diagnostics, package_operating_points, materialize_operating_point,
+       package_diagnostics, package_operating_points, package_study,
+       materialize_operating_point, materialize_study_commit,
        multiconductor_to_balanced_preflight,
        lower_multiconductor_to_balanced, arrow_available, gridfm_available,
        matrix_available, features, MulticonductorNetwork, dist_available, dist_abi_version,
-       dist_capabilities
+       dist_capabilities, dist_graph
 
 include("capi.jl")        # library resolution, ABI handshake, BalancedNetworkHandle, buffer helpers
 include("network.jl")     # BalancedNetwork and the parse / convert / serialize verbs

@@ -111,8 +111,14 @@ end
 _package_operating_points_available() =
     _exports_symbol(:pio_package_operating_points_json)
 
+_package_study_available() =
+    _exports_symbol(:pio_package_study_json)
+
 _package_materialize_operating_point_available() =
     _exports_symbol(:pio_package_materialize_operating_point)
+
+_package_materialize_study_commit_available() =
+    _exports_symbol(:pio_package_materialize_study_commit)
 
 function _package_validation_handle(pkg::NetworkPackage, fname::AbstractString)
     h = _package_parse_str_handle(to_json(pkg), fname)
@@ -238,6 +244,17 @@ function _package_operating_points_json(h::PackageHandle, fname::AbstractString)
     return text
 end
 
+function _package_study_json(h::PackageHandle, fname::AbstractString)
+    err = zeros(UInt8, _ERRLEN)
+    s = GC.@preserve h ccall((:pio_package_study_json, _lib()), Cstring,
+                             (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
+                             h.ptr, err, length(err))
+    s == C_NULL && error("PowerIO.$fname: " * _cstr(err))
+    text = unsafe_string(s)
+    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    return text
+end
+
 """
     package_operating_points(pkg::NetworkPackage)
 
@@ -249,6 +266,20 @@ function package_operating_points(pkg::NetworkPackage)
     end
     h = _package_parse_str_handle(to_json(pkg), "package_operating_points")
     value = JSON3.read(_package_operating_points_json(h, "package_operating_points"))
+    return value === nothing ? nothing : value
+end
+
+"""
+    package_study(pkg::NetworkPackage)
+
+Return the package study block as a JSON3 value, or `nothing`.
+"""
+function package_study(pkg::NetworkPackage)
+    if !_package_study_available()
+        return get(pkg.data, :study, nothing)
+    end
+    h = _package_parse_str_handle(to_json(pkg), "package_study")
+    value = JSON3.read(_package_study_json(h, "package_study"))
     return value === nothing ? nothing : value
 end
 
@@ -271,6 +302,27 @@ function materialize_operating_point(pkg::NetworkPackage, index::Integer)
     ptr == C_NULL && error("PowerIO.materialize_operating_point: " * _cstr(err))
     materialized = PackageHandle(ptr)
     return NetworkPackage(_package_to_json(materialized, "materialize_operating_point"))
+end
+
+"""
+    materialize_study_commit(pkg::NetworkPackage, index) -> NetworkPackage
+
+Return a static package with study commits `0:index` applied. Indices are zero
+based to match the `.pio.json` payload.
+"""
+function materialize_study_commit(pkg::NetworkPackage, index::Integer)
+    _package_materialize_study_commit_available() || error(
+        "PowerIO.materialize_study_commit: the C ABI at \"$(_lib())\" does not export " *
+        "pio_package_materialize_study_commit. Rebuild powerio-capi from the matching " *
+        "PowerIO branch.")
+    h = _package_parse_str_handle(to_json(pkg), "materialize_study_commit")
+    err = zeros(UInt8, _ERRLEN)
+    ptr = GC.@preserve h ccall((:pio_package_materialize_study_commit, _lib()), Ptr{Cvoid},
+                               (Ptr{Cvoid}, Clonglong, Ptr{UInt8}, Csize_t),
+                               h.ptr, Clonglong(index), err, length(err))
+    ptr == C_NULL && error("PowerIO.materialize_study_commit: " * _cstr(err))
+    materialized = PackageHandle(ptr)
+    return NetworkPackage(_package_to_json(materialized, "materialize_study_commit"))
 end
 
 """

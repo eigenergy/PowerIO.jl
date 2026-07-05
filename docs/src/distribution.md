@@ -10,10 +10,12 @@ the format.
 The surface is experimental while the BMOPF schema is v0.0.1, and needs the
 library built with `--features dist` (the element tables also need `pkg`; both
 are on by default in the released binaries). [`dist_available`](@ref) reports
-whether the resolved library has it. The v0.6.1 release carries the current
-distribution fidelity work: OpenDSS generator and IBR/control data, transformer
+whether the resolved library has it. The v0.6.1 release added the distribution
+foundation: OpenDSS generator and IBR/control data, transformer
 neutral impedance, core shunt and leakage data, and n-winding transformer
-structure where the target format can express it.
+structure where the target format can express it. v0.6.2 adds the BMOPF
+transformer, source, and diagnostic fidelity flags exposed through
+[`dist_capabilities`](@ref).
 
 [`dist_capabilities`](@ref) reports finer BMOPF export capabilities. Downstream
 packages should use it instead of checking PowerIO version strings when they
@@ -74,6 +76,7 @@ PowerIO.n_buses(net)
 PowerIO.base_frequency(net)     # Hz
 PowerIO.network_name(net)       # Union{String,Nothing}
 PowerIO.source_format(net)      # "dss", "pmd-json", "bmopf-json", or nothing
+PowerIO.dist_graph(net)         # collapsed bus / terminal graph projection
 PowerIO.dist_capabilities()     # BMOPF export fidelity flags
 ```
 

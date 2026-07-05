@@ -11,11 +11,13 @@
                 :NetworkPackage, :CompilerPackage, :to_package, :from_package, :read_package,
                 :write_package, :package_model_kind, :package_available,
                 :validate_package, :package_validation, :package_diagnostics,
-                :package_operating_points, :materialize_operating_point,
+                :package_operating_points, :package_study,
+                :materialize_operating_point, :materialize_study_commit,
                 :multiconductor_to_balanced_preflight,
                 :lower_multiconductor_to_balanced,
                 :arrow_available, :gridfm_available, :matrix_available, :features,
-                :MulticonductorNetwork, :dist_available, :dist_abi_version)
+                :MulticonductorNetwork, :dist_available, :dist_abi_version,
+                :dist_capabilities, :dist_graph)
         @test isdefined(PowerIO, sym)
     end
     @test isdefined(PowerIO, :Network) # deprecated compatibility binding

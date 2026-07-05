@@ -18,6 +18,15 @@
     @test caps.bmopf_delta_roll isa Bool
     @test caps.bmopf_voltage_source_merge isa Bool
     @test caps.bmopf_transformer_diagnostics isa Bool
+    if PowerIO.library_available() && PowerIO.dist_available() && PowerIO.library_version() == "0.6.2"
+        @test caps.schema_version == "1.0.0"
+        @test caps.bmopf_fixed_taps
+        @test caps.bmopf_center_tap_leakage
+        @test caps.bmopf_delta_wye_leakage
+        @test caps.bmopf_delta_roll
+        @test caps.bmopf_voltage_source_merge
+        @test caps.bmopf_transformer_diagnostics
+    end
 end
 
 function _bmopf_doc_from_dss(text)
@@ -63,7 +72,11 @@ end
         New Transformer.dw phases=3 windings=2 buses=[source.1.2.3 load.1.2.3.4] conns=[delta wye] kvs=[12.47 0.48] kvas=[500 500] xhl=5
         """)
         dw = dw_doc["transformer"]["delta_wye"]["dw"]
-        @test dw["x_series"] > 0
+        @test dw["x_series_from"] > 0
+        @test dw["x_series_to"] > 0
+        @test dw["r_series_from"] > 0
+        @test dw["r_series_to"] > 0
+        @test !haskey(dw, "x_series")
         @test !any(w -> occursin("delta_wye", lowercase(w)) ||
                          occursin("leakage", lowercase(w)), dw_w)
 
@@ -88,7 +101,8 @@ end
         @test src["terminal_map"] == ["1", "2", "3", "4"]
         @test length(src["v_magnitude"]) == length(src["terminal_map"])
         @test length(src["v_angle"]) == length(src["terminal_map"])
-        @test !any(w -> occursin("expects exactly one source", lowercase(w)), src_w)
+        @test !haskey(src_doc["voltage_source"], "sb")
+        @test !haskey(src_doc["voltage_source"], "sc")
 
         _, unsupported_w = _bmopf_doc_from_dss("""
         New Circuit.c basekv=12.47
@@ -114,6 +128,13 @@ end
         net = parse_file(MulticonductorNetwork, dss)
         @test net isa MulticonductorNetwork
         @test PowerIO.warnings(net) isa Vector{String}
+        @test PowerIO._dist_graph_available()
+        graph = PowerIO._json_plain(dist_graph(net))
+        @test length(graph["buses"]) == 4
+        @test any(bus -> bus["id"] == "sourcebus" && bus["has_source"], graph["buses"])
+        @test any(edge -> edge["kind"] == "line" && edge["id"] == "feeder" &&
+                          edge["from"] == "sourcebus" && edge["to"] == "mid",
+                  graph["edges"])
 
         # Same-format write echoes the source byte for byte and warns about nothing.
         echo, echo_w = to_format(net, "dss")
