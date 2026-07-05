@@ -288,6 +288,46 @@ function _schema_metadata(s::CArrowSchema)
     return out
 end
 
+function _metadata_key_eq(ptr::Ptr{UInt8}, len::Integer, wanted::String)
+    len == ncodeunits(wanted) || return false
+    @inbounds for i in 1:len
+        unsafe_load(ptr + i - 1) == codeunit(wanted, i) || return false
+    end
+    return true
+end
+
+function _matrix_shape_metadata(s::CArrowSchema)
+    s.metadata != C_NULL || error("PowerIO.to_arrow: matrix table has no schema metadata")
+    ptr = Ptr{UInt8}(s.metadata)
+    offset = 0
+    npairs = _metadata_i32(ptr, offset)
+    npairs < 0 && error("PowerIO.to_arrow: negative Arrow metadata pair count")
+    offset += sizeof(Int32)
+    row_count = nothing
+    col_count = nothing
+    for _ in 1:npairs
+        klen = _metadata_i32(ptr, offset)
+        klen < 0 && error("PowerIO.to_arrow: negative Arrow metadata key length")
+        offset += sizeof(Int32)
+        key_ptr = ptr + offset
+        is_row_count = _metadata_key_eq(key_ptr, klen, "powerio.row_count")
+        is_col_count = _metadata_key_eq(key_ptr, klen, "powerio.col_count")
+        offset += klen
+        vlen = _metadata_i32(ptr, offset)
+        vlen < 0 && error("PowerIO.to_arrow: negative Arrow metadata value length")
+        offset += sizeof(Int32)
+        if is_row_count
+            row_count = parse(Int, unsafe_string(ptr + offset, vlen))
+        elseif is_col_count
+            col_count = parse(Int, unsafe_string(ptr + offset, vlen))
+        end
+        offset += vlen
+    end
+    row_count === nothing && error("PowerIO.to_arrow: missing powerio.row_count metadata")
+    col_count === nothing && error("PowerIO.to_arrow: missing powerio.col_count metadata")
+    return row_count, col_count
+end
+
 function _with_matrix_metadata(cols::NamedTuple, table::Symbol,
                                metadata::Dict{String,String})
     table in _MATRIX_ARROW_TABLES || return cols
@@ -380,6 +420,59 @@ function _arrow_from_handle(h::BalancedNetworkHandle, table::Symbol, copy::Bool)
     end
     rooted = map(v -> v isa AbstractVector ? ArrowColumn(v, buffers) : v, cols)
     return ArrowTable(rooted, buffers)
+end
+
+function _fast_child_column(::Type{T}, arr::Base.RefValue{CArrowArray},
+                            child_idx::Integer, nrows::Integer,
+                            name::Symbol) where {T}
+    a = arr[]
+    child_arr_ptr = unsafe_load(a.children, child_idx)
+    child_arr_ptr != C_NULL ||
+        error("PowerIO.to_arrow: null array child pointer at column $child_idx")
+    child_arr = unsafe_load(child_arr_ptr)
+    _check_child_array(child_arr, Int(nrows), name)
+    return _column(T, child_arr, nrows, name, arr, true)
+end
+
+function _matrix_arrow_from_handle(h::BalancedNetworkHandle, table::Symbol)
+    id = get(_ARROW_TABLE_IDS, table, nothing)
+    id === nothing && throw(ArgumentError(
+        "PowerIO.to_arrow: unknown table $(repr(table)); expected one of $(keys(_ARROW_TABLE_IDS))"))
+    expected = table == :ybus ? 4 : 3
+    arr = Ref(_zero(CArrowArray))
+    sch = Ref(_zero(CArrowSchema))
+    err = zeros(UInt8, _ERRLEN)
+    lib = getfield(h, :lib)
+    rc = try
+        GC.@preserve h ccall(_library_symbol(lib, :pio_to_arrow), Cint,
+              (Ptr{Cvoid}, Cint, Ptr{CArrowArray}, Ptr{CArrowSchema}, Ptr{UInt8}, Csize_t),
+              h.ptr, id, arr, sch, err, length(err))
+    catch e
+        _feature_call_error("to_arrow", "pio_to_arrow", "arrow", e)
+    end
+    rc == 0 || error("PowerIO.to_arrow: " * _cstr(err))
+    _require_release_callbacks!(arr, sch)
+    try
+        a, s = arr[], sch[]
+        nrows = _nonnegative_int(a.length, "array length")
+        a.offset == 0 || error("PowerIO.to_arrow: root array offset $(a.offset) is unsupported")
+        a.null_count == 0 || error("PowerIO.to_arrow: root array has $(a.null_count) nulls")
+        Int(a.n_children) == expected ||
+            error("PowerIO.to_arrow: table $table has $(a.n_children) columns, expected $expected")
+        a.children != C_NULL || error("PowerIO.to_arrow: null array children pointer")
+        row_count, col_count = _matrix_shape_metadata(s)
+        row_index = _fast_child_column(Int64, arr, 1, nrows, :row_index)
+        col_index = _fast_child_column(Int64, arr, 2, nrows, :col_index)
+        if table == :ybus
+            g = _fast_child_column(Float64, arr, 3, nrows, :g)
+            b = _fast_child_column(Float64, arr, 4, nrows, :b)
+            return (; row_index, col_index, g, b, row_count, col_count)
+        end
+        value = _fast_child_column(Float64, arr, 3, nrows, :value)
+        return (; row_index, col_index, value, row_count, col_count)
+    finally
+        _release_ffi!(arr, sch)
+    end
 end
 
 """

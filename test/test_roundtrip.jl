@@ -5,12 +5,27 @@
     else
         data = joinpath(@__DIR__, "data")
         net = parse_file(joinpath(data, "case14.m"))
+        @test getfield(net, :data) === nothing
         @test PowerIO.n_buses(net) == 14
         @test PowerIO.n_branches(net) == 20
         @test PowerIO.n_gens(net) == 5
         @test PowerIO.base_mva(net) == 100.0
-        @test PowerIO.source_format(net) == "Matpower"
         @test PowerIO.reference_bus_id(net) == 1
+        @test getfield(net, :data) === nothing
+        has_scalar_helpers = PowerIO._exports_symbol(:pio_source_format) &&
+                             PowerIO._exports_symbol(:pio_network_name)
+        @test PowerIO.source_format(net) == "Matpower"
+        if has_scalar_helpers
+            @test PowerIO.network_name(net) == "case14"
+            @test sprint(show, net) == "BalancedNetwork{Matpower}: 14 buses, 20 branches, 5 gens"
+            @test getfield(net, :data) === nothing
+        end
+        expected_data = JSON3.read(to_json(net))
+        has_scalar_helpers && @test getfield(net, :data) === nothing
+        materialized = net.data
+        @test getfield(net, :data) === materialized
+        @test JSON3.write(materialized) == JSON3.write(expected_data)
+        @test net.data === materialized
         @test isempty(PowerIO.storage(net))
         @test isempty(PowerIO.hvdc(net))
 

@@ -76,7 +76,7 @@ export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_
 
 include("capi.jl")        # library resolution, ABI handshake, BalancedNetworkHandle, buffer helpers
 include("network.jl")     # BalancedNetwork and the parse / convert / serialize verbs
-include("accessors.jl")   # the JSON-backed element tables and scalar accessors
+include("accessors.jl")   # element tables and scalar accessors
 include("dense.jl")       # to_dense: numeric tables straight from the C ABI extractors
 include("powermodels.jl") # PowerModels.jl network data bridge
 include("powerdata.jl")   # ExaPowerIO / ExaModelsPower PowerData bridge

@@ -41,7 +41,7 @@ function read_gridfm(dir::AbstractString; scenario::Integer=0)
     end
     ptr == C_NULL && error("PowerIO.read_gridfm: " * _cstr(err))
     h = BalancedNetworkHandle(ptr, lib)
-    net = BalancedNetwork(JSON3.read(_to_json(h)), h)
+    net = BalancedNetwork(h)
     return (; network = net, scenario = Int(scenario),
             warnings = _handle_warnings(h))
 end

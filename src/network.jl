@@ -3,27 +3,46 @@
 """
     BalancedNetwork
 
-An immutable view of a parsed case, materialized from the C ABI's JSON transport.
-Raw MATPOWER units and 1-based bus ids, mirroring `powerio`'s `BalancedNetwork`: buses,
-loads, shunts, branches, generators, storage, and hvdc tables plus `base_mva`,
-`name`, and `source_format` (the format it was read from). For now the tables are
-the parsed JSON (`net.data`).
+A parsed balanced transmission case. Values stay in raw MATPOWER units with
+1-based bus ids, mirroring `powerio`'s `BalancedNetwork`: buses, loads, shunts,
+branches, generators, storage, and hvdc tables plus `base_mva`, `name`, and
+`source_format`.
 
-A `BalancedNetwork` from [`parse_file`](@ref) also keeps its live Rust [`BalancedNetworkHandle`](@ref)
-(`net.handle`), so the `to_*` transforms ([`to_normalized`](@ref), [`to_dense`](@ref),
-[`to_matpower`](@ref), [`to_arrow`](@ref)) work straight off it. The handle's
-finalizer frees the Rust case once the `BalancedNetwork` is unreachable. A `BalancedNetwork` constructed
-from a bare `JSON3.Object` has `handle === nothing`; the accessors and [`to_json`](@ref) work
-on it, but the handle-only transforms error.
+A `BalancedNetwork` from [`parse_file`](@ref) keeps a live Rust
+[`BalancedNetworkHandle`](@ref) (`net.handle`) and leaves `net.data` empty until
+the first table access. The first `net.data` access reads the JSON shaped view
+through the C ABI and caches it. The `to_*` transforms ([`to_normalized`](@ref),
+[`to_dense`](@ref), [`to_matpower`](@ref), [`to_arrow`](@ref)) work from the live
+handle. The handle's finalizer frees the Rust case once the `BalancedNetwork` is
+unreachable. A `BalancedNetwork` constructed from a bare `JSON3.Object` has
+`handle === nothing`; table access and [`to_json`](@ref) work on it, while
+handle-only transforms error.
 """
-struct BalancedNetwork
-    data::JSON3.Object
+mutable struct BalancedNetwork
+    data::Union{JSON3.Object,Nothing}
     handle::Union{BalancedNetworkHandle,Nothing}
 end
 BalancedNetwork(data::JSON3.Object) = BalancedNetwork(data, nothing)
+BalancedNetwork(h::BalancedNetworkHandle) = BalancedNetwork(nothing, h)
 
-# A one-line REPL summary. Uses only the JSON-backed accessors, so a handle-less
-# `BalancedNetwork` (built by `from_json`) shows without needing the Rust library.
+function _materialized_data(net::BalancedNetwork)
+    data = getfield(net, :data)
+    data !== nothing && return data
+    h = _live_handle(net, "data")
+    data = JSON3.read(_to_json(h))
+    setfield!(net, :data, data)
+    return data
+end
+
+function Base.getproperty(net::BalancedNetwork, name::Symbol)
+    name === :data && return _materialized_data(net)
+    return getfield(net, name)
+end
+
+Base.propertynames(::BalancedNetwork, private::Bool=false) = (:data, :handle)
+
+# A one-line REPL summary. Uses scalar handle accessors when available and falls
+# back to cached JSON for handleless networks.
 function Base.show(io::IO, net::BalancedNetwork)
     print(io, "BalancedNetwork{", source_format(net), "}: ", n_buses(net), " buses, ",
           n_branches(net), " branches, ", n_gens(net), " gens")
@@ -75,19 +94,19 @@ function parse_file(path::AbstractString; from=nothing)
         end
     end
     h = _parse_handle(path; from=from)
-    return BalancedNetwork(JSON3.read(_to_json(h)), h)
+    return BalancedNetwork(h)
 end
 function parse_file(io::IO, format::AbstractString)
     _is_dist_format(format) && return parse_str(MulticonductorNetwork, read(io, String), format)
     h = _parse_handle_str(read(io, String), format)
-    return BalancedNetwork(JSON3.read(_to_json(h)), h)
+    return BalancedNetwork(h)
 end
 # Explicit transmission marker, symmetric with `parse_file(MulticonductorNetwork, ...)`:
 # bypasses the format routing, so it reaches the balanced parser no matter the
 # extension.
 function parse_file(::Type{BalancedNetwork}, path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)
-    return BalancedNetwork(JSON3.read(_to_json(h)), h)
+    return BalancedNetwork(h)
 end
 
 """
@@ -104,7 +123,7 @@ parse_str(text::AbstractString, format::AbstractString="matpower") =
 # balanced parser no matter the token (symmetric with parse_file(BalancedNetwork, ...)).
 function parse_str(::Type{BalancedNetwork}, text::AbstractString, format::AbstractString="matpower")
     h = _parse_handle_str(String(text), format)
-    return BalancedNetwork(JSON3.read(_to_json(h)), h)
+    return BalancedNetwork(h)
 end
 
 """
@@ -115,14 +134,14 @@ Rebuild a live [`BalancedNetwork`](@ref) from the JSON transport produced by
 """
 function from_json(text::AbstractString)
     h = _from_json_handle(text)
-    return BalancedNetwork(JSON3.read(_to_json(h)), h)
+    return BalancedNetwork(h)
 end
 
 # The live Rust handle a BalancedNetwork-first transform needs; a manually constructed
 # BalancedNetwork has none, and a finalized handle is non-`nothing` but null. Name the
 # function that needs it.
 function _live_handle(net::BalancedNetwork, fname::AbstractString)
-    h = net.handle
+    h = getfield(net, :handle)
     (h === nothing || h.ptr == C_NULL) && error(
         "PowerIO.$fname: this BalancedNetwork has no live network handle (produce it with parse_file, parse_str, or from_json).")
     return h
@@ -185,7 +204,7 @@ function to_normalized(net::BalancedNetwork; clamp_angle_bounds::Bool=false,
     else
         _normalize_handle(h)
     end
-    return BalancedNetwork(JSON3.read(_to_json(hn)), hn)
+    return BalancedNetwork(hn)
 end
 
 """
@@ -206,7 +225,7 @@ Serialize `net` to the C ABI's JSON transport, the same text [`from_json`](@ref)
 reads back. Uses the live handle when present, else the cached `net.data`.
 """
 function to_json(net::BalancedNetwork)
-    h = net.handle
+    h = getfield(net, :handle)
     # A finalized handle (explicit `finalize(net.handle)`) is non-`nothing` but
     # null; the cached-data fallback covers it like the handleless case.
     return (h === nothing || h.ptr == C_NULL) ? JSON3.write(net.data) : _to_json(h)

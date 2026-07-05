@@ -20,14 +20,34 @@ Base.show(io::IO, x::AdmittanceMatrix{<:Number}) =
     print(io, "AdmittanceMatrix(", length(x.idx_to_bus), " buses, ",
           SparseArrays.nnz(x.matrix), " entries)")
 
-function _matrix_network(path::AbstractString, fname::AbstractString; from=nothing)
+function _matrix_from_path(f, path::AbstractString, fname::AbstractString; from=nothing)
     net = parse_file(path; from=from)
-    net isa BalancedNetwork && return net
-    error("PowerIO.$fname: matrix APIs currently support balanced networks only")
+    net isa BalancedNetwork ||
+        error("PowerIO.$fname: matrix APIs currently support balanced networks only")
+    try
+        return f(net)
+    finally
+        h = getfield(net, :handle)
+        h === nothing || h.ptr == C_NULL || finalize(h)
+    end
 end
 
-function _matrix_bus_maps(net::BalancedNetwork)
-    axis = to_arrow(net, :matrix_bus)
+function _bus_maps_from_ids(ids::AbstractVector{<:Integer})
+    n = length(ids)
+    idx_to_bus = Vector{Int}(undef, n)
+    for i in eachindex(ids)
+        idx_to_bus[i] = Int(ids[i])
+    end
+    bus_to_idx = Dict{Int,Int}()
+    sizehint!(bus_to_idx, n)
+    for (idx, id) in enumerate(idx_to_bus)
+        bus_to_idx[id] = idx
+    end
+    return idx_to_bus, bus_to_idx
+end
+
+function _matrix_bus_maps_from_arrow(h::BalancedNetworkHandle)
+    axis = _arrow_from_handle(h, :matrix_bus, true)
     n = length(axis.index)
     idx_to_bus = Vector{Int}(undef, n)
     seen = falses(n)
@@ -39,9 +59,18 @@ function _matrix_bus_maps(net::BalancedNetwork)
         seen[idx] = true
     end
     all(seen) || error("PowerIO matrix: matrix bus table is missing an index")
-    bus_to_idx = Dict(id => idx for (idx, id) in enumerate(idx_to_bus))
-    return idx_to_bus, bus_to_idx
+    return _bus_maps_from_ids(idx_to_bus)
 end
+
+function _matrix_bus_maps(h::BalancedNetworkHandle, matrix_n::Integer)
+    count = Int(GC.@preserve h ccall(_library_symbol(getfield(h, :lib), :pio_n_buses),
+                                     Csize_t, (Ptr{Cvoid},), h.ptr))
+    count == Int(matrix_n) && return _bus_maps_from_ids(_handle_bus_ids(h, count))
+    return _matrix_bus_maps_from_arrow(h)
+end
+
+_matrix_bus_maps(net::BalancedNetwork) =
+    _matrix_bus_maps_from_arrow(_live_handle(net, "matrix_bus"))
 
 function _check_matrix_axes(coo, table::Symbol, row_axis::AbstractString, col_axis::AbstractString)
     getproperty(coo, :row_axis) == row_axis ||
@@ -51,10 +80,16 @@ function _check_matrix_axes(coo, table::Symbol, row_axis::AbstractString, col_ax
     return
 end
 
-function _sparse_from_coo(coo, values)
+function _sparse_from_owned_coo!(coo, values)
+    rows = getproperty(coo, :row_index)
+    cols = getproperty(coo, :col_index)
+    @inbounds for i in eachindex(rows)
+        rows[i] += 1
+        cols[i] += 1
+    end
     return SparseArrays.sparse(
-        getproperty(coo, :row_index) .+ 1,
-        getproperty(coo, :col_index) .+ 1,
+        rows,
+        cols,
         values,
         Int(getproperty(coo, :row_count)),
         Int(getproperty(coo, :col_count)),
@@ -62,10 +97,10 @@ function _sparse_from_coo(coo, values)
 end
 
 function _wrapped_real_matrix(net::BalancedNetwork, table::Symbol)
-    coo = to_arrow(net, table)
-    _check_matrix_axes(coo, table, "matrix_bus", "matrix_bus")
-    idx_to_bus, bus_to_idx = _matrix_bus_maps(net)
-    return AdmittanceMatrix(idx_to_bus, bus_to_idx, _sparse_from_coo(coo, coo.value))
+    h = _live_handle(net, String(table))
+    coo = _matrix_arrow_from_handle(h, table)
+    idx_to_bus, bus_to_idx = _matrix_bus_maps(h, coo.row_count)
+    return AdmittanceMatrix(idx_to_bus, bus_to_idx, _sparse_from_owned_coo!(coo, coo.value))
 end
 
 """
@@ -77,15 +112,15 @@ Return the Rust computed bus admittance matrix `Ybus` as a
 row index chosen by Rust; `idx_to_bus` maps those rows back to external bus ids.
 """
 function calc_admittance_matrix(net::BalancedNetwork)
-    coo = to_arrow(net, :ybus)
-    _check_matrix_axes(coo, :ybus, "matrix_bus", "matrix_bus")
-    idx_to_bus, bus_to_idx = _matrix_bus_maps(net)
-    values = coo.g .+ im .* coo.b
-    return AdmittanceMatrix(idx_to_bus, bus_to_idx, _sparse_from_coo(coo, values))
+    h = _live_handle(net, "calc_admittance_matrix")
+    coo = _matrix_arrow_from_handle(h, :ybus)
+    idx_to_bus, bus_to_idx = _matrix_bus_maps(h, coo.row_count)
+    values = complex.(coo.g, coo.b)
+    return AdmittanceMatrix(idx_to_bus, bus_to_idx, _sparse_from_owned_coo!(coo, values))
 end
 
 calc_admittance_matrix(path::AbstractString; from=nothing) =
-    calc_admittance_matrix(_matrix_network(path, "calc_admittance_matrix"; from=from))
+    _matrix_from_path(calc_admittance_matrix, path, "calc_admittance_matrix"; from=from)
 
 """
     calc_bprime_matrix(net::BalancedNetwork)
@@ -97,7 +132,7 @@ preserves Rust's positive Laplacian convention.
 calc_bprime_matrix(net::BalancedNetwork) = _wrapped_real_matrix(net, :bprime)
 
 calc_bprime_matrix(path::AbstractString; from=nothing) =
-    calc_bprime_matrix(_matrix_network(path, "calc_bprime_matrix"; from=from))
+    _matrix_from_path(calc_bprime_matrix, path, "calc_bprime_matrix"; from=from)
 
 """
     calc_bdoubleprime_matrix(net::BalancedNetwork)
@@ -108,7 +143,7 @@ Return Rust's FDPF `B''` matrix as a `PowerIO.AdmittanceMatrix{Float64}`.
 calc_bdoubleprime_matrix(net::BalancedNetwork) = _wrapped_real_matrix(net, :bdoubleprime)
 
 calc_bdoubleprime_matrix(path::AbstractString; from=nothing) =
-    calc_bdoubleprime_matrix(_matrix_network(path, "calc_bdoubleprime_matrix"; from=from))
+    _matrix_from_path(calc_bdoubleprime_matrix, path, "calc_bdoubleprime_matrix"; from=from)
 
 """
     calc_susceptance_matrix(net::BalancedNetwork)
@@ -124,7 +159,7 @@ function calc_susceptance_matrix(net::BalancedNetwork)
 end
 
 calc_susceptance_matrix(path::AbstractString; from=nothing) =
-    calc_susceptance_matrix(_matrix_network(path, "calc_susceptance_matrix"; from=from))
+    _matrix_from_path(calc_susceptance_matrix, path, "calc_susceptance_matrix"; from=from)
 
 """
     calc_incidence_matrix(net::BalancedNetwork)
@@ -135,10 +170,10 @@ Return the Rust computed signed incidence matrix as a
 the `matrix_branch` axis selected by Rust.
 """
 function calc_incidence_matrix(net::BalancedNetwork)
-    coo = to_arrow(net, :incidence)
-    _check_matrix_axes(coo, :incidence, "matrix_bus", "matrix_branch")
-    return _sparse_from_coo(coo, coo.value)
+    h = _live_handle(net, "calc_incidence_matrix")
+    coo = _matrix_arrow_from_handle(h, :incidence)
+    return _sparse_from_owned_coo!(coo, coo.value)
 end
 
 calc_incidence_matrix(path::AbstractString; from=nothing) =
-    calc_incidence_matrix(_matrix_network(path, "calc_incidence_matrix"; from=from))
+    _matrix_from_path(calc_incidence_matrix, path, "calc_incidence_matrix"; from=from)

@@ -392,6 +392,19 @@ _handle_warnings(h::BalancedNetworkHandle) =
     GC.@preserve h _warnings_from((out, cap) -> ccall(_library_symbol(getfield(h, :lib), :pio_warnings), Csize_t,
                                   (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, out, cap))
 
+function _handle_string(h::BalancedNetworkHandle, sym::Symbol, fname::AbstractString)
+    lib = getfield(h, :lib)
+    GC.@preserve h begin
+        n = Int(ccall(_library_symbol(lib, sym), Csize_t,
+                      (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, C_NULL, 0))
+        buf = zeros(UInt8, n + 1)
+        got = Int(ccall(_library_symbol(lib, sym), Csize_t,
+                        (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, buf, length(buf)))
+        got == n || error("PowerIO.$fname: $sym returned $got bytes, expected $n")
+        return _cstr(buf)
+    end
+end
+
 # The canonical JSON snapshot `BalancedNetwork` is built from and `from_json`
 # reads back.
 function _to_json(h::BalancedNetworkHandle)

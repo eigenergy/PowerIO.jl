@@ -26,16 +26,68 @@
 # The fully typed struct mirroring `network.rs` and the dense-extraction fast path
 # are v0.1.0 (issue #2); these views are enough for the ecosystem bridges.
 
-n_buses(net::BalancedNetwork) = length(net.data.buses)
-n_branches(net::BalancedNetwork) = length(net.data.branches)
-base_mva(net::BalancedNetwork) = Float64(net.data.base_mva)
+function _maybe_live_handle(net::BalancedNetwork)
+    h = getfield(net, :handle)
+    return (h === nothing || h.ptr == C_NULL) ? nothing : h
+end
+
+function _handle_count(net::BalancedNetwork, sym::Symbol)
+    h = _maybe_live_handle(net)
+    h === nothing && return nothing
+    lib = getfield(h, :lib)
+    return Int(GC.@preserve h ccall(_library_symbol(lib, sym), Csize_t, (Ptr{Cvoid},), h.ptr))
+end
+
+function _handle_bus_ids(h::BalancedNetworkHandle)
+    lib = getfield(h, :lib)
+    n = Int(GC.@preserve h ccall(_library_symbol(lib, :pio_n_buses), Csize_t, (Ptr{Cvoid},), h.ptr))
+    return _handle_bus_ids(h, n)
+end
+
+function _handle_bus_ids(h::BalancedNetworkHandle, n::Integer)
+    lib = getfield(h, :lib)
+    ids = Vector{Int64}(undef, n)
+    GC.@preserve h begin
+        got = ccall(_library_symbol(lib, :pio_bus_ids), Csize_t,
+                    (Ptr{Cvoid}, Ptr{Int64}, Csize_t), h.ptr, ids, n)
+        _check_filled(got, Int(n), "pio_bus_ids")
+    end
+    return ids
+end
+
+function n_buses(net::BalancedNetwork)
+    count = _handle_count(net, :pio_n_buses)
+    count !== nothing && return count
+    return length(net.data.buses)
+end
+
+function n_branches(net::BalancedNetwork)
+    count = _handle_count(net, :pio_n_branches)
+    count !== nothing && return count
+    return length(net.data.branches)
+end
+
+function base_mva(net::BalancedNetwork)
+    h = _maybe_live_handle(net)
+    h === nothing && return Float64(net.data.base_mva)
+    lib = getfield(h, :lib)
+    return GC.@preserve h ccall(_library_symbol(lib, :pio_base_mva), Cdouble, (Ptr{Cvoid},), h.ptr)
+end
 
 """
     network_name(net) -> String
 
 The case name carried through from the source file.
 """
-network_name(net::BalancedNetwork) = String(net.data.name)
+function network_name(net::BalancedNetwork)
+    h = _maybe_live_handle(net)
+    if h !== nothing
+        lib = getfield(h, :lib)
+        _exports_symbol(:pio_network_name, lib) &&
+            return _handle_string(h, :pio_network_name, "network_name")
+    end
+    return String(net.data.name)
+end
 
 "Buses, in source order (1-based ids preserved). See the accessor-surface note."
 buses(net::BalancedNetwork) = net.data.buses
@@ -58,7 +110,11 @@ hvdc(net::BalancedNetwork) = net.data.hvdc
 Number of generator rows (one per machine; `bus` repeats). Matches `pio_n_gens`:
 every row, not in-service-filtered.
 """
-n_gens(net::BalancedNetwork) = length(net.data.generators)
+function n_gens(net::BalancedNetwork)
+    count = _handle_count(net, :pio_n_gens)
+    count !== nothing && return count
+    return length(net.data.generators)
+end
 
 """
     source_format(net) -> String
@@ -69,7 +125,15 @@ Examples include `"Matpower"`, `"PowerModelsJson"`, `"EgretJson"`, `"Psse"`,
 `"SurgeJson"`, `"InMemory"`, and `"Normalized"` (the last is the output of
 [`to_normalized`](@ref)).
 """
-source_format(net::BalancedNetwork) = String(net.data.source_format)
+function source_format(net::BalancedNetwork)
+    h = _maybe_live_handle(net)
+    if h !== nothing
+        lib = getfield(h, :lib)
+        _exports_symbol(:pio_source_format, lib) &&
+            return _handle_string(h, :pio_source_format, "source_format")
+    end
+    return String(net.data.source_format)
+end
 
 """
     reference_bus_id(net) -> Union{Int,Nothing}
@@ -80,6 +144,15 @@ has `kind == "REF"`. This mirrors the "exactly one" rule of the C ABI's
 the 1-based id space the other accessors use.
 """
 function reference_bus_id(net::BalancedNetwork)
+    h = _maybe_live_handle(net)
+    if h !== nothing
+        lib = getfield(h, :lib)
+        idx = Int(GC.@preserve h ccall(_library_symbol(lib, :pio_ref_bus_index), Int64,
+                                       (Ptr{Cvoid},), h.ptr))
+        idx < 0 && return nothing
+        ids = _handle_bus_ids(h)
+        return Int(ids[idx + 1])
+    end
     ref = nothing
     for b in net.data.buses
         if String(b.kind) == "REF"

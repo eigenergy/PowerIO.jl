@@ -428,7 +428,7 @@ function from_package(pkg::NetworkPackage)
     if kind == "balanced"
         ptr, lib = _package_extract_ptr(pkg, :pio_package_to_balanced_network)
         h = BalancedNetworkHandle(ptr, lib)
-        return BalancedNetwork(JSON3.read(_to_json(h)), h)
+        return BalancedNetwork(h)
     elseif kind == "multiconductor"
         ptr, lib = _package_extract_ptr(pkg, :pio_package_to_multiconductor_network)
         h = MulticonductorNetworkHandle(ptr, lib)
