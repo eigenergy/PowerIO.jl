@@ -40,5 +40,33 @@
             end
         end
 
+        @testset "Arrow column lifetimes" begin
+            if !PowerIO.arrow_available()
+                @test_skip to_arrow(m, :bus)
+            else
+                for _ in 1:20
+                    copied = to_arrow(m, :bus)
+                    GC.gc(); GC.gc()
+                    @test copied.id[1] == 1
+
+                    t = to_arrow(m, :bus; copy=false)
+                    col = t.id
+                    t = nothing
+                    GC.gc(); GC.gc()
+                    @test col[1] == 1
+                    @test collect(col) == collect(1:14)
+
+                    closed = to_arrow(m, :bus; copy=false)
+                    closed_col = closed.id
+                    close(closed)
+                    @test_throws ErrorException closed_col[1]
+                    @test_throws ErrorException collect(closed_col)
+
+                    col = nothing
+                    closed_col = nothing
+                    GC.gc(); GC.gc()
+                end
+            end
+        end
     end
 end
