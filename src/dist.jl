@@ -326,29 +326,6 @@ function warnings(net::MulticonductorNetwork)
     return String[String(w) for w in net.data.warnings]
 end
 
-"""
-    dist_graph(net::MulticonductorNetwork)
-
-Return the collapsed bus and terminal graph projection as a JSON3 object.
-Needs a live handle from [`parse_file`](@ref), [`parse_str`](@ref), or
-[`from_package`](@ref).
-"""
-function dist_graph(net::MulticonductorNetwork)
-    h = _live_dist_handle(net, "dist_graph")
-    _ensure_dist_compatible()
-    _dist_graph_available() || error(
-        "PowerIO.dist_graph: the C ABI at \"$(_lib())\" does not export " *
-        "pio_dist_graph_json. Update the powerio-capi artifact or local library.")
-    err = zeros(UInt8, _ERRLEN)
-    s = GC.@preserve h ccall((:pio_dist_graph_json, _lib()), Cstring,
-                             (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
-                             h.ptr, err, length(err))
-    s == C_NULL && error("PowerIO.dist_graph: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
-    return JSON3.read(text)
-end
-
 # --- serialize and convert --------------------------------------------------
 
 """

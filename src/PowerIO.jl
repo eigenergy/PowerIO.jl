@@ -70,7 +70,7 @@ export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_
        multiconductor_to_balanced_preflight,
        lower_multiconductor_to_balanced, arrow_available, gridfm_available,
        matrix_available, features, MulticonductorNetwork, dist_available, dist_abi_version,
-       dist_capabilities, dist_graph
+       dist_capabilities, to_graph
 
 include("capi.jl")        # library resolution, ABI handshake, BalancedNetworkHandle, buffer helpers
 include("network.jl")     # BalancedNetwork and the parse / convert / serialize verbs
@@ -81,6 +81,7 @@ include("powerdata.jl")   # ExaPowerIO / ExaModelsPower PowerData bridge
 include("arrow.jl")       # Arrow C Data Interface export (feature arrow)
 include("gridfm.jl")      # gridfm-datakit Parquet reader (feature gridfm)
 include("dist.jl")        # MulticonductorNetwork distribution surface (feature dist)
+include("graphs.jl")      # graph projections for balanced and multiconductor models
 include("package.jl")     # .pio.json network packages (feature pkg)
 include("features.jl")    # public feature probe summary
 include("goc3.jl")        # GO Challenge 3 JSON helpers (pure Julia)

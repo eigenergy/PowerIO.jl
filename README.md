@@ -107,7 +107,7 @@ Distribution cases share the verbs, routed by format:
 ```julia
 dn = parse_file("feeder.dss")        # ::MulticonductorNetwork, element tables + handle
 PowerIO.buses(dn), PowerIO.lines(dn), PowerIO.transformers(dn)
-PowerIO.dist_graph(dn)
+PowerIO.to_graph(dn)
 text, warnings = to_format(dn, "pmd")
 ```
 

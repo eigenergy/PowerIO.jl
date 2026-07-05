@@ -69,6 +69,7 @@ PowerIO.source_format(net)      # "Matpower", "Psse", ...
 PowerIO.reference_bus_id(net)   # the slack bus id, or nothing
 PowerIO.n_components(net)       # connected components of the in-service topology
 PowerIO.is_radial(net)
+PowerIO.to_graph(net)           # all buses, in-service branch edges
 ```
 
 ## Normalizing

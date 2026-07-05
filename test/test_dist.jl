@@ -128,13 +128,16 @@ end
         net = parse_file(MulticonductorNetwork, dss)
         @test net isa MulticonductorNetwork
         @test PowerIO.warnings(net) isa Vector{String}
-        @test PowerIO._dist_graph_available()
-        graph = PowerIO._json_plain(dist_graph(net))
-        @test length(graph["buses"]) == 4
-        @test any(bus -> bus["id"] == "sourcebus" && bus["has_source"], graph["buses"])
-        @test any(edge -> edge["kind"] == "line" && edge["id"] == "feeder" &&
-                          edge["from"] == "sourcebus" && edge["to"] == "mid",
-                  graph["edges"])
+        if PowerIO._dist_graph_available()
+            graph = PowerIO._json_plain(to_graph(net))
+            @test length(graph["buses"]) == 4
+            @test any(bus -> bus["id"] == "sourcebus" && bus["has_source"], graph["buses"])
+            @test any(edge -> edge["kind"] == "line" && edge["id"] == "feeder" &&
+                              edge["from"] == "sourcebus" && edge["to"] == "mid",
+                      graph["edges"])
+        else
+            @test_throws ErrorException to_graph(net)
+        end
 
         # Same-format write echoes the source byte for byte and warns about nothing.
         echo, echo_w = to_format(net, "dss")

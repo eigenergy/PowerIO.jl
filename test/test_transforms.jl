@@ -29,6 +29,14 @@
         dense = PowerIO.to_dense(net)
         @test PowerIO.n_components(net) == dense.n_components == 1
         @test PowerIO.is_radial(net) == dense.is_radial == false
+
+        graph = PowerIO._json_plain(to_graph(net))
+        @test length(graph["buses"]) == PowerIO.n_buses(net)
+        @test length(graph["edges"]) == count(br -> get(br, :in_service, true), PowerIO.branches(net))
+        @test any(bus -> bus["id"] == 1 && bus["index"] == 0 && bus["kind"] == "REF",
+                  graph["buses"])
+        @test any(edge -> edge["kind"] == "branch" && edge["from"] == 1 && edge["to"] == 2,
+                  graph["edges"])
     end
 end
 

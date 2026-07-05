@@ -76,7 +76,7 @@ PowerIO.n_buses(net)
 PowerIO.base_frequency(net)     # Hz
 PowerIO.network_name(net)       # Union{String,Nothing}
 PowerIO.source_format(net)      # "dss", "pmd-json", "bmopf-json", or nothing
-PowerIO.dist_graph(net)         # collapsed bus / terminal graph projection
+PowerIO.to_graph(net)           # collapsed bus / terminal graph projection
 PowerIO.dist_capabilities()     # BMOPF export fidelity flags
 ```
 

@@ -7,8 +7,8 @@ Tracks powerio v0.6.2, keeping core C ABI v4 and distribution C ABI v1.
 - Binaries repinned to powerio v0.6.2.
 - `dist_capabilities()` reports the native BMOPF export fidelity flags exposed
   by `pio_dist_capabilities_json`.
-- `dist_graph(net)` exposes the collapsed multiconductor bus and terminal graph
-  projection.
+- `to_graph(net)` exposes graph projections for `BalancedNetwork` and
+  `MulticonductorNetwork`.
 - `package_study(pkg)` and `materialize_study_commit(pkg, index)` expose the
   study block C ABI surface for `.pio.json` packages.
 
