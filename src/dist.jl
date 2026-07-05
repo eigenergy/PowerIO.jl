@@ -117,6 +117,9 @@ function dist_available()
     end
 end
 
+_dist_graph_available() =
+    _exports_symbol(:pio_dist_graph_json)
+
 const PIO_DIST_ABI_VERSION = UInt32(1)
 
 """

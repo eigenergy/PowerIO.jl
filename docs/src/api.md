@@ -20,6 +20,13 @@ Modules = [PowerIO]
 Pages = ["accessors.jl"]
 ```
 
+## Graph projections
+
+```@autodocs
+Modules = [PowerIO]
+Pages = ["graphs.jl"]
+```
+
 ## Dense numeric extraction
 
 ```@autodocs

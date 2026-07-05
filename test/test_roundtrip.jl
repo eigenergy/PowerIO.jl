@@ -91,6 +91,7 @@
             @test pkg isa CompilerPackage
             @test package_model_kind(pkg) == :balanced
             @test package_operating_points(pkg) === nothing
+            @test package_study(pkg) === nothing
             pkg_doc = JSON3.read(to_json(pkg))
             # Same major is the reader contract; byte equality broke this
             # suite on every additive envelope bump in powerio.
@@ -120,6 +121,37 @@
             @test meta.row_counts.buses == 14
             @test meta.row_counts.arcs == 40
             @test meta.bus_ids == collect(1:14)
+
+            study_doc = PowerIO._json_plain(JSON3.read(to_json(pkg)))
+            study_doc["study"] = Dict(
+                "label" => "binding study",
+                "commits" => [
+                    Dict(
+                        "label" => "load step",
+                        "edits" => [
+                            Dict(
+                                "kind" => "demand_delta",
+                                "bus" => Dict("table" => "buses", "source_uid" => "buses:0"),
+                                "p_mw" => 7.0,
+                                "q_mvar" => 3.0,
+                            ),
+                        ],
+                    ),
+                ],
+            )
+            study_pkg = NetworkPackage(JSON3.write(study_doc))
+            @test package_study(study_pkg).label == "binding study"
+            materialized_study = materialize_study_commit(study_pkg, 0)
+            @test package_study(materialized_study) === nothing
+            @test package_operating_points(materialized_study) === nothing
+            materialized_net = from_package(materialized_study)
+            @test any(PowerIO.loads(materialized_net)) do load
+                uid = get(load, :uid, nothing)
+                uid !== nothing &&
+                    String(uid) == "study:load:buses:0" &&
+                    isapprox(Float64(load.p), 7.0; atol=1e-12, rtol=0) &&
+                    isapprox(Float64(load.q), 3.0; atol=1e-12, rtol=0)
+            end
         end
 
         pv_noref = """

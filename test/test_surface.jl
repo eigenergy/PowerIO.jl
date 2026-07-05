@@ -11,15 +11,18 @@
                 :NetworkPackage, :CompilerPackage, :to_package, :from_package, :read_package,
                 :write_package, :package_model_kind, :package_available,
                 :validate_package, :package_validation, :package_diagnostics,
-                :package_operating_points, :materialize_operating_point,
+                :package_operating_points, :package_study,
+                :materialize_operating_point, :materialize_study_commit,
                 :multiconductor_to_balanced_preflight,
                 :lower_multiconductor_to_balanced,
                 :arrow_available, :gridfm_available, :matrix_available, :features,
-                :MulticonductorNetwork, :dist_available, :dist_abi_version)
+                :MulticonductorNetwork, :dist_available, :dist_abi_version,
+                :dist_capabilities, :to_graph)
         @test isdefined(PowerIO, sym)
     end
     @test isdefined(PowerIO, :Network) # deprecated compatibility binding
     @test isdefined(PowerIO, :DistNetwork) # deprecated compatibility binding
+    @test !isdefined(PowerIO, :dist_graph)
     # The accessor surface the ecosystem bridges read is unexported but must exist.
     for sym in (:n_buses, :n_branches, :n_gens, :base_mva, :network_name,
                 :source_format, :reference_bus_id, :reference_bus_indices,

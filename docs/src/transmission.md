@@ -20,7 +20,6 @@ represent as warnings.
 | egret ModelData JSON | `"egret-json"`, `"egret"` | `.json` |
 | pandapower JSON | `"pandapower-json"`, `"pandapower"` | `.json` |
 | Surge JSON | `"surge-json"`, `"surge"` | `.json` |
-| PowerIO JSON transport | `"powerio-json"` | — |
 | PyPSA static network CSV | `"pypsa-csv"` | directory |
 | GridFM Parquet dataset | — (see [`read_gridfm`](@ref)) | directory |
 
@@ -36,7 +35,8 @@ egret = parse_file("grid.json"; from="egret")
 
 [`parse_file`](@ref) reads a path or an `IO`; [`parse_str`](@ref) reads
 in-memory text (a `String` argument to `parse_file` is always a path);
-[`from_json`](@ref) rebuilds from the JSON transport [`to_json`](@ref) writes.
+[`from_json`](@ref) rebuilds from the internal balanced JSON snapshot
+[`to_json`](@ref) writes.
 
 ```julia
 net = parse_file("case14.m")
@@ -69,6 +69,7 @@ PowerIO.source_format(net)      # "Matpower", "Psse", ...
 PowerIO.reference_bus_id(net)   # the slack bus id, or nothing
 PowerIO.n_components(net)       # connected components of the in-service topology
 PowerIO.is_radial(net)
+PowerIO.to_graph(net)           # all buses, in-service branch edges
 ```
 
 ## Normalizing
@@ -92,7 +93,7 @@ normalization. The default `to_normalized(net)` preserves the source bounds.
 ```julia
 to_matpower(net)                    # ::String, byte exact when the input was MATPOWER
 to_format(net, "powermodels-json")  # (text, warnings)
-to_json(net)                        # the JSON transport
+to_json(net)                        # internal balanced JSON snapshot
 convert_file("case14.m", "psse")    # parse + write in one shot -> (text, warnings)
 convert_str(text, "psse"; from="matpower")
 write_pypsa_csv_folder(net, "out/") # the one directory-shaped writer

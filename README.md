@@ -26,14 +26,23 @@ Supported transmission formats:
 - pandapower JSON
 - PyPSA CSV folders
 - Surge JSON
-- PowerIO JSON transport
+
+Supported distribution formats:
+
+- OpenDSS `.dss`
+- PowerModelsDistribution ENGINEERING JSON
+- IEEE BMOPF JSON
+
+PowerIO package JSON (`.pio.json`) carries either model between PowerIO
+consumers with provenance and diagnostics. `to_json` / `from_json` expose the
+balanced model's internal JSON snapshot; use `.pio.json` packages or a named
+exchange format for files shared with other tools.
 
 Each classical exchange format reads and writes where the Rust core has a
 writer, so any supported pair converts. A same format round trip is byte exact;
 cross format conversion reports fields the target cannot represent as warnings.
-Multiconductor distribution cases (OpenDSS, PowerModelsDistribution JSON, IEEE
-BMOPF JSON) parse into the separate `MulticonductorNetwork` model through the
-same verbs; see the
+Multiconductor distribution cases parse into the separate
+`MulticonductorNetwork` model through the same verbs; see the
 [distribution guide](https://eigenergy.github.io/PowerIO.jl/distribution/).
 GridFM Parquet readback and GO Challenge 3 helpers round out the data import
 surface.
@@ -63,7 +72,10 @@ using PowerIO
 
 net = parse_file("case14.m")
 net isa BalancedNetwork
-PowerIO.n_buses(net), PowerIO.n_gens(net), PowerIO.base_mva(net)
+PowerIO.buses(net)             # raw bus table
+length(PowerIO.buses(net))     # bus count
+PowerIO.n_buses(net)           # stable accessor over the parsed payload
+PowerIO.n_gens(net), PowerIO.base_mva(net)
 PowerIO.source_format(net)        # "Matpower"
 PowerIO.reference_bus_id(net)     # the slack bus id (or nothing)
 
@@ -87,6 +99,7 @@ to_powermodels(net)                # PowerModels.jl network data Dict
 to_powerdata(net)                  # ExaPowerIO PowerData NamedTuple
 to_package(net)                    # .pio.json compiler package
 features()                         # optional C ABI surfaces
+dist_capabilities()                # BMOPF distribution fidelity flags
 ```
 
 Distribution cases share the verbs, routed by format:
@@ -94,6 +107,7 @@ Distribution cases share the verbs, routed by format:
 ```julia
 dn = parse_file("feeder.dss")        # ::MulticonductorNetwork, element tables + handle
 PowerIO.buses(dn), PowerIO.lines(dn), PowerIO.transformers(dn)
+PowerIO.to_graph(dn)
 text, warnings = to_format(dn, "pmd")
 ```
 
@@ -150,11 +164,12 @@ The artifact pipeline behind released versions is described in
 
 ## Version line
 
-0.6.1 tracks powerio v0.6.1 in lockstep: core C ABI 4, distribution C ABI 1,
-with the Arrow, matrix, GridFM, distribution, and package surfaces enabled in
-the released artifacts. The Julia package stays thin around the C ABI while
-owning stable Julia entry points for parsing, conversion, packages, dense
-tables, Arrow tables, distribution networks, GridFM, and ecosystem interop.
+0.6.2 tracks powerio v0.6.2 in lockstep: core C ABI 4, distribution C ABI 1,
+with the Arrow, matrix, GridFM, distribution, package, BMOPF fidelity, and study
+package surfaces enabled in the released artifacts. The Julia package stays thin
+around the C ABI while owning stable Julia entry points for parsing, conversion,
+packages, dense tables, Arrow tables, distribution networks, GridFM, and
+ecosystem interop.
 `PowerIO_jll` remains the later distribution cleanup. Version history is in
 [CHANGELOG.md](CHANGELOG.md).
 

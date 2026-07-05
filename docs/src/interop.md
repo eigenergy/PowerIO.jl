@@ -98,7 +98,12 @@ pkg = read_package("case14.pio.json")
 
 package_validation(pkg).status           # "ok"
 package_diagnostics(pkg)                 # structured diagnostics
+package_study(pkg)                       # study block, or nothing
 validated = validate_package(pkg)
+
+study_pkg = read_package("study-case.pio.json")
+package_study(study_pkg)                 # study block
+materialize_study_commit(study_pkg, 0)   # apply study commits through index 0
 ```
 
 `to_package(net; include_solver_metadata=true)` records the compact

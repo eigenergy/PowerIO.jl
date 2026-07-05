@@ -9,7 +9,7 @@ the same model through Julia, Python, C/C++, and Rust.
 using PowerIO
 
 net = parse_file("case14.m")            # BalancedNetwork
-PowerIO.n_buses(net)                    # 14
+length(PowerIO.buses(net))              # 14
 text, warnings = convert_file("case14.m", "psse")
 ```
 
@@ -57,4 +57,5 @@ At first use the binding checks the library's ABI version
 mismatched library with an error stating both versions. Distribution calls
 also check `pio_dist_abi_version`. [`PowerIO.library_available`](@ref) probes
 without throwing, and [`PowerIO.features`](@ref) reports the optional Arrow,
-matrix, GridFM, distribution, and package surfaces.
+matrix, GridFM, distribution, and package surfaces. [`PowerIO.dist_capabilities`](@ref)
+reports finer distribution fidelity flags for downstream packages.
