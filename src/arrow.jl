@@ -12,10 +12,10 @@
 # `copy=true` (default) memcpys each column out while the producer is provably alive,
 # then releases it before returning: only Julia-owned memory escapes, so there is no
 # finalizer and no use after free if a column outlives the call. `copy=false` returns
-# zero-copy `ArrowColumn` views that each root the shared `ArrowBuffers` owner, so a
+# zero copy `ArrowColumn` views that each root the shared `ArrowBuffers` owner, so a
 # column extracted from its `ArrowTable` keeps the producer alive on its own; the
 # buffers free once nothing references them. For the numeric tables alone,
-# `to_dense` is the copy-free, `unsafe_wrap`-free fast path (the C ABI fills
+# `to_dense` is the copy free, `unsafe_wrap` free fast path (the C ABI fills
 # Julia-owned buffers directly).
 #
 # The powerio export is the simple case the decoder is scoped to: every column is a
@@ -96,23 +96,53 @@ function _release_ffi!(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArro
     return
 end
 
+function _require_release_callbacks!(arr::Base.RefValue{CArrowArray},
+                                     sch::Base.RefValue{CArrowSchema})
+    arr[].release != C_NULL && sch[].release != C_NULL && return
+    _release_ffi!(arr, sch)
+    arr[].release == C_NULL &&
+        error("PowerIO.to_arrow: ArrowArray release callback is null")
+    error("PowerIO.to_arrow: ArrowSchema release callback is null")
+end
+
 # The producer-owned FFI structs and their release callbacks. The one owner the
-# zero-copy table AND each of its columns root, so whichever of them stays
+# zero copy table AND each of its columns root, so whichever of them stays
 # reachable keeps the buffers alive; the finalizer releases once nothing does.
 mutable struct ArrowBuffers
     array::Base.RefValue{CArrowArray}
     schema::Base.RefValue{CArrowSchema}
+    closed::Bool
+    lock::ReentrantLock
     function ArrowBuffers(array, schema)
-        b = new(array, schema)
-        finalizer(x -> _release_ffi!(x.array, x.schema), b)
+        b = new(array, schema, false, ReentrantLock())
+        finalizer(_release_buffers!, b)
         return b
     end
+end
+
+function _release_buffers!(b::ArrowBuffers)
+    lock(getfield(b, :lock))
+    try
+        getfield(b, :closed) && return
+        setfield!(b, :closed, true)
+        _release_ffi!(getfield(b, :array), getfield(b, :schema))
+    finally
+        unlock(getfield(b, :lock))
+    end
+    return
+end
+
+function _check_open(c)
+    b = getfield(c, :buffers)
+    getfield(b, :closed) && error(
+        "PowerIO.ArrowColumn: parent ArrowTable is closed; use `collect(column)` before closing")
+    return b
 end
 
 """
     ArrowColumn{T} <: AbstractVector{T}
 
-One zero-copy column of `to_arrow(...; copy=false)`: a view into the producer's
+One zero copy column of `to_arrow(...; copy=false)`: a view into the producer's
 buffer that roots the shared `ArrowBuffers` owner, so the column alone keeps the
 memory alive — extracting it from its [`ArrowTable`](@ref) is safe. `collect` it
 for a plain owned `Vector`.
@@ -128,25 +158,34 @@ Base.IndexStyle(::Type{<:ArrowColumn}) = IndexLinear()
 Base.getproperty(c::ArrowColumn, name::Symbol) = error(
     "PowerIO.ArrowColumn has no public fields; `collect(c)` copies it to an owned Vector")
 Base.propertynames(::ArrowColumn) = ()
-# Preserve `c` (hence its ArrowBuffers) across the read: the wrapped Vector's
-# memory is the producer's, not Julia's, so `c` being collectible mid-read would
-# let the release finalizer free it.
-Base.@propagate_inbounds Base.getindex(c::ArrowColumn, i::Int) =
-    GC.@preserve c getfield(c, :data)[i]
+# Preserve `c` (hence its ArrowBuffers) across the read. `close(table)` marks
+# the shared owner closed before releasing, so a surviving column throws instead
+# of touching freed producer memory.
+Base.@propagate_inbounds function Base.getindex(c::ArrowColumn, i::Int)
+    b = _check_open(c)
+    lock(getfield(b, :lock))
+    try
+        getfield(b, :closed) && error(
+            "PowerIO.ArrowColumn: parent ArrowTable is closed; use `collect(column)` before closing")
+        return GC.@preserve c getfield(c, :data)[i]
+    finally
+        unlock(getfield(b, :lock))
+    end
+end
 
 """
     ArrowTable
 
-The zero-copy result of `to_arrow(...; copy=false)`: a NamedTuple of
+The zero copy result of `to_arrow(...; copy=false)`: a NamedTuple of
 [`ArrowColumn`](@ref) views into the producer's buffers, behind property access
 (`t.id`, `t.from`, ...). Every property name resolves to a column — including
 `t.columns`, which would look up a column called `columns` — so the NamedTuple
 itself comes from the unexported accessor `PowerIO.columns(t)`. The columns and
 the table each root the shared buffer owner, which frees the buffers once none
 of them is reachable; a column extracted from the table is safe on its own.
-`close(t)` frees the buffers eagerly instead of waiting for GC. (The default
-`copy=true` returns a plain NamedTuple of owned Vectors instead, no `ArrowTable`
-involved.)
+`close(t)` frees the buffers eagerly instead of waiting for GC; surviving
+columns throw if read afterwards. (The default `copy=true` returns a plain
+NamedTuple of owned Vectors instead, no `ArrowTable` involved.)
 """
 mutable struct ArrowTable
     columns::NamedTuple
@@ -161,25 +200,57 @@ Base.propertynames(t::ArrowTable) = propertynames(getfield(t, :columns))
     close(t::ArrowTable)
 
 Release the producer's buffers now instead of at GC. Every [`ArrowColumn`](@ref)
-of `t` is invalid afterwards; reading one is undefined behavior. Idempotent (the
+of `t` is invalid afterwards; reading one throws a Julia error. Idempotent (the
 release callbacks NULL themselves).
 """
-Base.close(t::ArrowTable) = (finalize(getfield(t, :_buffers)); nothing)
+Base.close(t::ArrowTable) = (_release_buffers!(getfield(t, :_buffers)); nothing)
+
+function _nonnegative_int(x::Integer, what::AbstractString)
+    x >= 0 || error("PowerIO.to_arrow: $what is negative ($x)")
+    return Int(x)
+end
+
+function _check_root_array(a::CArrowArray, s::CArrowSchema)
+    nrows = _nonnegative_int(a.length, "array length")
+    ncols = _nonnegative_int(a.n_children, "array child count")
+    schema_cols = _nonnegative_int(s.n_children, "schema child count")
+    a.offset == 0 || error("PowerIO.to_arrow: root array offset $(a.offset) is unsupported")
+    a.null_count == 0 || error("PowerIO.to_arrow: root array has $(a.null_count) nulls")
+    ncols == schema_cols ||
+        error("PowerIO.to_arrow: schema/array child count mismatch ($(s.n_children) vs $ncols)")
+    if ncols > 0
+        a.children != C_NULL || error("PowerIO.to_arrow: null array children pointer")
+        s.children != C_NULL || error("PowerIO.to_arrow: null schema children pointer")
+    end
+    return nrows, ncols
+end
+
+function _check_child_array(child::CArrowArray, nrows::Int, name::Symbol)
+    child_len = _nonnegative_int(child.length, "column $name length")
+    child_len == nrows ||
+        error("PowerIO.to_arrow: column $name length $child_len does not match row count $nrows")
+    child.null_count == 0 || error("PowerIO.to_arrow: column $name has $(child.null_count) nulls")
+    child.offset == 0 || error("PowerIO.to_arrow: column $name offset $(child.offset) is unsupported")
+    return
+end
 
 # Read one primitive column. The data pointer is borrowed from the producer (valid
 # until release). `copy=true` memcpys it into an owned Vector under `GC.@preserve` so
-# the result outlives the producer; `copy=false` wraps it in place (zero-copy view).
+# the result outlives the producer; `copy=false` wraps it in place (zero copy view).
 function _column(::Type{T}, child::CArrowArray, nrows::Integer, name::Symbol,
                  arr::Base.RefValue{CArrowArray}, copy::Bool) where {T}
+    offset = _nonnegative_int(child.offset, "column $name offset")
+    offset == 0 || error("PowerIO.to_arrow: column $name offset $offset is unsupported")
     nrows == 0 && return T[]
     # buffers[0] is the validity bitmap (NULL: non-nullable, null_count 0);
     # buffers[1] is the data. Julia 1-based: buffer index 2 is the data.
     # Guard the layout so a malformed producer errors instead of segfaulting.
     child.n_buffers >= 2 ||
         error("PowerIO.to_arrow: column $name has $(child.n_buffers) buffers, expected >= 2")
+    child.buffers != C_NULL || error("PowerIO.to_arrow: null buffer pointer for column $name")
     raw = unsafe_load(child.buffers, 2)
     raw == C_NULL && error("PowerIO.to_arrow: null data buffer for column $name")
-    src = Ptr{T}(raw) + child.offset * sizeof(T)
+    src = Ptr{T}(raw)
     copy || return unsafe_wrap(Array, src, nrows; own = false)
     dest = Vector{T}(undef, nrows)
     # `arr` roots the unreleased FFI struct (and thus the producer's buffers) across
@@ -189,7 +260,7 @@ function _column(::Type{T}, child::CArrowArray, nrows::Integer, name::Symbol,
 end
 
 # Decode the struct array into a NamedTuple of columns (owned copies if `copy`, else
-# zero-copy views), one per child field.
+# zero copy views), one per child field.
 function _metadata_i32(ptr::Ptr{UInt8}, offset::Int)
     raw = UInt32(unsafe_load(ptr + offset)) |
           (UInt32(unsafe_load(ptr + offset + 1)) << 8) |
@@ -234,20 +305,25 @@ end
 function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArrowSchema};
                        copy::Bool, table::Symbol)
     a, s = arr[], sch[]
-    nrows = a.length
-    ncols = Int(a.n_children)
-    ncols == Int(s.n_children) ||
-        error("PowerIO.to_arrow: schema/array child count mismatch ($(s.n_children) vs $ncols)")
+    nrows, ncols = _check_root_array(a, s)
     names = Vector{Symbol}(undef, ncols)
     cols = Vector{Any}(undef, ncols)
     for i in 1:ncols
-        child_arr = unsafe_load(unsafe_load(a.children, i))
-        child_sch = unsafe_load(unsafe_load(s.children, i))
+        child_arr_ptr = unsafe_load(a.children, i)
+        child_sch_ptr = unsafe_load(s.children, i)
+        child_arr_ptr != C_NULL || error("PowerIO.to_arrow: null array child pointer at column $i")
+        child_sch_ptr != C_NULL || error("PowerIO.to_arrow: null schema child pointer at column $i")
+        child_arr = unsafe_load(child_arr_ptr)
+        child_sch = unsafe_load(child_sch_ptr)
+        child_sch.format != C_NULL || error("PowerIO.to_arrow: null format for column $i")
+        child_sch.name != C_NULL || error("PowerIO.to_arrow: null name for column $i")
         T = _arrow_eltype(unsafe_string(child_sch.format))
         names[i] = Symbol(unsafe_string(child_sch.name))
+        _check_child_array(child_arr, nrows, names[i])
         cols[i] = _column(T, child_arr, nrows, names[i], arr, copy)
     end
     decoded = NamedTuple{Tuple(names)}(Tuple(cols))
+    table in _MATRIX_ARROW_TABLES || return decoded
     return _with_matrix_metadata(decoded, table, _schema_metadata(s))
 end
 
@@ -278,6 +354,7 @@ function _arrow_from_handle(h::BalancedNetworkHandle, table::Symbol, copy::Bool)
         end
         error("PowerIO.to_arrow: " * msg)
     end
+    _require_release_callbacks!(arr, sch)
     if copy
         # The columns are owned copies: release the producer before returning, and
         # on a decode error (a contract violation: unknown format code, child count
@@ -295,7 +372,12 @@ function _arrow_from_handle(h::BalancedNetworkHandle, table::Symbol, copy::Bool)
     # releases the producer even if decoding throws — then wrap each view so every
     # column roots the owner on its own.
     buffers = ArrowBuffers(arr, sch)
-    cols = _decode_arrow(arr, sch; copy=false, table=table)
+    cols = try
+        _decode_arrow(arr, sch; copy=false, table=table)
+    catch
+        _release_buffers!(buffers)
+        rethrow()
+    end
     rooted = map(v -> v isa AbstractVector ? ArrowColumn(v, buffers) : v, cols)
     return ArrowTable(rooted, buffers)
 end
@@ -319,13 +401,13 @@ first. Needs powerio-capi built `--features arrow`; matrix selectors also need
 
 `copy=true` (default) returns a NamedTuple of **owned** Julia Vectors and releases
 the producer before returning: plain arrays, no lifetime caveat. `copy=false`
-returns a zero-copy [`ArrowTable`](@ref) of [`ArrowColumn`](@ref) views; each
-column roots the shared buffers, so columns may outlive the table, and
-`close(t)` frees the buffers eagerly. Both support `result.<column>` access,
+returns a zero copy [`ArrowTable`](@ref) of [`ArrowColumn`](@ref) views; each
+column roots the shared buffers, so columns can outlive the table until
+`close(t)` frees the buffers; reads after close throw. Both support `result.<column>` access,
 but only the `copy=true` NamedTuple is Tables.jl-shaped (flows into
-`Arrow.write`, `DataFrame`, etc.); `collect` a zero-copy column for an owned
-Vector. For the numeric tables alone, [`to_dense`](@ref) is a copy-free,
-`unsafe_wrap`-free fast path.
+`Arrow.write`, `DataFrame`, etc.); `collect` a zero copy column for an owned
+Vector. For the numeric tables alone, [`to_dense`](@ref) is a copy free,
+`unsafe_wrap` free fast path.
 """
 function to_arrow(net::BalancedNetwork, table::Symbol; copy::Bool=true)
     return _arrow_from_handle(_live_handle(net, "to_arrow"), table, copy)
