@@ -30,10 +30,10 @@
 # allocators; the pinned dlopen handle keeps the pointer valid for live finalizers).
 const _DIST_FREE_FN = Ref{Ptr{Cvoid}}(C_NULL)
 const _DIST_FREE_FN_LIB = Ref{String}("")
-function _dist_network_free_fn()
-    lib = _lib()
+function _dist_network_free_fn(lib::AbstractString=_lib())
+    lib = String(lib)
     if _DIST_FREE_FN[] == C_NULL || _DIST_FREE_FN_LIB[] != lib
-        _DIST_FREE_FN[] = Libdl.dlsym(Libdl.dlopen(lib), :pio_dist_network_free)
+        _DIST_FREE_FN[] = _library_symbol(lib, :pio_dist_network_free)
         _DIST_FREE_FN_LIB[] = lib
     end
     return _DIST_FREE_FN[]
@@ -49,12 +49,14 @@ finalizer; you normally go straight to [`parse_file`](@ref), which returns a
 """
 mutable struct MulticonductorNetworkHandle
     ptr::Ptr{Cvoid}
-    function MulticonductorNetworkHandle(ptr::Ptr{Cvoid})
+    lib::String
+    function MulticonductorNetworkHandle(ptr::Ptr{Cvoid}, lib::AbstractString=_lib())
         ptr == C_NULL && error("PowerIO: null distribution network handle")
         # Resolve the free fn before `new`: a failed lookup must not strand a
         # handle with no finalizer attached.
-        free = _dist_network_free_fn()
-        h = new(ptr)
+        lib = String(lib)
+        free = _dist_network_free_fn(lib)
+        h = new(ptr, lib)
         finalizer(h) do x
             x.ptr == C_NULL || ccall(free, Cvoid, (Ptr{Cvoid},), x.ptr)
             x.ptr = C_NULL
@@ -128,21 +130,23 @@ const PIO_DIST_ABI_VERSION = UInt32(1)
 The distribution C ABI version reported by `pio_dist_abi_version()`. Compared
 against `PIO_DIST_ABI_VERSION`, the distribution ABI this binding targets.
 """
-function dist_abi_version()
-    _ensure_compatible()
-    return ccall((:pio_dist_abi_version, _lib()), UInt32, ())
+dist_abi_version() = dist_abi_version(_lib())
+function dist_abi_version(lib::AbstractString)
+    _ensure_compatible(lib)
+    return ccall(_library_symbol(lib, :pio_dist_abi_version), UInt32, ())
 end
 
-function _ensure_dist_compatible()
-    _ensure_compatible()
+function _ensure_dist_compatible(lib::AbstractString=_lib())
+    lib = String(lib)
+    _ensure_compatible(lib)
     got = try
-        dist_abi_version()
+        dist_abi_version(lib)
     catch e
-        error("PowerIO: the C ABI at \"$(_lib())\" has no pio_dist_abi_version; " *
+        error("PowerIO: the C ABI at \"$lib\" has no pio_dist_abi_version; " *
               "use powerio-capi v0.3.1 built with `--features dist`. Underlying: $e")
     end
     got == PIO_DIST_ABI_VERSION || error(
-        "PowerIO: distribution C ABI version mismatch: the library reports dist ABI $got, " *
+        "PowerIO: distribution C ABI version mismatch: the library at \"$lib\" reports dist ABI $got, " *
         "this PowerIO.jl targets dist ABI $(PIO_DIST_ABI_VERSION). Update the powerio-capi " *
         "artifact or local library.")
     return
@@ -174,44 +178,49 @@ _cross_model_error(fname::AbstractString) = error(
 # --- parse and materialize ------------------------------------------------
 
 function _dist_parse_handle(path::AbstractString; from=nothing)
-    _ensure_dist_compatible()
+    lib = _lib()
+    _ensure_dist_compatible(lib)
+    _dist_network_free_fn(lib)
     err = zeros(UInt8, _ERRLEN)
     fromc = from === nothing ? C_NULL : String(from)
     ptr = try
-        ccall((:pio_dist_parse_file, _lib()), Ptr{Cvoid},
+        ccall(_library_symbol(lib, :pio_dist_parse_file), Ptr{Cvoid},
               (Cstring, Cstring, Ptr{UInt8}, Csize_t),
               path, fromc, err, length(err))
     catch e
         _feature_call_error("parse_file", "pio_dist_parse_file", "dist", e)
     end
     ptr == C_NULL && error("PowerIO.parse_file(MulticonductorNetwork): " * _cstr(err))
-    return MulticonductorNetworkHandle(ptr)
+    return MulticonductorNetworkHandle(ptr, lib)
 end
 
 function _dist_parse_handle_str(text::AbstractString, format::AbstractString)
-    _ensure_dist_compatible()
+    lib = _lib()
+    _ensure_dist_compatible(lib)
+    _dist_network_free_fn(lib)
     err = zeros(UInt8, _ERRLEN)
     ptr = try
-        ccall((:pio_dist_parse_str, _lib()), Ptr{Cvoid},
+        ccall(_library_symbol(lib, :pio_dist_parse_str), Ptr{Cvoid},
               (Cstring, Cstring, Ptr{UInt8}, Csize_t),
               String(text), String(format), err, length(err))
     catch e
         _feature_call_error("parse_str", "pio_dist_parse_str", "dist", e)
     end
     ptr == C_NULL && error("PowerIO.parse_str(MulticonductorNetwork): " * _cstr(err))
-    return MulticonductorNetworkHandle(ptr)
+    return MulticonductorNetworkHandle(ptr, lib)
 end
 
 # Materialize the element tables of a live handle with `pio_dist_to_json`,
 # returning the model JSON a `.pio.json` document carries under
 # `model.multiconductor_network`.
 function _dist_data(h::MulticonductorNetworkHandle)
+    lib = getfield(h, :lib)
     err = zeros(UInt8, _ERRLEN)
-    s = GC.@preserve h ccall((:pio_dist_to_json, _lib()), Cstring,
+    s = GC.@preserve h ccall(_library_symbol(lib, :pio_dist_to_json), Cstring,
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
     s == C_NULL && error("PowerIO: could not serialize the multiconductor model: " * _cstr(err))
     text = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
     return JSON3.read(text)
 end
 
@@ -319,8 +328,9 @@ else from the payload's `warnings` field, so they survive a package round trip.
 function warnings(net::MulticonductorNetwork)
     h = net.handle
     if h !== nothing && h.ptr != C_NULL
-        _ensure_dist_compatible()
-        return GC.@preserve h _warnings_from((out, cap) -> ccall((:pio_dist_warnings, _lib()), Csize_t,
+        lib = getfield(h, :lib)
+        _ensure_dist_compatible(lib)
+        return GC.@preserve h _warnings_from((out, cap) -> ccall(_library_symbol(lib, :pio_dist_warnings), Csize_t,
                                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, out, cap))
     end
     return String[String(w) for w in net.data.warnings]
@@ -340,15 +350,16 @@ is a directed error: lowering is explicit, through the package pass.
 function to_format(net::MulticonductorNetwork, to::AbstractString)
     _is_dist_format(to) || _cross_model_error("to_format")
     h = _live_dist_handle(net, "to_format")
-    _ensure_dist_compatible()
+    lib = getfield(h, :lib)
+    _ensure_dist_compatible(lib)
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
-    s = GC.@preserve h ccall((:pio_dist_to_format, _lib()), Cstring,
+    s = GC.@preserve h ccall(_library_symbol(lib, :pio_dist_to_format), Cstring,
                              (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
                              h.ptr, String(to), warnbuf, length(warnbuf), err, length(err))
     s == C_NULL && error("PowerIO.to_format(MulticonductorNetwork): " * _cstr(err))
     text = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
     return (text, _warn_lines(warnbuf; capped=true))
 end
 
@@ -362,12 +373,13 @@ Returns the converted text and the warnings (parse warnings plus the writer's
 fidelity losses, since there is no handle to query).
 """
 function convert_file(::Type{MulticonductorNetwork}, path::AbstractString, to::AbstractString; from=nothing)
-    _ensure_dist_compatible()
+    lib = _lib()
+    _ensure_dist_compatible(lib)
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
     fromc = from === nothing ? C_NULL : String(from)
     s = try
-        ccall((:pio_dist_convert_file, _lib()), Cstring,
+        ccall(_library_symbol(lib, :pio_dist_convert_file), Cstring,
               (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
               path, fromc, String(to), warnbuf, length(warnbuf), err, length(err))
     catch e
@@ -375,7 +387,7 @@ function convert_file(::Type{MulticonductorNetwork}, path::AbstractString, to::A
     end
     s == C_NULL && error("PowerIO.convert_file(MulticonductorNetwork): " * _cstr(err))
     text = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
     return (text, _warn_lines(warnbuf; capped=true))
 end
 
@@ -388,11 +400,12 @@ Convert in-memory distribution case `text` of format `from` to format `to`
 """
 function convert_str(::Type{MulticonductorNetwork}, text::AbstractString, to::AbstractString,
                      from::AbstractString)
-    _ensure_dist_compatible()
+    lib = _lib()
+    _ensure_dist_compatible(lib)
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
     s = try
-        ccall((:pio_dist_convert_str, _lib()), Cstring,
+        ccall(_library_symbol(lib, :pio_dist_convert_str), Cstring,
               (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
               String(text), String(from), String(to), warnbuf, length(warnbuf), err, length(err))
     catch e
@@ -400,6 +413,6 @@ function convert_str(::Type{MulticonductorNetwork}, text::AbstractString, to::Ab
     end
     s == C_NULL && error("PowerIO.convert_str(MulticonductorNetwork): " * _cstr(err))
     out = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
     return (out, _warn_lines(warnbuf; capped=true))
 end

@@ -25,11 +25,12 @@ function _check_filled(got, want::Int, what::AbstractString)
 end
 
 function _branch_tables(h::BalancedNetworkHandle, m::Int)
+    lib = getfield(h, :lib)
     from = Vector{Int64}(undef, m); to = Vector{Int64}(undef, m)
     r = Vector{Float64}(undef, m); x = Vector{Float64}(undef, m); b = Vector{Float64}(undef, m)
     tap = Vector{Float64}(undef, m); shift = Vector{Float64}(undef, m)
     insvc = Vector{UInt8}(undef, m)
-    got = GC.@preserve h ccall((:pio_branches, _lib()), Csize_t,
+    got = GC.@preserve h ccall(_library_symbol(lib, :pio_branches), Csize_t,
           (Ptr{Cvoid}, Ptr{Int64}, Ptr{Int64}, Ptr{Float64}, Ptr{Float64},
            Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{UInt8}, Csize_t),
           h.ptr, from, to, r, x, b, tap, shift, insvc, m)
@@ -38,10 +39,11 @@ function _branch_tables(h::BalancedNetworkHandle, m::Int)
 end
 
 function _gen_tables(h::BalancedNetworkHandle, ng::Int)
+    lib = getfield(h, :lib)
     bus = Vector{Int64}(undef, ng); pg = Vector{Float64}(undef, ng)
     pmax = Vector{Float64}(undef, ng); pmin = Vector{Float64}(undef, ng)
     insvc = Vector{UInt8}(undef, ng)
-    got = GC.@preserve h ccall((:pio_gens, _lib()), Csize_t,
+    got = GC.@preserve h ccall(_library_symbol(lib, :pio_gens), Csize_t,
           (Ptr{Cvoid}, Ptr{Int64}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{UInt8}, Csize_t),
           h.ptr, bus, pg, pmax, pmin, insvc, ng)
     _check_filled(got, ng, "pio_gens")
@@ -49,16 +51,18 @@ function _gen_tables(h::BalancedNetworkHandle, ng::Int)
 end
 
 function _bus_demand(h::BalancedNetworkHandle, n::Int)
+    lib = getfield(h, :lib)
     pd = Vector{Float64}(undef, n); qd = Vector{Float64}(undef, n)
-    got = GC.@preserve h ccall((:pio_bus_demand, _lib()), Csize_t,
+    got = GC.@preserve h ccall(_library_symbol(lib, :pio_bus_demand), Csize_t,
           (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}, Csize_t), h.ptr, pd, qd, n)
     _check_filled(got, n, "pio_bus_demand")
     return (pd, qd)
 end
 
 function _bus_shunt(h::BalancedNetworkHandle, n::Int)
+    lib = getfield(h, :lib)
     gs = Vector{Float64}(undef, n); bs = Vector{Float64}(undef, n)
-    got = GC.@preserve h ccall((:pio_bus_shunt, _lib()), Csize_t,
+    got = GC.@preserve h ccall(_library_symbol(lib, :pio_bus_shunt), Csize_t,
           (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}, Csize_t), h.ptr, gs, bs, n)
     _check_filled(got, n, "pio_bus_shunt")
     return (gs, bs)
@@ -70,26 +74,27 @@ end
 # pointer would be a use after free.
 function _dense_from_handle(h::BalancedNetworkHandle)
     GC.@preserve h begin
+        lib = getfield(h, :lib)
         p = h.ptr
-        n = Int(ccall((:pio_n_buses, _lib()), Csize_t, (Ptr{Cvoid},), p))
-        m = Int(ccall((:pio_n_branches, _lib()), Csize_t, (Ptr{Cvoid},), p))
-        ng = Int(ccall((:pio_n_gens, _lib()), Csize_t, (Ptr{Cvoid},), p))
+        n = Int(ccall(_library_symbol(lib, :pio_n_buses), Csize_t, (Ptr{Cvoid},), p))
+        m = Int(ccall(_library_symbol(lib, :pio_n_branches), Csize_t, (Ptr{Cvoid},), p))
+        ng = Int(ccall(_library_symbol(lib, :pio_n_gens), Csize_t, (Ptr{Cvoid},), p))
         bus_ids = Vector{Int64}(undef, n)
-        _check_filled(ccall((:pio_bus_ids, _lib()), Csize_t,
+        _check_filled(ccall(_library_symbol(lib, :pio_bus_ids), Csize_t,
                             (Ptr{Cvoid}, Ptr{Int64}, Csize_t), p, bus_ids, n), n, "pio_bus_ids")
         pd, qd = _bus_demand(h, n)
         gs, bs = _bus_shunt(h, n)
         return (;
             n, m, ng,
-            base_mva = ccall((:pio_base_mva, _lib()), Cdouble, (Ptr{Cvoid},), p),
+            base_mva = ccall(_library_symbol(lib, :pio_base_mva), Cdouble, (Ptr{Cvoid},), p),
             bus_ids,
             branch = _branch_tables(h, m),
             gen = _gen_tables(h, ng),
             demand = (; pd, qd),
             shunt = (; gs, bs),
-            reference_bus = Int(ccall((:pio_ref_bus_index, _lib()), Int64, (Ptr{Cvoid},), p)),
-            n_components = Int(ccall((:pio_n_islands, _lib()), Csize_t, (Ptr{Cvoid},), p)),
-            is_radial = ccall((:pio_is_radial, _lib()), Cint, (Ptr{Cvoid},), p) != 0,
+            reference_bus = Int(ccall(_library_symbol(lib, :pio_ref_bus_index), Int64, (Ptr{Cvoid},), p)),
+            n_components = Int(ccall(_library_symbol(lib, :pio_n_islands), Csize_t, (Ptr{Cvoid},), p)),
+            is_radial = ccall(_library_symbol(lib, :pio_is_radial), Cint, (Ptr{Cvoid},), p) != 0,
         )
     end
 end

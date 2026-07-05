@@ -16,6 +16,8 @@ const _ENV_LIBRARY = Ref{String}("")        # POWERIO_CAPI captured at module in
 const _PREFERRED_LIBRARY = Ref{String}("")  # Preferences.jl override
 const _RESOLVED = Ref{String}("")           # memoized artifact / loader path resolution
 const _LIBRARY_PREFERENCE = "library"
+const _LIB_HANDLES = Dict{String,Any}()
+const _LIB_HANDLES_LOCK = ReentrantLock()
 
 function __init__()
     # Overrides are read at init; the artifact/loader path fallback is resolved
@@ -41,6 +43,7 @@ function set_library!(path::AbstractString; persist::Bool=false)
         _PREFERRED_LIBRARY[] = String(path)
     end
     _ABI_OK[] = false  # the new library must pass its own handshake
+    _ABI_OK_LIB[] = ""
     return
 end
 
@@ -60,6 +63,7 @@ function clear_library!(; persist::Bool=false)
         _PREFERRED_LIBRARY[] = _library_preference()
     end
     _ABI_OK[] = false
+    _ABI_OK_LIB[] = ""
     return
 end
 
@@ -77,6 +81,21 @@ function _lib()
     isempty(_RESOLVED[]) || return _RESOLVED[]
     return _RESOLVED[] = _artifact_lib()  # resolve once; bounds a failed lazy fetch to one attempt
 end
+
+function _library_handle(lib::AbstractString)
+    lib = String(lib)
+    lock(_LIB_HANDLES_LOCK)
+    try
+        return get!(_LIB_HANDLES, lib) do
+            Libdl.dlopen(lib)
+        end
+    finally
+        unlock(_LIB_HANDLES_LOCK)
+    end
+end
+
+_library_symbol(lib::AbstractString, sym::Symbol) =
+    Libdl.dlsym(_library_handle(lib), sym)
 
 # Resolve the bundled `powerio_capi` artifact. Until `Artifacts.toml` carries a
 # `powerio_capi` entry for this platform (filled by `gen/update_artifacts.jl` from
@@ -128,6 +147,7 @@ end
 
 const PIO_ABI_VERSION = UInt32(4)
 const _ABI_OK = Ref{Bool}(false)
+const _ABI_OK_LIB = Ref{String}("")
 
 """
     abi_version() -> UInt32
@@ -135,7 +155,9 @@ const _ABI_OK = Ref{Bool}(false)
 The ABI version the resolved C library was built with (see `pio_abi_version`).
 Compared against `PIO_ABI_VERSION`, the version this binding targets.
 """
-abi_version() = ccall((:pio_abi_version, _lib()), UInt32, ())
+abi_version() = abi_version(_lib())
+abi_version(lib::AbstractString) =
+    ccall(_library_symbol(lib, :pio_abi_version), UInt32, ())
 
 """
     library_version() -> String
@@ -150,20 +172,22 @@ end
 
 # Verify the resolved library is ABI-compatible, once (memoized). Throws a directed
 # error otherwise; every entry point that calls into the library runs this first.
-function _ensure_compatible()
-    _ABI_OK[] && return
+function _ensure_compatible(lib::AbstractString=_lib())
+    lib = String(lib)
+    _ABI_OK[] && _ABI_OK_LIB[] == lib && return
     got = try
-        abi_version()
+        abi_version(lib)
     catch e
-        error("PowerIO: the C ABI at \"$(_lib())\" has no pio_abi_version: it predates " *
+        error("PowerIO: the C ABI at \"$lib\" has no pio_abi_version: it predates " *
               "the versioned ABI. Rebuild powerio-capi (`cargo build -p powerio-capi --release` " *
               "in a sibling powerio checkout). Underlying: $e")
     end
     got == PIO_ABI_VERSION || error(
-        "PowerIO: C ABI version mismatch: the library reports ABI $got, this PowerIO.jl " *
+        "PowerIO: C ABI version mismatch: the library at \"$lib\" reports ABI $got, this PowerIO.jl " *
         "targets ABI $(PIO_ABI_VERSION). Rebuild powerio-capi from a matching commit, or " *
         "update PowerIO.jl.")
     _ABI_OK[] = true
+    _ABI_OK_LIB[] = lib
     return
 end
 
@@ -188,14 +212,9 @@ end
 # Shared probe behind `arrow_available`/`gridfm_available`: true if the resolved
 # library exports `sym` (the feature-gated entry points come and go with cargo
 # features, not the ABI version).
-function _exports_symbol(sym::Symbol)
+function _exports_symbol(sym::Symbol, lib::AbstractString=_lib())
     try
-        handle = Libdl.dlopen(_lib())
-        try
-            return Libdl.dlsym(handle, sym; throw_error=false) !== nothing
-        finally
-            Libdl.dlclose(handle)
-        end
+        return Libdl.dlsym(_library_handle(lib), sym; throw_error=false) !== nothing
     catch e
         @debug "PowerIO: $sym probe failed" exception = (e, catch_backtrace())
         return false
@@ -207,10 +226,11 @@ end
 # :unknown. Older libraries lack the symbol; :unavailable keeps the caller on
 # its pre-classify behavior (balanced inference and its errors).
 function _classify_family(text::AbstractString)
-    _exports_symbol(:pio_classify_str) || return :unavailable
-    _ensure_compatible()
+    lib = _lib()
+    _exports_symbol(:pio_classify_str, lib) || return :unavailable
+    _ensure_compatible(lib)
     buf = zeros(UInt8, 64)
-    n = ccall((:pio_classify_str, _lib()), Csize_t,
+    n = ccall(_library_symbol(lib, :pio_classify_str), Csize_t,
               (Cstring, Ptr{UInt8}, Csize_t), String(text), buf, length(buf))
     n == 0 && return :unknown
     return Symbol(first(split(_cstr(buf), ':')))
@@ -230,10 +250,10 @@ const _WARNLEN = 4096
 # the pointer stays valid for every outstanding finalizer.
 const _FREE_FN = Ref{Ptr{Cvoid}}(C_NULL)
 const _FREE_FN_LIB = Ref{String}("")
-function _network_free_fn()
-    lib = _lib()
+function _network_free_fn(lib::AbstractString=_lib())
+    lib = String(lib)
     if _FREE_FN[] == C_NULL || _FREE_FN_LIB[] != lib
-        _FREE_FN[] = Libdl.dlsym(Libdl.dlopen(lib), :pio_network_free)
+        _FREE_FN[] = _library_symbol(lib, :pio_network_free)
         _FREE_FN_LIB[] = lib
     end
     return _FREE_FN[]
@@ -247,12 +267,14 @@ you normally go straight to [`parse_file`](@ref), which returns a [`BalancedNetw
 """
 mutable struct BalancedNetworkHandle
     ptr::Ptr{Cvoid}
-    function BalancedNetworkHandle(ptr::Ptr{Cvoid})
+    lib::String
+    function BalancedNetworkHandle(ptr::Ptr{Cvoid}, lib::AbstractString=_lib())
         ptr == C_NULL && error("PowerIO: null network handle")
         # Resolve before `new`: a failed lookup must not strand a handle with
         # no finalizer attached.
-        free = _network_free_fn()
-        h = new(ptr)
+        lib = String(lib)
+        free = _network_free_fn(lib)
+        h = new(ptr, lib)
         finalizer(h) do x
             x.ptr == C_NULL || ccall(free, Cvoid, (Ptr{Cvoid},), x.ptr)
             x.ptr = C_NULL
@@ -283,50 +305,56 @@ function _feature_call_error(fname::AbstractString, sym::AbstractString,
 end
 
 function _parse_handle(path::AbstractString; from=nothing)
-    _ensure_compatible()
+    lib = _lib()
+    _ensure_compatible(lib)
+    _network_free_fn(lib)
     err = zeros(UInt8, _ERRLEN)
     # Pass the format hint as a `String` (ccall roots it) or `C_NULL` for inference.
     fromc = from === nothing ? C_NULL : String(from)
     ptr = try
-        ccall((:pio_parse_file, _lib()), Ptr{Cvoid},
+        ccall(_library_symbol(lib, :pio_parse_file), Ptr{Cvoid},
               (Cstring, Cstring, Ptr{UInt8}, Csize_t),
               path, fromc, err, length(err))
     catch e
         _lib_call_error(e)
     end
     ptr == C_NULL && error("PowerIO.parse_file: " * _cstr(err))
-    return BalancedNetworkHandle(ptr)
+    return BalancedNetworkHandle(ptr, lib)
 end
 
 # In-memory sibling of `_parse_handle`: parse `text` under an explicit `format`
 # (no path, so no extension to infer from) via `pio_parse_str`.
 function _parse_handle_str(text::AbstractString, format::AbstractString)
-    _ensure_compatible()
+    lib = _lib()
+    _ensure_compatible(lib)
+    _network_free_fn(lib)
     err = zeros(UInt8, _ERRLEN)
     ptr = try
-        ccall((:pio_parse_str, _lib()), Ptr{Cvoid},
+        ccall(_library_symbol(lib, :pio_parse_str), Ptr{Cvoid},
               (Cstring, Cstring, Ptr{UInt8}, Csize_t),
               String(text), String(format), err, length(err))
     catch e
         _lib_call_error(e)
     end
     ptr == C_NULL && error("PowerIO.parse_str: " * _cstr(err))
-    return BalancedNetworkHandle(ptr)
+    return BalancedNetworkHandle(ptr, lib)
 end
 
 # `from_json` rebuilds from the canonical JSON snapshot `_to_json` writes.
 # The distinct label keeps the error pointed at `from_json`.
 function _from_json_handle(text::AbstractString)
-    _ensure_compatible()
+    lib = _lib()
+    _ensure_compatible(lib)
+    _network_free_fn(lib)
     err = zeros(UInt8, _ERRLEN)
     ptr = try
-        ccall((:pio_from_json, _lib()), Ptr{Cvoid},
+        ccall(_library_symbol(lib, :pio_from_json), Ptr{Cvoid},
               (Cstring, Ptr{UInt8}, Csize_t), String(text), err, length(err))
     catch e
         _lib_call_error(e)
     end
     ptr == C_NULL && error("PowerIO.from_json: " * _cstr(err))
-    return BalancedNetworkHandle(ptr)
+    return BalancedNetworkHandle(ptr, lib)
 end
 
 # `buf` must stay rooted across the unsafe_string read; without the preserve the
@@ -361,17 +389,18 @@ function _warnings_from(query)
 end
 
 _handle_warnings(h::BalancedNetworkHandle) =
-    GC.@preserve h _warnings_from((out, cap) -> ccall((:pio_warnings, _lib()), Csize_t,
+    GC.@preserve h _warnings_from((out, cap) -> ccall(_library_symbol(getfield(h, :lib), :pio_warnings), Csize_t,
                                   (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, out, cap))
 
 # The canonical JSON snapshot `BalancedNetwork` is built from and `from_json`
 # reads back.
 function _to_json(h::BalancedNetworkHandle)
+    lib = getfield(h, :lib)
     err = zeros(UInt8, _ERRLEN)
-    s = GC.@preserve h ccall((:pio_to_json, _lib()), Cstring,
+    s = GC.@preserve h ccall(_library_symbol(lib, :pio_to_json), Cstring,
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
     s == C_NULL && error("PowerIO: to_json failed: " * _cstr(err))
     json = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
     return json
 end

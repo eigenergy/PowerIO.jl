@@ -28,10 +28,10 @@ Base.show(io::IO, pkg::NetworkPackage) =
 
 const _PACKAGE_FREE_FN = Ref{Ptr{Cvoid}}(C_NULL)
 const _PACKAGE_FREE_FN_LIB = Ref{String}("")
-function _package_free_fn()
-    lib = _lib()
+function _package_free_fn(lib::AbstractString=_lib())
+    lib = String(lib)
     if _PACKAGE_FREE_FN[] == C_NULL || _PACKAGE_FREE_FN_LIB[] != lib
-        _PACKAGE_FREE_FN[] = Libdl.dlsym(Libdl.dlopen(lib), :pio_package_free)
+        _PACKAGE_FREE_FN[] = _library_symbol(lib, :pio_package_free)
         _PACKAGE_FREE_FN_LIB[] = lib
     end
     return _PACKAGE_FREE_FN[]
@@ -39,10 +39,12 @@ end
 
 mutable struct PackageHandle
     ptr::Ptr{Cvoid}
-    function PackageHandle(ptr::Ptr{Cvoid})
+    lib::String
+    function PackageHandle(ptr::Ptr{Cvoid}, lib::AbstractString=_lib())
         ptr == C_NULL && error("PowerIO: null package handle")
-        free = _package_free_fn()
-        h = new(ptr)
+        lib = String(lib)
+        free = _package_free_fn(lib)
+        h = new(ptr, lib)
         finalizer(h) do x
             x.ptr == C_NULL || ccall(free, Cvoid, (Ptr{Cvoid},), x.ptr)
             x.ptr = C_NULL
@@ -62,49 +64,54 @@ True if the resolved C library exports the `pio_package_*` surface.
 package_available() = _exports_symbol(:pio_package_parse_str)
 
 function _package_parse_str_handle(text::AbstractString, fname::AbstractString)
-    _ensure_compatible()
+    lib = _lib()
+    _ensure_compatible(lib)
+    _package_free_fn(lib)
     err = zeros(UInt8, _ERRLEN)
     ptr = try
-        ccall((:pio_package_parse_str, _lib()), Ptr{Cvoid},
+        ccall(_library_symbol(lib, :pio_package_parse_str), Ptr{Cvoid},
               (Cstring, Ptr{UInt8}, Csize_t),
               String(text), err, length(err))
     catch e
         _feature_call_error(fname, "pio_package_parse_str", "pkg", e)
     end
     ptr == C_NULL && error("PowerIO.$fname: " * _cstr(err))
-    return PackageHandle(ptr)
+    return PackageHandle(ptr, lib)
 end
 
 function _package_to_json(h::PackageHandle, fname::AbstractString)
+    lib = getfield(h, :lib)
     err = zeros(UInt8, _ERRLEN)
-    s = GC.@preserve h ccall((:pio_package_to_json, _lib()), Cstring,
+    s = GC.@preserve h ccall(_library_symbol(lib, :pio_package_to_json), Cstring,
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.$fname: " * _cstr(err))
     text = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
     return text
 end
 
 function _package_validation_json(h::PackageHandle, fname::AbstractString)
+    lib = getfield(h, :lib)
     err = zeros(UInt8, _ERRLEN)
-    s = GC.@preserve h ccall((:pio_package_validation_json, _lib()), Cstring,
+    s = GC.@preserve h ccall(_library_symbol(lib, :pio_package_validation_json), Cstring,
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.$fname: " * _cstr(err))
     text = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
     return text
 end
 
 function _package_diagnostics_json(h::PackageHandle, fname::AbstractString)
+    lib = getfield(h, :lib)
     err = zeros(UInt8, _ERRLEN)
-    s = GC.@preserve h ccall((:pio_package_diagnostics_json, _lib()), Cstring,
+    s = GC.@preserve h ccall(_library_symbol(lib, :pio_package_diagnostics_json), Cstring,
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.$fname: " * _cstr(err))
     text = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
     return text
 end
 
@@ -122,8 +129,9 @@ _package_materialize_study_commit_available() =
 
 function _package_validation_handle(pkg::NetworkPackage, fname::AbstractString)
     h = _package_parse_str_handle(to_json(pkg), fname)
+    lib = getfield(h, :lib)
     err = zeros(UInt8, _ERRLEN)
-    rc = GC.@preserve h ccall((:pio_package_validate, _lib()), Cint,
+    rc = GC.@preserve h ccall(_library_symbol(lib, :pio_package_validate), Cint,
                               (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                               h.ptr, err, length(err))
     rc == 0 || error("PowerIO.$fname: " * _cstr(err))
@@ -149,33 +157,37 @@ come from `pio_package_from_multiconductor_network`.
 """
 function to_package(net::BalancedNetwork; include_solver_metadata::Bool=false)
     h = _balanced_handle_for_package(net)
+    lib = getfield(h, :lib)
+    _package_free_fn(lib)
     include_solver_metadata_c = include_solver_metadata ? Cint(1) : Cint(0)
     err = zeros(UInt8, _ERRLEN)
     ptr = try
-        GC.@preserve h ccall((:pio_package_from_balanced_network, _lib()), Ptr{Cvoid},
+        GC.@preserve h ccall(_library_symbol(lib, :pio_package_from_balanced_network), Ptr{Cvoid},
                              (Ptr{Cvoid}, Cint, Ptr{UInt8}, Csize_t),
                              h.ptr, include_solver_metadata_c, err, length(err))
     catch e
         _feature_call_error("to_package", "pio_package_from_balanced_network", "pkg", e)
     end
     ptr == C_NULL && error("PowerIO.to_package: " * _cstr(err))
-    pkg = PackageHandle(ptr)
+    pkg = PackageHandle(ptr, lib)
     return NetworkPackage(_package_to_json(pkg, "to_package"))
 end
 
 function to_package(net::MulticonductorNetwork)
-    _ensure_dist_compatible()
     h = _live_dist_handle(net, "to_package")
+    lib = getfield(h, :lib)
+    _ensure_dist_compatible(lib)
+    _package_free_fn(lib)
     err = zeros(UInt8, _ERRLEN)
     ptr = try
-        GC.@preserve h ccall((:pio_package_from_multiconductor_network, _lib()), Ptr{Cvoid},
+        GC.@preserve h ccall(_library_symbol(lib, :pio_package_from_multiconductor_network), Ptr{Cvoid},
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     catch e
         _feature_call_error("to_package", "pio_package_from_multiconductor_network", "pkg", e)
     end
     ptr == C_NULL && error("PowerIO.to_package(MulticonductorNetwork): " * _cstr(err))
-    pkg = PackageHandle(ptr)
+    pkg = PackageHandle(ptr, lib)
     return NetworkPackage(_package_to_json(pkg, "to_package"))
 end
 
@@ -234,24 +246,26 @@ function package_diagnostics(pkg::NetworkPackage)
 end
 
 function _package_operating_points_json(h::PackageHandle, fname::AbstractString)
+    lib = getfield(h, :lib)
     err = zeros(UInt8, _ERRLEN)
-    s = GC.@preserve h ccall((:pio_package_operating_points_json, _lib()), Cstring,
+    s = GC.@preserve h ccall(_library_symbol(lib, :pio_package_operating_points_json), Cstring,
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.$fname: " * _cstr(err))
     text = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
     return text
 end
 
 function _package_study_json(h::PackageHandle, fname::AbstractString)
+    lib = getfield(h, :lib)
     err = zeros(UInt8, _ERRLEN)
-    s = GC.@preserve h ccall((:pio_package_study_json, _lib()), Cstring,
+    s = GC.@preserve h ccall(_library_symbol(lib, :pio_package_study_json), Cstring,
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.$fname: " * _cstr(err))
     text = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
     return text
 end
 
@@ -295,12 +309,14 @@ function materialize_operating_point(pkg::NetworkPackage, index::Integer)
         "pio_package_materialize_operating_point. Rebuild powerio-capi from the matching " *
         "PowerIO branch.")
     h = _package_parse_str_handle(to_json(pkg), "materialize_operating_point")
+    lib = getfield(h, :lib)
+    _package_free_fn(lib)
     err = zeros(UInt8, _ERRLEN)
-    ptr = GC.@preserve h ccall((:pio_package_materialize_operating_point, _lib()), Ptr{Cvoid},
+    ptr = GC.@preserve h ccall(_library_symbol(lib, :pio_package_materialize_operating_point), Ptr{Cvoid},
                                (Ptr{Cvoid}, Clonglong, Ptr{UInt8}, Csize_t),
                                h.ptr, Clonglong(index), err, length(err))
     ptr == C_NULL && error("PowerIO.materialize_operating_point: " * _cstr(err))
-    materialized = PackageHandle(ptr)
+    materialized = PackageHandle(ptr, lib)
     return NetworkPackage(_package_to_json(materialized, "materialize_operating_point"))
 end
 
@@ -316,12 +332,14 @@ function materialize_study_commit(pkg::NetworkPackage, index::Integer)
         "pio_package_materialize_study_commit. Rebuild powerio-capi from the matching " *
         "PowerIO branch.")
     h = _package_parse_str_handle(to_json(pkg), "materialize_study_commit")
+    lib = getfield(h, :lib)
+    _package_free_fn(lib)
     err = zeros(UInt8, _ERRLEN)
-    ptr = GC.@preserve h ccall((:pio_package_materialize_study_commit, _lib()), Ptr{Cvoid},
+    ptr = GC.@preserve h ccall(_library_symbol(lib, :pio_package_materialize_study_commit), Ptr{Cvoid},
                                (Ptr{Cvoid}, Clonglong, Ptr{UInt8}, Csize_t),
                                h.ptr, Clonglong(index), err, length(err))
     ptr == C_NULL && error("PowerIO.materialize_study_commit: " * _cstr(err))
-    materialized = PackageHandle(ptr)
+    materialized = PackageHandle(ptr, lib)
     return NetworkPackage(_package_to_json(materialized, "materialize_study_commit"))
 end
 
@@ -333,14 +351,15 @@ a balanced package.
 """
 function multiconductor_to_balanced_preflight(pkg::NetworkPackage; base_mva::Real=100.0)
     h = _package_parse_str_handle(to_json(pkg), "multiconductor_to_balanced_preflight")
+    lib = getfield(h, :lib)
     base_mva_c = Cdouble(base_mva)
     err = zeros(UInt8, _ERRLEN)
-    s = GC.@preserve h ccall((:pio_package_multiconductor_to_balanced_preflight_json, _lib()), Cstring,
+    s = GC.@preserve h ccall(_library_symbol(lib, :pio_package_multiconductor_to_balanced_preflight_json), Cstring,
                              (Ptr{Cvoid}, Cdouble, Ptr{UInt8}, Csize_t),
                              h.ptr, base_mva_c, err, length(err))
     s == C_NULL && error("PowerIO.multiconductor_to_balanced_preflight: " * _cstr(err))
     text = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
     return JSON3.read(text)
 end
 
@@ -351,13 +370,15 @@ Lower a multiconductor package to a new balanced `.pio.json` package.
 """
 function lower_multiconductor_to_balanced(pkg::NetworkPackage; base_mva::Real=100.0)
     h = _package_parse_str_handle(to_json(pkg), "lower_multiconductor_to_balanced")
+    lib = getfield(h, :lib)
+    _package_free_fn(lib)
     base_mva_c = Cdouble(base_mva)
     err = zeros(UInt8, _ERRLEN)
-    ptr = GC.@preserve h ccall((:pio_package_lower_multiconductor_to_balanced, _lib()), Ptr{Cvoid},
+    ptr = GC.@preserve h ccall(_library_symbol(lib, :pio_package_lower_multiconductor_to_balanced), Ptr{Cvoid},
                                (Ptr{Cvoid}, Cdouble, Ptr{UInt8}, Csize_t),
                                h.ptr, base_mva_c, err, length(err))
     ptr == C_NULL && error("PowerIO.lower_multiconductor_to_balanced: " * _cstr(err))
-    lowered = PackageHandle(ptr)
+    lowered = PackageHandle(ptr, lib)
     return NetworkPackage(_package_to_json(lowered, "lower_multiconductor_to_balanced"))
 end
 
@@ -366,21 +387,28 @@ end
 # `pio_package_to_multiconductor_network`); shared by both from_package arms.
 function _package_extract_ptr(pkg::NetworkPackage, sym::Symbol)
     h = _package_parse_str_handle(to_json(pkg), "from_package")
+    lib = getfield(h, :lib)
     err = zeros(UInt8, _ERRLEN)
     # ccall needs a literal symbol, so resolve the entry point by hand; the
     # un-dlclosed handle pins the library, as in `_network_free_fn`.
-    _exports_symbol(sym) || error(
-        "PowerIO.from_package: the C ABI at \"$(_lib())\" predates the package payload " *
+    _exports_symbol(sym, lib) || error(
+        "PowerIO.from_package: the C ABI at \"$lib\" predates the package payload " *
         "extraction inverses ($sym). Update the powerio-capi artifact or local library.")
+    if sym === :pio_package_to_balanced_network
+        _network_free_fn(lib)
+    elseif sym === :pio_package_to_multiconductor_network
+        _ensure_dist_compatible(lib)
+        _dist_network_free_fn(lib)
+    end
     ptr = try
-        fn = Libdl.dlsym(Libdl.dlopen(_lib()), sym)
+        fn = _library_symbol(lib, sym)
         GC.@preserve h ccall(fn, Ptr{Cvoid},
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
     catch e
         _feature_call_error("from_package", String(sym), "pkg", e)
     end
     ptr == C_NULL && error("PowerIO.from_package: " * _cstr(err))
-    return ptr
+    return (ptr, lib)
 end
 
 """
@@ -398,12 +426,12 @@ a byte-exact echo.
 function from_package(pkg::NetworkPackage)
     kind = _ensure_package_kind_consistent(pkg)
     if kind == "balanced"
-        h = BalancedNetworkHandle(_package_extract_ptr(pkg, :pio_package_to_balanced_network))
+        ptr, lib = _package_extract_ptr(pkg, :pio_package_to_balanced_network)
+        h = BalancedNetworkHandle(ptr, lib)
         return BalancedNetwork(JSON3.read(_to_json(h)), h)
     elseif kind == "multiconductor"
-        _ensure_dist_compatible()
-        h = MulticonductorNetworkHandle(
-            _package_extract_ptr(pkg, :pio_package_to_multiconductor_network))
+        ptr, lib = _package_extract_ptr(pkg, :pio_package_to_multiconductor_network)
+        h = MulticonductorNetworkHandle(ptr, lib)
         return MulticonductorNetwork(_dist_data(h), h)
     else
         error("PowerIO.from_package: unsupported package model_kind `$kind`")
@@ -423,16 +451,18 @@ function read_package(path::AbstractString)
     if !package_available()
         return NetworkPackage(read(path, String))
     end
-    _ensure_compatible()
+    lib = _lib()
+    _ensure_compatible(lib)
+    _package_free_fn(lib)
     err = zeros(UInt8, _ERRLEN)
     ptr = try
-        ccall((:pio_package_parse_file, _lib()), Ptr{Cvoid},
+        ccall(_library_symbol(lib, :pio_package_parse_file), Ptr{Cvoid},
               (Cstring, Ptr{UInt8}, Csize_t), path, err, length(err))
     catch e
         _feature_call_error("read_package", "pio_package_parse_file", "pkg", e)
     end
     ptr == C_NULL && error("PowerIO.read_package: " * _cstr(err))
-    h = PackageHandle(ptr)
+    h = PackageHandle(ptr, lib)
     return NetworkPackage(_package_to_json(h, "read_package"))
 end
 

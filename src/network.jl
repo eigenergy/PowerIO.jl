@@ -137,26 +137,30 @@ end
 const POWER_MODELS_ANGLE_BOUND_PAD = 1.0472
 
 function _normalize_handle(h::BalancedNetworkHandle)
+    lib = getfield(h, :lib)
+    _network_free_fn(lib)
     err = zeros(UInt8, _ERRLEN)
-    ptr = GC.@preserve h ccall((:pio_normalize, _lib()), Ptr{Cvoid},
+    ptr = GC.@preserve h ccall(_library_symbol(lib, :pio_normalize), Ptr{Cvoid},
                                (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
     ptr == C_NULL && error("PowerIO.to_normalized: " * _cstr(err))
-    return BalancedNetworkHandle(ptr)
+    return BalancedNetworkHandle(ptr, lib)
 end
 
 function _normalize_handle_with_options(h::BalancedNetworkHandle,
                                         clamp_angle_bounds::Bool,
                                         angle_bound_pad::Real)
-    _exports_symbol(:pio_normalize_with_options) || error(
-        "PowerIO.to_normalized_with_options: the C ABI at \"$(_lib())\" does not export " *
+    lib = getfield(h, :lib)
+    _exports_symbol(:pio_normalize_with_options, lib) || error(
+        "PowerIO.to_normalized_with_options: the C ABI at \"$lib\" does not export " *
         "pio_normalize_with_options. Rebuild powerio-capi from the matching PowerIO branch.")
+    _network_free_fn(lib)
     err = zeros(UInt8, _ERRLEN)
-    ptr = GC.@preserve h ccall((:pio_normalize_with_options, _lib()), Ptr{Cvoid},
+    ptr = GC.@preserve h ccall(_library_symbol(lib, :pio_normalize_with_options), Ptr{Cvoid},
                                (Ptr{Cvoid}, Cint, Cdouble, Ptr{UInt8}, Csize_t),
                                h.ptr, clamp_angle_bounds ? Cint(1) : Cint(0),
                                Cdouble(angle_bound_pad), err, length(err))
     ptr == C_NULL && error("PowerIO.to_normalized_with_options: " * _cstr(err))
-    return BalancedNetworkHandle(ptr)
+    return BalancedNetworkHandle(ptr, lib)
 end
 
 """
@@ -209,14 +213,15 @@ function to_json(net::BalancedNetwork)
 end
 
 function _format_from_handle(h::BalancedNetworkHandle, to::AbstractString, what::AbstractString)
+    lib = getfield(h, :lib)
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
-    s = GC.@preserve h ccall((:pio_to_format, _lib()), Cstring,
+    s = GC.@preserve h ccall(_library_symbol(lib, :pio_to_format), Cstring,
                              (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
                              h.ptr, String(to), warnbuf, length(warnbuf), err, length(err))
     s == C_NULL && error("PowerIO.to_format: " * _cstr(err) * " ($what)")
     text = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
     return (text, _warn_lines(warnbuf; capped=true))
 end
 
@@ -288,18 +293,19 @@ function convert_file(path::AbstractString, to::AbstractString; from=nothing)
         return convert_file(MulticonductorNetwork, path, to; from=from)
     end
     dist_src && _cross_model_error("convert_file")
-    _ensure_compatible()
+    lib = _lib()
+    _ensure_compatible(lib)
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
     # Pass the format hint as a `String` (ccall roots it) or `C_NULL` for inference.
     # v4 argument order is (path, from, to), matching pio_to_format / pio_parse_str.
     fromc = from === nothing ? C_NULL : String(from)
-    s = ccall((:pio_convert_file, _lib()), Cstring,
+    s = ccall(_library_symbol(lib, :pio_convert_file), Cstring,
               (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
               path, fromc, to, warnbuf, length(warnbuf), err, length(err))
     s == C_NULL && error("PowerIO.convert_file: " * _cstr(err))
     text = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
     return (text, _warn_lines(warnbuf; capped=true))
 end
 # Explicit transmission marker, symmetric with `convert_file(MulticonductorNetwork, ...)`.
@@ -320,16 +326,17 @@ function convert_str(text::AbstractString, to::AbstractString; from::AbstractStr
     dist_from = _is_dist_format(from)
     dist_to && dist_from && return convert_str(MulticonductorNetwork, text, to, from)
     (dist_to || dist_from) && _cross_model_error("convert_str")
-    _ensure_compatible()
+    lib = _lib()
+    _ensure_compatible(lib)
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
     # v4 argument order is (text, from, to), matching pio_convert_file.
-    s = ccall((:pio_convert_str, _lib()), Cstring,
+    s = ccall(_library_symbol(lib, :pio_convert_str), Cstring,
               (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
               String(text), String(from), to, warnbuf, length(warnbuf), err, length(err))
     s == C_NULL && error("PowerIO.convert_str: " * _cstr(err))
     out = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
     return (out, _warn_lines(warnbuf; capped=true))
 end
 
@@ -345,12 +352,13 @@ PyPSA static-network CSV schema can't carry. Needs `net`'s live Rust handle
 """
 function write_pypsa_csv_folder(net::BalancedNetwork, out_dir::AbstractString)
     h = _live_handle(net, "write_pypsa_csv_folder")
+    lib = getfield(h, :lib)
     warnbuf = zeros(UInt8, _WARNLEN)
     err = zeros(UInt8, _ERRLEN)
     # `pio_write_dir` is the generic directory writer; `pypsa-csv` is the one such
     # format today. Fallible `int` return (0 = success), the warnbuf/errbuf
     # convention of `pio_to_format`; the handle is preserved across the ccall.
-    rc = GC.@preserve h ccall((:pio_write_dir, _lib()), Int32,
+    rc = GC.@preserve h ccall(_library_symbol(lib, :pio_write_dir), Int32,
                               (Ptr{Cvoid}, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
                               h.ptr, "pypsa-csv", String(out_dir), warnbuf, length(warnbuf), err, length(err))
     rc == 0 || error("PowerIO.write_pypsa_csv_folder: " * _cstr(err))

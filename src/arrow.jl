@@ -261,8 +261,9 @@ function _arrow_from_handle(h::BalancedNetworkHandle, table::Symbol, copy::Bool)
     arr = Ref(_zero(CArrowArray))
     sch = Ref(_zero(CArrowSchema))
     err = zeros(UInt8, _ERRLEN)
+    lib = getfield(h, :lib)
     rc = try
-        GC.@preserve h ccall((:pio_to_arrow, _lib()), Cint,
+        GC.@preserve h ccall(_library_symbol(lib, :pio_to_arrow), Cint,
               (Ptr{Cvoid}, Cint, Ptr{CArrowArray}, Ptr{CArrowSchema}, Ptr{UInt8}, Csize_t),
               h.ptr, id, arr, sch, err, length(err))
     catch e

@@ -19,6 +19,7 @@ makedocs(;
         "Distribution networks" => "distribution.md",
         "Ecosystem interop" => "interop.md",
         "Binary distribution" => "binary.md",
+        "Memory safety" => "memory-safety.md",
         "Language APIs" => "languages.md",
         "API reference" => "api.md",
     ],
