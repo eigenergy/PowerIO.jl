@@ -62,7 +62,7 @@ export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_
        to_format, to_normalized, to_normalized_with_options, to_json, to_dense,
        to_matpower, to_arrow, calc_admittance_matrix, calc_susceptance_matrix,
        calc_incidence_matrix, calc_bprime_matrix, calc_bdoubleprime_matrix,
-       ArrowTable, write_pypsa_csv_folder, to_powermodels, from_powermodels,
+       ArrowTable, release_c_data, write_pypsa_csv_folder, to_powermodels, from_powermodels,
        to_powerdata, parse_ac_power_data, read_gridfm, read_gridfm_scenarios,
        parse_goc3_json, goc3_status_flags, goc3_add_status_flags!,
        NetworkPackage, CompilerPackage, to_package, from_package, read_package, write_package,

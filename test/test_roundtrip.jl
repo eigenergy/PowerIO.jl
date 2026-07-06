@@ -25,8 +25,17 @@
             @test sprint(show, net) == "BalancedNetwork{Matpower}: 14 buses, 20 branches, 5 gens"
             @test getfield(net, :data) === nothing
         end
+        @test isempty(PowerIO.warnings(net))
+        @test getfield(net, :data) === nothing
+        dense = PowerIO.to_dense(net)
+        @test dense.n == 14
+        @test getfield(net, :data) === nothing
+        if PowerIO.arrow_available()
+            @test PowerIO.to_arrow(net, :bus).id[1] == 1
+            @test getfield(net, :data) === nothing
+        end
         expected_data = JSON3.read(to_json(net))
-        has_scalar_helpers && @test getfield(net, :data) === nothing
+        @test getfield(net, :data) === nothing
         @test length(net.buses) == 14
         materialized = net.data
         @test getfield(net, :data) === materialized

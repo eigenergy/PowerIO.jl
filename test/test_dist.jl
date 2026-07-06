@@ -138,7 +138,7 @@ end
         @test net.base_frequency == 60.0
         @test getfield(net, :data) === nothing
         @test occursin("MulticonductorNetwork{dss}", sprint(show, net))
-        has_dist_summary && @test getfield(net, :data) === nothing
+        @test getfield(net, :data) === nothing
         if PowerIO._dist_graph_available()
             graph = PowerIO._json_plain(to_graph(net))
             @test length(graph["buses"]) == 4

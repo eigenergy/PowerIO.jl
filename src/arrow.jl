@@ -232,6 +232,17 @@ release callbacks NULL themselves).
 """
 Base.close(t::ArrowTable) = (_release_buffers!(getfield(t, :_buffers)); nothing)
 
+"""
+    release_c_data(t::ArrowTable)
+    release_c_data(c::ArrowColumn)
+
+Release zero copy Arrow buffers explicitly. This mirrors the name used by the
+Arrow.jl C Data Interface import PR; `close(t)` is kept as the Julia table
+idiom. Calling it more than once is safe, and reads after release throw.
+"""
+release_c_data(t::ArrowTable) = close(t)
+release_c_data(c::ArrowColumn) = (_release_buffers!(getfield(c, :buffers)); nothing)
+
 function _nonnegative_int(x::Integer, what::AbstractString)
     x >= 0 || error("PowerIO.to_arrow: $what is negative ($x)")
     return Int(x)

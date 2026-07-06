@@ -1,12 +1,17 @@
-function arrow_test_release_array(ptr::Ptr{PowerIO.CArrowArray})
+const _POWERIO_ARROW_TEST_RELEASE_COUNT = Ref(0)
+
+function _powerio_arrow_test_release_array(ptr::Ptr{PowerIO.CArrowArray})
+    _POWERIO_ARROW_TEST_RELEASE_COUNT[] += 1
     a = unsafe_load(ptr)
-    unsafe_store!(ptr, PowerIO.CArrowArray(a.length, a.null_count, a.offset, a.n_buffers,
-                                           a.n_children, a.buffers, a.children, a.dictionary,
-                                           C_NULL, a.private_data))
+    unsafe_store!(ptr, PowerIO.CArrowArray(a.length, a.null_count, a.offset,
+                                           a.n_buffers, a.n_children, a.buffers,
+                                           a.children, a.dictionary, C_NULL,
+                                           a.private_data))
     return nothing
 end
 
-function arrow_test_release_schema(ptr::Ptr{PowerIO.CArrowSchema})
+function _powerio_arrow_test_release_schema(ptr::Ptr{PowerIO.CArrowSchema})
+    _POWERIO_ARROW_TEST_RELEASE_COUNT[] += 1
     s = unsafe_load(ptr)
     unsafe_store!(ptr, PowerIO.CArrowSchema(s.format, s.name, s.metadata, s.flags,
                                             s.n_children, s.children, s.dictionary,
@@ -14,7 +19,13 @@ function arrow_test_release_schema(ptr::Ptr{PowerIO.CArrowSchema})
     return nothing
 end
 
-function arrow_release_callback_error(arr_release::Ptr{Cvoid}, sch_release::Ptr{Cvoid})
+const _POWERIO_ARROW_TEST_RELEASE_ARRAY =
+    @cfunction(_powerio_arrow_test_release_array, Cvoid, (Ptr{PowerIO.CArrowArray},))
+const _POWERIO_ARROW_TEST_RELEASE_SCHEMA =
+    @cfunction(_powerio_arrow_test_release_schema, Cvoid, (Ptr{PowerIO.CArrowSchema},))
+
+function _powerio_arrow_release_callback_error(arr_release::Ptr{Cvoid},
+                                               sch_release::Ptr{Cvoid})
     arr = Ref(PowerIO.CArrowArray(0, 0, 0, 0, 0, C_NULL, C_NULL, C_NULL,
                                   arr_release, C_NULL))
     sch = Ref(PowerIO.CArrowSchema(C_NULL, C_NULL, C_NULL, 0, 0, C_NULL, C_NULL,
@@ -260,14 +271,30 @@ end
         @test_throws ErrorException PowerIO._require_release_callbacks!(
             Ref(PowerIO._zero(PowerIO.CArrowArray)),
             Ref(PowerIO._zero(PowerIO.CArrowSchema)))
-        release_array = @cfunction(arrow_test_release_array, Cvoid, (Ptr{PowerIO.CArrowArray},))
-        release_schema = @cfunction(arrow_test_release_schema, Cvoid, (Ptr{PowerIO.CArrowSchema},))
-        err, arr, sch = arrow_release_callback_error(C_NULL, release_schema)
+        err, arr, sch = _powerio_arrow_release_callback_error(
+            C_NULL, _POWERIO_ARROW_TEST_RELEASE_SCHEMA)
         @test occursin("ArrowArray release callback is null", sprint(showerror, err))
         @test sch[].release == C_NULL
-        err, arr, sch = arrow_release_callback_error(release_array, C_NULL)
+        err, arr, sch = _powerio_arrow_release_callback_error(
+            _POWERIO_ARROW_TEST_RELEASE_ARRAY, C_NULL)
         @test occursin("ArrowSchema release callback is null", sprint(showerror, err))
         @test arr[].release == C_NULL
+
+        @testset "explicit release callbacks" begin
+            _POWERIO_ARROW_TEST_RELEASE_COUNT[] = 0
+            arr = Ref(PowerIO.CArrowArray(0, 0, 0, 0, 0, C_NULL, C_NULL, C_NULL,
+                                          _POWERIO_ARROW_TEST_RELEASE_ARRAY, C_NULL))
+            sch = Ref(PowerIO.CArrowSchema(C_NULL, C_NULL, C_NULL, 0, 0, C_NULL,
+                                           C_NULL, _POWERIO_ARROW_TEST_RELEASE_SCHEMA,
+                                           C_NULL))
+            buffers = PowerIO.ArrowBuffers(arr, sch)
+            PowerIO._release_buffers!(buffers)
+            @test _POWERIO_ARROW_TEST_RELEASE_COUNT[] == 2
+            @test arr[].release == C_NULL
+            @test sch[].release == C_NULL
+            @test_nowarn PowerIO._release_buffers!(buffers)
+            @test _POWERIO_ARROW_TEST_RELEASE_COUNT[] == 2
+        end
 
         # copy=false: the zero copy ArrowTable path, same values. A column
         # extracted from the table roots the shared buffers on its own, so
@@ -303,6 +330,12 @@ end
         finalize(z2)
         @test true
 
+        z2b = to_arrow(m, :bus; copy=false)
+        z2b_col = z2b.id
+        release_c_data(z2b)
+        @test_throws ErrorException z2b_col[1]
+        @test_nowarn release_c_data(z2b)
+
         z3 = to_arrow(m, :bus; copy=false)
         z3_col = z3.id
         b3 = getfield(z3, :_buffers)
@@ -314,6 +347,12 @@ end
         z3 = nothing
         z3_col = nothing
         GC.gc()
+
+        z4 = to_arrow(m, :bus; copy=false)
+        z4_col = z4.id
+        release_c_data(z4_col)
+        @test_throws ErrorException z4_col[1]
+        @test_nowarn release_c_data(z4_col)
 
         function f64_bits(xs)
             ["0x" * string(reinterpret(UInt64, Float64(x)); base=16, pad=16) for x in xs]
