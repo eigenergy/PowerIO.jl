@@ -40,7 +40,7 @@
         @test all(x -> PowerIO.n_buses(x.network) == 14, reads)
         @test read_gridfm(batch; scenario = 1).scenario == 1
 
-        # A nonexistent dataset directory surfaces as a Julia error, not a fault.
+        # A nonexistent dataset directory returns a Julia error, not a fault.
         @test_throws ErrorException read_gridfm(joinpath(data, "no_such_gridfm"))
     end
 end

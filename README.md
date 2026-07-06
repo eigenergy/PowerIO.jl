@@ -45,7 +45,7 @@ Multiconductor distribution cases parse into the separate
 `MulticonductorNetwork` model through the same verbs; see the
 [distribution guide](https://eigenergy.github.io/PowerIO.jl/distribution/).
 GridFM Parquet readback and GO Challenge 3 helpers round out the data import
-surface.
+API.
 
 <p align="center">
   <img
@@ -73,8 +73,10 @@ using PowerIO
 net = parse_file("case14.m")
 net isa BalancedNetwork
 PowerIO.buses(net)             # raw bus table
+net.buses                      # property form; materializes the cached JSON payload
+net.name, net.source_format    # summary backed metadata; leaves net.data unset
 length(PowerIO.buses(net))     # bus count
-PowerIO.n_buses(net)           # stable accessor over the parsed payload
+PowerIO.n_buses(net)           # summary backed count
 PowerIO.n_gens(net), PowerIO.base_mva(net)
 PowerIO.source_format(net)        # "Matpower"
 PowerIO.reference_bus_id(net)     # the slack bus id (or nothing)
@@ -91,22 +93,27 @@ The main transforms off a parsed network:
 to_normalized(net)                 # per unit, radians, filtered copy
 to_normalized(net; clamp_angle_bounds=true)
 to_dense(net)                      # dense typed arrays for matrix assembly
+calc_admittance_matrix(net).matrix # Ybus as SparseMatrixCSC{ComplexF64}
+calc_susceptance_matrix(net).matrix
+calc_incidence_matrix(net)
+calc_bprime_matrix(net).matrix     # Rust B' positive Laplacian
 to_arrow(net, :branch)             # one table over the Arrow C Data Interface
-to_arrow(net, :bprime)             # matrix Arrow COO selectors
+to_arrow(net, :bprime)             # lower level matrix COO table
 to_matpower(net)                   # byte exact when the input was MATPOWER
 to_format(net, "powermodels-json") # (text, warnings)
 to_powermodels(net)                # PowerModels.jl network data Dict
 to_powerdata(net)                  # ExaPowerIO PowerData NamedTuple
 to_package(net)                    # .pio.json compiler package
-features()                         # optional C ABI surfaces
+features()                         # optional C ABI features
 dist_capabilities()                # BMOPF distribution fidelity flags
 ```
 
 Distribution cases share the verbs, routed by format:
 
 ```julia
-dn = parse_file("feeder.dss")        # ::MulticonductorNetwork, element tables + handle
+dn = parse_file("feeder.dss")        # ::MulticonductorNetwork, live handle
 PowerIO.buses(dn), PowerIO.lines(dn), PowerIO.transformers(dn)
+dn.warnings
 PowerIO.to_graph(dn)
 text, warnings = to_format(dn, "pmd")
 ```
@@ -114,7 +121,7 @@ text, warnings = to_format(dn, "pmd")
 The [transmission](https://eigenergy.github.io/PowerIO.jl/transmission/),
 [distribution](https://eigenergy.github.io/PowerIO.jl/distribution/), and
 [interop](https://eigenergy.github.io/PowerIO.jl/interop/) guides cover the
-full surface: accessors, Arrow export, `.pio.json` packages, the gridfm
+full API: accessors, Arrow export, `.pio.json` packages, the gridfm
 reader, and GO Challenge 3 helpers.
 
 At first use the binding checks `pio_abi_version` against the core ABI version
@@ -141,7 +148,8 @@ C ABI; the cross language table is in
 
 ## Develop
 
-With a sibling `powerio` checkout, build the C ABI and `using PowerIO` finds it:
+With a sibling `powerio` checkout, build the C ABI and `using PowerIO` finds it
+before the released artifact:
 
 ```
 # in the sibling powerio checkout:
@@ -152,7 +160,6 @@ For a non-sibling layout, point Julia at the library explicitly:
 
 ```julia
 PowerIO.set_library!("/path/to/libpowerio_capi.dylib")
-# or: ENV["POWERIO_CAPI"] = "...path..."  before `using PowerIO`
 
 # Save the override in LocalPreferences.toml for this Julia environment:
 PowerIO.set_library!("/path/to/libpowerio_capi.dylib"; persist=true)
@@ -166,7 +173,7 @@ The artifact pipeline behind released versions is described in
 
 0.6.2 tracks powerio v0.6.2 in lockstep: core C ABI 4, distribution C ABI 1,
 with the Arrow, matrix, GridFM, distribution, package, BMOPF fidelity, and study
-package surfaces enabled in the released artifacts. The Julia package stays thin
+package features enabled in the released artifacts. The Julia package stays thin
 around the C ABI while owning stable Julia entry points for parsing, conversion,
 packages, dense tables, Arrow tables, distribution networks, GridFM, and
 ecosystem interop.

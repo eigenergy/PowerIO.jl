@@ -5,12 +5,51 @@
     else
         data = joinpath(@__DIR__, "data")
         net = parse_file(joinpath(data, "case14.m"))
+        @test getfield(net, :data) === nothing
         @test PowerIO.n_buses(net) == 14
         @test PowerIO.n_branches(net) == 20
         @test PowerIO.n_gens(net) == 5
         @test PowerIO.base_mva(net) == 100.0
-        @test PowerIO.source_format(net) == "Matpower"
         @test PowerIO.reference_bus_id(net) == 1
+        @test getfield(net, :data) === nothing
+        has_scalar_helpers = PowerIO._exports_symbol(:pio_source_format) &&
+                             PowerIO._exports_symbol(:pio_network_name)
+        @test PowerIO.source_format(net) == "Matpower"
+        @test net.name == "case14"
+        @test net.source_format == "Matpower"
+        @test net.base_mva == 100.0
+        @test net.base_frequency == 60.0
+        @test getfield(net, :data) === nothing
+        if has_scalar_helpers
+            @test PowerIO.network_name(net) == "case14"
+            @test net.warnings == String[]
+            @test getfield(net, :data) === nothing
+            @test sprint(show, net) == "BalancedNetwork{Matpower}: 14 buses, 20 branches, 5 gens"
+            display = sprint(show, MIME"text/plain"(), net)
+            @test occursin("BalancedNetwork{Matpower}", display)
+            @test occursin("  name: case14", display)
+            @test occursin("  base_mva: 100.0", display)
+            @test occursin("  buses: 14", display)
+            @test occursin("  branches: 20", display)
+            @test occursin("  data: not materialized", display)
+            @test getfield(net, :data) === nothing
+        end
+        @test isempty(PowerIO.warnings(net))
+        @test getfield(net, :data) === nothing
+        dense = PowerIO.to_dense(net)
+        @test dense.n == 14
+        @test getfield(net, :data) === nothing
+        if PowerIO.arrow_available()
+            @test PowerIO.to_arrow(net, :bus).id[1] == 1
+            @test getfield(net, :data) === nothing
+        end
+        expected_data = JSON3.read(to_json(net))
+        @test getfield(net, :data) === nothing
+        @test length(net.buses) == 14
+        materialized = net.data
+        @test getfield(net, :data) === materialized
+        @test JSON3.write(materialized) == JSON3.write(expected_data)
+        @test net.data === materialized
         @test isempty(PowerIO.storage(net))
         @test isempty(PowerIO.hvdc(net))
 
@@ -93,7 +132,7 @@
             @test package_operating_points(pkg) === nothing
             @test package_study(pkg) === nothing
             pkg_doc = JSON3.read(to_json(pkg))
-            # Same major is the reader contract; byte equality broke this
+            # Same major is the reader policy; byte equality broke this
             # suite on every additive envelope bump in powerio.
             @test VersionNumber(String(pkg_doc.schema_version)).major ==
                   VersionNumber(PowerIO.PIO_PACKAGE_SCHEMA_VERSION).major

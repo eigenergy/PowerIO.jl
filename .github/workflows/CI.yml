@@ -13,7 +13,7 @@ jobs:
       matrix:
         julia-version: ['1.9', '1']
     env:
-      # secrets can't be read in `if:` directly; surface it as an env var to gate on.
+      # secrets can't be read in `if:` directly; expose it as an env var to gate on.
       POWERIO_TOKEN: ${{ secrets.POWERIO_REPO_TOKEN }}
     steps:
       - uses: actions/checkout@v6
@@ -38,12 +38,30 @@ jobs:
             echo "available=false" >> "$GITHUB_OUTPUT"
             echo "eigenergy/powerio is unreachable (no POWERIO_REPO_TOKEN secret, and the repo is not public); the ccall tests will skip."
           fi
+      - name: Select powerio branch
+        id: powerio-ref
+        if: steps.powerio.outputs.available == 'true'
+        env:
+          POWERIO_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          remote="https://github.com/eigenergy/powerio.git"
+          if [ -n "${POWERIO_TOKEN}" ]; then
+            remote="https://x-access-token:${POWERIO_TOKEN}@github.com/eigenergy/powerio.git"
+          fi
+          if git ls-remote --exit-code --heads "$remote" "$POWERIO_BRANCH" >/dev/null 2>&1; then
+            echo "ref=$POWERIO_BRANCH" >> "$GITHUB_OUTPUT"
+            echo "Using eigenergy/powerio branch $POWERIO_BRANCH"
+          else
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+            echo "Using eigenergy/powerio main; no branch named $POWERIO_BRANCH exists"
+          fi
       - name: Check out powerio
         if: steps.powerio.outputs.available == 'true'
         uses: actions/checkout@v6
         with:
           repository: eigenergy/powerio
           path: powerio
+          ref: ${{ steps.powerio-ref.outputs.ref }}
           # Falls back to the workflow token, which suffices once the repo is public.
           token: ${{ secrets.POWERIO_REPO_TOKEN || github.token }}
       - uses: dtolnay/rust-toolchain@stable
@@ -54,7 +72,7 @@ jobs:
           workspaces: powerio
       - name: Build powerio-capi
         if: steps.powerio.outputs.available == 'true'
-        # Build the optional surfaces the checked-out Rust branch supports. Before
+        # Build the optional features the checked-out Rust branch supports. Before
         # the v0.6.1 Rust PRs merge, matrix and normalize options tests skip; once
         # they land, this job exercises them.
         run: |

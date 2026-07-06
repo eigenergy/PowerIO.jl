@@ -1,6 +1,6 @@
-# --- dense numeric surface ----------------------------------------------
+# --- dense numeric API ---------------------------------------------------
 #
-# The JSON transport above is the rich, lossless view (every field + extras). For
+# The JSON transport above is the rich, lossless payload (every field + extras). For
 # the matrix-assembly path a consumer wants the numeric tables as dense typed
 # arrays without parsing JSON: the C ABI fills caller-allocated buffers
 # (`pio_bus_ids` / `pio_branches` / `pio_gens` / `pio_bus_demand` / `pio_bus_shunt`)
@@ -15,7 +15,7 @@
 
 # The v4 extractors take a `cap` and return the total count (write up to `cap`,
 # never overflow). The counts come from `pio_n_*` on the same immutable handle, so
-# `cap == count`; verifying the return catches an ABI contract violation cheaply
+# `cap == count`; verifying the return catches an ABI mismatch cheaply
 # (the cap/count convention exists precisely so a short fill is detectable). Any
 # output pointer may be NULL to skip.
 function _check_filled(got, want::Int, what::AbstractString)
@@ -70,7 +70,7 @@ end
 
 # Dense numeric extraction off a live handle, shared by the BalancedNetwork and path
 # methods. The whole body runs under GC.@preserve h: a dozen ccalls with Julia
-# allocations between them, exactly the shape where a finalizer racing the raw
+# allocations between them, exactly the case where a finalizer racing the raw
 # pointer would be a use after free.
 function _dense_from_handle(h::BalancedNetworkHandle)
     GC.@preserve h begin
@@ -106,7 +106,7 @@ end
 Pull a case's numeric tables as dense typed arrays straight from the C ABI,
 skipping the JSON transport (the fast path for matrix assembly). Takes a parsed
 [`BalancedNetwork`](@ref) (via its live handle) or a `path` to parse first (which never
-builds the JSON view). Fields:
+builds the JSON payload). Fields:
 
 - `n`, `m`, `ng` — bus / branch / generator counts.
 - `base_mva` — system base.

@@ -15,7 +15,7 @@
 ## PowerModels.jl
 
 [`to_powermodels`](@ref) converts a parsed network to a PowerModels network
-data dictionary — the post-parse `Dict{String,Any}` shape PowerModels.jl
+data dictionary — the post-parse `Dict{String,Any}` layout PowerModels.jl
 consumes. [`from_powermodels`](@ref) reads one back.
 
 ```julia
@@ -49,7 +49,7 @@ BMOPFTools.to_dss(net, "out/")
 ## ExaModelsPower.jl
 
 [`to_powerdata`](@ref) returns a NamedTuple in ExaPowerIO's `PowerData`
-shape; [`parse_ac_power_data`](@ref) returns the NamedTuple-of-arrays shape
+layout; [`parse_ac_power_data`](@ref) returns the NamedTuple-of-arrays layout
 consumed by ExaModelsPower's `build_polar_opf`, `build_rect_opf`, and
 `build_dcopf` — GPU-ready struct-of-arrays with per unit conversion applied.
 
@@ -86,7 +86,7 @@ ref = PowerIO.build_ref(data)
 ## `.pio.json` network packages
 
 `.pio.json` compiler packages wrap balanced and multiconductor networks with
-validation and provenance, over the native `pio_package_*` C ABI surface
+validation and provenance, over the native `pio_package_*` C ABI API
 (needs the default `pkg` feature; [`package_available`](@ref) reports it).
 
 ```julia

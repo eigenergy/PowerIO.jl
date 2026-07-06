@@ -2,11 +2,11 @@
 #
 # Resolution order: an in-session dev override (`set_library!`) first, then the
 # `POWERIO_CAPI` environment variable, then a Preferences.jl library setting,
-# then the bundled `powerio_capi` artifact (the registered release path), then a
-# sibling `../powerio` checkout's `target/{release,debug}` build, then a plain
+# then a sibling `../powerio` checkout's `target/{release,debug}` build, then the
+# bundled `powerio_capi` artifact (the registered release path), then a plain
 # `libpowerio_capi` on the loader path. The artifact lookup is lazy and guarded,
-# so a not-yet-populated `Artifacts.toml` degrades to the sibling/loader path
-# fallback instead of breaking module load.
+# so a not-yet-populated `Artifacts.toml` degrades to the loader path fallback
+# instead of breaking module load.
 #
 # Once a `PowerIO_jll` is registered (issue #1, non-blocking) this whole block
 # becomes `using PowerIO_jll` and `_lib() = PowerIO_jll.libpowerio_capi`.
@@ -78,6 +78,8 @@ function _lib()
     isempty(_SESSION_LIBRARY[]) || return _SESSION_LIBRARY[]
     isempty(_ENV_LIBRARY[]) || return _ENV_LIBRARY[]
     isempty(_PREFERRED_LIBRARY[]) || return _PREFERRED_LIBRARY[]
+    sib = _sibling_lib()
+    isempty(sib) || return sib
     isempty(_RESOLVED[]) || return _RESOLVED[]
     return _RESOLVED[] = _artifact_lib()  # resolve once; bounds a failed lazy fetch to one attempt
 end
@@ -100,7 +102,7 @@ _library_symbol(lib::AbstractString, sym::Symbol) =
 # Resolve the bundled `powerio_capi` artifact. Until `Artifacts.toml` carries a
 # `powerio_capi` entry for this platform (filled by `gen/update_artifacts.jl` from
 # a tagged powerio release; see docs/src/binary.md), fall back to a plain
-# `libpowerio_capi` on the loader path so a local build still resolves.
+# `libpowerio_capi` on the loader path.
 #
 # The subdir mirrors what `gen/build_tarballs.jl` installs: BinaryBuilder ships the
 # Windows dll under `bin/`, the shared object under `lib/` everywhere else. This
@@ -114,9 +116,7 @@ function _artifact_lib()
         # Expected while the artifact is unpublished. Once it ships, a corrupt or
         # platform-missing artifact also lands here, so leave a trace (JULIA_DEBUG=PowerIO)
         # rather than silently masking it; the loader-path fallback still keeps dev working.
-        @debug "PowerIO: powerio_capi artifact did not resolve; trying a sibling powerio checkout, then loader-path libpowerio_capi" exception = (e, catch_backtrace())
-        sib = _sibling_lib()
-        isempty(sib) || return sib
+        @debug "PowerIO: powerio_capi artifact did not resolve; trying loader-path libpowerio_capi" exception = (e, catch_backtrace())
         return "libpowerio_capi"
     end
 end
@@ -239,7 +239,7 @@ end
 const _ERRLEN = 512
 # Per-call fidelity warnings (pio_to_format / pio_convert_file / pio_write_dir)
 # can run long on a lossy conversion; give them headroom. Overflow truncates
-# silently, so `_warn_lines(capped=true)` surfaces a fill near the cap.
+# silently, so `_warn_lines(capped=true)` reports a fill near the cap.
 const _WARNLEN = 4096
 
 # --- handle layer -------------------------------------------------------
@@ -362,9 +362,9 @@ end
 _cstr(buf::Vector{UInt8}) = GC.@preserve buf unsafe_string(pointer(buf))
 
 # Split a `\n`-joined warn buffer into owned Strings (a SubString would pin the
-# whole buffer-sized parent). `capped`: the fixed-size per-call channel truncates
+# whole buffer-sized parent). `capped`: this fixed-size per-call channel truncates
 # silently on a UTF-8 boundary at the cap, so a fill within 4 bytes of it is the
-# truncation signature — surface it rather than under-count fidelity warnings.
+# truncation signature — report it rather than under-count fidelity warnings.
 function _warn_lines(buf::Vector{UInt8}; capped::Bool=false)
     s = _cstr(buf)
     warns = String.(filter(!isempty, split(s, '\n')))

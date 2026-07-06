@@ -1,8 +1,8 @@
-# --- accessor surface ---------------------------------------------------
+# --- accessor API -------------------------------------------------------
 #
-# The v0.0.1 surface bridges read: the parsed element tables plus a few scalars.
+# The v0.0.1 API bridges read: the parsed element tables plus a few scalars.
 # Element field names mirror the Rust `BalancedNetwork` (powerio/src/network.rs) and are
-# the stable contract — raw MATPOWER units (MW/MVAr, degrees), 1-based bus ids,
+# the stable binding policy: raw MATPOWER units (MW/MVAr, degrees), 1-based bus ids,
 # out-of-service elements retained, so a consumer normalizes as it sees fit:
 #
 #   bus:     id, kind ∈ {"PQ","PV","REF","ISOLATED"}, vm, va (deg), base_kv,
@@ -24,20 +24,61 @@
 #
 # Plus scalars: `base_mva`, `network_name`, `source_format`, `reference_bus_id`.
 # The fully typed struct mirroring `network.rs` and the dense-extraction fast path
-# are v0.1.0 (issue #2); these views are enough for the ecosystem bridges.
+# are v0.1.0 (issue #2); these tables are enough for the ecosystem bridges.
 
-n_buses(net::BalancedNetwork) = length(net.data.buses)
-n_branches(net::BalancedNetwork) = length(net.data.branches)
-base_mva(net::BalancedNetwork) = Float64(net.data.base_mva)
+function _maybe_live_handle(net::BalancedNetwork)
+    h = getfield(net, :handle)
+    return (h === nothing || h.ptr == C_NULL) ? nothing : h
+end
+
+function _handle_count(net::BalancedNetwork, sym::Symbol)
+    h = _maybe_live_handle(net)
+    h === nothing && return nothing
+    lib = getfield(h, :lib)
+    return Int(GC.@preserve h ccall(_library_symbol(lib, sym), Csize_t, (Ptr{Cvoid},), h.ptr))
+end
+
+function _handle_bus_ids(h::BalancedNetworkHandle)
+    lib = getfield(h, :lib)
+    n = Int(GC.@preserve h ccall(_library_symbol(lib, :pio_n_buses), Csize_t, (Ptr{Cvoid},), h.ptr))
+    return _handle_bus_ids(h, n)
+end
+
+function _handle_bus_ids(h::BalancedNetworkHandle, n::Integer)
+    lib = getfield(h, :lib)
+    ids = Vector{Int64}(undef, n)
+    GC.@preserve h begin
+        got = ccall(_library_symbol(lib, :pio_bus_ids), Csize_t,
+                    (Ptr{Cvoid}, Ptr{Int64}, Csize_t), h.ptr, ids, n)
+        _check_filled(got, Int(n), "pio_bus_ids")
+    end
+    return ids
+end
+
+function n_buses(net::BalancedNetwork)
+    return Int(_summary(net).counts.buses)
+end
+
+function n_branches(net::BalancedNetwork)
+    return Int(_summary(net).counts.branches)
+end
+
+function base_mva(net::BalancedNetwork)
+    return Float64(_summary(net).base_mva)
+end
+
+base_frequency(net::BalancedNetwork) = Float64(_summary(net).base_frequency)
 
 """
     network_name(net) -> String
 
 The case name carried through from the source file.
 """
-network_name(net::BalancedNetwork) = String(net.data.name)
+function network_name(net::BalancedNetwork)
+    return String(_summary(net).name)
+end
 
-"Buses, in source order (1-based ids preserved). See the accessor-surface note."
+"Buses, in source order (1-based ids preserved). See the accessor API note."
 buses(net::BalancedNetwork) = net.data.buses
 "Generators, one per machine (`bus` repeats when a bus has several)."
 generators(net::BalancedNetwork) = net.data.generators
@@ -58,7 +99,9 @@ hvdc(net::BalancedNetwork) = net.data.hvdc
 Number of generator rows (one per machine; `bus` repeats). Matches `pio_n_gens`:
 every row, not in-service-filtered.
 """
-n_gens(net::BalancedNetwork) = length(net.data.generators)
+function n_gens(net::BalancedNetwork)
+    return Int(_summary(net).counts.generators)
+end
 
 """
     source_format(net) -> String
@@ -69,7 +112,9 @@ Examples include `"Matpower"`, `"PowerModelsJson"`, `"EgretJson"`, `"Psse"`,
 `"SurgeJson"`, `"InMemory"`, and `"Normalized"` (the last is the output of
 [`to_normalized`](@ref)).
 """
-source_format(net::BalancedNetwork) = String(net.data.source_format)
+function source_format(net::BalancedNetwork)
+    return String(_summary(net).source_format)
+end
 
 """
     reference_bus_id(net) -> Union{Int,Nothing}
@@ -80,14 +125,10 @@ has `kind == "REF"`. This mirrors the "exactly one" rule of the C ABI's
 the 1-based id space the other accessors use.
 """
 function reference_bus_id(net::BalancedNetwork)
-    ref = nothing
-    for b in net.data.buses
-        if String(b.kind) == "REF"
-            ref === nothing || return nothing  # more than one REF: no unique slack
-            ref = Int(b.id)
-        end
-    end
-    return ref
+    refs = _summary(net).topology.reference_bus_ids
+    refs === nothing && return nothing
+    length(refs) == 1 || return nothing
+    return Int(refs[1])
 end
 
 """
@@ -119,12 +160,12 @@ end
 
 Number of connected components of the in-service topology, as the C ABI computes it
 (`pio_n_islands`). The same quantity as `to_dense(net).n_components`, without
-building the dense view. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
+building dense tables. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
 """
 function n_components(net::BalancedNetwork)
-    h = _live_handle(net, "n_components")
-    lib = getfield(h, :lib)
-    return Int(GC.@preserve h ccall(_library_symbol(lib, :pio_n_islands), Csize_t, (Ptr{Cvoid},), h.ptr))
+    n = _summary(net).topology.n_components
+    n === nothing && error("PowerIO.n_components: this BalancedNetwork has no live network handle")
+    return Int(n)
 end
 
 """
@@ -132,12 +173,12 @@ end
 
 Whether the in-service topology is radial (a forest), as the C ABI computes it
 (`pio_is_radial`). The same quantity as `to_dense(net).is_radial`, without building
-the dense view. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
+dense tables. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
 """
 function is_radial(net::BalancedNetwork)
-    h = _live_handle(net, "is_radial")
-    lib = getfield(h, :lib)
-    return (GC.@preserve h ccall(_library_symbol(lib, :pio_is_radial), Cint, (Ptr{Cvoid},), h.ptr)) != 0
+    value = _summary(net).topology.is_radial
+    value === nothing && error("PowerIO.is_radial: this BalancedNetwork has no live network handle")
+    return Bool(value)
 end
 
 """

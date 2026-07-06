@@ -41,7 +41,7 @@ function read_gridfm(dir::AbstractString; scenario::Integer=0)
     end
     ptr == C_NULL && error("PowerIO.read_gridfm: " * _cstr(err))
     h = BalancedNetworkHandle(ptr, lib)
-    net = BalancedNetwork(JSON3.read(_to_json(h)), h)
+    net = BalancedNetwork(h)
     return (; network = net, scenario = Int(scenario),
             warnings = _handle_warnings(h))
 end
@@ -52,7 +52,7 @@ end
 Read every scenario of a gridfm dataset, one [`read_gridfm`](@ref) result per scenario id
 (ascending) over the shared topology — the read side of a scenario batch. Each scenario is
 rebuilt independently, so two may differ in branch status, bus types, and reference bus.
-See [`read_gridfm`](@ref) for the lenient directory resolution and the fidelity contract.
+See [`read_gridfm`](@ref) for the lenient directory resolution and fidelity notes.
 """
 function read_gridfm_scenarios(dir::AbstractString)
     _ensure_compatible()

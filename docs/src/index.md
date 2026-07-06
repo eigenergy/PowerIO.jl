@@ -37,15 +37,17 @@ The two share the same verbs, and the bare verbs route on the format:
 `parse_file("case14.m")` returns a `BalancedNetwork`, `parse_file("feeder.dss")`
 a `MulticonductorNetwork`, and `parse_file("case.pio.json")` whichever model
 the package holds. `to_format`, `convert_file`, and `warnings` dispatch on the
-network type; the type-marker forms (`parse_file(BalancedNetwork, path)`,
+network type; the type marker forms (`parse_file(BalancedNetwork, path)`,
 `parse_file(MulticonductorNetwork, path)`) pin a model explicitly.
 
 ## Where to go
 
 - [Transmission networks](transmission.md) — parse, inspect, normalize,
   serialize, and extract dense arrays from a `BalancedNetwork`.
+- [Matrices](matrices.md) — Rust computed sparse matrices as Julia native
+  arrays and PowerModels compatible wrappers.
 - [Distribution networks](distribution.md) — the `MulticonductorNetwork`
-  surface: parse and convert OpenDSS, PMD, and BMOPF cases.
+  API: parse and convert OpenDSS, PMD, and BMOPF cases.
 - [Ecosystem interop](interop.md) — the bridges: PowerModels.jl,
   ExaModelsPower.jl, `.pio.json` packages, GridFM, GO Challenge 3.
 - [Memory safety](memory-safety.md) — FFI ownership, lifetime guarantees,
@@ -59,5 +61,5 @@ At first use the binding checks the library's ABI version
 mismatched library with an error stating both versions. Distribution calls
 also check `pio_dist_abi_version`. [`PowerIO.library_available`](@ref) probes
 without throwing, and [`PowerIO.features`](@ref) reports the optional Arrow,
-matrix, GridFM, distribution, and package surfaces. [`PowerIO.dist_capabilities`](@ref)
+matrix, GridFM, distribution, and package features. [`PowerIO.dist_capabilities`](@ref)
 reports finer distribution fidelity flags for downstream packages.

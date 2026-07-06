@@ -9,6 +9,8 @@ const PIO_PACKAGE_SCHEMA_VERSION = "0.1.1"
 JSON backed `.pio.json` network package envelope. A package carries one typed
 payload plus model kind, producer, origin, validation, summary, diagnostics,
 source maps, optional operating points, derived metadata, and lowering history.
+In Julia today the envelope remains JSON backed; solver, matrix, dense, and
+Arrow fast paths read live network handles, not package JSON.
 """
 struct NetworkPackage
     data::JSON3.Object
@@ -59,7 +61,7 @@ Base.show(io::IO, h::PackageHandle) =
 """
     package_available() -> Bool
 
-True if the resolved C library exports the `pio_package_*` surface.
+True if the resolved C library exports the `pio_package_*` API.
 """
 package_available() = _exports_symbol(:pio_package_parse_str)
 
@@ -428,11 +430,11 @@ function from_package(pkg::NetworkPackage)
     if kind == "balanced"
         ptr, lib = _package_extract_ptr(pkg, :pio_package_to_balanced_network)
         h = BalancedNetworkHandle(ptr, lib)
-        return BalancedNetwork(JSON3.read(_to_json(h)), h)
+        return BalancedNetwork(h)
     elseif kind == "multiconductor"
         ptr, lib = _package_extract_ptr(pkg, :pio_package_to_multiconductor_network)
         h = MulticonductorNetworkHandle(ptr, lib)
-        return MulticonductorNetwork(_dist_data(h), h)
+        return MulticonductorNetwork(h)
     else
         error("PowerIO.from_package: unsupported package model_kind `$kind`")
     end

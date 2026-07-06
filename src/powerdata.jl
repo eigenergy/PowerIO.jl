@@ -254,7 +254,7 @@ end
     to_powerdata(net; filtered=true, T=Float64) -> NamedTuple
     to_powerdata(path; from=nothing, filtered=true, T=Float64) -> NamedTuple
 
-Return a NamedTuple in ExaPowerIO's `PowerData` shape: `version`, `baseMVA`, `bus`,
+Return a NamedTuple in ExaPowerIO's `PowerData` layout: `version`, `baseMVA`, `bus`,
 `gen`, `branch`, `arc`, and `storage`. Rows use the field names ExaModelsPower
 reads. With the default `filtered=true`, values are derived from
 [`to_normalized`](@ref): `bus_i` preserves the source bus id, powers are per unit,
@@ -472,7 +472,7 @@ to_powerdata(path::AbstractString; from=nothing, filtered::Bool=true,
 """
     parse_ac_power_data(input; from=nothing, filtered=true, T=Float64) -> NamedTuple
 
-Return the NamedTuple shape consumed by ExaModelsPower's `build_polar_opf`,
+Return the NamedTuple layout consumed by ExaModelsPower's `build_polar_opf`,
 `build_rect_opf`, and `build_dcopf`. `input` may be a [`BalancedNetwork`](@ref) or a path.
 """
 function parse_ac_power_data(input; from=nothing, filtered::Bool=true,

@@ -1,13 +1,13 @@
 # Distribution networks
 
 Multiconductor distribution cases parse into a [`MulticonductorNetwork`](@ref):
-element tables (`net.data`) next to a live handle into the Rust core, the same
-shape as a [`BalancedNetwork`](@ref). Distribution data is unbalanced and per
-phase, so the two models never merge — string bus ids, ordered terminal names,
-explicit grounding, SI units, radians — but the verbs are shared and route on
-the format.
+a live handle into the Rust core plus lazy element tables (`net.data`), matching
+the balanced side's handle plus cached payload pattern. Distribution data is
+unbalanced and per phase, so the two models never merge: string bus ids,
+ordered terminal names, explicit grounding, SI units, and radians stay on the
+multiconductor side, while the verbs are shared and route on the format.
 
-The surface is experimental while the BMOPF schema is v0.0.1, and needs the
+The distribution API is experimental while the BMOPF schema is v0.0.1, and needs the
 library built with `--features dist` (the element tables also need `pkg`; both
 are on by default in the released binaries). [`dist_available`](@ref) reports
 whether the resolved library has it. The v0.6.1 release added the distribution
@@ -19,7 +19,7 @@ transformer, source, and diagnostic fidelity flags exposed through
 
 [`dist_capabilities`](@ref) reports finer BMOPF export capabilities. Downstream
 packages should use it instead of checking PowerIO version strings when they
-need a v0.6.2 distribution fidelity fix.
+need v0.6.2 distribution fidelity behavior.
 
 ## Formats
 
@@ -43,13 +43,13 @@ text, warnings = to_format(net, "pmd")    # dispatches on the network type
 bmopf, _ = convert_file("feeder.dss", "bmopf")
 pmd, _   = convert_str(text, "pmd"; from="dss")
 
-PowerIO.warnings(net)   # parse warnings, retained on the handle
+net.warnings            # parse warnings, retained on the handle
 ```
 
 Writing back to the format the case was parsed from echoes the source byte for
 byte; a cross-format write reports every fidelity loss in `warnings`.
 
-The type-marker forms remain the explicit spelling when you want to pin the
+The type marker forms remain the explicit spelling when you want to pin the
 model: `parse_file(MulticonductorNetwork, path)` routes nowhere, and
 `parse_file(BalancedNetwork, path)` reaches the balanced parser no matter the
 extension. Cross-model requests (`convert_file("feeder.dss", "matpower")`) are
@@ -59,9 +59,19 @@ a directed error: lowering is explicit, through the package pass below.
 
 The element tables mirror the core's multiconductor model (the
 `pio-payload-multiconductor/1` payload) and work without the library once
-materialized:
+materialized. `PowerIO.n_buses`, `PowerIO.base_frequency`, `PowerIO.network_name`,
+`PowerIO.source_format`, `net.warnings`, and REPL display read from the live
+handle without forcing `net.data` when the C library exports
+`pio_dist_summary_json`. Metadata properties do the same; element table
+properties materialize `net.data`. The multiline REPL display prints counts,
+base frequency, warnings, and whether `net.data` has been materialized.
 
 ```julia
+net.source_format
+net.base_frequency
+net.warnings
+net.buses                 # same as PowerIO.buses(net)
+
 PowerIO.buses(net)          # string ids, ordered terminals, explicit grounding
 PowerIO.lines(net)          # terminal_map_from / terminal_map_to, linecode, length
 PowerIO.linecodes(net)      # per-unit-length impedance and shunt matrices (SI)
@@ -85,9 +95,14 @@ PowerIO.dist_capabilities()     # BMOPF export fidelity flags
 Two JSON forms exist on purpose, and they carry the same model:
 
 - **`.pio.json` packages** carry a case between PowerIO consumers with
-  provenance, diagnostics, and validation intact. `parse_file("case.pio.json")`
-  returns whichever model the envelope declares.
+  provenance, diagnostics, validation, operating points, and lowering history.
+  Julia stores packages as JSON backed envelopes today.
 - **BMOPF JSON** is the exchange format for tools outside PowerIO.
+
+`parse_file("case.pio.json")` returns whichever model the envelope declares.
+Package JSON is not used by solver, matrix, dense, or Arrow fast paths; those
+read live network handles directly. `from_package(pkg)` rebuilds a live network
+handle and leaves `net.data` unset until a caller asks for the rich payload.
 
 ```julia
 pkg = to_package(net)                   # ::NetworkPackage, model_kind = :multiconductor

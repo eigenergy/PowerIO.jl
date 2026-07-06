@@ -1,32 +1,174 @@
-# --- public surface -----------------------------------------------------
+# --- public API ---------------------------------------------------------
 
 """
     BalancedNetwork
 
-An immutable view of a parsed case, materialized from the C ABI's JSON transport.
-Raw MATPOWER units and 1-based bus ids, mirroring `powerio`'s `BalancedNetwork`: buses,
-loads, shunts, branches, generators, storage, and hvdc tables plus `base_mva`,
-`name`, and `source_format` (the format it was read from). For now the tables are
-the parsed JSON (`net.data`).
+A parsed balanced transmission case. Values stay in raw MATPOWER units with
+1-based bus ids, mirroring `powerio`'s `BalancedNetwork`: buses, loads, shunts,
+branches, generators, storage, and hvdc tables plus `base_mva`, `name`, and
+`source_format`.
 
-A `BalancedNetwork` from [`parse_file`](@ref) also keeps its live Rust [`BalancedNetworkHandle`](@ref)
-(`net.handle`), so the `to_*` transforms ([`to_normalized`](@ref), [`to_dense`](@ref),
-[`to_matpower`](@ref), [`to_arrow`](@ref)) work straight off it. The handle's
-finalizer frees the Rust case once the `BalancedNetwork` is unreachable. A `BalancedNetwork` constructed
-from a bare `JSON3.Object` has `handle === nothing`; the accessors and [`to_json`](@ref) work
-on it, but the handle-only transforms error.
+A `BalancedNetwork` from [`parse_file`](@ref) keeps a live Rust
+[`BalancedNetworkHandle`](@ref) (`net.handle`) and leaves `net.data` empty until
+the first rich payload access. The first `net.data` access reads the materialized
+JSON payload through the C ABI and caches it. The `to_*` transforms ([`to_normalized`](@ref),
+[`to_dense`](@ref), [`to_matpower`](@ref), [`to_arrow`](@ref)) work from the live
+handle. The handle's finalizer frees the Rust case once the `BalancedNetwork` is
+unreachable. A `BalancedNetwork` constructed from a bare `JSON3.Object` has
+`handle === nothing`; table access and [`to_json`](@ref) work on it, while
+handle-only transforms error.
+
+Because `data` is lazy, explicitly calling `finalize(net.handle)` before the first
+`net.data` access leaves nothing to read: the data-backed accessors (`net.data`,
+`n_buses`, `show`, `to_json`) then raise a "handle was finalized" error. Access the
+values you need before finalizing the handle; letting the finalizer run at GC is the
+normal path and never hits this.
 """
-struct BalancedNetwork
-    data::JSON3.Object
+mutable struct BalancedNetwork
+    data::Union{JSON3.Object,Nothing}
     handle::Union{BalancedNetworkHandle,Nothing}
+    summary::Union{JSON3.Object,Nothing}
 end
-BalancedNetwork(data::JSON3.Object) = BalancedNetwork(data, nothing)
+BalancedNetwork(data::JSON3.Object) = BalancedNetwork(data, nothing, nothing)
+BalancedNetwork(h::BalancedNetworkHandle) = BalancedNetwork(nothing, h, nothing)
+BalancedNetwork(data::Union{JSON3.Object,Nothing}, handle::Union{BalancedNetworkHandle,Nothing}) =
+    BalancedNetwork(data, handle, nothing)
 
-# A one-line REPL summary. Uses only the JSON-backed accessors, so a handle-less
-# `BalancedNetwork` (built by `from_json`) shows without needing the Rust library.
-function Base.show(io::IO, net::BalancedNetwork)
-    print(io, "BalancedNetwork{", source_format(net), "}: ", n_buses(net), " buses, ",
-          n_branches(net), " branches, ", n_gens(net), " gens")
+function _materialized_data(net::BalancedNetwork)
+    data = getfield(net, :data)
+    data !== nothing && return data
+    h = _live_handle(net, "data")
+    data = JSON3.read(_to_json(h))
+    setfield!(net, :data, data)
+    return data
+end
+
+function Base.getproperty(net::BalancedNetwork, name::Symbol)
+    name === :data && return _materialized_data(net)
+    name === :name && return network_name(net)
+    name === :source_format && return source_format(net)
+    name === :warnings && return warnings(net)
+    name === :base_mva && return base_mva(net)
+    name === :base_frequency && return Float64(_summary(net).base_frequency)
+    name === :buses && return buses(net)
+    name === :branches && return branches(net)
+    name === :generators && return generators(net)
+    name === :loads && return loads(net)
+    name === :shunts && return shunts(net)
+    name === :storage && return storage(net)
+    name === :hvdc && return hvdc(net)
+    name === :switches && return net.data.switches
+    name === :transformers_3w && return net.data.transformers_3w
+    name === :areas && return net.data.areas
+    return getfield(net, name)
+end
+
+function Base.propertynames(::BalancedNetwork, private::Bool=false)
+    public = (:name, :source_format, :warnings, :base_mva, :base_frequency, :buses,
+              :branches, :generators, :loads, :shunts, :storage, :hvdc,
+              :switches, :transformers_3w, :areas, :data)
+    return private ? (public..., :handle, :summary) : public
+end
+
+function _balanced_summary_json(h::BalancedNetworkHandle)
+    lib = getfield(h, :lib)
+    if _exports_symbol(:pio_summary_json, lib)
+        err = zeros(UInt8, _ERRLEN)
+        s = GC.@preserve h ccall(_library_symbol(lib, :pio_summary_json), Cstring,
+                                 (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
+        s == C_NULL && error("PowerIO: could not serialize the balanced summary: " * _cstr(err))
+        text = unsafe_string(s)
+        ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+        return JSON3.read(text)
+    end
+    data = JSON3.read(_to_json(h))
+    refs = Int.(reference_bus_indices(BalancedNetwork(h)))
+    ids = _handle_bus_ids(h)
+    ref_ids = [Int(ids[i + 1]) for i in refs]
+    counts = (;
+        buses = _payload_len(data, :buses),
+        loads = _payload_len(data, :loads),
+        shunts = _payload_len(data, :shunts),
+        branches = _payload_len(data, :branches),
+        switches = _payload_len(data, :switches),
+        generators = _payload_len(data, :generators),
+        storage = _payload_len(data, :storage),
+        hvdc = _payload_len(data, :hvdc),
+        transformers_3w = _payload_len(data, :transformers_3w),
+        areas = _payload_len(data, :areas),
+        warnings = length(_handle_warnings(h)),
+    )
+    components = Int(GC.@preserve h ccall(_library_symbol(lib, :pio_n_islands),
+                                          Csize_t, (Ptr{Cvoid},), h.ptr))
+    radial = (GC.@preserve h ccall(_library_symbol(lib, :pio_is_radial),
+                                   Cint, (Ptr{Cvoid},), h.ptr)) != 0
+    return JSON3.read(JSON3.write((;
+        schema_version = 1,
+        name = _payload_value(data, :name, ""),
+        source_format = _payload_value(data, :source_format, "InMemory"),
+        base_mva = _payload_value(data, :base_mva, 0.0),
+        base_frequency = _payload_value(data, :base_frequency, 60.0),
+        counts,
+        topology = (;
+            reference_bus_ids = ref_ids,
+            reference_bus_indices = refs,
+            n_components = components,
+            is_radial = radial,
+        ),
+    )))
+end
+
+_payload_value(data::JSON3.Object, key::Symbol, default) =
+    haskey(data, key) ? getproperty(data, key) : default
+
+_payload_len(data::JSON3.Object, key::Symbol) =
+    haskey(data, key) ? length(getproperty(data, key)) : 0
+
+function _summary_from_data(data::JSON3.Object, ::Type{BalancedNetwork})
+    reference_ids = Int[]
+    for bus in _payload_value(data, :buses, ())
+        _payload_value(bus, :kind, nothing) == "REF" && push!(reference_ids, Int(bus.id))
+    end
+    counts = (;
+        buses = _payload_len(data, :buses),
+        loads = _payload_len(data, :loads),
+        shunts = _payload_len(data, :shunts),
+        branches = _payload_len(data, :branches),
+        switches = _payload_len(data, :switches),
+        generators = _payload_len(data, :generators),
+        storage = _payload_len(data, :storage),
+        hvdc = _payload_len(data, :hvdc),
+        transformers_3w = _payload_len(data, :transformers_3w),
+        areas = _payload_len(data, :areas),
+        warnings = _payload_len(data, :warnings),
+    )
+    return JSON3.read(JSON3.write((;
+        schema_version = 1,
+        name = _payload_value(data, :name, ""),
+        source_format = _payload_value(data, :source_format, "InMemory"),
+        base_mva = _payload_value(data, :base_mva, 0.0),
+        base_frequency = _payload_value(data, :base_frequency, 60.0),
+        counts,
+        topology = (;
+            reference_bus_ids = reference_ids,
+            reference_bus_indices = nothing,
+            n_components = nothing,
+            is_radial = nothing,
+        ),
+    )))
+end
+
+function _summary(net::BalancedNetwork)
+    summary = getfield(net, :summary)
+    summary !== nothing && return summary
+    h = getfield(net, :handle)
+    if h !== nothing && h.ptr != C_NULL
+        summary = _balanced_summary_json(h)
+    else
+        summary = _summary_from_data(net.data, BalancedNetwork)
+    end
+    setfield!(net, :summary, summary)
+    return summary
 end
 
 Base.@deprecate_binding Network BalancedNetwork
@@ -57,7 +199,7 @@ Accepted format tokens (case-insensitive): `"matpower"`/`"m"`,
 `"pypsa-csv"`; distribution: `"dss"`/`"opendss"`, `"pmd"`/`"engineering"`,
 `"bmopf"`.
 
-The type-marker forms pin the model when the routed return type would be
+The type marker forms pin the model when the routed return type would be
 ambiguous to a reader: `parse_file(BalancedNetwork, path)` and
 `parse_file(MulticonductorNetwork, path)` — the `parse(T, x)` idiom.
 """
@@ -75,19 +217,19 @@ function parse_file(path::AbstractString; from=nothing)
         end
     end
     h = _parse_handle(path; from=from)
-    return BalancedNetwork(JSON3.read(_to_json(h)), h)
+    return BalancedNetwork(h)
 end
 function parse_file(io::IO, format::AbstractString)
     _is_dist_format(format) && return parse_str(MulticonductorNetwork, read(io, String), format)
     h = _parse_handle_str(read(io, String), format)
-    return BalancedNetwork(JSON3.read(_to_json(h)), h)
+    return BalancedNetwork(h)
 end
 # Explicit transmission marker, symmetric with `parse_file(MulticonductorNetwork, ...)`:
 # bypasses the format routing, so it reaches the balanced parser no matter the
 # extension.
 function parse_file(::Type{BalancedNetwork}, path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)
-    return BalancedNetwork(JSON3.read(_to_json(h)), h)
+    return BalancedNetwork(h)
 end
 
 """
@@ -104,7 +246,7 @@ parse_str(text::AbstractString, format::AbstractString="matpower") =
 # balanced parser no matter the token (symmetric with parse_file(BalancedNetwork, ...)).
 function parse_str(::Type{BalancedNetwork}, text::AbstractString, format::AbstractString="matpower")
     h = _parse_handle_str(String(text), format)
-    return BalancedNetwork(JSON3.read(_to_json(h)), h)
+    return BalancedNetwork(h)
 end
 
 """
@@ -115,16 +257,20 @@ Rebuild a live [`BalancedNetwork`](@ref) from the JSON transport produced by
 """
 function from_json(text::AbstractString)
     h = _from_json_handle(text)
-    return BalancedNetwork(JSON3.read(_to_json(h)), h)
+    return BalancedNetwork(h)
 end
 
 # The live Rust handle a BalancedNetwork-first transform needs; a manually constructed
 # BalancedNetwork has none, and a finalized handle is non-`nothing` but null. Name the
-# function that needs it.
+# function that needs it, and separate the two null cases so the finalized one points
+# at the fix (materialize before finalizing) instead of "reparse it".
 function _live_handle(net::BalancedNetwork, fname::AbstractString)
-    h = net.handle
-    (h === nothing || h.ptr == C_NULL) && error(
+    h = getfield(net, :handle)
+    h === nothing && error(
         "PowerIO.$fname: this BalancedNetwork has no live network handle (produce it with parse_file, parse_str, or from_json).")
+    h.ptr == C_NULL && error(
+        "PowerIO.$fname: this BalancedNetwork's handle was finalized; access the data you need " *
+        "(e.g. net.data, to_json(net)) before calling finalize(net.handle).")
     return h
 end
 
@@ -185,7 +331,7 @@ function to_normalized(net::BalancedNetwork; clamp_angle_bounds::Bool=false,
     else
         _normalize_handle(h)
     end
-    return BalancedNetwork(JSON3.read(_to_json(hn)), hn)
+    return BalancedNetwork(hn)
 end
 
 """
@@ -206,9 +352,12 @@ Serialize `net` to the C ABI's JSON transport, the same text [`from_json`](@ref)
 reads back. Uses the live handle when present, else the cached `net.data`.
 """
 function to_json(net::BalancedNetwork)
-    h = net.handle
-    # A finalized handle (explicit `finalize(net.handle)`) is non-`nothing` but
-    # null; the cached-data fallback covers it like the handleless case.
+    h = getfield(net, :handle)
+    # With a live handle, serialize straight from Rust. Otherwise fall back to the
+    # payload: a handleless BalancedNetwork carries `data` eagerly, and a live one
+    # caches `data` on first access. The only gap is a handle finalized before that
+    # first access — `net.data` then re-materializes through the freed handle and
+    # `_live_handle` raises the "finalized" error; materialize before finalizing.
     return (h === nothing || h.ptr == C_NULL) ? JSON3.write(net.data) : _to_json(h)
 end
 
@@ -344,7 +493,7 @@ end
     write_pypsa_csv_folder(net::BalancedNetwork, out_dir) -> (out_dir, warnings)
 
 Write `net` as a PyPSA CSV folder under `out_dir` (created if absent) — the
-directory-shaped inverse of `parse_file(out_dir; from="pypsa-csv")`, where the
+directory inverse of `parse_file(out_dir; from="pypsa-csv")`, where the
 other writers (`to_format`, `convert_file`) emit a single text document. Returns
 the output directory and any fidelity warnings the writer reports for fields the
 PyPSA static-network CSV schema can't carry. Needs `net`'s live Rust handle

@@ -1,4 +1,4 @@
-# --- ecosystem adapter surface -----------------------------------------
+# --- ecosystem adapter API ---------------------------------------------
 
 _json_plain(x) = x
 _json_plain(x::JSON3.Array) = [_json_plain(v) for v in x]
@@ -12,7 +12,7 @@ _get(obj, key::Symbol, default) = _has(obj, key) ? getproperty(obj, key) : defau
     to_powermodels(net::BalancedNetwork) -> Dict{String,Any}
 
 Convert a parsed network to a PowerModels network data dictionary through the
-PowerIO writer. This is the post-parse network data shape PowerModels.jl consumes.
+PowerIO writer. This is the post-parse network data layout PowerModels.jl consumes.
 """
 function to_powermodels(net::BalancedNetwork)
     text, _ = to_format(net, "powermodels-json")

@@ -1,7 +1,7 @@
 """
     features() -> NamedTuple
 
-Return the optional C ABI surfaces available in the resolved library.
+Return the optional C ABI features available in the resolved library.
 
 The fields are `arrow`, `matrix`, `gridfm`, `dist`, and `package`. Use this in
 downstream packages instead of probing private symbols.
@@ -45,7 +45,7 @@ The fields are `dist`, `schema_version`, `bmopf_fixed_taps`,
 `bmopf_voltage_source_merge`, and `bmopf_transformer_diagnostics`.
 
 Older libraries that do not export `pio_dist_capabilities_json` return the same
-shape with all BMOPF fidelity flags set to `false`. Use this in downstream
+layout with all BMOPF fidelity flags set to `false`. Use this in downstream
 packages when deciding whether PowerIO's BMOPF export already carries a
 specific v0.6.2 fidelity fix.
 """

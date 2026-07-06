@@ -1,9 +1,11 @@
-@testset "loads and exposes its surface" begin
+@testset "public API loads" begin
     # The module must load with no C library present (the binding is lazy),
-    # and its public surface must exist.
+    # and its public API must exist.
     for sym in (:BalancedNetwork, :parse_file, :parse_str, :from_json, :convert_file,
                 :convert_str, :to_format, :to_normalized, :to_normalized_with_options,
-                :to_json, :to_dense, :to_matpower, :to_arrow, :ArrowTable,
+                :to_json, :to_dense, :to_matpower, :to_arrow, :calc_admittance_matrix,
+                :calc_susceptance_matrix, :calc_incidence_matrix, :calc_bprime_matrix,
+                :calc_bdoubleprime_matrix, :ArrowTable,
                 :write_pypsa_csv_folder,
                 :to_powermodels, :from_powermodels, :to_powerdata,
                 :parse_ac_power_data, :read_gridfm, :read_gridfm_scenarios,
@@ -23,7 +25,7 @@
     @test isdefined(PowerIO, :Network) # deprecated compatibility binding
     @test isdefined(PowerIO, :DistNetwork) # deprecated compatibility binding
     @test !isdefined(PowerIO, :dist_graph)
-    # The accessor surface the ecosystem bridges read is unexported but must exist.
+    # The accessor API the ecosystem bridges read is unexported but must exist.
     for sym in (:n_buses, :n_branches, :n_gens, :base_mva, :network_name,
                 :source_format, :reference_bus_id, :reference_bus_indices,
                 :n_components, :is_radial, :bus_type_code, :warnings,
@@ -33,6 +35,8 @@
                 :abi_version, :library_version, :library_available)
         @test isdefined(PowerIO, sym)
     end
+    @test isdefined(PowerIO, :AdmittanceMatrix)
+    @test :AdmittanceMatrix ∉ names(PowerIO)
     @test isdefined(PowerIO, :NetworkHandle)  # deprecated alias of BalancedNetworkHandle
     @test PowerIO._lib() isa AbstractString
     @test PowerIO.PIO_ABI_VERSION isa Unsigned
@@ -63,6 +67,14 @@ end
     # the id is 7. This pins the accessor to the id field, not the position.
     one_ref = mk([(id = 4, kind = "PQ"), (id = 7, kind = "REF"), (id = 9, kind = "PV")])
     @test PowerIO.reference_bus_id(one_ref) == 7
+    @test :warnings in propertynames(one_ref)
+    @test one_ref.warnings == String[]
+    @test sprint(show, one_ref) == "BalancedNetwork{InMemory}: 3 buses, 0 branches, 0 gens"
+    balanced_display = sprint(show, MIME"text/plain"(), one_ref)
+    @test occursin("BalancedNetwork{InMemory}", balanced_display)
+    @test occursin("  buses: 3", balanced_display)
+    @test occursin("  reference_bus_ids: [7]", balanced_display)
+    @test occursin("  data: materialized", balanced_display)
     @test PowerIO.reference_bus_id(mk([(id = 1, kind = "REF"), (id = 2, kind = "REF")])) === nothing
     @test PowerIO.reference_bus_id(mk([(id = 1, kind = "PQ"), (id = 2, kind = "PV")])) === nothing
 
@@ -83,7 +95,14 @@ end
     @test PowerIO.source_format(mn) == "dss"
     @test PowerIO.base_frequency(mn) == 60.0
     @test PowerIO.warnings(mn) == ["w1"]
+    @test :warnings in propertynames(mn)
+    @test mn.warnings == ["w1"]
     @test sprint(show, mn) == "MulticonductorNetwork{dss}: 2 buses, 1 lines, 1 loads"
+    multi_display = sprint(show, MIME"text/plain"(), mn)
+    @test occursin("MulticonductorNetwork{dss}", multi_display)
+    @test occursin("  base_frequency: 60.0 Hz", multi_display)
+    @test occursin("  lines: 1", multi_display)
+    @test occursin("  data: materialized", multi_display)
 
     @test PowerIO.bus_type_code("PQ") == 1
     @test PowerIO.bus_type_code("PV") == 2
