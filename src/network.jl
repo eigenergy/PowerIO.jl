@@ -41,6 +41,7 @@ function Base.getproperty(net::BalancedNetwork, name::Symbol)
     name === :data && return _materialized_data(net)
     name === :name && return network_name(net)
     name === :source_format && return source_format(net)
+    name === :warnings && return warnings(net)
     name === :base_mva && return base_mva(net)
     name === :base_frequency && return Float64(_summary(net).base_frequency)
     name === :buses && return buses(net)
@@ -57,7 +58,7 @@ function Base.getproperty(net::BalancedNetwork, name::Symbol)
 end
 
 function Base.propertynames(::BalancedNetwork, private::Bool=false)
-    public = (:name, :source_format, :base_mva, :base_frequency, :buses,
+    public = (:name, :source_format, :warnings, :base_mva, :base_frequency, :buses,
               :branches, :generators, :loads, :shunts, :storage, :hvdc,
               :switches, :transformers_3w, :areas, :data)
     return private ? (public..., :handle, :summary) : public
@@ -192,7 +193,7 @@ Accepted format tokens (case-insensitive): `"matpower"`/`"m"`,
 `"pypsa-csv"`; distribution: `"dss"`/`"opendss"`, `"pmd"`/`"engineering"`,
 `"bmopf"`.
 
-The type-marker forms pin the model when the routed return type would be
+The type marker forms pin the model when the routed return type would be
 ambiguous to a reader: `parse_file(BalancedNetwork, path)` and
 `parse_file(MulticonductorNetwork, path)` — the `parse(T, x)` idiom.
 """

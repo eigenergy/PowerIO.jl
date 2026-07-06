@@ -6,7 +6,7 @@
 # different model on its own handle, parsed from and written to OpenDSS
 # (`"dss"`), PowerModelsDistribution ENGINEERING JSON (`"pmd"`), and the IEEE
 # BMOPF Taskforce JSON (`"bmopf"`). The two share the verbs: the bare verbs
-# route on the format (see `parse_file`), the type-marker forms
+# route on the format (see `parse_file`), the type marker forms
 # (`parse_file(MulticonductorNetwork, path)`) stay as the explicit spelling,
 # and `to_format` / `warnings` dispatch on the network type.
 #
@@ -111,6 +111,7 @@ function Base.getproperty(net::MulticonductorNetwork, name::Symbol)
     name === :data && return _materialized_data(net)
     name === :name && return network_name(net)
     name === :source_format && return source_format(net)
+    name === :warnings && return warnings(net)
     name === :base_frequency && return base_frequency(net)
     name === :buses && return buses(net)
     name === :linecodes && return linecodes(net)
@@ -125,7 +126,7 @@ function Base.getproperty(net::MulticonductorNetwork, name::Symbol)
 end
 
 function Base.propertynames(::MulticonductorNetwork, private::Bool=false)
-    public = (:name, :source_format, :base_frequency, :buses, :linecodes, :lines,
+    public = (:name, :source_format, :warnings, :base_frequency, :buses, :linecodes, :lines,
               :switches, :transformers, :loads, :generators, :shunts, :sources, :data)
     return private ? (public..., :handle, :summary) : public
 end

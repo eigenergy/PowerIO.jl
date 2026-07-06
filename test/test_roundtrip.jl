@@ -22,6 +22,8 @@
         @test getfield(net, :data) === nothing
         if has_scalar_helpers
             @test PowerIO.network_name(net) == "case14"
+            @test net.warnings == String[]
+            @test getfield(net, :data) === nothing
             @test sprint(show, net) == "BalancedNetwork{Matpower}: 14 buses, 20 branches, 5 gens"
             display = sprint(show, MIME"text/plain"(), net)
             @test occursin("BalancedNetwork{Matpower}", display)

@@ -130,6 +130,7 @@ end
         @test net isa MulticonductorNetwork
         @test getfield(net, :data) === nothing
         @test PowerIO.warnings(net) isa Vector{String}
+        @test net.warnings == PowerIO.warnings(net)
         @test getfield(net, :data) === nothing
         @test PowerIO.n_buses(net) == 4
         @test PowerIO.source_format(net) == "dss"

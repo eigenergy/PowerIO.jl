@@ -30,7 +30,7 @@ Multiconductor distribution cases are a separate model, [`MulticonductorNetwork`
 with the same handle plus cached payload pattern as the balanced side
 (`net.data`). The bare verbs route on the format — `parse_file("feeder.dss")`,
 `convert_file("feeder.dss", "bmopf")`, `parse_file("case.pio.json")` — and the
-type-marker forms (`parse_file(MulticonductorNetwork, path)`) stay as the
+type marker forms (`parse_file(MulticonductorNetwork, path)`) stay as the
 explicit spelling. OpenDSS, PowerModelsDistribution JSON, and IEEE BMOPF JSON
 read and write (experimental; needs powerio-capi built `--features dist`, plus
 `pkg` for the element tables).

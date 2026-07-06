@@ -43,13 +43,13 @@ text, warnings = to_format(net, "pmd")    # dispatches on the network type
 bmopf, _ = convert_file("feeder.dss", "bmopf")
 pmd, _   = convert_str(text, "pmd"; from="dss")
 
-PowerIO.warnings(net)   # parse warnings, retained on the handle
+net.warnings            # parse warnings, retained on the handle
 ```
 
 Writing back to the format the case was parsed from echoes the source byte for
 byte; a cross-format write reports every fidelity loss in `warnings`.
 
-The type-marker forms remain the explicit spelling when you want to pin the
+The type marker forms remain the explicit spelling when you want to pin the
 model: `parse_file(MulticonductorNetwork, path)` routes nowhere, and
 `parse_file(BalancedNetwork, path)` reaches the balanced parser no matter the
 extension. Cross-model requests (`convert_file("feeder.dss", "matpower")`) are
@@ -60,7 +60,7 @@ a directed error: lowering is explicit, through the package pass below.
 The element tables mirror the core's multiconductor model (the
 `pio-payload-multiconductor/1` payload) and work without the library once
 materialized. `PowerIO.n_buses`, `PowerIO.base_frequency`, `PowerIO.network_name`,
-`PowerIO.source_format`, `PowerIO.warnings`, and REPL display read from the live
+`PowerIO.source_format`, `net.warnings`, and REPL display read from the live
 handle without forcing `net.data` when the C library exports
 `pio_dist_summary_json`. Metadata properties do the same; element table
 properties materialize `net.data`. The multiline REPL display prints counts,
@@ -69,6 +69,7 @@ base frequency, warnings, and whether `net.data` has been materialized.
 ```julia
 net.source_format
 net.base_frequency
+net.warnings
 net.buses                 # same as PowerIO.buses(net)
 
 PowerIO.buses(net)          # string ids, ordered terminals, explicit grounding

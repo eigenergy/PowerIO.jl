@@ -113,6 +113,7 @@ Distribution cases share the verbs, routed by format:
 ```julia
 dn = parse_file("feeder.dss")        # ::MulticonductorNetwork, live handle
 PowerIO.buses(dn), PowerIO.lines(dn), PowerIO.transformers(dn)
+dn.warnings
 PowerIO.to_graph(dn)
 text, warnings = to_format(dn, "pmd")
 ```
@@ -147,7 +148,8 @@ C ABI; the cross language table is in
 
 ## Develop
 
-With a sibling `powerio` checkout, build the C ABI and `using PowerIO` finds it:
+With a sibling `powerio` checkout, build the C ABI and `using PowerIO` finds it
+before the released artifact:
 
 ```
 # in the sibling powerio checkout:
@@ -158,7 +160,6 @@ For a non-sibling layout, point Julia at the library explicitly:
 
 ```julia
 PowerIO.set_library!("/path/to/libpowerio_capi.dylib")
-# or: ENV["POWERIO_CAPI"] = "...path..."  before `using PowerIO`
 
 # Save the override in LocalPreferences.toml for this Julia environment:
 PowerIO.set_library!("/path/to/libpowerio_capi.dylib"; persist=true)

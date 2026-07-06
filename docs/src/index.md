@@ -37,7 +37,7 @@ The two share the same verbs, and the bare verbs route on the format:
 `parse_file("case14.m")` returns a `BalancedNetwork`, `parse_file("feeder.dss")`
 a `MulticonductorNetwork`, and `parse_file("case.pio.json")` whichever model
 the package holds. `to_format`, `convert_file`, and `warnings` dispatch on the
-network type; the type-marker forms (`parse_file(BalancedNetwork, path)`,
+network type; the type marker forms (`parse_file(BalancedNetwork, path)`,
 `parse_file(MulticonductorNetwork, path)`) pin a model explicitly.
 
 ## Where to go
