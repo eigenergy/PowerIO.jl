@@ -1,6 +1,6 @@
-# --- accessor surface ---------------------------------------------------
+# --- accessor API -------------------------------------------------------
 #
-# The v0.0.1 surface bridges read: the parsed element tables plus a few scalars.
+# The v0.0.1 API bridges read: the parsed element tables plus a few scalars.
 # Element field names mirror the Rust `BalancedNetwork` (powerio/src/network.rs) and are
 # the stable binding policy: raw MATPOWER units (MW/MVAr, degrees), 1-based bus ids,
 # out-of-service elements retained, so a consumer normalizes as it sees fit:
@@ -56,23 +56,18 @@ function _handle_bus_ids(h::BalancedNetworkHandle, n::Integer)
 end
 
 function n_buses(net::BalancedNetwork)
-    count = _handle_count(net, :pio_n_buses)
-    count !== nothing && return count
-    return length(net.data.buses)
+    return Int(_summary(net).counts.buses)
 end
 
 function n_branches(net::BalancedNetwork)
-    count = _handle_count(net, :pio_n_branches)
-    count !== nothing && return count
-    return length(net.data.branches)
+    return Int(_summary(net).counts.branches)
 end
 
 function base_mva(net::BalancedNetwork)
-    h = _maybe_live_handle(net)
-    h === nothing && return Float64(net.data.base_mva)
-    lib = getfield(h, :lib)
-    return GC.@preserve h ccall(_library_symbol(lib, :pio_base_mva), Cdouble, (Ptr{Cvoid},), h.ptr)
+    return Float64(_summary(net).base_mva)
 end
+
+base_frequency(net::BalancedNetwork) = Float64(_summary(net).base_frequency)
 
 """
     network_name(net) -> String
@@ -80,16 +75,10 @@ end
 The case name carried through from the source file.
 """
 function network_name(net::BalancedNetwork)
-    h = _maybe_live_handle(net)
-    if h !== nothing
-        lib = getfield(h, :lib)
-        _exports_symbol(:pio_network_name, lib) &&
-            return _handle_string(h, :pio_network_name, "network_name")
-    end
-    return String(net.data.name)
+    return String(_summary(net).name)
 end
 
-"Buses, in source order (1-based ids preserved). See the accessor-surface note."
+"Buses, in source order (1-based ids preserved). See the accessor API note."
 buses(net::BalancedNetwork) = net.data.buses
 "Generators, one per machine (`bus` repeats when a bus has several)."
 generators(net::BalancedNetwork) = net.data.generators
@@ -111,9 +100,7 @@ Number of generator rows (one per machine; `bus` repeats). Matches `pio_n_gens`:
 every row, not in-service-filtered.
 """
 function n_gens(net::BalancedNetwork)
-    count = _handle_count(net, :pio_n_gens)
-    count !== nothing && return count
-    return length(net.data.generators)
+    return Int(_summary(net).counts.generators)
 end
 
 """
@@ -126,13 +113,7 @@ Examples include `"Matpower"`, `"PowerModelsJson"`, `"EgretJson"`, `"Psse"`,
 [`to_normalized`](@ref)).
 """
 function source_format(net::BalancedNetwork)
-    h = _maybe_live_handle(net)
-    if h !== nothing
-        lib = getfield(h, :lib)
-        _exports_symbol(:pio_source_format, lib) &&
-            return _handle_string(h, :pio_source_format, "source_format")
-    end
-    return String(net.data.source_format)
+    return String(_summary(net).source_format)
 end
 
 """
@@ -144,23 +125,10 @@ has `kind == "REF"`. This mirrors the "exactly one" rule of the C ABI's
 the 1-based id space the other accessors use.
 """
 function reference_bus_id(net::BalancedNetwork)
-    h = _maybe_live_handle(net)
-    if h !== nothing
-        lib = getfield(h, :lib)
-        idx = Int(GC.@preserve h ccall(_library_symbol(lib, :pio_ref_bus_index), Int64,
-                                       (Ptr{Cvoid},), h.ptr))
-        idx < 0 && return nothing
-        ids = _handle_bus_ids(h)
-        return Int(ids[idx + 1])
-    end
-    ref = nothing
-    for b in net.data.buses
-        if String(b.kind) == "REF"
-            ref === nothing || return nothing  # more than one REF: no unique slack
-            ref = Int(b.id)
-        end
-    end
-    return ref
+    refs = _summary(net).topology.reference_bus_ids
+    refs === nothing && return nothing
+    length(refs) == 1 || return nothing
+    return Int(refs[1])
 end
 
 """
@@ -195,9 +163,9 @@ Number of connected components of the in-service topology, as the C ABI computes
 building the dense view. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
 """
 function n_components(net::BalancedNetwork)
-    h = _live_handle(net, "n_components")
-    lib = getfield(h, :lib)
-    return Int(GC.@preserve h ccall(_library_symbol(lib, :pio_n_islands), Csize_t, (Ptr{Cvoid},), h.ptr))
+    n = _summary(net).topology.n_components
+    n === nothing && error("PowerIO.n_components: this BalancedNetwork has no live network handle")
+    return Int(n)
 end
 
 """
@@ -208,9 +176,9 @@ Whether the in-service topology is radial (a forest), as the C ABI computes it
 the dense view. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
 """
 function is_radial(net::BalancedNetwork)
-    h = _live_handle(net, "is_radial")
-    lib = getfield(h, :lib)
-    return (GC.@preserve h ccall(_library_symbol(lib, :pio_is_radial), Cint, (Ptr{Cvoid},), h.ptr)) != 0
+    value = _summary(net).topology.is_radial
+    value === nothing && error("PowerIO.is_radial: this BalancedNetwork has no live network handle")
+    return Bool(value)
 end
 
 """

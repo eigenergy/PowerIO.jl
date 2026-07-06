@@ -29,6 +29,92 @@ function arrow_release_callback_error(arr_release::Ptr{Cvoid}, sch_release::Ptr{
 end
 
 @testset "Arrow export (copy out default and zero copy opt in)" begin
+    @testset "C Data Interface layout" begin
+        @test sizeof(PowerIO.CArrowSchema) == 9 * sizeof(Ptr{Cvoid})
+        @test sizeof(PowerIO.CArrowArray) == 10 * sizeof(Ptr{Cvoid})
+        @test PowerIO.ArrowSchema === PowerIO.CArrowSchema
+        @test PowerIO.ArrowArray === PowerIO.CArrowArray
+
+        cc = get(ENV, "CC", "cc")
+        dir = mktempdir()
+        source = joinpath(dir, "arrow_layout_probe.c")
+        exe = joinpath(dir, Sys.iswindows() ? "arrow_layout_probe.exe" : "arrow_layout_probe")
+        write(source, """
+        #include <stddef.h>
+        #include <stdint.h>
+        #include <stdio.h>
+
+        struct ArrowSchema {
+            const char *format;
+            const char *name;
+            const char *metadata;
+            int64_t flags;
+            int64_t n_children;
+            struct ArrowSchema **children;
+            struct ArrowSchema *dictionary;
+            void (*release)(struct ArrowSchema *);
+            void *private_data;
+        };
+
+        struct ArrowArray {
+            int64_t length;
+            int64_t null_count;
+            int64_t offset;
+            int64_t n_buffers;
+            int64_t n_children;
+            const void **buffers;
+            struct ArrowArray **children;
+            struct ArrowArray *dictionary;
+            void (*release)(struct ArrowArray *);
+            void *private_data;
+        };
+
+        int main(void) {
+            printf("%zu\\n", sizeof(struct ArrowSchema));
+            printf("%zu\\n", sizeof(struct ArrowArray));
+            printf("%zu %zu %zu %zu %zu %zu %zu %zu %zu\\n",
+                   offsetof(struct ArrowSchema, format),
+                   offsetof(struct ArrowSchema, name),
+                   offsetof(struct ArrowSchema, metadata),
+                   offsetof(struct ArrowSchema, flags),
+                   offsetof(struct ArrowSchema, n_children),
+                   offsetof(struct ArrowSchema, children),
+                   offsetof(struct ArrowSchema, dictionary),
+                   offsetof(struct ArrowSchema, release),
+                   offsetof(struct ArrowSchema, private_data));
+            printf("%zu %zu %zu %zu %zu %zu %zu %zu %zu %zu\\n",
+                   offsetof(struct ArrowArray, length),
+                   offsetof(struct ArrowArray, null_count),
+                   offsetof(struct ArrowArray, offset),
+                   offsetof(struct ArrowArray, n_buffers),
+                   offsetof(struct ArrowArray, n_children),
+                   offsetof(struct ArrowArray, buffers),
+                   offsetof(struct ArrowArray, children),
+                   offsetof(struct ArrowArray, dictionary),
+                   offsetof(struct ArrowArray, release),
+                   offsetof(struct ArrowArray, private_data));
+            return 0;
+        }
+        """)
+        compiled = try
+            run(Cmd([cc, source, "-o", exe]))
+            true
+        catch
+            false
+        end
+        if !compiled
+            @test_skip "C compiler unavailable for Arrow layout probe"
+        else
+            lines = split(readchomp(Cmd([exe])), '\n')
+            @test parse(Int, lines[1]) == sizeof(PowerIO.CArrowSchema)
+            @test parse(Int, lines[2]) == sizeof(PowerIO.CArrowArray)
+            schema_offsets = parse.(Int, split(lines[3]))
+            array_offsets = parse.(Int, split(lines[4]))
+            @test schema_offsets == [fieldoffset(PowerIO.CArrowSchema, i) for i in 1:fieldcount(PowerIO.CArrowSchema)]
+            @test array_offsets == [fieldoffset(PowerIO.CArrowArray, i) for i in 1:fieldcount(PowerIO.CArrowArray)]
+        end
+    end
+
     if !(PowerIO.library_available() && PowerIO.arrow_available())
         @test_skip to_arrow("case14.m", :bus)
     else
@@ -216,6 +302,18 @@ end
         close(z2)
         finalize(z2)
         @test true
+
+        z3 = to_arrow(m, :bus; copy=false)
+        z3_col = z3.id
+        b3 = getfield(z3, :_buffers)
+        finalize(b3)
+        @test b3.array[].release == C_NULL
+        @test b3.schema[].release == C_NULL
+        @test_throws ErrorException z3_col[1]
+        @test_nowarn finalize(b3)
+        z3 = nothing
+        z3_col = nothing
+        GC.gc()
 
         function f64_bits(xs)
             ["0x" * string(reinterpret(UInt64, Float64(x)); base=16, pad=16) for x in xs]

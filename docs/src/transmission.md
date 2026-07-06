@@ -1,8 +1,8 @@
 # Transmission networks
 
-A transmission case parses into a [`BalancedNetwork`](@ref): an immutable view
-of the case with raw MATPOWER units (MW/MVAr, degrees) and 1-based bus ids,
-plus a live handle into the Rust core that the `to_*` transforms run off.
+A transmission case parses into a [`BalancedNetwork`](@ref): a Julia object with
+raw MATPOWER units (MW/MVAr, degrees), 1-based bus ids, and a live handle into
+the Rust core that the `to_*` transforms run off.
 
 ## Formats
 
@@ -52,9 +52,15 @@ handle; read it with [`PowerIO.warnings`](@ref).
 
 The element tables mirror the Rust `BalancedNetwork`: raw source units,
 1-based bus ids, out-of-service elements retained. Consumers normalize as they
-see fit.
+see fit. Cheap metadata properties read a Rust summary and do not materialize
+`net.data`; element table properties materialize the cached JSON payload.
 
 ```julia
+net.name
+net.source_format
+net.base_mva
+net.buses                 # same as PowerIO.buses(net)
+
 PowerIO.buses(net)          # id, kind, vm, va (deg), base_kv, vmax, vmin, ...
 PowerIO.generators(net)     # bus, pg, qg, limits, cost, caps, in_service
 PowerIO.branches(net)       # from, to, r, x, b, rates, tap, shift (deg), ...
@@ -93,10 +99,10 @@ normalization. The default `to_normalized(net)` preserves the source bounds.
 ```julia
 to_matpower(net)                    # ::String, byte exact when the input was MATPOWER
 to_format(net, "powermodels-json")  # (text, warnings)
-to_json(net)                        # internal balanced JSON snapshot
+to_json(net)                        # internal balanced JSON payload
 convert_file("case14.m", "psse")    # parse + write in one shot -> (text, warnings)
 convert_str(text, "psse"; from="matpower")
-write_pypsa_csv_folder(net, "out/") # the one directory-shaped writer
+write_pypsa_csv_folder(net, "out/") # the one directory writer
 ```
 
 ## Dense numeric arrays
@@ -128,7 +134,7 @@ t = to_arrow(net, :branch)              # NamedTuple of owned Julia Vectors
 z = to_arrow(net, :branch; copy=false)  # zero copy ArrowTable; close when done
 ```
 
-The default returns owned columns (Tables.jl shaped, flows into
+The default returns owned columns (Tables.jl compatible, flows into
 `Arrow.write`, `DataFrame`, etc.) with no lifetime caveat. `copy=false`
 returns a zero copy [`ArrowTable`](@ref) whose columns view the producer's
 memory. Extracted columns root the buffers themselves; reads after `close(z)`

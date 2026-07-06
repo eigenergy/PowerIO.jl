@@ -1,3 +1,27 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements. See the NOTICE file distributed with this work
+# for additional information regarding copyright ownership. The ASF licenses
+# this file to you under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain a copy
+# of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations under
+# the License.
+#
+# This file contains a PowerIO scoped subset adapted from Apache Arrow.jl PR
+# #594 by Olle Martenson (@ollemartenson):
+# https://github.com/apache/arrow-julia/pull/594
+#
+# The subset is limited to the C Data Interface import path PowerIO needs today:
+# primitive columns in a struct array, explicit release, safe finalizers, metadata
+# parsing, and layout tests. When Arrow.jl ships this import path, replace this
+# file with a thin wrapper around the released API.
+
 # Columnar export over the Arrow C Data Interface.
 #
 # `pio_to_arrow` (powerio-capi built `--features arrow`) lends one raw or
@@ -18,10 +42,10 @@
 # `to_dense` is the copy free, `unsafe_wrap` free fast path (the C ABI fills
 # Julia-owned buffers directly).
 #
-# The powerio export is the simple case the decoder is scoped to: every column is a
+# The powerio export is the simple case the decoder supports: every column is a
 # non-nullable primitive (Int64 "l", Float64 "g", UInt8 "C") with no null buffer, so
 # there are no validity bitmaps, no nested or variable-width layouts. The returned
-# columns are a Tables.jl-shaped NamedTuple of vectors, so they flow straight into
+# columns are a Tables.jl compatible NamedTuple of vectors, so they flow straight into
 # Arrow.write, DataFrame, etc.
 
 # Mirror of the Arrow C Data Interface structs (arrow/c/abi.h). Field order and
@@ -50,6 +74,12 @@ struct CArrowArray
     release::Ptr{Cvoid}
     private_data::Ptr{Cvoid}
 end
+
+const ArrowSchema = CArrowSchema
+const ArrowArray = CArrowArray
+
+@assert sizeof(CArrowSchema) == 9 * sizeof(Ptr{Cvoid}) "ArrowSchema size mismatch"
+@assert sizeof(CArrowArray) == 10 * sizeof(Ptr{Cvoid}) "ArrowArray size mismatch"
 
 _zero(::Type{CArrowSchema}) = CArrowSchema(C_NULL, C_NULL, C_NULL, 0, 0, C_NULL, C_NULL, C_NULL, C_NULL)
 _zero(::Type{CArrowArray}) = CArrowArray(0, 0, 0, 0, 0, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL)
@@ -296,7 +326,7 @@ function _metadata_key_eq(ptr::Ptr{UInt8}, len::Integer, wanted::String)
     return true
 end
 
-function _matrix_shape_metadata(s::CArrowSchema)
+function _matrix_dimension_metadata(s::CArrowSchema)
     s.metadata != C_NULL || error("PowerIO.to_arrow: matrix table has no schema metadata")
     ptr = Ptr{UInt8}(s.metadata)
     offset = 0
@@ -460,7 +490,7 @@ function _matrix_arrow_from_handle(h::BalancedNetworkHandle, table::Symbol)
         Int(a.n_children) == expected ||
             error("PowerIO.to_arrow: table $table has $(a.n_children) columns, expected $expected")
         a.children != C_NULL || error("PowerIO.to_arrow: null array children pointer")
-        row_count, col_count = _matrix_shape_metadata(s)
+        row_count, col_count = _matrix_dimension_metadata(s)
         row_index = _fast_child_column(Int64, arr, 1, nrows, :row_index)
         col_index = _fast_child_column(Int64, arr, 2, nrows, :col_index)
         if table == :ybus
@@ -499,7 +529,7 @@ the producer before returning: plain arrays, no lifetime caveat. `copy=false`
 returns a zero copy [`ArrowTable`](@ref) of [`ArrowColumn`](@ref) views; each
 column roots the shared buffers, so columns can outlive the table until
 `close(t)` frees the buffers; reads after close throw. Both support `result.<column>` access,
-but only the `copy=true` NamedTuple is Tables.jl-shaped (flows into
+but only the `copy=true` NamedTuple is Tables.jl compatible (flows into
 `Arrow.write`, `DataFrame`, etc.); `collect` a zero copy column for an owned
 Vector. For the numeric tables alone, [`to_dense`](@ref) is a copy free,
 `unsafe_wrap` free fast path.
@@ -531,7 +561,7 @@ arrow_available() = _exports_symbol(:pio_to_arrow)
     matrix_available() -> Bool
 
 True if the resolved C library exports `pio_to_arrow` and was built with the
-matrix Arrow table surface.
+matrix Arrow table API.
 """
 function matrix_available()
     arrow_available() || return false

@@ -15,6 +15,11 @@
         has_scalar_helpers = PowerIO._exports_symbol(:pio_source_format) &&
                              PowerIO._exports_symbol(:pio_network_name)
         @test PowerIO.source_format(net) == "Matpower"
+        @test net.name == "case14"
+        @test net.source_format == "Matpower"
+        @test net.base_mva == 100.0
+        @test net.base_frequency == 60.0
+        @test getfield(net, :data) === nothing
         if has_scalar_helpers
             @test PowerIO.network_name(net) == "case14"
             @test sprint(show, net) == "BalancedNetwork{Matpower}: 14 buses, 20 branches, 5 gens"
@@ -22,6 +27,7 @@
         end
         expected_data = JSON3.read(to_json(net))
         has_scalar_helpers && @test getfield(net, :data) === nothing
+        @test length(net.buses) == 14
         materialized = net.data
         @test getfield(net, :data) === materialized
         @test JSON3.write(materialized) == JSON3.write(expected_data)

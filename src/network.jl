@@ -1,4 +1,4 @@
-# --- public surface -----------------------------------------------------
+# --- public API ---------------------------------------------------------
 
 """
     BalancedNetwork
@@ -10,8 +10,8 @@ branches, generators, storage, and hvdc tables plus `base_mva`, `name`, and
 
 A `BalancedNetwork` from [`parse_file`](@ref) keeps a live Rust
 [`BalancedNetworkHandle`](@ref) (`net.handle`) and leaves `net.data` empty until
-the first table access. The first `net.data` access reads the JSON shaped view
-through the C ABI and caches it. The `to_*` transforms ([`to_normalized`](@ref),
+the first rich payload access. The first `net.data` access reads the materialized
+JSON payload through the C ABI and caches it. The `to_*` transforms ([`to_normalized`](@ref),
 [`to_dense`](@ref), [`to_matpower`](@ref), [`to_arrow`](@ref)) work from the live
 handle. The handle's finalizer frees the Rust case once the `BalancedNetwork` is
 unreachable. A `BalancedNetwork` constructed from a bare `JSON3.Object` has
@@ -21,9 +21,12 @@ handle-only transforms error.
 mutable struct BalancedNetwork
     data::Union{JSON3.Object,Nothing}
     handle::Union{BalancedNetworkHandle,Nothing}
+    summary::Union{JSON3.Object,Nothing}
 end
-BalancedNetwork(data::JSON3.Object) = BalancedNetwork(data, nothing)
-BalancedNetwork(h::BalancedNetworkHandle) = BalancedNetwork(nothing, h)
+BalancedNetwork(data::JSON3.Object) = BalancedNetwork(data, nothing, nothing)
+BalancedNetwork(h::BalancedNetworkHandle) = BalancedNetwork(nothing, h, nothing)
+BalancedNetwork(data::Union{JSON3.Object,Nothing}, handle::Union{BalancedNetworkHandle,Nothing}) =
+    BalancedNetwork(data, handle, nothing)
 
 function _materialized_data(net::BalancedNetwork)
     data = getfield(net, :data)
@@ -36,16 +39,138 @@ end
 
 function Base.getproperty(net::BalancedNetwork, name::Symbol)
     name === :data && return _materialized_data(net)
+    name === :name && return network_name(net)
+    name === :source_format && return source_format(net)
+    name === :base_mva && return base_mva(net)
+    name === :base_frequency && return Float64(_summary(net).base_frequency)
+    name === :buses && return buses(net)
+    name === :branches && return branches(net)
+    name === :generators && return generators(net)
+    name === :loads && return loads(net)
+    name === :shunts && return shunts(net)
+    name === :storage && return storage(net)
+    name === :hvdc && return hvdc(net)
+    name === :switches && return net.data.switches
+    name === :transformers_3w && return net.data.transformers_3w
+    name === :areas && return net.data.areas
     return getfield(net, name)
 end
 
-Base.propertynames(::BalancedNetwork, private::Bool=false) = (:data, :handle)
+function Base.propertynames(::BalancedNetwork, private::Bool=false)
+    public = (:name, :source_format, :base_mva, :base_frequency, :buses,
+              :branches, :generators, :loads, :shunts, :storage, :hvdc,
+              :switches, :transformers_3w, :areas, :data)
+    return private ? (public..., :handle, :summary) : public
+end
+
+function _balanced_summary_json(h::BalancedNetworkHandle)
+    lib = getfield(h, :lib)
+    if _exports_symbol(:pio_summary_json, lib)
+        err = zeros(UInt8, _ERRLEN)
+        s = GC.@preserve h ccall(_library_symbol(lib, :pio_summary_json), Cstring,
+                                 (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
+        s == C_NULL && error("PowerIO: could not serialize the balanced summary: " * _cstr(err))
+        text = unsafe_string(s)
+        ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+        return JSON3.read(text)
+    end
+    data = JSON3.read(_to_json(h))
+    refs = Int.(reference_bus_indices(BalancedNetwork(h)))
+    ids = _handle_bus_ids(h)
+    ref_ids = [Int(ids[i + 1]) for i in refs]
+    counts = (;
+        buses = _payload_len(data, :buses),
+        loads = _payload_len(data, :loads),
+        shunts = _payload_len(data, :shunts),
+        branches = _payload_len(data, :branches),
+        switches = _payload_len(data, :switches),
+        generators = _payload_len(data, :generators),
+        storage = _payload_len(data, :storage),
+        hvdc = _payload_len(data, :hvdc),
+        transformers_3w = _payload_len(data, :transformers_3w),
+        areas = _payload_len(data, :areas),
+        warnings = length(_handle_warnings(h)),
+    )
+    components = Int(GC.@preserve h ccall(_library_symbol(lib, :pio_n_islands),
+                                          Csize_t, (Ptr{Cvoid},), h.ptr))
+    radial = (GC.@preserve h ccall(_library_symbol(lib, :pio_is_radial),
+                                   Cint, (Ptr{Cvoid},), h.ptr)) != 0
+    return JSON3.read(JSON3.write((;
+        schema_version = 1,
+        name = _payload_value(data, :name, ""),
+        source_format = _payload_value(data, :source_format, "InMemory"),
+        base_mva = _payload_value(data, :base_mva, 0.0),
+        base_frequency = _payload_value(data, :base_frequency, 60.0),
+        counts,
+        topology = (;
+            reference_bus_ids = ref_ids,
+            reference_bus_indices = refs,
+            n_components = components,
+            is_radial = radial,
+        ),
+    )))
+end
+
+_payload_value(data::JSON3.Object, key::Symbol, default) =
+    haskey(data, key) ? getproperty(data, key) : default
+
+_payload_len(data::JSON3.Object, key::Symbol) =
+    haskey(data, key) ? length(getproperty(data, key)) : 0
+
+function _summary_from_data(data::JSON3.Object, ::Type{BalancedNetwork})
+    reference_ids = Int[]
+    for bus in _payload_value(data, :buses, ())
+        _payload_value(bus, :kind, nothing) == "REF" && push!(reference_ids, Int(bus.id))
+    end
+    counts = (;
+        buses = _payload_len(data, :buses),
+        loads = _payload_len(data, :loads),
+        shunts = _payload_len(data, :shunts),
+        branches = _payload_len(data, :branches),
+        switches = _payload_len(data, :switches),
+        generators = _payload_len(data, :generators),
+        storage = _payload_len(data, :storage),
+        hvdc = _payload_len(data, :hvdc),
+        transformers_3w = _payload_len(data, :transformers_3w),
+        areas = _payload_len(data, :areas),
+        warnings = _payload_len(data, :warnings),
+    )
+    return JSON3.read(JSON3.write((;
+        schema_version = 1,
+        name = _payload_value(data, :name, ""),
+        source_format = _payload_value(data, :source_format, "InMemory"),
+        base_mva = _payload_value(data, :base_mva, 0.0),
+        base_frequency = _payload_value(data, :base_frequency, 60.0),
+        counts,
+        topology = (;
+            reference_bus_ids = reference_ids,
+            reference_bus_indices = nothing,
+            n_components = nothing,
+            is_radial = nothing,
+        ),
+    )))
+end
+
+function _summary(net::BalancedNetwork)
+    summary = getfield(net, :summary)
+    summary !== nothing && return summary
+    h = getfield(net, :handle)
+    if h !== nothing && h.ptr != C_NULL
+        summary = _balanced_summary_json(h)
+    else
+        summary = _summary_from_data(net.data, BalancedNetwork)
+    end
+    setfield!(net, :summary, summary)
+    return summary
+end
 
 # A one-line REPL summary. Uses scalar handle accessors when available and falls
 # back to cached JSON for handleless networks.
 function Base.show(io::IO, net::BalancedNetwork)
-    print(io, "BalancedNetwork{", source_format(net), "}: ", n_buses(net), " buses, ",
-          n_branches(net), " branches, ", n_gens(net), " gens")
+    summary = _summary(net)
+    counts = summary.counts
+    print(io, "BalancedNetwork{", summary.source_format, "}: ", Int(counts.buses), " buses, ",
+          Int(counts.branches), " branches, ", Int(counts.generators), " gens")
 end
 
 Base.@deprecate_binding Network BalancedNetwork
@@ -363,7 +488,7 @@ end
     write_pypsa_csv_folder(net::BalancedNetwork, out_dir) -> (out_dir, warnings)
 
 Write `net` as a PyPSA CSV folder under `out_dir` (created if absent) — the
-directory-shaped inverse of `parse_file(out_dir; from="pypsa-csv")`, where the
+directory inverse of `parse_file(out_dir; from="pypsa-csv")`, where the
 other writers (`to_format`, `convert_file`) emit a single text document. Returns
 the output directory and any fidelity warnings the writer reports for fields the
 PyPSA static-network CSV schema can't carry. Needs `net`'s live Rust handle

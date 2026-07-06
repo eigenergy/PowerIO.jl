@@ -16,7 +16,7 @@ all over the same C ABI:
   straight from the C ABI extractors, no JSON.
 - [`to_arrow`](@ref): one table over the Arrow C Data Interface (owned columns by
   default; zero copy with `copy=false`), including matrix COO selectors when the
-  matrix surface is present.
+  matrix feature is present.
 
 [`to_normalized`](@ref) derives a per unit / radian / filtered copy that preserves
 source bus ids, and
@@ -27,7 +27,7 @@ dataset back into a `BalancedNetwork` (the ML→classical return leg; lossy but 
 enough for power flow, needs powerio-capi built `--features gridfm`).
 
 Multiconductor distribution cases are a separate model, [`MulticonductorNetwork`](@ref),
-with the same shape as the balanced side: a live handle and lazy element tables
+with the same handle plus cached payload pattern as the balanced side
 (`net.data`). The bare verbs route on the format — `parse_file("feeder.dss")`,
 `convert_file("feeder.dss", "bmopf")`, `parse_file("case.pio.json")` — and the
 type-marker forms (`parse_file(MulticonductorNetwork, path)`) stay as the
@@ -35,7 +35,7 @@ explicit spelling. OpenDSS, PowerModelsDistribution JSON, and IEEE BMOPF JSON
 read and write (experimental; needs powerio-capi built `--features dist`, plus
 `pkg` for the element tables).
 
-`.pio.json` network packages use the `pio_package_*` C ABI surface. They can
+`.pio.json` network packages use the `pio_package_*` C ABI API. They can
 wrap balanced and multiconductor handles, run package validation, expose
 structured diagnostics, and explicitly lower supported multiconductor packages
 to balanced packages.
@@ -81,9 +81,9 @@ include("dense.jl")       # to_dense: numeric tables straight from the C ABI ext
 include("powermodels.jl") # PowerModels.jl network data bridge
 include("powerdata.jl")   # ExaPowerIO / ExaModelsPower PowerData bridge
 include("arrow.jl")       # Arrow C Data Interface export (feature arrow)
-include("matrix.jl")      # sparse matrices computed by the Rust matrix surface
+include("matrix.jl")      # sparse matrices computed by the Rust matrix API
 include("gridfm.jl")      # gridfm-datakit Parquet reader (feature gridfm)
-include("dist.jl")        # MulticonductorNetwork distribution surface (feature dist)
+include("dist.jl")        # MulticonductorNetwork distribution API (feature dist)
 include("graphs.jl")      # graph projections for balanced and multiconductor models
 include("package.jl")     # .pio.json network packages (feature pkg)
 include("features.jl")    # public feature probe summary

@@ -115,7 +115,7 @@ end
     end
 end
 
-@testset "distribution surface (feature-gated)" begin
+@testset "distribution API (feature gated)" begin
     if !(PowerIO.library_available() && PowerIO.dist_available())
         @test_skip parse_file(MulticonductorNetwork, "switch.dss")
     else
@@ -134,6 +134,9 @@ end
         @test PowerIO.n_buses(net) == 4
         @test PowerIO.source_format(net) == "dss"
         @test PowerIO.base_frequency(net) == 60.0
+        @test net.source_format == "dss"
+        @test net.base_frequency == 60.0
+        @test getfield(net, :data) === nothing
         @test occursin("MulticonductorNetwork{dss}", sprint(show, net))
         has_dist_summary && @test getfield(net, :data) === nothing
         if PowerIO._dist_graph_available()
@@ -302,10 +305,12 @@ end
         @test getfield(routed, :data) === nothing
         @test PowerIO.n_buses(routed) > 0
         @test PowerIO.source_format(routed) == "dss"
+        @test routed.source_format == "dss"
         @test PowerIO.base_frequency(routed) > 0
+        @test routed.base_frequency > 0
         @test occursin("buses", sprint(show, routed))
         has_dist_summary && @test getfield(routed, :data) === nothing
-        @test !isempty(PowerIO.buses(routed))
+        @test !isempty(routed.buses)
         materialized = routed.data
         @test getfield(routed, :data) === materialized
         @test routed.data === materialized
@@ -337,7 +342,7 @@ end
 
         # Cross-model requests are directed errors, both directions, and the
         # explicit BalancedNetwork marker bypasses routing to the balanced
-        # parser, whose error names the distribution surface.
+        # parser, whose error names the distribution API.
         @test_throws ErrorException convert_file(dss, "matpower")
         @test occursin("lower_multiconductor_to_balanced",
                        try convert_file(dss, "matpower"); "" catch e; sprint(showerror, e) end)
@@ -396,7 +401,7 @@ end
         write(jpath, pmd)
         @test parse_file(jpath) isa MulticonductorNetwork
 
-        # A nonexistent path surfaces as a Julia error, not a fault.
+        # A nonexistent path returns a Julia error, not a fault.
         @test_throws ErrorException parse_file(MulticonductorNetwork, joinpath(@__DIR__, "data", "no_such.dss"))
     end
 end

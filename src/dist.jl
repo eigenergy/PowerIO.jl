@@ -1,4 +1,4 @@
-# Multiconductor distribution surface over the C ABI (`pio_dist_*`, powerio-capi
+# Multiconductor distribution API over the C ABI (`pio_dist_*`, powerio-capi
 # built `--features dist`).
 #
 # Transmission cases (balanced positive sequence) flow through `BalancedNetwork`
@@ -12,7 +12,7 @@
 #
 # Like `BalancedNetwork`, a parsed `MulticonductorNetwork` keeps a live Rust
 # handle and leaves the element tables (`net.data`) unmaterialized until first
-# access. The tables come from `pio_dist_to_json`: the model JSON, the same
+# access. The tables come from `pio_dist_to_json`: the materialized model JSON, the same
 # object a `.pio.json` document carries under `model.multiconductor_network`.
 # That JSON is deliberately not a case format the converter knows — `.pio.json`
 # carries cases between PowerIO consumers with their metadata, BMOPF JSON is the
@@ -74,7 +74,7 @@ Base.show(io::IO, h::MulticonductorNetworkHandle) =
 
 A parsed multiconductor distribution case. `parse_file` and `parse_str` keep a
 live Rust handle and leave `net.data` empty until first table access. The first
-`net.data` access reads the `pio-payload-multiconductor/1` JSON shaped view:
+`net.data` access reads the `pio-payload-multiconductor/1` JSON payload:
 `buses`, `linecodes`, `lines`, `switches`, `transformers`, `loads`,
 `generators`, `shunts`, `sources`, plus `base_frequency`, `name`,
 `source_format`, and parse `warnings`. String bus ids, ordered string terminal
@@ -109,14 +109,30 @@ end
 
 function Base.getproperty(net::MulticonductorNetwork, name::Symbol)
     name === :data && return _materialized_data(net)
+    name === :name && return network_name(net)
+    name === :source_format && return source_format(net)
+    name === :base_frequency && return base_frequency(net)
+    name === :buses && return buses(net)
+    name === :linecodes && return linecodes(net)
+    name === :lines && return lines(net)
+    name === :switches && return switches(net)
+    name === :transformers && return transformers(net)
+    name === :loads && return loads(net)
+    name === :generators && return generators(net)
+    name === :shunts && return shunts(net)
+    name === :sources && return sources(net)
     return getfield(net, name)
 end
 
-Base.propertynames(::MulticonductorNetwork, private::Bool=false) = (:data, :handle)
+function Base.propertynames(::MulticonductorNetwork, private::Bool=false)
+    public = (:name, :source_format, :base_frequency, :buses, :linecodes, :lines,
+              :switches, :transformers, :loads, :generators, :shunts, :sources, :data)
+    return private ? (public..., :handle, :summary) : public
+end
 
 function Base.show(io::IO, net::MulticonductorNetwork)
     sf = source_format(net)
-    counts = _dist_summary(net).counts
+    counts = _summary(net).counts
     print(io, "MulticonductorNetwork{", sf === nothing ? "?" : sf, "}: ",
           Int(counts.buses), " buses, ", Int(counts.lines), " lines, ",
           Int(counts.loads), " loads")
@@ -137,7 +153,7 @@ function dist_available()
         _ensure_dist_compatible()
         return true
     catch e
-        @debug "PowerIO: dist surface unavailable or incompatible" exception = (e, catch_backtrace())
+        @debug "PowerIO: distribution API unavailable or incompatible" exception = (e, catch_backtrace())
         return false
     end
 end
@@ -247,7 +263,7 @@ function _dist_data(h::MulticonductorNetworkHandle)
     return JSON3.read(text)
 end
 
-function _dist_summary(h::MulticonductorNetworkHandle)
+function _summary(h::MulticonductorNetworkHandle)
     lib = getfield(h, :lib)
     if _exports_symbol(:pio_dist_summary_json, lib)
         err = zeros(UInt8, _ERRLEN)
@@ -264,7 +280,7 @@ end
 _dist_payload_len(data::JSON3.Object, key::Symbol) =
     haskey(data, key) ? length(getproperty(data, key)) : 0
 
-function _dist_summary_from_data(data::JSON3.Object)
+function _summary_from_data(data::JSON3.Object, ::Type{MulticonductorNetwork})
     counts = (;
         buses = _dist_payload_len(data, :buses),
         linecodes = _dist_payload_len(data, :linecodes),
@@ -282,25 +298,25 @@ function _dist_summary_from_data(data::JSON3.Object)
     )
     return JSON3.read(JSON3.write((;
         schema_version = 1,
-        name = data.name,
-        source_format = data.source_format,
-        base_frequency = data.base_frequency,
+        name = _payload_value(data, :name, ""),
+        source_format = _payload_value(data, :source_format, "InMemory"),
+        base_frequency = _payload_value(data, :base_frequency, 60.0),
         counts,
     )))
 end
 
-function _dist_summary(net::MulticonductorNetwork)
+function _summary(net::MulticonductorNetwork)
     summary = getfield(net, :summary)
     summary !== nothing && return summary
     h = getfield(net, :handle)
     if h !== nothing && h.ptr != C_NULL
-        summary = _dist_summary(h)
+        summary = _summary(h)
         if summary !== nothing
             setfield!(net, :summary, summary)
             return summary
         end
     end
-    summary = _dist_summary_from_data(net.data)
+    summary = _summary_from_data(net.data, MulticonductorNetwork)
     setfield!(net, :summary, summary)
     return summary
 end
@@ -350,9 +366,9 @@ end
 # Pure functions of the materialized payload: they work on a handle-less
 # `MulticonductorNetwork` too. String bus ids, SI units, radians — the payload
 # conventions, not the balanced accessors' MATPOWER ones. Unexported, like the
-# balanced accessor surface.
+# balanced accessor API.
 
-n_buses(net::MulticonductorNetwork) = Int(_dist_summary(net).counts.buses)
+n_buses(net::MulticonductorNetwork) = Int(_summary(net).counts.buses)
 
 "Buses, in source order: string ids, ordered `terminals`, explicit `grounded` terminals."
 buses(net::MulticonductorNetwork) = net.data.buses
@@ -378,7 +394,7 @@ sources(net::MulticonductorNetwork) = net.data.sources
 
 The system frequency in Hz.
 """
-base_frequency(net::MulticonductorNetwork) = Float64(_dist_summary(net).base_frequency)
+base_frequency(net::MulticonductorNetwork) = Float64(_summary(net).base_frequency)
 
 """
     network_name(net::MulticonductorNetwork) -> Union{String,Nothing}
@@ -387,7 +403,7 @@ The case name, or `nothing` when the source carries none (unlike the balanced
 accessor, which always has one).
 """
 function network_name(net::MulticonductorNetwork)
-    name = _dist_summary(net).name
+    name = _summary(net).name
     return name === nothing ? nothing : String(name)
 end
 
@@ -399,7 +415,7 @@ casing differs from the balanced accessor's PascalCase `SourceFormat` names —
 or `nothing` for an in-memory model.
 """
 function source_format(net::MulticonductorNetwork)
-    source = _dist_summary(net).source_format
+    source = _summary(net).source_format
     return source === nothing ? nothing : String(source)
 end
 
