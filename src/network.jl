@@ -17,6 +17,12 @@ handle. The handle's finalizer frees the Rust case once the `BalancedNetwork` is
 unreachable. A `BalancedNetwork` constructed from a bare `JSON3.Object` has
 `handle === nothing`; table access and [`to_json`](@ref) work on it, while
 handle-only transforms error.
+
+Because `data` is lazy, explicitly calling `finalize(net.handle)` before the first
+`net.data` access leaves nothing to read: the data-backed accessors (`net.data`,
+`n_buses`, `show`, `to_json`) then raise a "handle was finalized" error. Access the
+values you need before finalizing the handle; letting the finalizer run at GC is the
+normal path and never hits this.
 """
 mutable struct BalancedNetwork
     data::Union{JSON3.Object,Nothing}
@@ -256,11 +262,15 @@ end
 
 # The live Rust handle a BalancedNetwork-first transform needs; a manually constructed
 # BalancedNetwork has none, and a finalized handle is non-`nothing` but null. Name the
-# function that needs it.
+# function that needs it, and separate the two null cases so the finalized one points
+# at the fix (materialize before finalizing) instead of "reparse it".
 function _live_handle(net::BalancedNetwork, fname::AbstractString)
     h = getfield(net, :handle)
-    (h === nothing || h.ptr == C_NULL) && error(
+    h === nothing && error(
         "PowerIO.$fname: this BalancedNetwork has no live network handle (produce it with parse_file, parse_str, or from_json).")
+    h.ptr == C_NULL && error(
+        "PowerIO.$fname: this BalancedNetwork's handle was finalized; access the data you need " *
+        "(e.g. net.data, to_json(net)) before calling finalize(net.handle).")
     return h
 end
 
@@ -343,8 +353,11 @@ reads back. Uses the live handle when present, else the cached `net.data`.
 """
 function to_json(net::BalancedNetwork)
     h = getfield(net, :handle)
-    # A finalized handle (explicit `finalize(net.handle)`) is non-`nothing` but
-    # null; the cached-data fallback covers it like the handleless case.
+    # With a live handle, serialize straight from Rust. Otherwise fall back to the
+    # payload: a handleless BalancedNetwork carries `data` eagerly, and a live one
+    # caches `data` on first access. The only gap is a handle finalized before that
+    # first access — `net.data` then re-materializes through the freed handle and
+    # `_live_handle` raises the "finalized" error; materialize before finalizing.
     return (h === nothing || h.ptr == C_NULL) ? JSON3.write(net.data) : _to_json(h)
 end
 

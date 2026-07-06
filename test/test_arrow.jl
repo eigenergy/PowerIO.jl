@@ -419,3 +419,63 @@ end
         end
     end
 end
+
+@testset "matrix Arrow fast-path validation" begin
+    # `_check_matrix_axes` guards the row/col axis convention the sparse helpers
+    # assume. Correct axes pass; a mismatch errors; a producer that omits the
+    # axis (nothing) is tolerated for forward compatibility.
+    @test PowerIO._check_matrix_axes(:ybus, "matrix_bus", "matrix_bus") === nothing
+    @test PowerIO._check_matrix_axes(:incidence, "matrix_bus", "matrix_branch") === nothing
+    @test PowerIO._check_matrix_axes(:ybus, nothing, nothing) === nothing
+    @test_throws ErrorException PowerIO._check_matrix_axes(:ybus, "solver_bus", "matrix_bus")
+    @test_throws ErrorException PowerIO._check_matrix_axes(:incidence, "matrix_bus", "matrix_bus")
+
+    @test PowerIO._arrow_format_code(Int64) == "l"
+    @test PowerIO._arrow_format_code(Float64) == "g"
+    @test_throws ArgumentError PowerIO._arrow_format_code(Int32)
+
+    # `_fast_child_column` must reject a producer whose declared Arrow format code
+    # disagrees with the Julia type the matrix path reinterprets the buffer as —
+    # otherwise a wrong-typed column would be read as garbage (or out of bounds).
+    child_values = Int64[10, 20, 30]
+    child_buffers = Ptr{Cvoid}[C_NULL, pointer(child_values)]
+    child_arr = Ref(PowerIO.CArrowArray(3, 0, 0, 2, 0, pointer(child_buffers),
+                                        C_NULL, C_NULL, C_NULL, C_NULL))
+    name_bytes = UInt8[0x72, 0x6f, 0x77, 0x00]  # "row"
+    good_format = UInt8[0x6c, 0x00]             # "l" (int64)
+    bad_format = UInt8[0x67, 0x00]              # "g" (float64), mismatched
+    arr_children = Ptr{PowerIO.CArrowArray}[
+        Base.unsafe_convert(Ptr{PowerIO.CArrowArray}, child_arr)]
+    root_arr = Ref(PowerIO.CArrowArray(3, 0, 0, 0, 1, C_NULL,
+                                       pointer(arr_children), C_NULL, C_NULL, C_NULL))
+    GC.@preserve child_values child_buffers child_arr arr_children name_bytes good_format bad_format begin
+        good_child_sch = Ref(PowerIO.CArrowSchema(Ptr{Cchar}(pointer(good_format)),
+                                                  Ptr{Cchar}(pointer(name_bytes)),
+                                                  C_NULL, 0, 0, C_NULL, C_NULL, C_NULL, C_NULL))
+        bad_child_sch = Ref(PowerIO.CArrowSchema(Ptr{Cchar}(pointer(bad_format)),
+                                                 Ptr{Cchar}(pointer(name_bytes)),
+                                                 C_NULL, 0, 0, C_NULL, C_NULL, C_NULL, C_NULL))
+        good_sch_children = Ptr{PowerIO.CArrowSchema}[
+            Base.unsafe_convert(Ptr{PowerIO.CArrowSchema}, good_child_sch)]
+        bad_sch_children = Ptr{PowerIO.CArrowSchema}[
+            Base.unsafe_convert(Ptr{PowerIO.CArrowSchema}, bad_child_sch)]
+        GC.@preserve good_child_sch bad_child_sch good_sch_children bad_sch_children begin
+            good_root_sch = Ref(PowerIO.CArrowSchema(C_NULL, C_NULL, C_NULL, 0, 1,
+                                                     pointer(good_sch_children), C_NULL, C_NULL, C_NULL))
+            bad_root_sch = Ref(PowerIO.CArrowSchema(C_NULL, C_NULL, C_NULL, 0, 1,
+                                                    pointer(bad_sch_children), C_NULL, C_NULL, C_NULL))
+            @test PowerIO._fast_child_column(Int64, root_arr, good_root_sch, 1, 3, :row) == child_values
+            @test_throws ErrorException PowerIO._fast_child_column(Int64, root_arr, bad_root_sch, 1, 3, :row)
+        end
+    end
+
+    # A corrupt metadata length prefix (here a huge key length) must error at the
+    # ceiling instead of walking `unsafe_load` off the end of the block.
+    huge = reinterpret(UInt8, [Int32(1)])                    # npairs = 1
+    huge = vcat(huge, reinterpret(UInt8, [Int32(1 << 24)]))  # klen far past the byte ceiling
+    GC.@preserve huge begin
+        bad_meta_sch = PowerIO.CArrowSchema(C_NULL, C_NULL, Ptr{Cchar}(pointer(huge)),
+                                            0, 0, C_NULL, C_NULL, C_NULL, C_NULL)
+        @test_throws ErrorException PowerIO._matrix_axis_metadata(bad_meta_sch)
+    end
+end

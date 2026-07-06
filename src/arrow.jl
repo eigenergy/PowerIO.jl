@@ -93,6 +93,17 @@ function _arrow_eltype(fmt::AbstractString)
     throw(ArgumentError("PowerIO.to_arrow: unsupported Arrow column format $(repr(fmt))"))
 end
 
+# Inverse of `_arrow_eltype` for the primitive types the matrix fast path pins.
+# The fast path hardcodes each column's Julia type, so it must confirm the
+# producer's schema format code agrees before reinterpreting the data buffer;
+# otherwise a mismatched powerio-capi build would be read as garbage.
+function _arrow_format_code(::Type{T}) where {T}
+    T === Int64 && return "l"
+    T === Float64 && return "g"
+    T === UInt8 && return "C"
+    throw(ArgumentError("PowerIO.to_arrow: no Arrow format code for $(T)"))
+end
+
 const _ARROW_TABLE_IDS = (
     bus = Cint(0),
     branch = Cint(1),
@@ -305,22 +316,34 @@ function _metadata_i32(ptr::Ptr{UInt8}, offset::Int)
     return Int(reinterpret(Int32, raw))
 end
 
+# The Arrow C Data Interface metadata block carries no total length, so a corrupt
+# pair count or key/value length prefix would drive the unsafe_load walk off the
+# end of the block. The producer is our own Rust lib and never emits anything near
+# these, so a value past the ceiling means corruption: error instead of reading
+# arbitrary memory. Pair count and byte lengths get separate, generous caps.
+const _ARROW_METADATA_MAX_PAIRS = 1 << 16
+const _ARROW_METADATA_MAX_BYTES = 1 << 20
+
+function _metadata_len(ptr::Ptr{UInt8}, offset::Int, what::AbstractString, cap::Int)
+    n = _metadata_i32(ptr, offset)
+    n < 0 && error("PowerIO.to_arrow: negative Arrow metadata $what ($n)")
+    n > cap && error("PowerIO.to_arrow: Arrow metadata $what $n exceeds the $cap ceiling")
+    return n
+end
+
 function _schema_metadata(s::CArrowSchema)
     s.metadata == C_NULL && return Dict{String,String}()
     ptr = Ptr{UInt8}(s.metadata)
     offset = 0
-    npairs = _metadata_i32(ptr, offset)
-    npairs < 0 && error("PowerIO.to_arrow: negative Arrow metadata pair count")
+    npairs = _metadata_len(ptr, offset, "pair count", _ARROW_METADATA_MAX_PAIRS)
     offset += sizeof(Int32)
     out = Dict{String,String}()
     for _ in 1:npairs
-        klen = _metadata_i32(ptr, offset)
-        klen < 0 && error("PowerIO.to_arrow: negative Arrow metadata key length")
+        klen = _metadata_len(ptr, offset, "key length", _ARROW_METADATA_MAX_BYTES)
         offset += sizeof(Int32)
         key = unsafe_string(ptr + offset, klen)
         offset += klen
-        vlen = _metadata_i32(ptr, offset)
-        vlen < 0 && error("PowerIO.to_arrow: negative Arrow metadata value length")
+        vlen = _metadata_len(ptr, offset, "value length", _ARROW_METADATA_MAX_BYTES)
         offset += sizeof(Int32)
         value = unsafe_string(ptr + offset, vlen)
         offset += vlen
@@ -337,36 +360,64 @@ function _metadata_key_eq(ptr::Ptr{UInt8}, len::Integer, wanted::String)
     return true
 end
 
-function _matrix_dimension_metadata(s::CArrowSchema)
+# Read the matrix table's dimension and axis metadata in one pass over the raw
+# schema key/value block. The axis names (`powerio.row_axis`/`powerio.col_axis`)
+# let the caller confirm the matrix rows and columns are indexed by the axis the
+# binding assumes (`matrix_bus`/`matrix_branch`), so a producer that changed the
+# axis convention errors here instead of silently mislabeling rows.
+function _matrix_axis_metadata(s::CArrowSchema)
     s.metadata != C_NULL || error("PowerIO.to_arrow: matrix table has no schema metadata")
     ptr = Ptr{UInt8}(s.metadata)
     offset = 0
-    npairs = _metadata_i32(ptr, offset)
-    npairs < 0 && error("PowerIO.to_arrow: negative Arrow metadata pair count")
+    npairs = _metadata_len(ptr, offset, "pair count", _ARROW_METADATA_MAX_PAIRS)
     offset += sizeof(Int32)
     row_count = nothing
     col_count = nothing
+    row_axis = nothing
+    col_axis = nothing
     for _ in 1:npairs
-        klen = _metadata_i32(ptr, offset)
-        klen < 0 && error("PowerIO.to_arrow: negative Arrow metadata key length")
+        klen = _metadata_len(ptr, offset, "key length", _ARROW_METADATA_MAX_BYTES)
         offset += sizeof(Int32)
         key_ptr = ptr + offset
         is_row_count = _metadata_key_eq(key_ptr, klen, "powerio.row_count")
         is_col_count = _metadata_key_eq(key_ptr, klen, "powerio.col_count")
+        is_row_axis = _metadata_key_eq(key_ptr, klen, "powerio.row_axis")
+        is_col_axis = _metadata_key_eq(key_ptr, klen, "powerio.col_axis")
         offset += klen
-        vlen = _metadata_i32(ptr, offset)
-        vlen < 0 && error("PowerIO.to_arrow: negative Arrow metadata value length")
+        vlen = _metadata_len(ptr, offset, "value length", _ARROW_METADATA_MAX_BYTES)
         offset += sizeof(Int32)
         if is_row_count
             row_count = parse(Int, unsafe_string(ptr + offset, vlen))
         elseif is_col_count
             col_count = parse(Int, unsafe_string(ptr + offset, vlen))
+        elseif is_row_axis
+            row_axis = unsafe_string(ptr + offset, vlen)
+        elseif is_col_axis
+            col_axis = unsafe_string(ptr + offset, vlen)
         end
         offset += vlen
     end
     row_count === nothing && error("PowerIO.to_arrow: missing powerio.row_count metadata")
     col_count === nothing && error("PowerIO.to_arrow: missing powerio.col_count metadata")
-    return row_count, col_count
+    return row_count, col_count, row_axis, col_axis
+end
+
+# The row/column axis each matrix table is expected to be indexed by. Rust labels
+# every matrix row with the `matrix_bus` axis; incidence columns are `matrix_branch`,
+# the rest square on `matrix_bus`. The binding maps rows/columns through those axis
+# tables, so a mismatch means the COO indices no longer line up with the axis map.
+_expected_matrix_axes(table::Symbol) =
+    table === :incidence ? ("matrix_bus", "matrix_branch") : ("matrix_bus", "matrix_bus")
+
+function _check_matrix_axes(table::Symbol, row_axis, col_axis)
+    want_row, want_col = _expected_matrix_axes(table)
+    (row_axis === nothing || row_axis == want_row) ||
+        error("PowerIO.to_arrow: table $table reports row axis $(repr(row_axis)), " *
+              "expected $(repr(want_row)); rebuild powerio-capi from a matching commit.")
+    (col_axis === nothing || col_axis == want_col) ||
+        error("PowerIO.to_arrow: table $table reports col axis $(repr(col_axis)), " *
+              "expected $(repr(want_col)); rebuild powerio-capi from a matching commit.")
+    return
 end
 
 function _with_matrix_metadata(cols::NamedTuple, table::Symbol,
@@ -464,12 +515,26 @@ function _arrow_from_handle(h::BalancedNetworkHandle, table::Symbol, copy::Bool)
 end
 
 function _fast_child_column(::Type{T}, arr::Base.RefValue{CArrowArray},
+                            sch::Base.RefValue{CArrowSchema},
                             child_idx::Integer, nrows::Integer,
                             name::Symbol) where {T}
     a = arr[]
+    s = sch[]
     child_arr_ptr = unsafe_load(a.children, child_idx)
     child_arr_ptr != C_NULL ||
         error("PowerIO.to_arrow: null array child pointer at column $child_idx")
+    child_sch_ptr = unsafe_load(s.children, child_idx)
+    child_sch_ptr != C_NULL ||
+        error("PowerIO.to_arrow: null schema child pointer at column $child_idx")
+    child_sch = unsafe_load(child_sch_ptr)
+    # The fast path pins each column's Julia type; confirm the producer's format
+    # code agrees before reinterpreting its buffer, matching the generic decode's
+    # `_arrow_eltype` gate so a wrong-typed column errors instead of decoding garbage.
+    child_sch.format != C_NULL || error("PowerIO.to_arrow: null format for column $name")
+    fmt = unsafe_string(child_sch.format)
+    want = _arrow_format_code(T)
+    fmt == want ||
+        error("PowerIO.to_arrow: column $name has Arrow format $(repr(fmt)), expected $(repr(want))")
     child_arr = unsafe_load(child_arr_ptr)
     _check_child_array(child_arr, Int(nrows), name)
     return _column(T, child_arr, nrows, name, arr, true)
@@ -500,16 +565,20 @@ function _matrix_arrow_from_handle(h::BalancedNetworkHandle, table::Symbol)
         a.null_count == 0 || error("PowerIO.to_arrow: root array has $(a.null_count) nulls")
         Int(a.n_children) == expected ||
             error("PowerIO.to_arrow: table $table has $(a.n_children) columns, expected $expected")
+        Int(s.n_children) == expected ||
+            error("PowerIO.to_arrow: table $table schema has $(s.n_children) columns, expected $expected")
         a.children != C_NULL || error("PowerIO.to_arrow: null array children pointer")
-        row_count, col_count = _matrix_dimension_metadata(s)
-        row_index = _fast_child_column(Int64, arr, 1, nrows, :row_index)
-        col_index = _fast_child_column(Int64, arr, 2, nrows, :col_index)
+        s.children != C_NULL || error("PowerIO.to_arrow: null schema children pointer")
+        row_count, col_count, row_axis, col_axis = _matrix_axis_metadata(s)
+        _check_matrix_axes(table, row_axis, col_axis)
+        row_index = _fast_child_column(Int64, arr, sch, 1, nrows, :row_index)
+        col_index = _fast_child_column(Int64, arr, sch, 2, nrows, :col_index)
         if table == :ybus
-            g = _fast_child_column(Float64, arr, 3, nrows, :g)
-            b = _fast_child_column(Float64, arr, 4, nrows, :b)
+            g = _fast_child_column(Float64, arr, sch, 3, nrows, :g)
+            b = _fast_child_column(Float64, arr, sch, 4, nrows, :b)
             return (; row_index, col_index, g, b, row_count, col_count)
         end
-        value = _fast_child_column(Float64, arr, 3, nrows, :value)
+        value = _fast_child_column(Float64, arr, sch, 3, nrows, :value)
         return (; row_index, col_index, value, row_count, col_count)
     finally
         _release_ffi!(arr, sch)

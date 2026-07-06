@@ -87,6 +87,11 @@ the format) or the explicit `parse_file(MulticonductorNetwork, path)`. A
 ([`to_format`](@ref), [`to_package`](@ref)) error. JSON carry with provenance
 is [`to_package`](@ref) / [`from_package`](@ref); exchange with tools outside
 PowerIO is `to_format(net, "bmopf")`.
+
+As on [`BalancedNetwork`](@ref), `data` is lazy: `finalize(net.handle)` before the
+first `net.data` access leaves the data-backed accessors with nothing to read and
+they raise a "handle was finalized" error. Access what you need before finalizing;
+the finalizer running at GC is the normal path and never hits this.
 """
 mutable struct MulticonductorNetwork
     data::Union{JSON3.Object,Nothing}
@@ -319,12 +324,17 @@ end
 
 # The live Rust handle a MulticonductorNetwork-first transform needs; a
 # payload-only network has none, and a finalized handle is non-`nothing` but
-# null. Name the function that needs it.
+# null. Name the function that needs it, and split the two null cases so the
+# finalized one points at the fix (materialize before finalizing), matching
+# `_live_handle` for BalancedNetwork.
 function _live_dist_handle(net::MulticonductorNetwork, fname::AbstractString)
     h = getfield(net, :handle)
-    (h === nothing || h.ptr == C_NULL) && error(
+    h === nothing && error(
         "PowerIO.$fname: this MulticonductorNetwork has no live network handle " *
         "(produce it with parse_file, parse_str, or from_package).")
+    h.ptr == C_NULL && error(
+        "PowerIO.$fname: this MulticonductorNetwork's handle was finalized; access the data " *
+        "you need (e.g. net.data) before calling finalize(net.handle).")
     return h
 end
 

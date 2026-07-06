@@ -62,23 +62,22 @@ function _matrix_bus_maps_from_arrow(h::BalancedNetworkHandle)
     return _bus_maps_from_ids(idx_to_bus)
 end
 
+# Map the dense matrix rows and columns back to external bus ids through the
+# authoritative `matrix_bus` axis table. The matrix COO rows carry the
+# `matrix_bus` axis (checked against schema metadata in `_check_matrix_axes`), so
+# that axis map is what indexes them — not the handle's bus order. Any Rust-side
+# reorder or expansion (e.g. 3-winding star-point lowering) is reflected here
+# directly, with no bus-count coincidence standing in for the axis map.
 function _matrix_bus_maps(h::BalancedNetworkHandle, matrix_n::Integer)
-    count = Int(GC.@preserve h ccall(_library_symbol(getfield(h, :lib), :pio_n_buses),
-                                     Csize_t, (Ptr{Cvoid},), h.ptr))
-    count == Int(matrix_n) && return _bus_maps_from_ids(_handle_bus_ids(h, count))
-    return _matrix_bus_maps_from_arrow(h)
+    idx_to_bus, bus_to_idx = _matrix_bus_maps_from_arrow(h)
+    length(idx_to_bus) == Int(matrix_n) ||
+        error("PowerIO matrix: matrix_bus axis has $(length(idx_to_bus)) entries, " *
+              "but the matrix has $matrix_n rows")
+    return idx_to_bus, bus_to_idx
 end
 
 _matrix_bus_maps(net::BalancedNetwork) =
     _matrix_bus_maps_from_arrow(_live_handle(net, "matrix_bus"))
-
-function _check_matrix_axes(coo, table::Symbol, row_axis::AbstractString, col_axis::AbstractString)
-    getproperty(coo, :row_axis) == row_axis ||
-        error("PowerIO.$table: expected row axis $row_axis, got $(getproperty(coo, :row_axis))")
-    getproperty(coo, :col_axis) == col_axis ||
-        error("PowerIO.$table: expected col axis $col_axis, got $(getproperty(coo, :col_axis))")
-    return
-end
 
 function _sparse_from_owned_coo!(coo, values)
     rows = getproperty(coo, :row_index)

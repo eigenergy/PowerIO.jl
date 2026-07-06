@@ -68,5 +68,48 @@
                 end
             end
         end
+
+        @testset "finalize before first data access" begin
+            # `data` is lazy: reading it after the handle is finalized re-materializes
+            # through a freed handle, so the data-backed accessors must raise a clear
+            # "finalized" error rather than a confusing "reparse it" one or a segfault.
+            net = parse_file(m)
+            @test getfield(net, :data) === nothing
+            finalize(getfield(net, :handle))
+            @test_throws ErrorException net.data
+            err = try; net.data; catch e; e; end
+            @test occursin("finalized", sprint(showerror, err))
+            @test_throws ErrorException PowerIO.n_buses(net)
+            @test_throws ErrorException to_json(net)
+            @test_throws ErrorException sprint(show, net)
+            # `warnings` reads only the handle (never `data`), so a finalized handle
+            # yields an empty list, not an error.
+            @test PowerIO.warnings(net) == String[]
+
+            # Finalizing *after* the first access leaves `data` cached, so the
+            # payload-backed reads keep working.
+            net2 = parse_file(m)
+            n = PowerIO.n_buses(net2)
+            cached = net2.data
+            finalize(getfield(net2, :handle))
+            @test PowerIO.n_buses(net2) == n
+            @test net2.data === cached
+            @test JSON3.read(to_json(net2)) isa JSON3.Object
+        end
+
+        if PowerIO.dist_available()
+            @testset "multiconductor finalize before first data access" begin
+                # Same lazy-data contract as BalancedNetwork; the error must name
+                # the finalized case identically for consistency.
+                dss = joinpath(data, "dist", "switch.dss")
+                if isfile(dss)
+                    dn = parse_file(MulticonductorNetwork, dss)
+                    finalize(getfield(dn, :handle))
+                    @test_throws ErrorException dn.data
+                    derr = try; dn.data; catch e; e; end
+                    @test occursin("finalized", sprint(showerror, derr))
+                end
+            end
+        end
     end
 end
