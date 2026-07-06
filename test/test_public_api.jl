@@ -37,6 +37,11 @@
     end
     @test isdefined(PowerIO, :AdmittanceMatrix)
     @test :AdmittanceMatrix ∉ names(PowerIO)
+    # LoadSeries is an unexported convenience for ExaModelsPower; the general
+    # OperatingPointSeries name is reserved for the coming format-neutral series.
+    @test isdefined(PowerIO, :LoadSeries)
+    @test isdefined(PowerIO, :read_load_series)
+    @test :LoadSeries ∉ names(PowerIO)
     @test isdefined(PowerIO, :NetworkHandle)  # deprecated alias of BalancedNetworkHandle
     @test PowerIO._lib() isa AbstractString
     @test PowerIO.PIO_ABI_VERSION isa Unsigned

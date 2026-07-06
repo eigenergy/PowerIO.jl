@@ -80,6 +80,7 @@ include("accessors.jl")   # element tables and scalar accessors
 include("dense.jl")       # to_dense: numeric tables straight from the C ABI extractors
 include("powermodels.jl") # PowerModels.jl network data bridge
 include("powerdata.jl")   # ExaPowerIO / ExaModelsPower PowerData bridge
+include("loadseries.jl")  # LoadSeries: dense per-period bus loads for ExaModelsPower
 include("arrow.jl")       # Arrow C Data Interface export (feature arrow)
 include("matrix.jl")      # sparse matrices computed by the Rust matrix API
 include("gridfm.jl")      # gridfm-datakit Parquet reader (feature gridfm)
