@@ -4,8 +4,8 @@
 Julia entry point for the PowerIO Rust core: parser, compiler package, and IR
 infrastructure for power system software. Parse MATPOWER, PSS/E, PowerWorld,
 PSLF EPC, PowerModels JSON, egret JSON, pandapower JSON, PyPSA CSV, Surge JSON,
-and PowerIO JSON cases, convert between supported pairs, and materialize an
-immutable `BalancedNetwork`, all through the `powerio-capi` C ABI.
+and PowerIO JSON cases, convert between supported pairs, and materialize a
+parsed `BalancedNetwork`, all through the `powerio-capi` C ABI.
 
 Parse once with [`parse_file`](@ref) → [`BalancedNetwork`](@ref), then read or transform it,
 all over the same C ABI:
@@ -84,6 +84,7 @@ include("arrow.jl")       # Arrow C Data Interface export (feature arrow)
 include("matrix.jl")      # sparse matrices computed by the Rust matrix API
 include("gridfm.jl")      # gridfm-datakit Parquet reader (feature gridfm)
 include("dist.jl")        # MulticonductorNetwork distribution API (feature dist)
+include("display.jl")     # compact and multiline display for parsed networks
 include("graphs.jl")      # graph projections for balanced and multiconductor models
 include("package.jl")     # .pio.json network packages (feature pkg)
 include("features.jl")    # public feature probe summary

@@ -63,7 +63,8 @@ materialized. `PowerIO.n_buses`, `PowerIO.base_frequency`, `PowerIO.network_name
 `PowerIO.source_format`, `PowerIO.warnings`, and REPL display read from the live
 handle without forcing `net.data` when the C library exports
 `pio_dist_summary_json`. Metadata properties do the same; element table
-properties materialize `net.data`.
+properties materialize `net.data`. The multiline REPL display prints counts,
+base frequency, warnings, and whether `net.data` has been materialized.
 
 ```julia
 net.source_format

@@ -54,6 +54,9 @@ The element tables mirror the Rust `BalancedNetwork`: raw source units,
 1-based bus ids, out-of-service elements retained. Consumers normalize as they
 see fit. Cheap metadata properties read a Rust summary and do not materialize
 `net.data`; element table properties materialize the cached JSON payload.
+REPL display uses the same summary path: compact display stays on one line, and
+the multiline `text/plain` form prints counts, base values, topology, warnings,
+and whether `net.data` has been materialized.
 
 ```julia
 net.name

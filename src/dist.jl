@@ -130,14 +130,6 @@ function Base.propertynames(::MulticonductorNetwork, private::Bool=false)
     return private ? (public..., :handle, :summary) : public
 end
 
-function Base.show(io::IO, net::MulticonductorNetwork)
-    sf = source_format(net)
-    counts = _summary(net).counts
-    print(io, "MulticonductorNetwork{", sf === nothing ? "?" : sf, "}: ",
-          Int(counts.buses), " buses, ", Int(counts.lines), " lines, ",
-          Int(counts.loads), " loads")
-end
-
 Base.@deprecate_binding DistNetwork MulticonductorNetwork
 
 """
@@ -315,6 +307,9 @@ function _summary(net::MulticonductorNetwork)
             setfield!(net, :summary, summary)
             return summary
         end
+        summary = _summary_from_data(_dist_data(h), MulticonductorNetwork)
+        setfield!(net, :summary, summary)
+        return summary
     end
     summary = _summary_from_data(net.data, MulticonductorNetwork)
     setfield!(net, :summary, summary)

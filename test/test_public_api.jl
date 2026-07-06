@@ -67,6 +67,12 @@ end
     # the id is 7. This pins the accessor to the id field, not the position.
     one_ref = mk([(id = 4, kind = "PQ"), (id = 7, kind = "REF"), (id = 9, kind = "PV")])
     @test PowerIO.reference_bus_id(one_ref) == 7
+    @test sprint(show, one_ref) == "BalancedNetwork{InMemory}: 3 buses, 0 branches, 0 gens"
+    balanced_display = sprint(show, MIME"text/plain"(), one_ref)
+    @test occursin("BalancedNetwork{InMemory}", balanced_display)
+    @test occursin("  buses: 3", balanced_display)
+    @test occursin("  reference_bus_ids: [7]", balanced_display)
+    @test occursin("  data: materialized", balanced_display)
     @test PowerIO.reference_bus_id(mk([(id = 1, kind = "REF"), (id = 2, kind = "REF")])) === nothing
     @test PowerIO.reference_bus_id(mk([(id = 1, kind = "PQ"), (id = 2, kind = "PV")])) === nothing
 
@@ -88,6 +94,11 @@ end
     @test PowerIO.base_frequency(mn) == 60.0
     @test PowerIO.warnings(mn) == ["w1"]
     @test sprint(show, mn) == "MulticonductorNetwork{dss}: 2 buses, 1 lines, 1 loads"
+    multi_display = sprint(show, MIME"text/plain"(), mn)
+    @test occursin("MulticonductorNetwork{dss}", multi_display)
+    @test occursin("  base_frequency: 60.0 Hz", multi_display)
+    @test occursin("  lines: 1", multi_display)
+    @test occursin("  data: materialized", multi_display)
 
     @test PowerIO.bus_type_code("PQ") == 1
     @test PowerIO.bus_type_code("PV") == 2

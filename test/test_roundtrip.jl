@@ -23,6 +23,13 @@
         if has_scalar_helpers
             @test PowerIO.network_name(net) == "case14"
             @test sprint(show, net) == "BalancedNetwork{Matpower}: 14 buses, 20 branches, 5 gens"
+            display = sprint(show, MIME"text/plain"(), net)
+            @test occursin("BalancedNetwork{Matpower}", display)
+            @test occursin("  name: case14", display)
+            @test occursin("  base_mva: 100.0", display)
+            @test occursin("  buses: 14", display)
+            @test occursin("  branches: 20", display)
+            @test occursin("  data: not materialized", display)
             @test getfield(net, :data) === nothing
         end
         @test isempty(PowerIO.warnings(net))

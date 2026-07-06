@@ -164,15 +164,6 @@ function _summary(net::BalancedNetwork)
     return summary
 end
 
-# A one-line REPL summary. Uses scalar handle accessors when available and falls
-# back to cached JSON for handleless networks.
-function Base.show(io::IO, net::BalancedNetwork)
-    summary = _summary(net)
-    counts = summary.counts
-    print(io, "BalancedNetwork{", summary.source_format, "}: ", Int(counts.buses), " buses, ",
-          Int(counts.branches), " branches, ", Int(counts.generators), " gens")
-end
-
 Base.@deprecate_binding Network BalancedNetwork
 
 """

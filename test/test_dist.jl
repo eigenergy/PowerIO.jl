@@ -138,6 +138,11 @@ end
         @test net.base_frequency == 60.0
         @test getfield(net, :data) === nothing
         @test occursin("MulticonductorNetwork{dss}", sprint(show, net))
+        display = sprint(show, MIME"text/plain"(), net)
+        @test occursin("MulticonductorNetwork{dss}", display)
+        @test occursin("  base_frequency: 60.0 Hz", display)
+        @test occursin("  buses: 4", display)
+        @test occursin("  data: not materialized", display)
         @test getfield(net, :data) === nothing
         if PowerIO._dist_graph_available()
             graph = PowerIO._json_plain(to_graph(net))
