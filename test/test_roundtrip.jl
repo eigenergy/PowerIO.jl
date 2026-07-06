@@ -121,6 +121,14 @@
         @test ac.baseMVA == [100.0]
         @test ac.ref_buses == [1]
         @test ac.gen[1].c == pdata.gen[1].c
+        # ExaModelsPower builds a CuArray from each row vector, which needs a
+        # concrete isbits element type, not the abstract NamedTuple a bare
+        # accumulator leaves behind. case14 has no storage, so the storage-derived
+        # bounds must still be empty Float64 vectors, not a NamedTuple fallback.
+        for f in (:bus, :gen, :branch, :arc, :storage)
+            @test isbitstype(eltype(getfield(ac, f)))
+        end
+        @test ac.pdmax == Float64[] && ac.emax isa Vector{Float64}
 
         if !package_available()
             @test_skip to_package(net)

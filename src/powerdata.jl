@@ -110,11 +110,13 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
         bs[idx] += _powerdata_real(s.b, T, "shunt $row", :b)
     end
 
-    bus_rows = NamedTuple[]
-    for b in raw_buses
+    # Each vector is built with `map`/a comprehension rather than a `NamedTuple[]`
+    # accumulator so its element type is the concrete row type, not the abstract
+    # `NamedTuple`. ExaModelsPower moves these rows to the GPU, and `CuArray`
+    # rejects an abstract element type.
+    bus_rows = map(enumerate(raw_buses)) do (i, b)
         id = Int(b.id)
-        i = id_to_idx[id]
-        push!(bus_rows, (;
+        (;
             i,
             bus_i = id,
             type = bus_type_code(String(b.kind)),
@@ -129,46 +131,38 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
             zone = Int(b.zone),
             vmax = _powerdata_real(b.vmax, T, "bus $id", :vmax),
             vmin = _powerdata_real(b.vmin, T, "bus $id", :vmin),
-        ))
+        )
     end
 
-    gen_rows = NamedTuple[]
-    for (row, g) in enumerate(generators(net))
-        idx = get(id_to_idx, Int(g.bus), 0)
-        idx == 0 && continue
+    kept_gens = [g for g in generators(net) if get(id_to_idx, Int(g.bus), 0) != 0]
+    gen_rows = map(enumerate(kept_gens)) do (i, g)
         model_poly, startup, shutdown, ncost, c =
             _cost_tuple(g, T, base; normalized=true)
-        status = Bool(_get(g, :in_service, true))
-        push!(gen_rows, (;
-            i = length(gen_rows) + 1,
-            bus = idx,
-            pg = _powerdata_real(g.pg, T, "generator $row", :pg),
-            qg = _powerdata_real(g.qg, T, "generator $row", :qg),
-            qmax = _powerdata_real(g.qmax, T, "generator $row", :qmax),
-            qmin = _powerdata_real(g.qmin, T, "generator $row", :qmin),
-            vg = _powerdata_real(g.vg, T, "generator $row", :vg),
-            mbase = _powerdata_real(g.mbase, T, "generator $row", :mbase),
-            status = Int(status),
-            pmax = _powerdata_real(g.pmax, T, "generator $row", :pmax),
-            pmin = _powerdata_real(g.pmin, T, "generator $row", :pmin),
+        (;
+            i,
+            bus = id_to_idx[Int(g.bus)],
+            pg = _powerdata_real(g.pg, T, "generator $i", :pg),
+            qg = _powerdata_real(g.qg, T, "generator $i", :qg),
+            qmax = _powerdata_real(g.qmax, T, "generator $i", :qmax),
+            qmin = _powerdata_real(g.qmin, T, "generator $i", :qmin),
+            vg = _powerdata_real(g.vg, T, "generator $i", :vg),
+            mbase = _powerdata_real(g.mbase, T, "generator $i", :mbase),
+            status = Int(Bool(_get(g, :in_service, true))),
+            pmax = _powerdata_real(g.pmax, T, "generator $i", :pmax),
+            pmin = _powerdata_real(g.pmin, T, "generator $i", :pmin),
             model_poly,
             startup,
             shutdown,
             n = ncost,
             c,
-        ))
+        )
     end
 
-    kept_branches = Any[]
-    for br in branches(net)
-        f = get(id_to_idx, Int(br.from), 0)
-        t = get(id_to_idx, Int(br.to), 0)
-        (f == 0 || t == 0) && continue
-        push!(kept_branches, br)
-    end
+    kept_branches = [br for br in branches(net)
+                     if get(id_to_idx, Int(br.from), 0) != 0 &&
+                        get(id_to_idx, Int(br.to), 0) != 0]
     m = length(kept_branches)
-    branch_rows = NamedTuple[]
-    for (i, br) in enumerate(kept_branches)
+    branch_rows = map(enumerate(kept_branches)) do (i, br)
         label = "branch $i"
         f = id_to_idx[Int(br.from)]
         t = id_to_idx[Int(br.to)]
@@ -184,7 +178,7 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
         x = _powerdata_real(br.x, T, label, :br_x)
         c1, c2, c3, c4, c5, c6, c7, c8 =
             _branch_coeffs(r, x, b_fr, b_to, g_fr, g_to, tap, shift)
-        push!(branch_rows, (;
+        (;
             i,
             f_bus = f,
             t_bus = t,
@@ -205,39 +199,33 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
             f_idx = i,
             t_idx = i + m,
             c1, c2, c3, c4, c5, c6, c7, c8,
-        ))
+        )
     end
-    arc_rows = NamedTuple[]
-    for (i, br) in enumerate(branch_rows)
-        push!(arc_rows, (; i, bus = br.f_bus, rate_a = br.rate_a))
-    end
-    for (i, br) in enumerate(branch_rows)
-        push!(arc_rows, (; i = i + m, bus = br.t_bus, rate_a = br.rate_a))
-    end
+    arc_rows = vcat(
+        [(; i, bus = br.f_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
+        [(; i = i + m, bus = br.t_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
+    )
 
-    storage_rows = NamedTuple[]
-    for (row, st) in enumerate(storage(net))
-        push!(storage_rows, (;
-            i = length(storage_rows) + 1,
-            storage_bus = Int(st.bus),
-            Pexts = _powerdata_real(st.ps, T, "storage $row", :ps),
-            Qexts = _powerdata_real(st.qs, T, "storage $row", :qs),
-            energy = _powerdata_real(st.energy, T, "storage $row", :energy),
-            energy_rating = _powerdata_real(st.energy_rating, T, "storage $row", :energy_rating),
-            charge_rating = _powerdata_real(st.charge_rating, T, "storage $row", :charge_rating),
-            discharge_rating = _powerdata_real(st.discharge_rating, T, "storage $row", :discharge_rating),
-            charge_efficiency = _powerdata_real(st.charge_efficiency, T, "storage $row", :charge_efficiency),
-            discharge_efficiency = _powerdata_real(st.discharge_efficiency, T, "storage $row", :discharge_efficiency),
-            thermal_rating = _powerdata_real(st.thermal_rating, T, "storage $row", :thermal_rating),
-            qmin = _powerdata_real(st.qmin, T, "storage $row", :qmin),
-            qmax = _powerdata_real(st.qmax, T, "storage $row", :qmax),
-            Zr = _powerdata_real(st.r, T, "storage $row", :r),
-            Zim = _powerdata_real(st.x, T, "storage $row", :x),
-            p_loss = _powerdata_real(st.p_loss, T, "storage $row", :p_loss),
-            q_loss = _powerdata_real(st.q_loss, T, "storage $row", :q_loss),
-            status = Int(Bool(_get(st, :in_service, true))),
-        ))
-    end
+    storage_rows = [(;
+        i = row,
+        storage_bus = Int(st.bus),
+        Pexts = _powerdata_real(st.ps, T, "storage $row", :ps),
+        Qexts = _powerdata_real(st.qs, T, "storage $row", :qs),
+        energy = _powerdata_real(st.energy, T, "storage $row", :energy),
+        energy_rating = _powerdata_real(st.energy_rating, T, "storage $row", :energy_rating),
+        charge_rating = _powerdata_real(st.charge_rating, T, "storage $row", :charge_rating),
+        discharge_rating = _powerdata_real(st.discharge_rating, T, "storage $row", :discharge_rating),
+        charge_efficiency = _powerdata_real(st.charge_efficiency, T, "storage $row", :charge_efficiency),
+        discharge_efficiency = _powerdata_real(st.discharge_efficiency, T, "storage $row", :discharge_efficiency),
+        thermal_rating = _powerdata_real(st.thermal_rating, T, "storage $row", :thermal_rating),
+        qmin = _powerdata_real(st.qmin, T, "storage $row", :qmin),
+        qmax = _powerdata_real(st.qmax, T, "storage $row", :qmax),
+        Zr = _powerdata_real(st.r, T, "storage $row", :r),
+        Zim = _powerdata_real(st.x, T, "storage $row", :x),
+        p_loss = _powerdata_real(st.p_loss, T, "storage $row", :p_loss),
+        q_loss = _powerdata_real(st.q_loss, T, "storage $row", :q_loss),
+        status = Int(Bool(_get(st, :in_service, true))),
+    ) for (row, st) in enumerate(storage(net))]
 
     return (;
         version = "2",
@@ -429,30 +417,26 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
         push!(arc_rows, (; i = i + m, bus = br.t_bus, rate_a = br.rate_a))
     end
 
-    storage_rows = NamedTuple[]
-    for st in storage(net)
-        status = Bool(st.in_service)
-        push!(storage_rows, (;
-            i = length(storage_rows) + 1,
-            storage_bus = Int(st.bus),
-            Pexts = T(st.ps),
-            Qexts = T(st.qs),
-            energy = T(st.energy) / base,
-            energy_rating = T(st.energy_rating) / base,
-            charge_rating = T(st.charge_rating) / base,
-            discharge_rating = T(st.discharge_rating) / base,
-            charge_efficiency = T(st.charge_efficiency),
-            discharge_efficiency = T(st.discharge_efficiency),
-            thermal_rating = T(st.thermal_rating) / base,
-            qmin = T(st.qmin) / base,
-            qmax = T(st.qmax) / base,
-            Zr = T(st.r),
-            Zim = T(st.x),
-            p_loss = T(st.p_loss),
-            q_loss = T(st.q_loss),
-            status = Int(status),
-        ))
-    end
+    storage_rows = [(;
+        i = row,
+        storage_bus = Int(st.bus),
+        Pexts = T(st.ps),
+        Qexts = T(st.qs),
+        energy = T(st.energy) / base,
+        energy_rating = T(st.energy_rating) / base,
+        charge_rating = T(st.charge_rating) / base,
+        discharge_rating = T(st.discharge_rating) / base,
+        charge_efficiency = T(st.charge_efficiency),
+        discharge_efficiency = T(st.discharge_efficiency),
+        thermal_rating = T(st.thermal_rating) / base,
+        qmin = T(st.qmin) / base,
+        qmax = T(st.qmax) / base,
+        Zr = T(st.r),
+        Zim = T(st.x),
+        p_loss = T(st.p_loss),
+        q_loss = T(st.q_loss),
+        status = Int(Bool(st.in_service)),
+    ) for (row, st) in enumerate(storage(net))]
 
     return (;
         version = "2",
@@ -479,15 +463,13 @@ function parse_ac_power_data(input; from=nothing, filtered::Bool=true,
                              T::Type{<:Real}=Float64)
     pd = input isa BalancedNetwork ? to_powerdata(input; filtered=filtered, T=T) :
          to_powerdata(String(input); from=from, filtered=filtered, T=T)
-    empty_storage = NamedTuple{(:i,),Tuple{Int64}}[]
-    storage_rows = isempty(pd.storage) ? empty_storage : pd.storage
     return (;
         baseMVA = [pd.baseMVA],
         bus = pd.bus,
         gen = pd.gen,
         arc = pd.arc,
         branch = pd.branch,
-        storage = storage_rows,
+        storage = pd.storage,
         ref_buses = [i for i in 1:length(pd.bus) if pd.bus[i].type == 3],
         vmax = [b.vmax for b in pd.bus],
         vmin = [b.vmin for b in pd.bus],
@@ -502,9 +484,9 @@ function parse_ac_power_data(input; from=nothing, filtered::Bool=true,
         va0 = [b.va for b in pd.bus],
         pg0 = [g.pg for g in pd.gen],
         qg0 = [g.qg for g in pd.gen],
-        pdmax = isempty(pd.storage) ? empty_storage : [s.charge_rating for s in pd.storage],
-        pcmax = isempty(pd.storage) ? empty_storage : [s.discharge_rating for s in pd.storage],
-        srating = isempty(pd.storage) ? empty_storage : [s.thermal_rating for s in pd.storage],
-        emax = isempty(pd.storage) ? empty_storage : [s.energy_rating for s in pd.storage],
+        pdmax = [s.charge_rating for s in pd.storage],
+        pcmax = [s.discharge_rating for s in pd.storage],
+        srating = [s.thermal_rating for s in pd.storage],
+        emax = [s.energy_rating for s in pd.storage],
     )
 end
