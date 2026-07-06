@@ -1,3 +1,33 @@
+function arrow_test_release_array(ptr::Ptr{PowerIO.CArrowArray})
+    a = unsafe_load(ptr)
+    unsafe_store!(ptr, PowerIO.CArrowArray(a.length, a.null_count, a.offset, a.n_buffers,
+                                           a.n_children, a.buffers, a.children, a.dictionary,
+                                           C_NULL, a.private_data))
+    return nothing
+end
+
+function arrow_test_release_schema(ptr::Ptr{PowerIO.CArrowSchema})
+    s = unsafe_load(ptr)
+    unsafe_store!(ptr, PowerIO.CArrowSchema(s.format, s.name, s.metadata, s.flags,
+                                            s.n_children, s.children, s.dictionary,
+                                            C_NULL, s.private_data))
+    return nothing
+end
+
+function arrow_release_callback_error(arr_release::Ptr{Cvoid}, sch_release::Ptr{Cvoid})
+    arr = Ref(PowerIO.CArrowArray(0, 0, 0, 0, 0, C_NULL, C_NULL, C_NULL,
+                                  arr_release, C_NULL))
+    sch = Ref(PowerIO.CArrowSchema(C_NULL, C_NULL, C_NULL, 0, 0, C_NULL, C_NULL,
+                                   sch_release, C_NULL))
+    err = try
+        PowerIO._require_release_callbacks!(arr, sch)
+        nothing
+    catch e
+        e
+    end
+    return err, arr, sch
+end
+
 @testset "Arrow export (copy out default and zero copy opt in)" begin
     if !(PowerIO.library_available() && PowerIO.arrow_available())
         @test_skip to_arrow("case14.m", :bus)
@@ -93,8 +123,6 @@
                                            C_NULL, C_NULL, C_NULL, C_NULL)
         GC.@preserve raw_values raw_buffers begin
             @test_throws ErrorException PowerIO._check_child_array(offset_child, 1, :bad)
-            @test_throws ErrorException PowerIO._column(Float64, offset_child, 1, :bad,
-                                                        Ref(PowerIO._zero(PowerIO.CArrowArray)), true)
         end
         meta_values = [Int64(7)]
         meta_buffers = Ptr{Cvoid}[C_NULL, pointer(meta_values)]
@@ -129,6 +157,14 @@
         @test_throws ErrorException PowerIO._require_release_callbacks!(
             Ref(PowerIO._zero(PowerIO.CArrowArray)),
             Ref(PowerIO._zero(PowerIO.CArrowSchema)))
+        release_array = @cfunction(arrow_test_release_array, Cvoid, (Ptr{PowerIO.CArrowArray},))
+        release_schema = @cfunction(arrow_test_release_schema, Cvoid, (Ptr{PowerIO.CArrowSchema},))
+        err, arr, sch = arrow_release_callback_error(C_NULL, release_schema)
+        @test occursin("ArrowArray release callback is null", sprint(showerror, err))
+        @test sch[].release == C_NULL
+        err, arr, sch = arrow_release_callback_error(release_array, C_NULL)
+        @test occursin("ArrowSchema release callback is null", sprint(showerror, err))
+        @test arr[].release == C_NULL
 
         # copy=false: the zero copy ArrowTable path, same values. A column
         # extracted from the table roots the shared buffers on its own, so

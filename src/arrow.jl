@@ -98,9 +98,11 @@ end
 
 function _require_release_callbacks!(arr::Base.RefValue{CArrowArray},
                                      sch::Base.RefValue{CArrowSchema})
-    arr[].release != C_NULL && sch[].release != C_NULL && return
+    missing_array_release = arr[].release == C_NULL
+    missing_schema_release = sch[].release == C_NULL
+    !(missing_array_release || missing_schema_release) && return
     _release_ffi!(arr, sch)
-    arr[].release == C_NULL &&
+    missing_array_release &&
         error("PowerIO.to_arrow: ArrowArray release callback is null")
     error("PowerIO.to_arrow: ArrowSchema release callback is null")
 end
@@ -132,13 +134,6 @@ function _release_buffers!(b::ArrowBuffers)
     return
 end
 
-function _check_open(c)
-    b = getfield(c, :buffers)
-    getfield(b, :closed) && error(
-        "PowerIO.ArrowColumn: parent ArrowTable is closed; use `collect(column)` before closing")
-    return b
-end
-
 """
     ArrowColumn{T} <: AbstractVector{T}
 
@@ -162,7 +157,7 @@ Base.propertynames(::ArrowColumn) = ()
 # the shared owner closed before releasing, so a surviving column throws instead
 # of touching freed producer memory.
 Base.@propagate_inbounds function Base.getindex(c::ArrowColumn, i::Int)
-    b = _check_open(c)
+    b = getfield(c, :buffers)
     lock(getfield(b, :lock))
     try
         getfield(b, :closed) && error(
@@ -239,8 +234,6 @@ end
 # the result outlives the producer; `copy=false` wraps it in place (zero copy view).
 function _column(::Type{T}, child::CArrowArray, nrows::Integer, name::Symbol,
                  arr::Base.RefValue{CArrowArray}, copy::Bool) where {T}
-    offset = _nonnegative_int(child.offset, "column $name offset")
-    offset == 0 || error("PowerIO.to_arrow: column $name offset $offset is unsupported")
     nrows == 0 && return T[]
     # buffers[0] is the validity bitmap (NULL: non-nullable, null_count 0);
     # buffers[1] is the data. Julia 1-based: buffer index 2 is the data.
