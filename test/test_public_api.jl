@@ -1,4 +1,4 @@
-@testset "loads and exposes API" begin
+@testset "public API loads" begin
     # The module must load with no C library present (the binding is lazy),
     # and its public API must exist.
     for sym in (:BalancedNetwork, :parse_file, :parse_str, :from_json, :convert_file,

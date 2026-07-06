@@ -5,7 +5,7 @@ using Aqua
 using Libdl
 
 @testset "PowerIO" begin
-    include("test_surface.jl")    # module API and pure-Julia accessors
+    include("test_public_api.jl") # module API and pure-Julia accessors
     include("test_goc3.jl")       # GO Challenge 3 JSON helpers
     include("test_roundtrip.jl")  # C ABI round trip, adapters, packages
     include("test_powermodels_ref.jl") # PowerModels reference utilities
