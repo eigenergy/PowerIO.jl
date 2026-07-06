@@ -39,16 +39,17 @@ Needs a live handle from [`parse_file`](@ref), [`parse_str`](@ref), or
 """
 function to_graph(net::MulticonductorNetwork)
     h = _live_dist_handle(net, "to_graph")
-    _ensure_dist_compatible()
-    _dist_graph_available() || error(
-        "PowerIO.to_graph: the C ABI at \"$(_lib())\" does not export " *
+    lib = getfield(h, :lib)
+    _ensure_dist_compatible(lib)
+    _exports_symbol(:pio_dist_graph_json, lib) || error(
+        "PowerIO.to_graph: the C ABI at \"$lib\" does not export " *
         "pio_dist_graph_json. Update the powerio-capi artifact or local library.")
     err = zeros(UInt8, _ERRLEN)
-    s = GC.@preserve h ccall((:pio_dist_graph_json, _lib()), Cstring,
+    s = GC.@preserve h ccall(_library_symbol(lib, :pio_dist_graph_json), Cstring,
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.to_graph: " * _cstr(err))
     text = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
     return JSON3.read(text)
 end

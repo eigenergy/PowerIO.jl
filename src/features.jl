@@ -51,16 +51,17 @@ specific v0.6.2 fidelity fix.
 """
 function dist_capabilities()
     default = _dist_capabilities_default()
-    _exports_symbol(:pio_dist_capabilities_json) || return default
-    _ensure_dist_compatible()
+    lib = _lib()
+    _exports_symbol(:pio_dist_capabilities_json, lib) || return default
+    _ensure_dist_compatible(lib)
     s = try
-        ccall((:pio_dist_capabilities_json, _lib()), Cstring, ())
+        ccall(_library_symbol(lib, :pio_dist_capabilities_json), Cstring, ())
     catch e
         _feature_call_error("dist_capabilities", "pio_dist_capabilities_json", "dist", e)
     end
     s == C_NULL && error("PowerIO.dist_capabilities: pio_dist_capabilities_json returned null")
     text = unsafe_string(s)
-    ccall((:pio_string_free, _lib()), Cvoid, (Cstring,), s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
     obj = JSON3.read(text)
 
     flag(k) = Bool(get(obj, k, false))

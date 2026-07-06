@@ -2,6 +2,7 @@ using PowerIO
 using Test
 using JSON3
 using Aqua
+using Libdl
 
 @testset "PowerIO" begin
     include("test_surface.jl")    # module surface and pure-Julia accessors
@@ -10,6 +11,7 @@ using Aqua
     include("test_powermodels_ref.jl") # PowerModels reference utilities
     include("test_transforms.jl") # PyPSA writer, parse dispatch, to_normalized, to_dense
     include("test_arrow.jl")      # Arrow export (feature arrow)
+    include("test_memory_safety.jl")
     include("test_gridfm.jl")     # gridfm reader (feature gridfm)
     include("test_dist.jl")       # distribution surface (feature dist)
     include("test_aqua.jl")       # Aqua quality checks

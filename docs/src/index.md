@@ -48,6 +48,8 @@ network type; the type-marker forms (`parse_file(BalancedNetwork, path)`,
   surface: parse and convert OpenDSS, PMD, and BMOPF cases.
 - [Ecosystem interop](interop.md) — the bridges: PowerModels.jl,
   ExaModelsPower.jl, `.pio.json` packages, GridFM, GO Challenge 3.
+- [Memory safety](memory-safety.md) — FFI ownership, lifetime guarantees,
+  and remaining conditions.
 - [API reference](api.md) — every docstring, grouped by area.
 
 ## Version compatibility

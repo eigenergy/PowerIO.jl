@@ -101,13 +101,14 @@ Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
 """
 function reference_bus_indices(net::BalancedNetwork)
     h = _live_handle(net, "reference_bus_indices")
+    lib = getfield(h, :lib)
     # v4 folds the count and fill into one `pio_ref_bus_indices(net, out, cap)`
     # (writes up to `cap`, returns the total): size with a null buffer, then fill.
     return GC.@preserve h begin
-        n = Int(ccall((:pio_ref_bus_indices, _lib()), Csize_t,
+        n = Int(ccall(_library_symbol(lib, :pio_ref_bus_indices), Csize_t,
                       (Ptr{Cvoid}, Ptr{Int64}, Csize_t), h.ptr, C_NULL, 0))
         out = Vector{Int64}(undef, n)
-        _check_filled(ccall((:pio_ref_bus_indices, _lib()), Csize_t,
+        _check_filled(ccall(_library_symbol(lib, :pio_ref_bus_indices), Csize_t,
                             (Ptr{Cvoid}, Ptr{Int64}, Csize_t), h.ptr, out, n), n, "pio_ref_bus_indices")
         Vector{Int}(out)
     end
@@ -122,7 +123,8 @@ building the dense view. Needs `net`'s live Rust handle (from [`parse_file`](@re
 """
 function n_components(net::BalancedNetwork)
     h = _live_handle(net, "n_components")
-    return Int(GC.@preserve h ccall((:pio_n_islands, _lib()), Csize_t, (Ptr{Cvoid},), h.ptr))
+    lib = getfield(h, :lib)
+    return Int(GC.@preserve h ccall(_library_symbol(lib, :pio_n_islands), Csize_t, (Ptr{Cvoid},), h.ptr))
 end
 
 """
@@ -134,7 +136,8 @@ the dense view. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
 """
 function is_radial(net::BalancedNetwork)
     h = _live_handle(net, "is_radial")
-    return (GC.@preserve h ccall((:pio_is_radial, _lib()), Cint, (Ptr{Cvoid},), h.ptr)) != 0
+    lib = getfield(h, :lib)
+    return (GC.@preserve h ccall(_library_symbol(lib, :pio_is_radial), Cint, (Ptr{Cvoid},), h.ptr)) != 0
 end
 
 """

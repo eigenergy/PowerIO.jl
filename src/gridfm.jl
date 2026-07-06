@@ -28,17 +28,19 @@ Needs powerio-capi built `--features gridfm`; see [`gridfm_available`](@ref). Fo
 scenario in a batch use [`read_gridfm_scenarios`](@ref).
 """
 function read_gridfm(dir::AbstractString; scenario::Integer=0)
-    _ensure_compatible()
+    lib = _lib()
+    _ensure_compatible(lib)
+    _network_free_fn(lib)
     err = zeros(UInt8, _ERRLEN)
     ptr = try
-        ccall((:pio_read_dir, _lib()), Ptr{Cvoid},
+        ccall(_library_symbol(lib, :pio_read_dir), Ptr{Cvoid},
               (Cstring, Cstring, Int64, Ptr{UInt8}, Csize_t),
               String(dir), "gridfm", Int64(scenario), err, length(err))
     catch e
         _feature_call_error("read_gridfm", "pio_read_dir", "gridfm", e)
     end
     ptr == C_NULL && error("PowerIO.read_gridfm: " * _cstr(err))
-    h = BalancedNetworkHandle(ptr)
+    h = BalancedNetworkHandle(ptr, lib)
     net = BalancedNetwork(JSON3.read(_to_json(h)), h)
     return (; network = net, scenario = Int(scenario),
             warnings = _handle_warnings(h))
@@ -61,10 +63,11 @@ end
 # `from = "gridfm"`: a zero-capacity probe returns the count, then a second call fills
 # the buffer (the count / caller-buffer pattern the dense extractors use).
 function _gridfm_scenario_ids(dir::AbstractString)
+    lib = _lib()
     err = zeros(UInt8, _ERRLEN)
     d = String(dir)
     count = try
-        ccall((:pio_scenario_ids, _lib()), Cptrdiff_t,
+        ccall(_library_symbol(lib, :pio_scenario_ids), Cptrdiff_t,
               (Cstring, Cstring, Ptr{Int64}, Csize_t, Ptr{UInt8}, Csize_t),
               d, "gridfm", C_NULL, 0, err, length(err))
     catch e
@@ -73,7 +76,7 @@ function _gridfm_scenario_ids(dir::AbstractString)
     count < 0 && error("PowerIO.read_gridfm_scenarios: " * _cstr(err))
     ids = Vector{Int64}(undef, count)
     if count > 0
-        n = ccall((:pio_scenario_ids, _lib()), Cptrdiff_t,
+        n = ccall(_library_symbol(lib, :pio_scenario_ids), Cptrdiff_t,
                   (Cstring, Cstring, Ptr{Int64}, Csize_t, Ptr{UInt8}, Csize_t),
                   d, "gridfm", ids, length(ids), err, length(err))
         n < 0 && error("PowerIO.read_gridfm_scenarios: " * _cstr(err))
