@@ -36,7 +36,7 @@
 # `copy=true` (default) memcpys each column out while the producer is provably alive,
 # then releases it before returning: only Julia-owned memory escapes, so there is no
 # finalizer and no use after free if a column outlives the call. `copy=false` returns
-# zero copy `ArrowColumn` views that each root the shared `ArrowBuffers` owner, so a
+# zero copy `ArrowColumn` objects that each root the shared `ArrowBuffers` owner, so a
 # column extracted from its `ArrowTable` keeps the producer alive on its own; the
 # buffers free once nothing references them. For the numeric tables alone,
 # `to_dense` is the copy free, `unsafe_wrap` free fast path (the C ABI fills
@@ -169,18 +169,18 @@ end
 """
     ArrowColumn{T} <: AbstractVector{T}
 
-One zero copy column of `to_arrow(...; copy=false)`: a view into the producer's
+One zero copy column of `to_arrow(...; copy=false)`: a column over the producer's
 buffer that roots the shared `ArrowBuffers` owner, so the column alone keeps the
 memory alive — extracting it from its [`ArrowTable`](@ref) is safe. `collect` it
 for a plain owned `Vector`.
 """
 struct ArrowColumn{T} <: AbstractVector{T}
-    data::Vector{T}          # unsafe_wrap view into the producer's buffer
+    data::Vector{T}          # unsafe_wrap array over the producer's buffer
     buffers::ArrowBuffers    # roots the producer for the column's lifetime
 end
 Base.size(c::ArrowColumn) = size(getfield(c, :data))
 Base.IndexStyle(::Type{<:ArrowColumn}) = IndexLinear()
-# The raw view must not escape its rooting wrapper: a bare `c.data` does not root
+# The raw array must not escape its rooting wrapper: a bare `c.data` does not root
 # `buffers`, which is exactly the use after free this type exists to prevent.
 Base.getproperty(c::ArrowColumn, name::Symbol) = error(
     "PowerIO.ArrowColumn has no public fields; `collect(c)` copies it to an owned Vector")
@@ -204,7 +204,7 @@ end
     ArrowTable
 
 The zero copy result of `to_arrow(...; copy=false)`: a NamedTuple of
-[`ArrowColumn`](@ref) views into the producer's buffers, behind property access
+[`ArrowColumn`](@ref) columns over the producer's buffers, behind property access
 (`t.id`, `t.from`, ...). Every property name resolves to a column — including
 `t.columns`, which would look up a column called `columns` — so the NamedTuple
 itself comes from the unexported accessor `PowerIO.columns(t)`. The columns and
@@ -274,7 +274,7 @@ end
 
 # Read one primitive column. The data pointer is borrowed from the producer (valid
 # until release). `copy=true` memcpys it into an owned Vector under `GC.@preserve` so
-# the result outlives the producer; `copy=false` wraps it in place (zero copy view).
+# the result outlives the producer; `copy=false` wraps it in place.
 function _column(::Type{T}, child::CArrowArray, nrows::Integer, name::Symbol,
                  arr::Base.RefValue{CArrowArray}, copy::Bool) where {T}
     nrows == 0 && return T[]
@@ -296,7 +296,7 @@ function _column(::Type{T}, child::CArrowArray, nrows::Integer, name::Symbol,
 end
 
 # Decode the struct array into a NamedTuple of columns (owned copies if `copy`, else
-# zero copy views), one per child field.
+# zero copy columns), one per child field.
 function _metadata_i32(ptr::Ptr{UInt8}, offset::Int)
     raw = UInt32(unsafe_load(ptr + offset)) |
           (UInt32(unsafe_load(ptr + offset + 1)) << 8) |
@@ -450,7 +450,7 @@ function _arrow_from_handle(h::BalancedNetworkHandle, table::Symbol, copy::Bool)
         return cols
     end
     # Zero copy: hand ownership to ArrowBuffers FIRST — from here its finalizer
-    # releases the producer even if decoding throws — then wrap each view so every
+    # releases the producer even if decoding throws, then wrap each column so every
     # column roots the owner on its own.
     buffers = ArrowBuffers(arr, sch)
     cols = try
@@ -537,7 +537,7 @@ first. Needs powerio-capi built `--features arrow`; matrix selectors also need
 
 `copy=true` (default) returns a NamedTuple of **owned** Julia Vectors and releases
 the producer before returning: plain arrays, no lifetime caveat. `copy=false`
-returns a zero copy [`ArrowTable`](@ref) of [`ArrowColumn`](@ref) views; each
+returns a zero copy [`ArrowTable`](@ref) of [`ArrowColumn`](@ref) columns; each
 column roots the shared buffers, so columns can outlive the table until
 `close(t)` frees the buffers; reads after close throw. Both support `result.<column>` access,
 but only the `copy=true` NamedTuple is Tables.jl compatible (flows into

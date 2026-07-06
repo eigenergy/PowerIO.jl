@@ -239,7 +239,7 @@ end
 const _ERRLEN = 512
 # Per-call fidelity warnings (pio_to_format / pio_convert_file / pio_write_dir)
 # can run long on a lossy conversion; give them headroom. Overflow truncates
-# silently, so `_warn_lines(capped=true)` surfaces a fill near the cap.
+# silently, so `_warn_lines(capped=true)` reports a fill near the cap.
 const _WARNLEN = 4096
 
 # --- handle layer -------------------------------------------------------
@@ -362,9 +362,9 @@ end
 _cstr(buf::Vector{UInt8}) = GC.@preserve buf unsafe_string(pointer(buf))
 
 # Split a `\n`-joined warn buffer into owned Strings (a SubString would pin the
-# whole buffer-sized parent). `capped`: the fixed-size per-call channel truncates
+# whole buffer-sized parent). `capped`: this fixed-size per-call channel truncates
 # silently on a UTF-8 boundary at the cap, so a fill within 4 bytes of it is the
-# truncation signature — surface it rather than under-count fidelity warnings.
+# truncation signature — report it rather than under-count fidelity warnings.
 function _warn_lines(buf::Vector{UInt8}; capped::Bool=false)
     s = _cstr(buf)
     warns = String.(filter(!isempty, split(s, '\n')))

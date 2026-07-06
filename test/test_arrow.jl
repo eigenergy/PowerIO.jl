@@ -161,7 +161,7 @@ end
             end
         end
 
-        # Every raw table's row count matches the JSON view's element count.
+        # Every raw table's row count matches the JSON payload's element count.
         net = parse_file(m)
         @test length(to_arrow(m, :shunt).bus) == length(PowerIO.shunts(net))
         @test length(to_arrow(m, :branch).from) == length(PowerIO.branches(net))
@@ -304,7 +304,7 @@ end
         @test z.id == collect(1:14)
         @test z.id isa PowerIO.ArrowColumn{Int64}
         @test PowerIO.columns(z) isa NamedTuple
-        # The raw unsafe_wrap view must not escape its rooting wrapper.
+        # The raw unsafe_wrap array must not escape its rooting wrapper.
         @test_throws ErrorException z.id.data
         @test collect(z.id) isa Vector{Int64}
         col = z.id

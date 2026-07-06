@@ -25,7 +25,7 @@
         @test PowerIO.to_dense(net).bus_ids[refs[1] + 1] == PowerIO.reference_bus_id(net)
 
         # n_components / is_radial read the C ABI connectivity scalars directly;
-        # they must match the dense view (case14 is one connected, looped component).
+        # they must match the dense tables (case14 is one connected, looped component).
         dense = PowerIO.to_dense(net)
         @test PowerIO.n_components(net) == dense.n_components == 1
         @test PowerIO.is_radial(net) == dense.is_radial == false
@@ -113,7 +113,7 @@ end
         @test [b.bus_i for b in tiny_pd.bus] == [1, 3, 5]
         @test [(br.f_bus, br.t_bus) for br in tiny_pd.branch] == [(1, 2), (2, 3)]
 
-        # Error paths surface as Julia errors. Build the bad cases in memory.
+        # Error paths report Julia errors. Build the bad cases in memory.
         try
             parse_file(joinpath(data, "missing.m"))
             error("expected parse_file to fail")
@@ -155,7 +155,7 @@ end
     end
 end
 
-@testset "dense numeric surface" begin
+@testset "dense numeric API" begin
     if !PowerIO.library_available()
         @test_skip to_dense("case14.m")
     else
@@ -170,7 +170,7 @@ end
         @test all(>(0), d.branch.x)                     # reactances are positive
         @test d.gen.bus == [1, 2, 3, 6, 8]              # generator buses, file order
         @test sum(d.demand.pd) ≈ 259.0 rtol = 1e-6      # total active demand (MW)
-        # The dense gen table lines up with the JSON view's count.
+        # The dense gen table lines up with the JSON payload's count.
         @test d.ng == PowerIO.n_gens(parse_file(joinpath(@__DIR__, "data", "case14.m")))
     end
 end

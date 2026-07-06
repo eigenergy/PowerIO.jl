@@ -1,6 +1,6 @@
-@testset "loads and exposes its surface" begin
+@testset "loads and exposes API" begin
     # The module must load with no C library present (the binding is lazy),
-    # and its public surface must exist.
+    # and its public API must exist.
     for sym in (:BalancedNetwork, :parse_file, :parse_str, :from_json, :convert_file,
                 :convert_str, :to_format, :to_normalized, :to_normalized_with_options,
                 :to_json, :to_dense, :to_matpower, :to_arrow, :calc_admittance_matrix,
@@ -25,7 +25,7 @@
     @test isdefined(PowerIO, :Network) # deprecated compatibility binding
     @test isdefined(PowerIO, :DistNetwork) # deprecated compatibility binding
     @test !isdefined(PowerIO, :dist_graph)
-    # The accessor surface the ecosystem bridges read is unexported but must exist.
+    # The accessor API the ecosystem bridges read is unexported but must exist.
     for sym in (:n_buses, :n_branches, :n_gens, :base_mva, :network_name,
                 :source_format, :reference_bus_id, :reference_bus_indices,
                 :n_components, :is_radial, :bus_type_code, :warnings,

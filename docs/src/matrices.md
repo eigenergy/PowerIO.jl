@@ -1,7 +1,7 @@
 # Matrices
 
 PowerIO returns native Julia sparse matrices backed by Rust matrix construction.
-Matrix builders are a core API surface, not a transmission guide footnote.
+Matrix builders are a core API, not a transmission guide footnote.
 
 The PowerIO C ABI transports common power system matrix entries as Arrow COO
 tables. Julia materializes those entries as `SparseMatrixCSC` values and stores

@@ -16,7 +16,7 @@ per-platform binary; users never compile it.
 2. In this repository, `julia gen/update_artifacts.jl <tag>` downloads the five
    tarballs, computes each one's sha256 and unpacked git-tree-sha1, and rewrites
    `Artifacts.toml`. The script verifies the core ABI, distribution ABI, and
-   required feature surfaces before writing. The "Update artifacts" workflow
+   required feature entry points before writing. The "Update artifacts" workflow
    runs this and opens the PR; the release ceremony around it is in CONTRIBUTING.md.
 3. `Artifacts.toml` is lazy: nothing downloads at `Pkg.add`; the tarball for the
    current platform is fetched on the first call that needs the library.

@@ -24,7 +24,7 @@
 #
 # Plus scalars: `base_mva`, `network_name`, `source_format`, `reference_bus_id`.
 # The fully typed struct mirroring `network.rs` and the dense-extraction fast path
-# are v0.1.0 (issue #2); these views are enough for the ecosystem bridges.
+# are v0.1.0 (issue #2); these tables are enough for the ecosystem bridges.
 
 function _maybe_live_handle(net::BalancedNetwork)
     h = getfield(net, :handle)
@@ -160,7 +160,7 @@ end
 
 Number of connected components of the in-service topology, as the C ABI computes it
 (`pio_n_islands`). The same quantity as `to_dense(net).n_components`, without
-building the dense view. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
+building dense tables. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
 """
 function n_components(net::BalancedNetwork)
     n = _summary(net).topology.n_components
@@ -173,7 +173,7 @@ end
 
 Whether the in-service topology is radial (a forest), as the C ABI computes it
 (`pio_is_radial`). The same quantity as `to_dense(net).is_radial`, without building
-the dense view. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
+dense tables. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
 """
 function is_radial(net::BalancedNetwork)
     value = _summary(net).topology.is_radial

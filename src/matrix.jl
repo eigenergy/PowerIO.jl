@@ -1,12 +1,12 @@
-# Sparse matrix helpers over the Rust matrix surface. The C ABI transports
+# Sparse matrix helpers over the Rust matrix API. The C ABI transports
 # matrix entries as Arrow COO tables; this file turns them into Julia sparse
-# matrices and PowerModels shaped wrappers.
+# matrices and PowerModels compatible wrappers.
 
 """
     PowerIO.AdmittanceMatrix{T}
 
 Sparse bus matrix plus the bus id mapping used by the matrix rows and columns.
-The shape matches PowerModels' `AdmittanceMatrix`: `idx_to_bus[i]` is the
+The layout matches PowerModels' `AdmittanceMatrix`: `idx_to_bus[i]` is the
 external bus id at sparse row `i`, `bus_to_idx[id]` is the row for a bus id,
 and `matrix` holds the sparse values.
 """

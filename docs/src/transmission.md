@@ -136,7 +136,7 @@ z = to_arrow(net, :branch; copy=false)  # zero copy ArrowTable; close when done
 
 The default returns owned columns (Tables.jl compatible, flows into
 `Arrow.write`, `DataFrame`, etc.) with no lifetime caveat. `copy=false`
-returns a zero copy [`ArrowTable`](@ref) whose columns view the producer's
+returns a zero copy [`ArrowTable`](@ref) whose columns reference the producer's
 memory. Extracted columns root the buffers themselves; reads after `close(z)`
 throw a Julia error.
 
