@@ -1,4 +1,34 @@
-@testset "Arrow export (copy-out default + zero-copy opt-in)" begin
+function arrow_test_release_array(ptr::Ptr{PowerIO.CArrowArray})
+    a = unsafe_load(ptr)
+    unsafe_store!(ptr, PowerIO.CArrowArray(a.length, a.null_count, a.offset, a.n_buffers,
+                                           a.n_children, a.buffers, a.children, a.dictionary,
+                                           C_NULL, a.private_data))
+    return nothing
+end
+
+function arrow_test_release_schema(ptr::Ptr{PowerIO.CArrowSchema})
+    s = unsafe_load(ptr)
+    unsafe_store!(ptr, PowerIO.CArrowSchema(s.format, s.name, s.metadata, s.flags,
+                                            s.n_children, s.children, s.dictionary,
+                                            C_NULL, s.private_data))
+    return nothing
+end
+
+function arrow_release_callback_error(arr_release::Ptr{Cvoid}, sch_release::Ptr{Cvoid})
+    arr = Ref(PowerIO.CArrowArray(0, 0, 0, 0, 0, C_NULL, C_NULL, C_NULL,
+                                  arr_release, C_NULL))
+    sch = Ref(PowerIO.CArrowSchema(C_NULL, C_NULL, C_NULL, 0, 0, C_NULL, C_NULL,
+                                   sch_release, C_NULL))
+    err = try
+        PowerIO._require_release_callbacks!(arr, sch)
+        nothing
+    catch e
+        e
+    end
+    return err, arr, sch
+end
+
+@testset "Arrow export (copy out default and zero copy opt in)" begin
     if !(PowerIO.library_available() && PowerIO.arrow_available())
         @test_skip to_arrow("case14.m", :bus)
     else
@@ -78,7 +108,65 @@
 
         @test_throws ArgumentError to_arrow(m, :nonesuch)
 
-        # copy=false: the zero-copy ArrowTable path, same values. A column
+        # Malformed Arrow structs from a bad producer must throw Julia errors
+        # before any unsafe load from null child or buffer pointers.
+        bad_arr = PowerIO.CArrowArray(1, 0, 0, 0, 1, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL)
+        bad_sch = PowerIO.CArrowSchema(C_NULL, C_NULL, C_NULL, 0, 1, C_NULL, C_NULL, C_NULL, C_NULL)
+        @test_throws ErrorException PowerIO._decode_arrow(Ref(bad_arr), Ref(bad_sch);
+                                                         copy=true, table=:bus)
+        bad_child = PowerIO.CArrowArray(1, 0, 0, 2, 0, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL)
+        @test_throws ErrorException PowerIO._column(Float64, bad_child, 1, :bad,
+                                                    Ref(PowerIO._zero(PowerIO.CArrowArray)), true)
+        raw_values = [1.0, 2.0]
+        raw_buffers = Ptr{Cvoid}[C_NULL, pointer(raw_values)]
+        offset_child = PowerIO.CArrowArray(1, 0, 1, 2, 0, pointer(raw_buffers),
+                                           C_NULL, C_NULL, C_NULL, C_NULL)
+        GC.@preserve raw_values raw_buffers begin
+            @test_throws ErrorException PowerIO._check_child_array(offset_child, 1, :bad)
+        end
+        meta_values = [Int64(7)]
+        meta_buffers = Ptr{Cvoid}[C_NULL, pointer(meta_values)]
+        meta_child_arr = Ref(PowerIO.CArrowArray(1, 0, 0, 2, 0, pointer(meta_buffers),
+                                                 C_NULL, C_NULL, C_NULL, C_NULL))
+        meta_format = UInt8[0x6c, 0x00]
+        meta_name = UInt8[0x69, 0x64, 0x00]
+        meta_child_sch = Ref(PowerIO.CArrowSchema(Ptr{Cchar}(pointer(meta_format)),
+                                                  Ptr{Cchar}(pointer(meta_name)),
+                                                  C_NULL, 0, 0, C_NULL, C_NULL,
+                                                  C_NULL, C_NULL))
+        meta_arr_children = Ptr{PowerIO.CArrowArray}[
+            Base.unsafe_convert(Ptr{PowerIO.CArrowArray}, meta_child_arr)]
+        meta_sch_children = Ptr{PowerIO.CArrowSchema}[
+            Base.unsafe_convert(Ptr{PowerIO.CArrowSchema}, meta_child_sch)]
+        bad_metadata = UInt8[0xff, 0xff, 0xff, 0xff]
+        meta_root_arr = PowerIO.CArrowArray(1, 0, 0, 0, 1, C_NULL,
+                                            pointer(meta_arr_children), C_NULL, C_NULL, C_NULL)
+        meta_root_sch = PowerIO.CArrowSchema(C_NULL, C_NULL, Ptr{Cchar}(pointer(bad_metadata)),
+                                             0, 1, pointer(meta_sch_children), C_NULL,
+                                             C_NULL, C_NULL)
+        GC.@preserve meta_values meta_buffers meta_child_arr meta_child_sch begin
+            GC.@preserve meta_arr_children meta_sch_children meta_format meta_name bad_metadata begin
+                decoded = PowerIO._decode_arrow(Ref(meta_root_arr), Ref(meta_root_sch);
+                                                copy=true, table=:bus)
+                @test decoded.id == [7]
+                @test_throws ErrorException PowerIO._decode_arrow(Ref(meta_root_arr),
+                                                                  Ref(meta_root_sch);
+                                                                  copy=true, table=:bprime)
+            end
+        end
+        @test_throws ErrorException PowerIO._require_release_callbacks!(
+            Ref(PowerIO._zero(PowerIO.CArrowArray)),
+            Ref(PowerIO._zero(PowerIO.CArrowSchema)))
+        release_array = @cfunction(arrow_test_release_array, Cvoid, (Ptr{PowerIO.CArrowArray},))
+        release_schema = @cfunction(arrow_test_release_schema, Cvoid, (Ptr{PowerIO.CArrowSchema},))
+        err, arr, sch = arrow_release_callback_error(C_NULL, release_schema)
+        @test occursin("ArrowArray release callback is null", sprint(showerror, err))
+        @test sch[].release == C_NULL
+        err, arr, sch = arrow_release_callback_error(release_array, C_NULL)
+        @test occursin("ArrowSchema release callback is null", sprint(showerror, err))
+        @test arr[].release == C_NULL
+
+        # copy=false: the zero copy ArrowTable path, same values. A column
         # extracted from the table roots the shared buffers on its own, so
         # it survives the table being collected (the old footgun).
         z = to_arrow(m, :bus; copy=false)
@@ -96,16 +184,18 @@
         col = nothing
         GC.gc()
 
-        # close releases the producer eagerly: both release callbacks NULL
-        # themselves, so a second close (and the later GC finalize) is a
-        # no-op. finalize(table) stays a legal no-op for 0.1.0 callers; the
-        # buffers free once the columns drop too.
+        # close releases the producer eagerly and marks surviving columns
+        # closed, so reading an extracted column throws instead of touching
+        # released buffers.
         z2 = to_arrow(m, :bus; copy=false)
+        z2_col = z2.id
         b = getfield(z2, :_buffers)
         @test b.array[].release != C_NULL
         close(z2)
         @test b.array[].release == C_NULL
         @test b.schema[].release == C_NULL
+        @test_throws ErrorException z2_col[1]
+        @test_throws ErrorException collect(z2_col)
         close(z2)
         finalize(z2)
         @test true
