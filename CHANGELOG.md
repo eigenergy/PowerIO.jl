@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.4
+
+Julia side release for ExaModelsPower SCOPF parser integration. The shipped C
+ABI artifacts remain the v0.6.3 binaries.
+
+- GOC3 SCOPF helper APIs now expose format neutral rows with per class indices:
+  `j_ln` for AC lines, `j_xf` for transformers, `j_dc` for DC lines, and
+  `n_p`/`n_q` for reserve zones. Client models own stacked indices such as
+  `j`, `j_ac`, and combined reserve `n`.
+- `goc3_static_data`, `goc3_energy_windows`, `goc3_price_blocks`,
+  `goc3_ac_contingency_survivors`, and `goc3_dc_contingency_flows` return
+  concrete row vector types for empty and nonempty GOC3 sets.
+- The ExaModels bridge returns concrete empty storage rows and typed storage
+  bound vectors so GPU backends can adapt parsed PowerData without seeing
+  abstract `NamedTuple` vectors.
+
 ## 0.6.2
 
 Tracks powerio v0.6.2, keeping core C ABI v4 and distribution C ABI v1.

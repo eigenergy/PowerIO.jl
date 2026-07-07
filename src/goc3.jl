@@ -217,6 +217,10 @@ goc3_bus_id(data, uid::AbstractString) = data.bus_id_by_uid[String(uid)]
 # Trailing integer of a GOC3 uid (e.g. "acl_07" -> 7). Used to build per-class
 # GOC3 orderings without recomputing the match at each sort comparison.
 _uidnum(uid) = parse(Int, match(r"\d+", String(uid)).match)
+_uidnum_order(ids) = sort(String.(ids), by = _uidnum)
+_float_vector(xs) = Float64.(xs)
+_float_matrix(xss) = Vector{Float64}[_float_vector(xs) for xs in xss]
+_float_cube(xsss) = Vector{Vector{Float64}}[_float_matrix(xss) for xss in xsss]
 
 """
     goc3_interval_bounds(dt, t)
@@ -257,17 +261,29 @@ function goc3_static_data(data)
     lengths = (L_J_xf=L_J_xf, L_J_ln=L_J_ln, L_J_ac=L_J_ac, L_J_dc=L_J_dc, L_J_br=L_J_br, L_J_cs=L_J_cs,
     L_J_pr=L_J_pr, L_J_cspr = L_J_cspr, L_J_sh=L_J_sh, I=I, L_T=L_T, L_N_p, L_N_q)
 
-    # Sort a vector of uid-bearing rows by the uid's trailing integer, computing
-    # the key once per row rather than at every sort comparison.
-    _by_uidnum(rows) = rows[sortperm([_uidnum(r.uid) for r in rows])]
+    CostRow = @NamedTuple{bus::Int, uid::String, cost::Vector{Vector{Vector{Float64}}}}
+    BusRow = @NamedTuple{i::Int, uid::String, v_min::Float64, v_max::Float64}
+    ShuntRow = @NamedTuple{uid::String, bus::Int, g_sh::Float64, b_sh::Float64}
+    AclRow = @NamedTuple{j_ln::Int, uid::String, to_bus::Int, fr_bus::Int, c_su::Float64, c_sd::Float64, s_max::Float64, g_sr::Float64, b_sr::Float64, b_ch::Float64, g_fr::Float64, g_to::Float64, b_fr::Float64, b_to::Float64}
+    AcxRow = @NamedTuple{j_xf::Int, uid::String, to_bus::Int, fr_bus::Int, c_su::Float64, c_sd::Float64, s_max::Float64, g_sr::Float64, b_sr::Float64, b_ch::Float64, g_fr::Float64, g_to::Float64, b_fr::Float64, b_to::Float64}
+    DcRow = @NamedTuple{j_dc::Int, uid::String, pdc_max::Float64, qdc_fr_min::Float64, qdc_to_min::Float64, qdc_fr_max::Float64, qdc_to_max::Float64, to_bus::Int, fr_bus::Int}
+    SddRow = @NamedTuple{bus::Int, uid::String, c_on::Float64, c_su::Float64, c_sd::Float64, p_ru::Float64, p_rd::Float64, p_ru_su::Float64, p_rd_sd::Float64, c_rgu::Vector{Float64}, c_rgd::Vector{Float64}, c_scr::Vector{Float64}, c_nsc::Vector{Float64}, c_rru_on::Vector{Float64}, c_rru_off::Vector{Float64}, c_rrd_on::Vector{Float64}, c_rrd_off::Vector{Float64}, c_qru::Vector{Float64}, c_qrd::Vector{Float64}, p_rgu_max::Float64, p_rgd_max::Float64, p_scr_max::Float64, p_nsc_max::Float64, p_rru_on_max::Float64, p_rru_off_max::Float64, p_rrd_on_max::Float64, p_rrd_off_max::Float64, p_0::Float64, q_0::Float64, p_max::Vector{Float64}, p_min::Vector{Float64}, q_max::Vector{Float64}, q_min::Vector{Float64}, sus::Vector{Vector{Float64}}}
+    ActiveReserveRow = @NamedTuple{n_p::Int, uid::String, c_rgu::Float64, c_rgd::Float64, c_scr::Float64, c_nsc::Float64, c_rru::Float64, c_rrd::Float64, σ_rgu::Float64, σ_rgd::Float64, σ_scr::Float64, σ_nsc::Float64, p_rru_min::Vector{Float64}, p_rrd_min::Vector{Float64}}
+    ReactiveReserveRow = @NamedTuple{n_q::Int, uid::String, c_qru::Float64, c_qrd::Float64, q_qru_min::Vector{Float64}, q_qrd_min::Vector{Float64}}
+    ActiveReserveSetRow = @NamedTuple{i::Int, n_p::Int, uid::String}
+    ReactiveReserveSetRow = @NamedTuple{i::Int, n_q::Int, uid::String}
+
+    bus_order = sort(String.(data.bus_ids), by = uid -> goc3_bus_id(data, uid))
+    sdd_order = _uidnum_order(data.sdd_ids)
 
     function cost_vector(device_type)
-        rows = [
-            (bus = goc3_bus_id(data, val["bus"]), uid = val["uid"],
-             cost = data.sdd_ts_lookup[key]["cost"])
-            for (key, val) in data.sdd_lookup if val["device_type"] == device_type
+        return CostRow[
+            let val = data.sdd_lookup[uid]
+                (bus = goc3_bus_id(data, val["bus"]), uid = String(val["uid"]),
+                 cost = _float_cube(data.sdd_ts_lookup[uid]["cost"]))
+            end
+            for uid in sdd_order if data.sdd_lookup[uid]["device_type"] == device_type
         ]
-        return _by_uidnum(rows)
     end
     cost_vector_pr = cost_vector("producer")
     cost_vector_cs = cost_vector("consumer")
@@ -277,10 +293,10 @@ function goc3_static_data(data)
     # typed comprehension fixes the element type even when the set is empty.
     function twt_control_set(::Type{R}, pred, extract) where {R}
         rows = R[
-            let j_xf = _uidnum(val["uid"]) + 1
+            let val = data.twt_lookup[uid], j_xf = _uidnum(uid) + 1
                 (; j_xf = j_xf, extract(val)...)
             end
-            for val in values(data.twt_lookup) if pred(val)
+            for uid in _uidnum_order(data.twt_ids) if pred(data.twt_lookup[uid])
         ]
         return sort(rows, by = x -> x.j_xf)
     end
@@ -298,16 +314,16 @@ function goc3_static_data(data)
         p_rd = Float64(val["p_ramp_down_ub"])
         p_ru_su = Float64(val["p_startup_ramp_ub"])
         p_rd_sd = Float64(val["p_shutdown_ramp_ub"])
-        c_rgu = convert(Vector{Float64}, ts_val["p_reg_res_up_cost"])
-        c_rgd = convert(Vector{Float64}, ts_val["p_reg_res_down_cost"])
-        c_scr = convert(Vector{Float64}, ts_val["p_syn_res_cost"])
-        c_nsc = convert(Vector{Float64}, ts_val["p_nsyn_res_cost"])
-        c_rru_on = convert(Vector{Float64}, ts_val["p_ramp_res_up_online_cost"])
-        c_rru_off = convert(Vector{Float64}, ts_val["p_ramp_res_up_offline_cost"])
-        c_rrd_on = convert(Vector{Float64}, ts_val["p_ramp_res_down_online_cost"])
-        c_rrd_off = convert(Vector{Float64}, ts_val["p_ramp_res_down_offline_cost"])
-        c_qru = convert(Vector{Float64}, ts_val["q_res_up_cost"])
-        c_qrd = convert(Vector{Float64}, ts_val["q_res_down_cost"])
+        c_rgu = _float_vector(ts_val["p_reg_res_up_cost"])
+        c_rgd = _float_vector(ts_val["p_reg_res_down_cost"])
+        c_scr = _float_vector(ts_val["p_syn_res_cost"])
+        c_nsc = _float_vector(ts_val["p_nsyn_res_cost"])
+        c_rru_on = _float_vector(ts_val["p_ramp_res_up_online_cost"])
+        c_rru_off = _float_vector(ts_val["p_ramp_res_up_offline_cost"])
+        c_rrd_on = _float_vector(ts_val["p_ramp_res_down_online_cost"])
+        c_rrd_off = _float_vector(ts_val["p_ramp_res_down_offline_cost"])
+        c_qru = _float_vector(ts_val["q_res_up_cost"])
+        c_qrd = _float_vector(ts_val["q_res_down_cost"])
         p_rgu_max = Float64(val["p_reg_res_up_ub"])
         p_rgd_max = Float64(val["p_reg_res_down_ub"])
         p_scr_max = Float64(val["p_syn_res_ub"])
@@ -318,65 +334,73 @@ function goc3_static_data(data)
         p_rrd_off_max = Float64(val["p_ramp_res_down_offline_ub"])
         p_0 = Float64(val["initial_status"]["p"])
         q_0 = Float64(val["initial_status"]["q"])
-        p_max = convert(Vector{Float64}, ts_val["p_ub"])
-        p_min = convert(Vector{Float64}, ts_val["p_lb"])
-        q_max = convert(Vector{Float64}, ts_val["q_ub"])
-        q_min = convert(Vector{Float64}, ts_val["q_lb"])
-        sus = convert(Vector{Vector{Float64}}, val["startup_states"])
+        p_max = _float_vector(ts_val["p_ub"])
+        p_min = _float_vector(ts_val["p_lb"])
+        q_max = _float_vector(ts_val["q_ub"])
+        q_min = _float_vector(ts_val["q_lb"])
+        sus = _float_matrix(val["startup_states"])
         return (bus=bus, uid = uid, c_on = c_on, c_su = c_su, c_sd = c_sd, p_ru = p_ru, p_rd = p_rd, p_ru_su = p_ru_su, p_rd_sd = p_rd_sd,
         c_rgu = c_rgu, c_rgd = c_rgd, c_scr = c_scr, c_nsc = c_nsc, c_rru_on = c_rru_on, c_rru_off = c_rru_off, c_rrd_on = c_rrd_on, c_rrd_off = c_rrd_off,
         c_qru = c_qru, c_qrd = c_qrd, p_rgu_max = p_rgu_max, p_rgd_max = p_rgd_max, p_scr_max = p_scr_max, p_nsc_max = p_nsc_max, p_rru_on_max = p_rru_on_max,
         p_rru_off_max=p_rru_off_max, p_rrd_on_max=p_rrd_on_max, p_rrd_off_max=p_rrd_off_max, p_0=p_0, q_0=q_0, p_max=p_max, p_min=p_min, q_max=q_max, q_min=q_min, sus=sus)
     end
     sdd_rows(device_type) =
-        _by_uidnum([sdd_row(key, val) for (key, val) in data.sdd_lookup if val["device_type"] == device_type])
+        SddRow[sdd_row(uid, data.sdd_lookup[uid]) for uid in sdd_order if data.sdd_lookup[uid]["device_type"] == device_type]
 
-    # Devices grouped by their bus uid, in sdd_lookup iteration order, so a zone's
+    # Devices grouped by their bus uid, in numeric uid order, so a zone's
     # member devices are found without rescanning every device per zone/bus pair.
-    devices_by_bus = Dict{String,Vector{Any}}()
-    for val in values(data.sdd_lookup)
-        push!(get!(devices_by_bus, val["bus"], Vector{Any}()), val)
+    devices_by_bus = Dict{String,Vector{String}}()
+    for uid in sdd_order
+        val = data.sdd_lookup[uid]
+        push!(get!(devices_by_bus, String(val["bus"]), String[]), uid)
     end
     # One reserve-zone membership set. `ids`/`uids_key` pick the zone list and the
     # bus field naming its zones; `mkrow` builds the class-specific row.
-    function reserve_set(ids, uids_key, device_type, mkrow)
-        return [
-            mkrow(goc3_bus_id(data, bus["uid"]), _uidnum(uid), device["uid"])
-            for uid in ids
-            for bus in values(data.bus_lookup)
+    function reserve_set(::Type{R}, ids, uids_key, device_type, mkrow) where {R}
+        rows = R[]
+        for uid in _uidnum_order(ids)
+            for bus_uid in bus_order
+                bus = data.bus_lookup[bus_uid]
             if uid in bus[uids_key]
-            for device in get(devices_by_bus, bus["uid"], Vector{Any}())
+                    for dev_uid in get(devices_by_bus, String(bus["uid"]), String[])
+                        device = data.sdd_lookup[dev_uid]
             if device["device_type"] == device_type
-        ]
+                            push!(rows, mkrow(goc3_bus_id(data, bus["uid"]), _uidnum(uid), String(device["uid"])))
+                        end
+                    end
+                end
+            end
+        end
+        return rows
     end
 
     sc_data = (
-        bus = sort([
-            begin
+        bus = sort(BusRow[
+            let val = data.bus_lookup[uid]
                 i = goc3_bus_id(data, val["uid"])
-                uid = val["uid"]
-                v_min = val["vm_lb"]
-                v_max = val["vm_ub"]
+                uid = String(val["uid"])
+                v_min = Float64(val["vm_lb"])
+                v_max = Float64(val["vm_ub"])
                 (i = i, uid = uid, v_min = v_min, v_max = v_max)
-            end for val in values(data.bus_lookup)
+            end for uid in bus_order
         ], by = x -> x.i),
 
-        shunt = _by_uidnum([
-            begin
-                uid = val["uid"]
+        shunt = ShuntRow[
+            let val = data.shunt_lookup[uid]
+                uid = String(val["uid"])
                 bus = goc3_bus_id(data, val["bus"])
-                g_sh = val["gs"]
-                b_sh = val["bs"]
+                g_sh = Float64(val["gs"])
+                b_sh = Float64(val["bs"])
                 (uid = uid, bus=bus, g_sh = g_sh, b_sh = b_sh)
-            end for val in values(data.shunt_lookup)
-        ]),
+            end for uid in _uidnum_order(data.shunt_ids)
+        ],
 
         acl_branch = sort(
             # AC lines
-            [
-                begin
+            AclRow[
+                let val = data.ac_line_lookup[uid]
                     j_ln = _uidnum(val["uid"])+1
-                    uid = val["uid"]
+                    uid = String(val["uid"])
                     to_bus = goc3_bus_id(data, val["to_bus"])
                     fr_bus = goc3_bus_id(data, val["fr_bus"])
                     c_su = Float64(val["connection_cost"])
@@ -400,71 +424,71 @@ function goc3_static_data(data)
                     end
                     (j_ln = j_ln, uid = uid, to_bus = to_bus, fr_bus = fr_bus, c_su = c_su, c_sd = c_sd, s_max = s_max,
                     g_sr = g_sr, b_sr = b_sr, b_ch = b_ch, g_fr = g_fr, g_to = g_to, b_fr = b_fr, b_to = b_to)
-                end for val in values(data.ac_line_lookup)
+                end for uid in _uidnum_order(data.ac_line_ids)
             ],by = x -> x.j_ln),
 
             # Transformers
         acx_branch = sort(
-            [
-                begin
+            AcxRow[
+                let val = data.twt_lookup[uid]
                     j_xf = _uidnum(val["uid"])+1
-                    uid = val["uid"]
+                    uid = String(val["uid"])
                     to_bus = goc3_bus_id(data, val["to_bus"])
                     fr_bus = goc3_bus_id(data, val["fr_bus"])
-                    c_su = val["connection_cost"]
-                    c_sd = val["disconnection_cost"]
-                    s_max = val["mva_ub_nom"]
-                    r = val["r"]
-                    x = val["x"]
-                    g_sr = r / (x^2 + r^2)
-                    b_sr = -x / (x^2 + r^2)
-                    b_ch = val["b"]
+                    c_su = Float64(val["connection_cost"])
+                    c_sd = Float64(val["disconnection_cost"])
+                    s_max = Float64(val["mva_ub_nom"])
+                    r = Float64(val["r"])
+                    x = Float64(val["x"])
+                    g_sr = Float64(r / (x^2 + r^2))
+                    b_sr = Float64(-x / (x^2 + r^2))
+                    b_ch = Float64(val["b"])
                     if val["additional_shunt"] == 1
-                        g_fr = val["g_fr"]
-                        g_to = val["g_to"]
-                        b_fr = val["b_fr"]
-                        b_to = val["b_to"]
+                        g_fr = Float64(val["g_fr"])
+                        g_to = Float64(val["g_to"])
+                        b_fr = Float64(val["b_fr"])
+                        b_to = Float64(val["b_to"])
                     else
-                        g_fr = 0
-                        g_to = 0
-                        b_fr = 0
-                        b_to = 0
+                        g_fr = 0.0
+                        g_to = 0.0
+                        b_fr = 0.0
+                        b_to = 0.0
                     end
                     (j_xf=j_xf, uid = uid, to_bus = to_bus, fr_bus = fr_bus, c_su = c_su, c_sd = c_sd, s_max = s_max,
                     g_sr = g_sr, b_sr = b_sr, b_ch = b_ch, g_fr = g_fr, g_to = g_to, b_fr = b_fr, b_to = b_to)
-                end for val in values(data.twt_lookup)
+                end for uid in _uidnum_order(data.twt_ids)
             ]
         , by = x -> x.j_xf),
         #Variable phase difference
         vpd = twt_control_set(@NamedTuple{j_xf::Int64, phi_min::Float64, phi_max::Float64},
             val -> val["ta_lb"] < val["ta_ub"],
-            val -> (phi_min = val["ta_lb"], phi_max = val["ta_ub"])),
+            val -> (phi_min = Float64(val["ta_lb"]), phi_max = Float64(val["ta_ub"]))),
         #Fixed phase difference
         fpd = twt_control_set(@NamedTuple{j_xf::Int64, phi_o::Float64},
             val -> val["ta_lb"] >= val["ta_ub"],
-            val -> (phi_o = val["initial_status"]["ta"],)),
+            val -> (phi_o = Float64(val["initial_status"]["ta"]),)),
         #Variable winding ratio
         vwr = twt_control_set(@NamedTuple{j_xf::Int64, tau_min::Float64, tau_max::Float64},
             val -> val["tm_lb"] < val["tm_ub"],
-            val -> (tau_min = val["tm_lb"], tau_max = val["tm_ub"])),
+            val -> (tau_min = Float64(val["tm_lb"]), tau_max = Float64(val["tm_ub"]))),
         #Fixed winding ratio
         fwr = twt_control_set(@NamedTuple{j_xf::Int64, tau_o::Float64},
             val -> val["tm_lb"] >= val["tm_ub"],
-            val -> (tau_o = val["initial_status"]["tm"],)),
+            val -> (tau_o = Float64(val["initial_status"]["tm"]),)),
 
-        dc_branch = sort([
-            begin
+        dc_branch = sort(DcRow[
+            let val = data.dc_line_lookup[uid]
                 j_dc = _uidnum(val["uid"])+1
-                uid = val["uid"]
-                pdc_max = val["pdc_ub"]
-                qdc_fr_min = val["qdc_fr_lb"]
-                qdc_to_min = val["qdc_to_lb"]
-                qdc_fr_max = val["qdc_fr_ub"]
-                qdc_to_max = val["qdc_to_ub"]
+                uid = String(val["uid"])
+                pdc_max = Float64(val["pdc_ub"])
+                qdc_fr_min = Float64(val["qdc_fr_lb"])
+                qdc_to_min = Float64(val["qdc_to_lb"])
+                qdc_fr_max = Float64(val["qdc_fr_ub"])
+                qdc_to_max = Float64(val["qdc_to_ub"])
                 to_bus = goc3_bus_id(data, val["to_bus"])
                 fr_bus = goc3_bus_id(data, val["fr_bus"])
                 (j_dc = j_dc, uid=uid, pdc_max=pdc_max, qdc_fr_min=qdc_fr_min, qdc_to_min=qdc_to_min, qdc_fr_max=qdc_fr_max, qdc_to_max=qdc_to_max, to_bus=to_bus, fr_bus=fr_bus)
-            end for val in values(data.dc_line_lookup)
+            end for uid in _uidnum_order(data.dc_line_ids)
 
         ], by = x -> x.j_dc),
 
@@ -472,50 +496,50 @@ function goc3_static_data(data)
 
         #Consumers
         cons = sdd_rows("consumer"),
-        active_reserve = sort([
-            begin
+        active_reserve = sort(ActiveReserveRow[
+            let val = data.azr_lookup[key]
                 ts_val = data.azr_ts_lookup[key]
                 n_p = _uidnum(val["uid"]) + 1
-                uid = val["uid"]
-                c_rgu = val["REG_UP_vio_cost"]
-                c_rgd = val["REG_DOWN_vio_cost"]
-                c_scr = val["SYN_vio_cost"]
-                c_nsc = val["NSYN_vio_cost"]
-                c_rru = val["RAMPING_RESERVE_UP_vio_cost"]
-                c_rrd = val["RAMPING_RESERVE_DOWN_vio_cost"]
-                σ_rgu = val["REG_UP"]
-                σ_rgd = val["REG_DOWN"]
-                σ_scr = val["SYN"]
-                σ_nsc = val["NSYN"]
-                p_rru_min = convert(Vector{Float64}, ts_val["RAMPING_RESERVE_UP"])
-                p_rrd_min = convert(Vector{Float64}, ts_val["RAMPING_RESERVE_DOWN"])
+                uid = String(val["uid"])
+                c_rgu = Float64(val["REG_UP_vio_cost"])
+                c_rgd = Float64(val["REG_DOWN_vio_cost"])
+                c_scr = Float64(val["SYN_vio_cost"])
+                c_nsc = Float64(val["NSYN_vio_cost"])
+                c_rru = Float64(val["RAMPING_RESERVE_UP_vio_cost"])
+                c_rrd = Float64(val["RAMPING_RESERVE_DOWN_vio_cost"])
+                σ_rgu = Float64(val["REG_UP"])
+                σ_rgd = Float64(val["REG_DOWN"])
+                σ_scr = Float64(val["SYN"])
+                σ_nsc = Float64(val["NSYN"])
+                p_rru_min = _float_vector(ts_val["RAMPING_RESERVE_UP"])
+                p_rrd_min = _float_vector(ts_val["RAMPING_RESERVE_DOWN"])
                 (n_p=n_p, uid=uid, c_rgu=c_rgu, c_rgd=c_rgd, c_scr=c_scr, c_nsc=c_nsc, c_rru=c_rru, c_rrd=c_rrd, σ_rgu=σ_rgu, σ_rgd=σ_rgd, σ_scr=σ_scr,
                 σ_nsc=σ_nsc, p_rru_min=p_rru_min, p_rrd_min=p_rrd_min)
-            end for (key, val) in data.azr_lookup
+            end for key in _uidnum_order(data.azr_ids)
         ], by = x -> x.n_p),
-        reactive_reserve = sort([
-            begin
+        reactive_reserve = sort(ReactiveReserveRow[
+            let val = data.rzr_lookup[key]
                 ts_val = data.rzr_ts_lookup[key]
                 n_q = _uidnum(val["uid"]) + 1
-                uid = val["uid"]
-                c_qru = val["REACT_UP_vio_cost"]
-                c_qrd = val["REACT_DOWN_vio_cost"]
-                q_qru_min = convert(Vector{Float64}, ts_val["REACT_UP"])
-                q_qrd_min = convert(Vector{Float64}, ts_val["REACT_DOWN"])
+                uid = String(val["uid"])
+                c_qru = Float64(val["REACT_UP_vio_cost"])
+                c_qrd = Float64(val["REACT_DOWN_vio_cost"])
+                q_qru_min = _float_vector(ts_val["REACT_UP"])
+                q_qrd_min = _float_vector(ts_val["REACT_DOWN"])
                 (n_q=n_q, uid=uid, c_qru=c_qru, c_qrd=c_qrd, q_qru_min=q_qru_min, q_qrd_min=q_qrd_min)
-            end for (key, val) in data.rzr_lookup
+            end for key in _uidnum_order(data.rzr_ids)
         ], by = x -> x.n_q),
 
-        active_reserve_set_pr = reserve_set(data.azr_ids, "active_reserve_uids", "producer",
+        active_reserve_set_pr = reserve_set(ActiveReserveSetRow, data.azr_ids, "active_reserve_uids", "producer",
             (i, num, dev_uid) -> (i = i, n_p = num + 1, uid = dev_uid)),
 
-        active_reserve_set_cs = reserve_set(data.azr_ids, "active_reserve_uids", "consumer",
+        active_reserve_set_cs = reserve_set(ActiveReserveSetRow, data.azr_ids, "active_reserve_uids", "consumer",
             (i, num, dev_uid) -> (i = i, n_p = num + 1, uid = dev_uid)),
 
-        reactive_reserve_set_pr = reserve_set(data.rzr_ids, "reactive_reserve_uids", "producer",
+        reactive_reserve_set_pr = reserve_set(ReactiveReserveSetRow, data.rzr_ids, "reactive_reserve_uids", "producer",
             (i, num, dev_uid) -> (i = i, n_q = num + 1, uid = dev_uid)),
 
-        reactive_reserve_set_cs = reserve_set(data.rzr_ids, "reactive_reserve_uids", "consumer",
+        reactive_reserve_set_cs = reserve_set(ReactiveReserveSetRow, data.rzr_ids, "reactive_reserve_uids", "consumer",
             (i, num, dev_uid) -> (i = i, n_q = num + 1, uid = dev_uid)),
 
     )
@@ -542,12 +566,13 @@ function goc3_energy_windows(data)
     a_mid = [let a_end = cdt[t]; (a_end - dt[t] + a_end) / 2 end for t in periods]
 
     # One energy-requirement window set. `req_key` picks the ub/lb window list and
-    # `mkrow` names the set-specific fields; the running index follows the
-    # sdd_lookup iteration order.
+    # `mkrow` names the set-specific fields; the running index follows numeric
+    # simple dispatchable device order.
     function windows(::Type{R}, device_type, req_key, mkrow) where {R}
         rows = R[]
         ind = 1
-        for val in values(data.sdd_lookup)
+        for uid in _uidnum_order(data.sdd_ids)
+            val = data.sdd_lookup[uid]
             if val["device_type"] == device_type
                 for w in val[req_key]
                     push!(rows, mkrow(ind, val["uid"], w))
@@ -563,7 +588,8 @@ function goc3_energy_windows(data)
     function window_periods(::Type{R}, device_type, req_key, mkrow) where {R}
         rows = R[]
         ind = 0
-        for val in values(data.sdd_lookup)
+        for uid in _uidnum_order(data.sdd_ids)
+            val = data.sdd_lookup[uid]
             if val["device_type"] == device_type
                 for w in val[req_key]
                     ind += 1
@@ -581,29 +607,29 @@ function goc3_energy_windows(data)
 
     W_en_max_pr = windows(@NamedTuple{w_en_max_pr_ind::Int, uid::String, a_en_max_start::Float64, a_en_max_end::Float64, e_max::Float64},
         "producer", "energy_req_ub",
-        (ind, uid, w) -> (w_en_max_pr_ind = ind, uid = uid, a_en_max_start = w[1], a_en_max_end = w[2], e_max = w[3]))
+        (ind, uid, w) -> (w_en_max_pr_ind = ind, uid = String(uid), a_en_max_start = Float64(w[1]), a_en_max_end = Float64(w[2]), e_max = Float64(w[3])))
     W_en_max_cs = windows(@NamedTuple{w_en_max_cs_ind::Int, uid::String, a_en_max_start::Float64, a_en_max_end::Float64, e_max::Float64},
         "consumer", "energy_req_ub",
-        (ind, uid, w) -> (w_en_max_cs_ind = ind, uid = uid, a_en_max_start = w[1], a_en_max_end = w[2], e_max = w[3]))
+        (ind, uid, w) -> (w_en_max_cs_ind = ind, uid = String(uid), a_en_max_start = Float64(w[1]), a_en_max_end = Float64(w[2]), e_max = Float64(w[3])))
     W_en_min_pr = windows(@NamedTuple{w_en_min_pr_ind::Int, uid::String, a_en_min_start::Float64, a_en_min_end::Float64, e_min::Float64},
         "producer", "energy_req_lb",
-        (ind, uid, w) -> (w_en_min_pr_ind = ind, uid = uid, a_en_min_start = w[1], a_en_min_end = w[2], e_min = w[3]))
+        (ind, uid, w) -> (w_en_min_pr_ind = ind, uid = String(uid), a_en_min_start = Float64(w[1]), a_en_min_end = Float64(w[2]), e_min = Float64(w[3])))
     W_en_min_cs = windows(@NamedTuple{w_en_min_cs_ind::Int, uid::String, a_en_min_start::Float64, a_en_min_end::Float64, e_min::Float64},
         "consumer", "energy_req_lb",
-        (ind, uid, w) -> (w_en_min_cs_ind = ind, uid = uid, a_en_min_start = w[1], a_en_min_end = w[2], e_min = w[3]))
+        (ind, uid, w) -> (w_en_min_cs_ind = ind, uid = String(uid), a_en_min_start = Float64(w[1]), a_en_min_end = Float64(w[2]), e_min = Float64(w[3])))
 
     T_w_en_max_pr = window_periods(@NamedTuple{w_en_max_pr_ind::Int, uid::String, t::Int, dt::Float64},
         "producer", "energy_req_ub",
-        (ind, uid, t, dtt) -> (w_en_max_pr_ind = ind, uid = uid, t = t, dt = dtt))
+        (ind, uid, t, dtt) -> (w_en_max_pr_ind = ind, uid = String(uid), t = t, dt = Float64(dtt)))
     T_w_en_max_cs = window_periods(@NamedTuple{w_en_max_cs_ind::Int, uid::String, t::Int, dt::Float64},
         "consumer", "energy_req_ub",
-        (ind, uid, t, dtt) -> (w_en_max_cs_ind = ind, uid = uid, t = t, dt = dtt))
+        (ind, uid, t, dtt) -> (w_en_max_cs_ind = ind, uid = String(uid), t = t, dt = Float64(dtt)))
     T_w_en_min_pr = window_periods(@NamedTuple{w_en_min_pr_ind::Int, uid::String, t::Int, dt::Float64},
         "producer", "energy_req_lb",
-        (ind, uid, t, dtt) -> (w_en_min_pr_ind = ind, uid = uid, t = t, dt = dtt))
+        (ind, uid, t, dtt) -> (w_en_min_pr_ind = ind, uid = String(uid), t = t, dt = Float64(dtt)))
     T_w_en_min_cs = window_periods(@NamedTuple{w_en_min_cs_ind::Int, uid::String, t::Int, dt::Float64},
         "consumer", "energy_req_lb",
-        (ind, uid, t, dtt) -> (w_en_min_cs_ind = ind, uid = uid, t = t, dt = dtt))
+        (ind, uid, t, dtt) -> (w_en_min_cs_ind = ind, uid = String(uid), t = t, dt = Float64(dtt)))
 
     return (
         W_en_max_pr = W_en_max_pr,
@@ -662,18 +688,19 @@ function goc3_ac_contingency_survivors(data, lengths)
 
     # Surviving branches per contingency: a branch survives when it is not one of
     # the contingency's outaged components. `lookup` and `mkrow` specialize the
-    # AC-line and transformer variants; iteration order matches the lookup.
-    function survivors(::Type{R}, lookup, mkrow) where {R}
+    # AC-line and transformer variants; iteration order follows numeric class uid.
+    function survivors(::Type{R}, lookup, ids, mkrow) where {R}
         result = Vector{Vector{R}}()
         for ctg in contingencies
             ctg_idx = _uidnum(ctg["uid"]) + 1
             outaged = Set(String.(ctg["components"]))
             rows = Vector{R}()
-            for val in values(lookup)
+            for uid in _uidnum_order(ids)
+                val = lookup[uid]
                 if !(String(val["uid"]) in outaged)
-                    r = val["r"]
-                    x = val["x"]
-                    push!(rows, mkrow(ctg_idx, val, -x / (x^2 + r^2)))
+                    r = Float64(val["r"])
+                    x = Float64(val["x"])
+                    push!(rows, mkrow(ctg_idx, val, Float64(-x / (x^2 + r^2))))
                 end
             end
             push!(result, rows)
@@ -681,13 +708,13 @@ function goc3_ac_contingency_survivors(data, lengths)
         return result
     end
 
-    ln = survivors(LnRow, data.ac_line_lookup, (ctg_idx, val, b_sr) ->
+    ln = survivors(LnRow, data.ac_line_lookup, data.ac_line_ids, (ctg_idx, val, b_sr) ->
         let j = _uidnum(val["uid"]) + 1
             (ctg = ctg_idx, j_ln = j, uid = String(val["uid"]),
              to_bus = goc3_bus_id(data, val["to_bus"]), fr_bus = goc3_bus_id(data, val["fr_bus"]),
              b_sr = b_sr, s_max_ctg = Float64(val["mva_ub_em"]))
         end)
-    xf = survivors(XfRow, data.twt_lookup, (ctg_idx, val, b_sr) ->
+    xf = survivors(XfRow, data.twt_lookup, data.twt_ids, (ctg_idx, val, b_sr) ->
         let j_xf = _uidnum(val["uid"]) + 1
             (ctg = ctg_idx, j_xf = j_xf, uid = String(val["uid"]),
              to_bus = goc3_bus_id(data, val["to_bus"]), fr_bus = goc3_bus_id(data, val["fr_bus"]),
@@ -716,7 +743,8 @@ function goc3_dc_contingency_flows(data)
         outaged = Set(String.(ctg["components"]))
         ctg_idx = _uidnum(ctg["uid"]) + 1
         for t in periods
-            for val in values(data.dc_line_lookup)
+            for uid in _uidnum_order(data.dc_line_ids)
+                val = data.dc_line_lookup[uid]
                 if !(String(val["uid"]) in outaged)
                     push!(jtk_dc_flattened, (flat_jtk_dc=flat_jtk_dc, ctg = ctg_idx,
                     j_dc = _uidnum(val["uid"])+1, to_bus = goc3_bus_id(data, val["to_bus"]),

@@ -111,6 +111,17 @@
 
     # --- static data -------------------------------------------------------
     sc_data, lengths, cost_pr, cost_cs = PowerIO.goc3_static_data(data)
+    for rows in (
+        sc_data.bus, sc_data.shunt, sc_data.acl_branch, sc_data.acx_branch,
+        sc_data.vpd, sc_data.fpd, sc_data.vwr, sc_data.fwr, sc_data.dc_branch,
+        sc_data.prod, sc_data.cons, sc_data.active_reserve, sc_data.reactive_reserve,
+        sc_data.active_reserve_set_pr, sc_data.active_reserve_set_cs,
+        sc_data.reactive_reserve_set_pr, sc_data.reactive_reserve_set_cs,
+        cost_pr, cost_cs,
+    )
+        @test isconcretetype(eltype(rows))
+        @test eltype(rows) !== Any
+    end
     @test lengths.L_J_ln == 2
     @test lengths.L_J_xf == 1
     @test lengths.L_J_ac == 3
@@ -146,6 +157,13 @@
 
     # --- energy windows ----------------------------------------------------
     ew = PowerIO.goc3_energy_windows(data)
+    for rows in (
+        ew.W_en_max_pr, ew.W_en_max_cs, ew.W_en_min_pr, ew.W_en_min_cs,
+        ew.T_w_en_max_pr, ew.T_w_en_max_cs, ew.T_w_en_min_pr, ew.T_w_en_min_cs,
+    )
+        @test isconcretetype(eltype(rows))
+        @test eltype(rows) !== Any
+    end
     @test length(ew.W_en_max_pr) == 1
     @test ew.W_en_max_pr[1].uid == "sd_00"
     @test ew.W_en_max_pr[1].e_max == 9.0
@@ -169,6 +187,8 @@
 
     # --- AC contingency survivors -----------------------------------------
     surv = PowerIO.goc3_ac_contingency_survivors(data, lengths)
+    @test all(isconcretetype(eltype(rows)) && eltype(rows) !== Any for rows in surv.ln)
+    @test all(isconcretetype(eltype(rows)) && eltype(rows) !== Any for rows in surv.xf)
     @test length(surv.ln) == 3               # one group per contingency
     @test length(surv.ln[1]) == 1            # ctg_00 outages acl_00 -> acl_01 survives
     @test surv.ln[1][1].uid == "acl_01"
@@ -185,6 +205,8 @@
 
     # --- DC contingency flows ---------------------------------------------
     jtk_dc = PowerIO.goc3_dc_contingency_flows(data)
+    @test isconcretetype(eltype(jtk_dc))
+    @test eltype(jtk_dc) !== Any
     # ctg_00 and ctg_02: dc_00 survives x 2 periods; ctg_01 outages dc_00.
     @test length(jtk_dc) == 4
     @test [r.ctg for r in jtk_dc] == [1, 1, 3, 3]
