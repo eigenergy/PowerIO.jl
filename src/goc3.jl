@@ -278,11 +278,11 @@ function goc3_static_data(data)
     function twt_control_set(::Type{R}, pred, extract) where {R}
         rows = R[
             let j_xf = _uidnum(val["uid"]) + 1
-                (; j_ac = j_xf + L_J_ln, j_xf = j_xf, extract(val)...)
+                (; j_xf = j_xf, extract(val)...)
             end
             for val in values(data.twt_lookup) if pred(val)
         ]
-        return sort(rows, by = x -> x.j_ac)
+        return sort(rows, by = x -> x.j_xf)
     end
 
     # One simple dispatchable device row. Producers and consumers share this
@@ -436,19 +436,19 @@ function goc3_static_data(data)
             ]
         , by = x -> x.j_xf),
         #Variable phase difference
-        vpd = twt_control_set(@NamedTuple{j_ac::Int64, j_xf::Int64, phi_min::Float64, phi_max::Float64},
+        vpd = twt_control_set(@NamedTuple{j_xf::Int64, phi_min::Float64, phi_max::Float64},
             val -> val["ta_lb"] < val["ta_ub"],
             val -> (phi_min = val["ta_lb"], phi_max = val["ta_ub"])),
         #Fixed phase difference
-        fpd = twt_control_set(@NamedTuple{j_ac::Int64, j_xf::Int64, phi_o::Float64},
+        fpd = twt_control_set(@NamedTuple{j_xf::Int64, phi_o::Float64},
             val -> val["ta_lb"] >= val["ta_ub"],
             val -> (phi_o = val["initial_status"]["ta"],)),
         #Variable winding ratio
-        vwr = twt_control_set(@NamedTuple{j_ac::Int64, j_xf::Int64, tau_min::Float64, tau_max::Float64},
+        vwr = twt_control_set(@NamedTuple{j_xf::Int64, tau_min::Float64, tau_max::Float64},
             val -> val["tm_lb"] < val["tm_ub"],
             val -> (tau_min = val["tm_lb"], tau_max = val["tm_ub"])),
         #Fixed winding ratio
-        fwr = twt_control_set(@NamedTuple{j_ac::Int64, j_xf::Int64, tau_o::Float64},
+        fwr = twt_control_set(@NamedTuple{j_xf::Int64, tau_o::Float64},
             val -> val["tm_lb"] >= val["tm_ub"],
             val -> (tau_o = val["initial_status"]["tm"],)),
 
@@ -651,15 +651,14 @@ Enumerate, for each contingency, the AC lines and transformers that remain in
 service (the branch is not among the contingency's outaged components). Returns
 `(ln, xf)` where each is a vector, in contingency order, of the surviving-branch
 rows for that contingency in lookup-iteration order. Rows carry the per-class
-fields `(ctg, j_ac, j_ln|j_xf, uid, to_bus, fr_bus, b_sr, s_max_ctg)`. The client
-attaches the stacked `j`, the `u_on` status, and expands over periods.
+fields `(ctg, j_ln|j_xf, uid, to_bus, fr_bus, b_sr, s_max_ctg)`. The client
+attaches the stacked `j`, `j_ac`, the `u_on` status, and expands over periods.
 """
 function goc3_ac_contingency_survivors(data, lengths)
-    L_J_ln = lengths.L_J_ln
     contingencies = data.raw["reliability"]["contingency"]
 
-    LnRow = @NamedTuple{ctg::Int, j_ac::Int, j_ln::Int, uid::String, to_bus::Int, fr_bus::Int, b_sr::Float64, s_max_ctg::Float64}
-    XfRow = @NamedTuple{ctg::Int, j_ac::Int, j_xf::Int, uid::String, to_bus::Int, fr_bus::Int, b_sr::Float64, s_max_ctg::Float64}
+    LnRow = @NamedTuple{ctg::Int, j_ln::Int, uid::String, to_bus::Int, fr_bus::Int, b_sr::Float64, s_max_ctg::Float64}
+    XfRow = @NamedTuple{ctg::Int, j_xf::Int, uid::String, to_bus::Int, fr_bus::Int, b_sr::Float64, s_max_ctg::Float64}
 
     # Surviving branches per contingency: a branch survives when it is not one of
     # the contingency's outaged components. `lookup` and `mkrow` specialize the
@@ -685,13 +684,13 @@ function goc3_ac_contingency_survivors(data, lengths)
 
     ln = survivors(LnRow, data.ac_line_lookup, (ctg_idx, val, b_sr) ->
         let j = _uidnum(val["uid"]) + 1
-            (ctg = ctg_idx, j_ac = j, j_ln = j, uid = String(val["uid"]),
+            (ctg = ctg_idx, j_ln = j, uid = String(val["uid"]),
              to_bus = goc3_bus_id(data, val["to_bus"]), fr_bus = goc3_bus_id(data, val["fr_bus"]),
              b_sr = b_sr, s_max_ctg = Float64(val["mva_ub_em"]))
         end)
     xf = survivors(XfRow, data.twt_lookup, (ctg_idx, val, b_sr) ->
         let j_xf = _uidnum(val["uid"]) + 1
-            (ctg = ctg_idx, j_ac = j_xf + L_J_ln, j_xf = j_xf, uid = String(val["uid"]),
+            (ctg = ctg_idx, j_xf = j_xf, uid = String(val["uid"]),
              to_bus = goc3_bus_id(data, val["to_bus"]), fr_bus = goc3_bus_id(data, val["fr_bus"]),
              b_sr = b_sr, s_max_ctg = Float64(val["mva_ub_em"]))
         end)

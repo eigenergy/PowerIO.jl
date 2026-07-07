@@ -105,6 +105,8 @@
     @test sc_data.dc_branch[1].j_dc == 1
     @test isempty(sc_data.vpd) && isempty(sc_data.vwr)      # bounds equal -> fixed
     @test length(sc_data.fpd) == 1 && length(sc_data.fwr) == 1
+    @test sc_data.fpd[1].j_xf == 1 && !hasproperty(sc_data.fpd[1], :j_ac)
+    @test sc_data.fwr[1].j_xf == 1 && !hasproperty(sc_data.fwr[1], :j_ac)
     @test cost_pr[1].uid == "sd_00" && cost_cs[1].uid == "sd_01"
 
     # --- energy windows ----------------------------------------------------
@@ -139,8 +141,10 @@
     @test surv.ln[1][1].j_ln == 2
     @test surv.ln[1][1].b_sr == -1.0        # -x/(x^2+r^2) = -1/(1+0)
     @test surv.ln[1][1].s_max_ctg == 8.0    # mva_ub_em
+    @test !hasproperty(surv.ln[1][1], :j_ac)
     @test length(surv.ln[2]) == 2            # ctg_01 outages dc_00 -> both lines survive
-    @test surv.xf[1][1].j_ac == 3 && surv.xf[1][1].j_xf == 1  # transformer survives ctg_00
+    @test surv.xf[1][1].j_xf == 1             # transformer survives ctg_00
+    @test !hasproperty(surv.xf[1][1], :j_ac)
 
     # --- DC contingency flows ---------------------------------------------
     jtk_dc = PowerIO.goc3_dc_contingency_flows(data)
