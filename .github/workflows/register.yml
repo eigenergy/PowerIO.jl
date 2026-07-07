@@ -25,8 +25,9 @@ on:
       release_notes:
         description: >-
           Release notes for the General PR. A breaking (pre-1.0 minor) bump must
-          mention "breaking" or "changelog". Leave blank to use the top section
-          of CHANGELOG.md.
+          mention "breaking" or "changelog". CHANGELOG.md must already have a
+          top section for the target version; leave this blank to use that
+          section as the release notes.
         required: false
 
 permissions:
@@ -61,6 +62,25 @@ jobs:
           sed -i -E "0,/^version *= *\".*\"/s//version = \"$new\"/" Project.toml
           echo "version=$new" >> "$GITHUB_OUTPUT"
           echo "Set version to $new (was $cur)"
+
+      - name: Validate changelog entry
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          top=$(awk '/^## / { sub(/^##[[:space:]]+/, ""); sub(/[[:space:]]+$/, ""); print; exit }' CHANGELOG.md)
+          if [ "$top" != "$VERSION" ]; then
+            echo "::error::top CHANGELOG.md section must be ## $VERSION, found ## ${top:-<none>}"
+            exit 1
+          fi
+          body=$(awk 'BEGIN { seen = 0 } /^## / { if (seen) exit; seen = 1; next } seen { print }' CHANGELOG.md)
+          if ! printf '%s\n' "$body" | grep -q '[^[:space:]]'; then
+            echo "::error::CHANGELOG.md section $VERSION is empty"
+            exit 1
+          fi
+          if ! printf '%s\n' "$body" | grep -q '^- '; then
+            echo "::error::CHANGELOG.md section $VERSION must include at least one bullet"
+            exit 1
+          fi
 
       - name: Collect release notes
         id: notes

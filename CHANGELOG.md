@@ -15,6 +15,23 @@ ABI artifacts remain the v0.6.3 binaries.
 - The ExaModels bridge returns concrete empty storage rows and typed storage
   bound vectors so GPU backends can adapt parsed PowerData without seeing
   abstract `NamedTuple` vectors.
+- The test suite and manual registration workflow now require the top
+  `CHANGELOG.md` section to match the package version before a release can move
+  forward.
+
+## 0.6.3
+
+Tracks powerio v0.6.3, keeping core C ABI v4 and distribution C ABI v1.
+
+- Binaries repinned to powerio v0.6.3.
+- Added Rust backed sparse matrix helpers for balanced networks:
+  `calc_admittance_matrix`, `calc_susceptance_matrix`, `calc_bprime_matrix`,
+  `calc_bdoubleprime_matrix`, and `calc_incidence_matrix`.
+- `to_arrow` matrix COO tables now carry explicit row and column axis metadata,
+  and Julia matrix materialization uses those axis maps instead of assuming bus
+  order matches matrix order.
+- Added matrix documentation, matrix fixtures, local benchmark notes, and memory
+  safety coverage around library overrides and handle ownership.
 
 ## 0.6.2
 
