@@ -769,7 +769,11 @@ end
 Bundle of the static, format-neutral GOC3 security-constrained OPF index sets
 returned by [`goc3_scopf_data`](@ref). Every field is keyed by `uid` and per-class
 GOC3 ordering (`j_ln`/`j_xf`/`j_dc`/`n_p`/`n_q`); none carries a model-specific
-stacked variable index. Fields:
+stacked variable index.
+
+This is a consumer *view*, not a canonical storage type: its fields project onto the
+general PowerIO intermediate representation (see [`goc3_scopf_data`](@ref)), so GOC3
+is never anointed as a format in the Rust core. Fields:
 
 - `static` — buses, shunts, AC/DC branches, transformer control sets, producers,
   consumers, zonal reserves, and device-zone membership sets.
@@ -801,10 +805,15 @@ model-specific variable numbering are involved. A security-constrained OPF clien
 reads the [`Goc3ScopfData`](@ref) fields and attaches its own stacked global
 variable indices and the UC status on top (see [`goc3_add_status_flags!`](@ref)).
 
-Interim: this extraction is pure Julia today. The powerio Rust core will grow the
-same extraction and expose it over the C ABI (eigenergy/powerio#235); when it lands,
-this function's body becomes a `ccall` that fills the same `Goc3ScopfData` fields,
-so no consumer change is required.
+Interim: this extraction is pure Julia today. The retirement target is the general
+PowerIO intermediate representation in the Rust core, not a GOC3-specific type. The
+returned fields project onto canonical IR constructs — static topology in the parsed
+network, per-period bounds/costs/status in the operating-point series, and outages in
+a general contingency block (survivors are a derived view: in-service branches minus
+the outage set). As that IR grows expressive enough to represent GOC3
+(eigenergy/powerio#235), `goc3_scopf_data` becomes a projection over it — a thin C ABI
+helper or binding-side accessors — and `Goc3ScopfData` stays a consumer view. GOC3
+does not become an anointed format in the Rust core or C ABI.
 """
 function goc3_scopf_data(data)
     static, lengths, cost_vector_pr, cost_vector_cs = _goc3_static_data(data)
