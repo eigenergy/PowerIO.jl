@@ -133,3 +133,28 @@ end
     @test PowerIO.bus_type_code("ISOLATED") == 4
     @test_throws ArgumentError PowerIO.bus_type_code("SLACK")
 end
+
+@testset "OperatingPointSeries reserved skeleton" begin
+    # The general format-neutral series is a reserved, unexported skeleton until the
+    # C ABI exposes a construct/attach path. Its component structs are constructible,
+    # but every entry point that would build or materialize a series throws until
+    # then, so a throwing constructor is never advertised as usable.
+    for sym in (:OperatingPointSeries, :TimeAxis, :ElementUpdate, :OperatingPoint,
+                :operating_point_series, :materialize_operating_point_series)
+        @test isdefined(PowerIO, sym)
+        @test sym ∉ names(PowerIO)
+    end
+
+    ta = PowerIO.TimeAxis(2, [1.0, 1.0], ["t1", "t2"])
+    @test ta.periods == 2
+    up = PowerIO.ElementUpdate(:bus, "bus_1", nothing, :pd, 1.0)
+    @test up.table === :bus
+    pt = PowerIO.OperatingPoint(0, [up])
+    @test pt.index == 0 && length(pt.updates) == 1
+
+    # The inner constructor throws: a series cannot yet be built from Julia.
+    @test_throws ErrorException PowerIO.OperatingPointSeries(ta, [pt])
+    @test_throws ErrorException PowerIO.OperatingPointSeries(ta, PowerIO.OperatingPoint[])
+    @test_throws ErrorException PowerIO.operating_point_series(ta, [pt])
+    @test_throws ErrorException PowerIO.materialize_operating_point_series(nothing)
+end

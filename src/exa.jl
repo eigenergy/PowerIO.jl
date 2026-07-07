@@ -59,7 +59,9 @@ function _cost_tuple(g, ::Type{T}, base::T; normalized::Bool=false) where {T<:Re
             vals[i] = trimmed[i]
         end
     end
-    return (model == 2,
+    # Only reached for model != 2 (the model-2 quadratic case returned above), so
+    # this is never a polynomial cost: model_poly is false.
+    return (false,
             _powerdata_real(cost.startup, T, "generator cost", :startup),
             _powerdata_real(cost.shutdown, T, "generator cost", :shutdown),
             n, (vals[1], vals[2], vals[3]))
@@ -108,11 +110,29 @@ _powerdata_storage_row_type(::Type{T}) where {T<:Real} = @NamedTuple{
     status::Int,
 }
 
-# Gen/branch/arc rows are built into these concrete row types (as storage is
-# above) so an empty section yields a concrete `Vector{Row}` rather than a
-# `map`/comprehension inferring `Vector{Any}` off a non-inferable body. The
-# field lists and their order MUST match the row literals below verbatim, or the
-# typed comprehension's `convert` throws on the first row.
+# The gen/branch/arc/storage rows of `to_powerdata` are built into these four
+# concrete `@NamedTuple` row types. They are the ExaModelsPower bridge schema:
+# the field names ExaModelsPower's `build_*_opf` reads. This schema is a Julia
+# bridge (like `to_powermodels`) and does not port to the Rust core / C ABI, so
+# these declarations are the single source of truth for it.
+#
+# Each row literal below is wrapped in its row type's constructor
+# (`GenRow((; ...))`), which selects fields by NAME. The literal's field order is
+# therefore irrelevant, so the declaration order here and the literal order
+# cannot drift apart: a name typo or an omitted field errors, a reordering does
+# not. The outer typed comprehension (`GenRow[ ... ]`) keeps an empty section a
+# concrete `Vector{Row}` rather than a comprehension inferring `Vector{Any}`,
+# which `CuArray` rejects when ExaModelsPower moves the rows to the GPU.
+#
+# These declarations are hand maintained rather than inferred from `to_dense`'s
+# typed columns because `to_dense` exposes only the minimal numeric subset the
+# matrix-assembly path needs. Deriving these rows from it would require the C ABI
+# to also surface: bus `type`/`vm`/`va`/`base_kv`/`area`/`zone`/`vmax`/`vmin` and
+# the REF/PV/PQ reassignment; generator `qg`/`qmax`/`qmin`/`vg`/`mbase` and the
+# parsed cost model (startup/shutdown/ncost/coefficients); branch
+# `rate_a`/`rate_b`/`rate_c`/`angmin`/`angmax` and the `c1..c8` line coefficients;
+# and the full storage table. Until the dense extractors carry those fields, the
+# row schema is built here from the accessors.
 _powerdata_gen_row_type(::Type{T}) where {T<:Real} = @NamedTuple{
     i::Int,
     bus::Int,
@@ -220,7 +240,7 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
     gen_rows = GenRow[
         let (model_poly, startup, shutdown, ncost, c) =
                 _cost_tuple(g, T, base; normalized=true)
-            (;
+            GenRow((;
                 i,
                 bus = id_to_idx[Int(g.bus)],
                 pg = _powerdata_real(g.pg, T, "generator $i", :pg),
@@ -237,7 +257,7 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
                 shutdown,
                 n = ncost,
                 c,
-            )
+            ))
         end
         for (i, g) in enumerate(kept_gens)
     ]
@@ -264,7 +284,7 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
             x = _powerdata_real(br.x, T, label, :br_x)
             c1, c2, c3, c4, c5, c6, c7, c8 =
                 _branch_coeffs(r, x, b_fr, b_to, g_fr, g_to, tap, shift)
-            (;
+            BranchRow((;
                 i,
                 f_bus = f,
                 t_bus = t,
@@ -285,18 +305,18 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
                 f_idx = i,
                 t_idx = i + m,
                 c1, c2, c3, c4, c5, c6, c7, c8,
-            )
+            ))
         end
         for (i, br) in enumerate(kept_branches)
     ]
     ArcRow = _powerdata_arc_row_type(T)
     arc_rows = vcat(
-        ArcRow[(; i, bus = br.f_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
-        ArcRow[(; i = i + m, bus = br.t_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
+        ArcRow[ArcRow((; i, bus = br.f_bus, rate_a = br.rate_a)) for (i, br) in enumerate(branch_rows)],
+        ArcRow[ArcRow((; i = i + m, bus = br.t_bus, rate_a = br.rate_a)) for (i, br) in enumerate(branch_rows)],
     )
 
     StorageRow = _powerdata_storage_row_type(T)
-    storage_rows = StorageRow[(;
+    storage_rows = StorageRow[StorageRow((;
         i = row,
         storage_bus = Int(st.bus),
         Pexts = _powerdata_real(st.ps, T, "storage $row", :ps),
@@ -315,7 +335,7 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
         p_loss = _powerdata_real(st.p_loss, T, "storage $row", :p_loss),
         q_loss = _powerdata_real(st.q_loss, T, "storage $row", :q_loss),
         status = Int(Bool(_get(st, :in_service, true))),
-    ) for (row, st) in enumerate(storage(net))]
+    )) for (row, st) in enumerate(storage(net))]
 
     return (;
         version = "2",
@@ -402,7 +422,7 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
     gen_rows = GenRow[
         let (model_poly, startup, shutdown, ncost, c) =
                 _cost_tuple(g, T, base; normalized=false)
-            (;
+            GenRow((;
                 i,
                 bus = id_to_idx[Int(g.bus)],
                 pg = T(g.pg) / base,
@@ -419,7 +439,7 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
                 shutdown,
                 n = ncost,
                 c,
-            )
+            ))
         end
         for (i, g) in enumerate(kept_gens)
     ]
@@ -473,7 +493,7 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
             x = _powerdata_real(br.x, T, label, :br_x)
             c1, c2, c3, c4, c5, c6, c7, c8 =
                 _branch_coeffs(r, x, b_fr, b_to, g_fr, g_to, tap, shift)
-            (;
+            BranchRow((;
                 i,
                 f_bus = f,
                 t_bus = t,
@@ -494,18 +514,18 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
                 f_idx = i,
                 t_idx = i + m,
                 c1, c2, c3, c4, c5, c6, c7, c8,
-            )
+            ))
         end
         for (i, br) in enumerate(kept_branches)
     ]
     ArcRow = _powerdata_arc_row_type(T)
     arc_rows = vcat(
-        ArcRow[(; i, bus = br.f_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
-        ArcRow[(; i = i + m, bus = br.t_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
+        ArcRow[ArcRow((; i, bus = br.f_bus, rate_a = br.rate_a)) for (i, br) in enumerate(branch_rows)],
+        ArcRow[ArcRow((; i = i + m, bus = br.t_bus, rate_a = br.rate_a)) for (i, br) in enumerate(branch_rows)],
     )
 
     StorageRow = _powerdata_storage_row_type(T)
-    storage_rows = StorageRow[(;
+    storage_rows = StorageRow[StorageRow((;
         i = row,
         storage_bus = Int(st.bus),
         Pexts = T(st.ps),
@@ -524,7 +544,7 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
         p_loss = T(st.p_loss),
         q_loss = T(st.q_loss),
         status = Int(Bool(st.in_service)),
-    ) for (row, st) in enumerate(storage(net))]
+    )) for (row, st) in enumerate(storage(net))]
 
     return (;
         version = "2",

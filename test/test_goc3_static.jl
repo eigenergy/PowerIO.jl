@@ -213,3 +213,65 @@
     @test [r.t for r in jtk_dc] == [1, 2, 1, 2]
     @test jtk_dc[1].ctg == 1 && jtk_dc[1].j_dc == 1
 end
+
+# A real ARPA-E GO Competition Challenge 3 case, parsed from a JSON file, exercises
+# the file-read branch of parse_goc3_json (the in-memory doc above covers the
+# IOBuffer/Dict paths) and runs the five SCOPF builders at real scale. The case is
+# `14bus_20220707.json` from GOCompetition's own C3DataUtilities validation repo
+# (pinned commit), a 14-bus 24-period scenario. At ~340 KB it is too large to vendor,
+# so it is git-ignored (see .gitignore) and fetched on demand: in CI, and locally the
+# first time this runs. If it is absent and cannot be downloaded (offline), the test
+# skips, mirroring how the C-ABI tests skip when the native library is missing.
+const GOC3_REAL_CASE_URL =
+    "https://raw.githubusercontent.com/GOCompetition/C3DataUtilities/" *
+    "bb5df337553b21ab8be89ae5f9106958541730d4/test_data/14bus_20220707.json"
+
+@testset "GOC3 static index sets from a real Challenge 3 case" begin
+    path = joinpath(@__DIR__, "data", "goc3_14bus_20220707.json")
+    if !isfile(path)
+        try
+            Base.download(GOC3_REAL_CASE_URL, path)
+        catch err
+            isfile(path) && rm(path; force = true)  # drop a partial download
+            @info "GOC3 real-case fixture unavailable (offline?); skipping real-case parse" exception = err
+        end
+    end
+
+    if !isfile(path)
+        @test_skip PowerIO.parse_goc3_json(path)
+    else
+        data = PowerIO.parse_goc3_json(path)
+        @test length(data.bus_ids) == 14
+        @test data.periods == 1:24
+
+        sc_data, lengths, cost_pr, cost_cs = PowerIO.goc3_static_data(data)
+        # Counts pinned to this specific scenario (14 buses, 17 AC lines, 3 transformers,
+        # no DC lines, 6 producers, 11 consumers, 24 periods).
+        @test lengths.I == 14
+        @test (lengths.L_J_ln, lengths.L_J_xf, lengths.L_J_dc) == (17, 3, 0)
+        @test (lengths.L_J_pr, lengths.L_J_cs, lengths.L_T) == (6, 11, 24)
+        @test length(sc_data.prod) == 6 && length(sc_data.cons) == 11
+        @test [b.i for b in sc_data.bus] == collect(1:14)
+        for rows in (sc_data.bus, sc_data.acl_branch, sc_data.acx_branch, sc_data.dc_branch,
+                     sc_data.prod, sc_data.cons, cost_pr, cost_cs)
+            @test isconcretetype(eltype(rows)) && eltype(rows) !== Any
+        end
+
+        ew = PowerIO.goc3_energy_windows(data)
+        for rows in (ew.W_en_max_pr, ew.W_en_max_cs, ew.W_en_min_pr, ew.W_en_min_cs)
+            @test isconcretetype(eltype(rows)) && eltype(rows) !== Any
+        end
+
+        pjtm_pr, pjtm_cs = PowerIO.goc3_price_blocks(cost_pr, cost_cs)
+        # Total (device, period, cost-block) rows, pinned to this scenario's cost curves.
+        @test length(pjtm_pr) == 720 && length(pjtm_cs) == 1056
+
+        surv = PowerIO.goc3_ac_contingency_survivors(data, lengths)
+        @test length(surv.ln) == 19 && length(surv.xf) == 19      # one group per contingency
+        @test all(isconcretetype(eltype(r)) && eltype(r) !== Any for r in surv.ln)
+        @test all(isconcretetype(eltype(r)) && eltype(r) !== Any for r in surv.xf)
+
+        jtk_dc = PowerIO.goc3_dc_contingency_flows(data)
+        @test isempty(jtk_dc)                                     # no DC lines in this case
+    end
+end
