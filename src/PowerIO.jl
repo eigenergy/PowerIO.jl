@@ -76,10 +76,11 @@ export calc_admittance_matrix, calc_susceptance_matrix, calc_incidence_matrix,
 export to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
        read_gridfm, read_gridfm_scenarios
 
-# GO Challenge 3 (general, format-neutral SCOPF input data)
-export parse_goc3_json, goc3_status_flags, goc3_add_status_flags!, goc3_static_data,
-       goc3_energy_windows, goc3_price_blocks, goc3_ac_contingency_survivors,
-       goc3_dc_contingency_flows, goc3_interval_bounds
+# GO Challenge 3 (general, format-neutral SCOPF input data). The per-class index-set
+# builders (goc3_static_data, goc3_energy_windows, goc3_price_blocks,
+# goc3_ac_contingency_survivors, goc3_dc_contingency_flows) emit consumer-shaped rows
+# and stay unexported; call them qualified (PowerIO.goc3_static_data, ...).
+export parse_goc3_json, goc3_status_flags, goc3_add_status_flags!, goc3_interval_bounds
 
 # .pio.json network packages (Rust pkg feature)
 export NetworkPackage, CompilerPackage, to_package, from_package, read_package, write_package,

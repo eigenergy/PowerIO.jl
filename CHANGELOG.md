@@ -11,10 +11,15 @@ ABI artifacts remain the v0.6.3 binaries.
   `j`, `j_ac`, and combined reserve `n`.
 - `goc3_static_data`, `goc3_energy_windows`, `goc3_price_blocks`,
   `goc3_ac_contingency_survivors`, and `goc3_dc_contingency_flows` return
-  concrete row vector types for empty and nonempty GOC3 sets.
-- The ExaModels bridge returns concrete empty storage rows and typed storage
-  bound vectors so GPU backends can adapt parsed PowerData without seeing
-  abstract `NamedTuple` vectors.
+  concrete row vector types for empty and nonempty GOC3 sets. These index-set
+  builders emit consumer-shaped rows and are unexported; call them qualified
+  (`PowerIO.goc3_static_data`, ...). The exported GOC3 surface is
+  `parse_goc3_json`, `goc3_status_flags`, `goc3_add_status_flags!`, and
+  `goc3_interval_bounds`.
+- The ExaModels bridge builds bus, gen, branch, arc, and storage rows into
+  concrete row types, so an empty gen/branch/arc/storage section stays a
+  concrete `Vector{Row}` instead of inferring `Vector{Any}`, and GPU backends
+  can adapt parsed PowerData without seeing abstract `NamedTuple` vectors.
 - The test suite and manual registration workflow now require the top
   `CHANGELOG.md` section to match the package version before a release can move
   forward.

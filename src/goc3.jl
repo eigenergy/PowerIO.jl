@@ -212,6 +212,13 @@ end
 # commitment solution or on model state.
 # ---------------------------------------------------------------------------
 
+"""
+    goc3_bus_id(data, uid) -> Int
+
+Map a GOC3 bus `uid` to its 1-based row index in the parsed bus table, using the
+`bus_id_by_uid` lookup built by [`parse_goc3_json`](@ref). The result indexes
+`data.bus_lookup` and the per-bus vectors the SCOPF index-set builders return.
+"""
 goc3_bus_id(data, uid::AbstractString) = data.bus_id_by_uid[String(uid)]
 
 # Trailing integer of a GOC3 uid (e.g. "acl_07" -> 7). Used to build per-class

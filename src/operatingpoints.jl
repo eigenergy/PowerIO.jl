@@ -55,10 +55,11 @@ constructor is not advertised as usable.
 struct OperatingPointSeries
     time_axis::TimeAxis
     points::Vector{OperatingPoint}
+    OperatingPointSeries(::TimeAxis, ::Vector{OperatingPoint}) = error(_OPS_UNAVAILABLE)
 end
 
-# Forward declarations: zero-method generic functions reserve the names for the binding to
-# implement once the C ABI exposes operating-point construct/attach.
+# Reserve these names for the binding to implement once the C ABI exposes operating-point
+# construct/attach; the catch-all methods below throw until then.
 function operating_point_series end
 function materialize_operating_point_series end
 

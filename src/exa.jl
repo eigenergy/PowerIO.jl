@@ -108,6 +108,66 @@ _powerdata_storage_row_type(::Type{T}) where {T<:Real} = @NamedTuple{
     status::Int,
 }
 
+# Gen/branch/arc rows are built into these concrete row types (as storage is
+# above) so an empty section yields a concrete `Vector{Row}` rather than a
+# `map`/comprehension inferring `Vector{Any}` off a non-inferable body. The
+# field lists and their order MUST match the row literals below verbatim, or the
+# typed comprehension's `convert` throws on the first row.
+_powerdata_gen_row_type(::Type{T}) where {T<:Real} = @NamedTuple{
+    i::Int,
+    bus::Int,
+    pg::T,
+    qg::T,
+    qmax::T,
+    qmin::T,
+    vg::T,
+    mbase::T,
+    status::Int,
+    pmax::T,
+    pmin::T,
+    model_poly::Bool,
+    startup::T,
+    shutdown::T,
+    n::Int,
+    c::Tuple{T,T,T},
+}
+
+_powerdata_branch_row_type(::Type{T}) where {T<:Real} = @NamedTuple{
+    i::Int,
+    f_bus::Int,
+    t_bus::Int,
+    br_r::T,
+    br_x::T,
+    b_fr::T,
+    b_to::T,
+    g_fr::T,
+    g_to::T,
+    rate_a::T,
+    rate_b::T,
+    rate_c::T,
+    tap::T,
+    shift::T,
+    status::Int,
+    angmin::T,
+    angmax::T,
+    f_idx::Int,
+    t_idx::Int,
+    c1::T,
+    c2::T,
+    c3::T,
+    c4::T,
+    c5::T,
+    c6::T,
+    c7::T,
+    c8::T,
+}
+
+_powerdata_arc_row_type(::Type{T}) where {T<:Real} = @NamedTuple{
+    i::Int,
+    bus::Int,
+    rate_a::T,
+}
+
 function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Real}
     base = _powerdata_real(base_mva(net), T, "network", :base_mva)
     raw_buses = collect(buses(net))
@@ -156,75 +216,83 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
     end
 
     kept_gens = [g for g in generators(net) if get(id_to_idx, Int(g.bus), 0) != 0]
-    gen_rows = map(enumerate(kept_gens)) do (i, g)
-        model_poly, startup, shutdown, ncost, c =
-            _cost_tuple(g, T, base; normalized=true)
-        (;
-            i,
-            bus = id_to_idx[Int(g.bus)],
-            pg = _powerdata_real(g.pg, T, "generator $i", :pg),
-            qg = _powerdata_real(g.qg, T, "generator $i", :qg),
-            qmax = _powerdata_real(g.qmax, T, "generator $i", :qmax),
-            qmin = _powerdata_real(g.qmin, T, "generator $i", :qmin),
-            vg = _powerdata_real(g.vg, T, "generator $i", :vg),
-            mbase = _powerdata_real(g.mbase, T, "generator $i", :mbase),
-            status = Int(Bool(_get(g, :in_service, true))),
-            pmax = _powerdata_real(g.pmax, T, "generator $i", :pmax),
-            pmin = _powerdata_real(g.pmin, T, "generator $i", :pmin),
-            model_poly,
-            startup,
-            shutdown,
-            n = ncost,
-            c,
-        )
-    end
+    GenRow = _powerdata_gen_row_type(T)
+    gen_rows = GenRow[
+        let (model_poly, startup, shutdown, ncost, c) =
+                _cost_tuple(g, T, base; normalized=true)
+            (;
+                i,
+                bus = id_to_idx[Int(g.bus)],
+                pg = _powerdata_real(g.pg, T, "generator $i", :pg),
+                qg = _powerdata_real(g.qg, T, "generator $i", :qg),
+                qmax = _powerdata_real(g.qmax, T, "generator $i", :qmax),
+                qmin = _powerdata_real(g.qmin, T, "generator $i", :qmin),
+                vg = _powerdata_real(g.vg, T, "generator $i", :vg),
+                mbase = _powerdata_real(g.mbase, T, "generator $i", :mbase),
+                status = Int(Bool(_get(g, :in_service, true))),
+                pmax = _powerdata_real(g.pmax, T, "generator $i", :pmax),
+                pmin = _powerdata_real(g.pmin, T, "generator $i", :pmin),
+                model_poly,
+                startup,
+                shutdown,
+                n = ncost,
+                c,
+            )
+        end
+        for (i, g) in enumerate(kept_gens)
+    ]
 
     kept_branches = [br for br in branches(net)
                      if get(id_to_idx, Int(br.from), 0) != 0 &&
                         get(id_to_idx, Int(br.to), 0) != 0]
     m = length(kept_branches)
-    branch_rows = map(enumerate(kept_branches)) do (i, br)
-        label = "branch $i"
-        f = id_to_idx[Int(br.from)]
-        t = id_to_idx[Int(br.to)]
-        tap_raw = _powerdata_real(br.tap, T, label, :tap)
-        tap = isapprox(tap_raw, zero(T)) ? one(T) : tap_raw
-        shift = _powerdata_real(br.shift, T, label, :shift)
-        b = _powerdata_real(br.b, T, label, :b)
-        b_fr = b / T(2)
-        b_to = b / T(2)
-        g_fr = zero(T)
-        g_to = zero(T)
-        r = _powerdata_real(br.r, T, label, :br_r)
-        x = _powerdata_real(br.x, T, label, :br_x)
-        c1, c2, c3, c4, c5, c6, c7, c8 =
-            _branch_coeffs(r, x, b_fr, b_to, g_fr, g_to, tap, shift)
-        (;
-            i,
-            f_bus = f,
-            t_bus = t,
-            br_r = r,
-            br_x = x,
-            b_fr,
-            b_to,
-            g_fr,
-            g_to,
-            rate_a = _powerdata_real(br.rate_a, T, label, :rate_a),
-            rate_b = _powerdata_real(br.rate_b, T, label, :rate_b),
-            rate_c = _powerdata_real(br.rate_c, T, label, :rate_c),
-            tap,
-            shift,
-            status = Int(Bool(_get(br, :in_service, true))),
-            angmin = _powerdata_real(br.angmin, T, label, :angmin),
-            angmax = _powerdata_real(br.angmax, T, label, :angmax),
-            f_idx = i,
-            t_idx = i + m,
-            c1, c2, c3, c4, c5, c6, c7, c8,
-        )
-    end
+    BranchRow = _powerdata_branch_row_type(T)
+    branch_rows = BranchRow[
+        let
+            label = "branch $i"
+            f = id_to_idx[Int(br.from)]
+            t = id_to_idx[Int(br.to)]
+            tap_raw = _powerdata_real(br.tap, T, label, :tap)
+            tap = isapprox(tap_raw, zero(T)) ? one(T) : tap_raw
+            shift = _powerdata_real(br.shift, T, label, :shift)
+            b = _powerdata_real(br.b, T, label, :b)
+            b_fr = b / T(2)
+            b_to = b / T(2)
+            g_fr = zero(T)
+            g_to = zero(T)
+            r = _powerdata_real(br.r, T, label, :br_r)
+            x = _powerdata_real(br.x, T, label, :br_x)
+            c1, c2, c3, c4, c5, c6, c7, c8 =
+                _branch_coeffs(r, x, b_fr, b_to, g_fr, g_to, tap, shift)
+            (;
+                i,
+                f_bus = f,
+                t_bus = t,
+                br_r = r,
+                br_x = x,
+                b_fr,
+                b_to,
+                g_fr,
+                g_to,
+                rate_a = _powerdata_real(br.rate_a, T, label, :rate_a),
+                rate_b = _powerdata_real(br.rate_b, T, label, :rate_b),
+                rate_c = _powerdata_real(br.rate_c, T, label, :rate_c),
+                tap,
+                shift,
+                status = Int(Bool(_get(br, :in_service, true))),
+                angmin = _powerdata_real(br.angmin, T, label, :angmin),
+                angmax = _powerdata_real(br.angmax, T, label, :angmax),
+                f_idx = i,
+                t_idx = i + m,
+                c1, c2, c3, c4, c5, c6, c7, c8,
+            )
+        end
+        for (i, br) in enumerate(kept_branches)
+    ]
+    ArcRow = _powerdata_arc_row_type(T)
     arc_rows = vcat(
-        [(; i, bus = br.f_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
-        [(; i = i + m, bus = br.t_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
+        ArcRow[(; i, bus = br.f_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
+        ArcRow[(; i = i + m, bus = br.t_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
     )
 
     StorageRow = _powerdata_storage_row_type(T)
@@ -330,28 +398,31 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
     ]
 
     kept_gens = [g for g in generators(net) if get(id_to_idx, Int(g.bus), 0) != 0]
-    gen_rows = map(enumerate(kept_gens)) do (i, g)
-        model_poly, startup, shutdown, ncost, c =
-            _cost_tuple(g, T, base; normalized=false)
-        (;
-            i,
-            bus = id_to_idx[Int(g.bus)],
-            pg = T(g.pg) / base,
-            qg = T(g.qg) / base,
-            qmax = T(g.qmax) / base,
-            qmin = T(g.qmin) / base,
-            vg = T(g.vg),
-            mbase = T(g.mbase),
-            status = Int(Bool(g.in_service)),
-            pmax = T(g.pmax) / base,
-            pmin = T(g.pmin) / base,
-            model_poly,
-            startup,
-            shutdown,
-            n = ncost,
-            c,
-        )
-    end
+    GenRow = _powerdata_gen_row_type(T)
+    gen_rows = GenRow[
+        let (model_poly, startup, shutdown, ncost, c) =
+                _cost_tuple(g, T, base; normalized=false)
+            (;
+                i,
+                bus = id_to_idx[Int(g.bus)],
+                pg = T(g.pg) / base,
+                qg = T(g.qg) / base,
+                qmax = T(g.qmax) / base,
+                qmin = T(g.qmin) / base,
+                vg = T(g.vg),
+                mbase = T(g.mbase),
+                status = Int(Bool(g.in_service)),
+                pmax = T(g.pmax) / base,
+                pmin = T(g.pmin) / base,
+                model_poly,
+                startup,
+                shutdown,
+                n = ncost,
+                c,
+            )
+        end
+        for (i, g) in enumerate(kept_gens)
+    ]
 
     # In-service generators mark their bus and drive the slack fallback below.
     has_gen = falses(length(bus_rows))
@@ -384,48 +455,53 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
                      if get(id_to_idx, Int(br.from), 0) != 0 &&
                         get(id_to_idx, Int(br.to), 0) != 0]
     m = length(kept_branches)
-    branch_rows = map(enumerate(kept_branches)) do (i, br)
-        f = id_to_idx[Int(br.from)]
-        t = id_to_idx[Int(br.to)]
-        label = "branch $i"
-        tap_raw = _powerdata_real(br.tap, T, label, :tap)
-        tap = isapprox(tap_raw, zero(T)) ? one(T) : tap_raw
-        shift = _powerdata_real(br.shift, T, label, :shift) / T(180) * T(pi)
-        b = _powerdata_real(br.b, T, label, :b)
-        b_fr = b / T(2)
-        b_to = b / T(2)
-        g_fr = zero(T)
-        g_to = zero(T)
-        r = _powerdata_real(br.r, T, label, :br_r)
-        x = _powerdata_real(br.x, T, label, :br_x)
-        c1, c2, c3, c4, c5, c6, c7, c8 =
-            _branch_coeffs(r, x, b_fr, b_to, g_fr, g_to, tap, shift)
-        (;
-            i,
-            f_bus = f,
-            t_bus = t,
-            br_r = r,
-            br_x = x,
-            b_fr,
-            b_to,
-            g_fr,
-            g_to,
-            rate_a = _powerdata_real(br.rate_a, T, label, :rate_a) / base,
-            rate_b = _powerdata_real(br.rate_b, T, label, :rate_b) / base,
-            rate_c = _powerdata_real(br.rate_c, T, label, :rate_c) / base,
-            tap,
-            shift,
-            status = Int(Bool(br.in_service)),
-            angmin = _powerdata_real(br.angmin, T, label, :angmin) / T(180) * T(pi),
-            angmax = _powerdata_real(br.angmax, T, label, :angmax) / T(180) * T(pi),
-            f_idx = i,
-            t_idx = i + m,
-            c1, c2, c3, c4, c5, c6, c7, c8,
-        )
-    end
+    BranchRow = _powerdata_branch_row_type(T)
+    branch_rows = BranchRow[
+        let
+            f = id_to_idx[Int(br.from)]
+            t = id_to_idx[Int(br.to)]
+            label = "branch $i"
+            tap_raw = _powerdata_real(br.tap, T, label, :tap)
+            tap = isapprox(tap_raw, zero(T)) ? one(T) : tap_raw
+            shift = _powerdata_real(br.shift, T, label, :shift) / T(180) * T(pi)
+            b = _powerdata_real(br.b, T, label, :b)
+            b_fr = b / T(2)
+            b_to = b / T(2)
+            g_fr = zero(T)
+            g_to = zero(T)
+            r = _powerdata_real(br.r, T, label, :br_r)
+            x = _powerdata_real(br.x, T, label, :br_x)
+            c1, c2, c3, c4, c5, c6, c7, c8 =
+                _branch_coeffs(r, x, b_fr, b_to, g_fr, g_to, tap, shift)
+            (;
+                i,
+                f_bus = f,
+                t_bus = t,
+                br_r = r,
+                br_x = x,
+                b_fr,
+                b_to,
+                g_fr,
+                g_to,
+                rate_a = _powerdata_real(br.rate_a, T, label, :rate_a) / base,
+                rate_b = _powerdata_real(br.rate_b, T, label, :rate_b) / base,
+                rate_c = _powerdata_real(br.rate_c, T, label, :rate_c) / base,
+                tap,
+                shift,
+                status = Int(Bool(br.in_service)),
+                angmin = _powerdata_real(br.angmin, T, label, :angmin) / T(180) * T(pi),
+                angmax = _powerdata_real(br.angmax, T, label, :angmax) / T(180) * T(pi),
+                f_idx = i,
+                t_idx = i + m,
+                c1, c2, c3, c4, c5, c6, c7, c8,
+            )
+        end
+        for (i, br) in enumerate(kept_branches)
+    ]
+    ArcRow = _powerdata_arc_row_type(T)
     arc_rows = vcat(
-        [(; i, bus = br.f_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
-        [(; i = i + m, bus = br.t_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
+        ArcRow[(; i, bus = br.f_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
+        ArcRow[(; i = i + m, bus = br.t_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
     )
 
     StorageRow = _powerdata_storage_row_type(T)

@@ -42,6 +42,24 @@
     @test isdefined(PowerIO, :LoadSeries)
     @test isdefined(PowerIO, :read_load_series)
     @test :LoadSeries ∉ names(PowerIO)
+    # The GOC3 SCOPF index-set builders emit consumer-shaped rows; they are defined
+    # but unexported (consumers call them qualified as PowerIO.goc3_*).
+    for sym in (:goc3_static_data, :goc3_energy_windows, :goc3_price_blocks,
+                :goc3_ac_contingency_survivors, :goc3_dc_contingency_flows)
+        @test isdefined(PowerIO, sym)
+        @test sym ∉ names(PowerIO)
+    end
+    # ExaModels PowerData row containers must be concrete isbits so an empty
+    # gen/branch/arc/storage section still moves to the GPU (guards the empty->Any
+    # inference bug the typed row containers fix).
+    for RT in (PowerIO._powerdata_gen_row_type(Float64),
+               PowerIO._powerdata_branch_row_type(Float64),
+               PowerIO._powerdata_arc_row_type(Float64),
+               PowerIO._powerdata_storage_row_type(Float64))
+        @test isconcretetype(RT)
+        @test isbitstype(RT)
+        @test eltype(RT[]) === RT
+    end
     @test isdefined(PowerIO, :NetworkHandle)  # deprecated alias of BalancedNetworkHandle
     @test PowerIO._lib() isa AbstractString
     @test PowerIO.PIO_ABI_VERSION isa Unsigned
