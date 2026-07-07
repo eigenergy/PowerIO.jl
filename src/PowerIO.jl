@@ -58,32 +58,49 @@ using Preferences: load_preference, set_preferences!
 import Libdl
 import SparseArrays
 
-export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_str,
-       to_format, to_normalized, to_normalized_with_options, to_json, to_dense,
-       to_matpower, to_arrow, calc_admittance_matrix, calc_susceptance_matrix,
-       calc_incidence_matrix, calc_bprime_matrix, calc_bdoubleprime_matrix,
-       ArrowTable, release_c_data, write_pypsa_csv_folder, to_powermodels, from_powermodels,
-       to_powerdata, parse_ac_power_data, read_gridfm, read_gridfm_scenarios,
-       parse_goc3_json, goc3_status_flags, goc3_add_status_flags!,
-       goc3_static_data, goc3_energy_windows,
-       goc3_price_blocks, goc3_ac_contingency_survivors, goc3_dc_contingency_flows,
-       goc3_interval_bounds,
-       NetworkPackage, CompilerPackage, to_package, from_package, read_package, write_package,
+# Parsing and the parsed models
+export BalancedNetwork, MulticonductorNetwork, parse_file, parse_str, from_json
+
+# Conversion and serialization
+export convert_file, convert_str, to_format, to_normalized, to_normalized_with_options,
+       to_json, to_matpower, write_pypsa_csv_folder
+
+# Materialized numeric views
+export to_dense, to_arrow, ArrowTable, release_c_data
+
+# Sparse system matrices (Rust matrix feature)
+export calc_admittance_matrix, calc_susceptance_matrix, calc_incidence_matrix,
+       calc_bprime_matrix, calc_bdoubleprime_matrix
+
+# Ecosystem bridges (PowerModels, ExaModels, gridfm)
+export to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
+       read_gridfm, read_gridfm_scenarios
+
+# GO Challenge 3 (general, format-neutral SCOPF input data)
+export parse_goc3_json, goc3_status_flags, goc3_add_status_flags!, goc3_static_data,
+       goc3_energy_windows, goc3_price_blocks, goc3_ac_contingency_survivors,
+       goc3_dc_contingency_flows, goc3_interval_bounds
+
+# .pio.json network packages (Rust pkg feature)
+export NetworkPackage, CompilerPackage, to_package, from_package, read_package, write_package,
        package_model_kind, package_available, validate_package, package_validation,
        package_diagnostics, package_operating_points, package_study,
-       materialize_operating_point, materialize_study_commit,
-       multiconductor_to_balanced_preflight,
-       lower_multiconductor_to_balanced, arrow_available, gridfm_available,
-       matrix_available, features, MulticonductorNetwork, dist_available, dist_abi_version,
-       dist_capabilities, to_graph
+       materialize_operating_point, materialize_study_commit
+
+# Multiconductor distribution
+export multiconductor_to_balanced_preflight, lower_multiconductor_to_balanced,
+       dist_available, dist_abi_version, dist_capabilities
+
+# Graph projection and feature probes
+export to_graph, features, arrow_available, gridfm_available, matrix_available
 
 include("capi.jl")        # library resolution, ABI handshake, BalancedNetworkHandle, buffer helpers
 include("network.jl")     # BalancedNetwork and the parse / convert / serialize verbs
 include("accessors.jl")   # element tables and scalar accessors
 include("dense.jl")       # to_dense: numeric tables straight from the C ABI extractors
 include("powermodels.jl") # PowerModels.jl network data bridge
-include("powerdata.jl")   # ExaPowerIO / ExaModelsPower PowerData bridge
-include("loadseries.jl")  # LoadSeries: dense per-period bus loads for ExaModelsPower
+include("exa.jl")         # ExaModels bridge: to_powerdata / parse_ac_power_data / LoadSeries
+include("operatingpoints.jl") # OperatingPointSeries skeleton (reserved; not yet functional)
 include("arrow.jl")       # Arrow C Data Interface export (feature arrow)
 include("matrix.jl")      # sparse matrices computed by the Rust matrix API
 include("gridfm.jl")      # gridfm-datakit Parquet reader (feature gridfm)
