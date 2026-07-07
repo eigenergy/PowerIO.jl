@@ -87,6 +87,27 @@ function _branch_coeffs(r::T, x::T, b_fr::T, b_to::T, g_fr::T, g_to::T,
     )
 end
 
+_powerdata_storage_row_type(::Type{T}) where {T<:Real} = @NamedTuple{
+    i::Int,
+    storage_bus::Int,
+    Pexts::T,
+    Qexts::T,
+    energy::T,
+    energy_rating::T,
+    charge_rating::T,
+    discharge_rating::T,
+    charge_efficiency::T,
+    discharge_efficiency::T,
+    thermal_rating::T,
+    qmin::T,
+    qmax::T,
+    Zr::T,
+    Zim::T,
+    p_loss::T,
+    q_loss::T,
+    status::Int,
+}
+
 function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Real}
     base = _powerdata_real(base_mva(net), T, "network", :base_mva)
     raw_buses = collect(buses(net))
@@ -206,7 +227,8 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
         [(; i = i + m, bus = br.t_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
     )
 
-    storage_rows = [(;
+    StorageRow = _powerdata_storage_row_type(T)
+    storage_rows = StorageRow[(;
         i = row,
         storage_bus = Int(st.bus),
         Pexts = _powerdata_real(st.ps, T, "storage $row", :ps),
@@ -406,7 +428,8 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
         [(; i = i + m, bus = br.t_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
     )
 
-    storage_rows = [(;
+    StorageRow = _powerdata_storage_row_type(T)
+    storage_rows = StorageRow[(;
         i = row,
         storage_bus = Int(st.bus),
         Pexts = T(st.ps),
@@ -473,10 +496,10 @@ function parse_ac_power_data(input; from=nothing, filtered::Bool=true,
         va0 = [b.va for b in pd.bus],
         pg0 = [g.pg for g in pd.gen],
         qg0 = [g.qg for g in pd.gen],
-        pdmax = [s.charge_rating for s in pd.storage],
-        pcmax = [s.discharge_rating for s in pd.storage],
-        srating = [s.thermal_rating for s in pd.storage],
-        emax = [s.energy_rating for s in pd.storage],
+        pdmax = T[s.charge_rating for s in pd.storage],
+        pcmax = T[s.discharge_rating for s in pd.storage],
+        srating = T[s.thermal_rating for s in pd.storage],
+        emax = T[s.energy_rating for s in pd.storage],
     )
 end
 
