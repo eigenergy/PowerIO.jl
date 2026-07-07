@@ -285,65 +285,64 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
         end
     end
 
-    bus_rows = NamedTuple[]
-    for b in raw_buses
-        id = Int(b.id)
-        keep_bus[id] || continue
-        i = id_to_idx[id]
-        push!(bus_rows, (;
-            i,
-            bus_i = id,
-            type = bus_type_code(String(b.kind)),
-            pd = pd[i],
-            qd = qd[i],
-            gs = gs[i],
-            bs = bs[i],
-            area = Int(b.area),
-            vm = T(b.vm),
-            va = T(b.va),
-            baseKV = T(b.base_kv),
-            zone = Int(b.zone),
-            vmax = T(b.vmax),
-            vmin = T(b.vmin),
-        ))
-    end
+    bus_rows = [
+        let id = Int(b.id), i = id_to_idx[id]
+            (;
+                i,
+                bus_i = id,
+                type = bus_type_code(String(b.kind)),
+                pd = pd[i],
+                qd = qd[i],
+                gs = gs[i],
+                bs = bs[i],
+                area = Int(b.area),
+                vm = T(b.vm),
+                va = T(b.va),
+                baseKV = T(b.base_kv),
+                zone = Int(b.zone),
+                vmax = T(b.vmax),
+                vmin = T(b.vmin),
+            )
+        end
+        for b in raw_buses if keep_bus[Int(b.id)]
+    ]
 
-    gen_rows = NamedTuple[]
-    has_gen = falses(length(bus_rows))
-    biggest_gen_bus = 0
-    biggest_gen_pmax = typemin(T)
-    for (row, g) in enumerate(generators(net))
-        idx = get(id_to_idx, Int(g.bus), 0)
-        idx == 0 && continue
-        status = Bool(g.in_service)
-        filtered && !status && continue
+    kept_gens = [g for g in generators(net) if get(id_to_idx, Int(g.bus), 0) != 0]
+    gen_rows = map(enumerate(kept_gens)) do (i, g)
         model_poly, startup, shutdown, ncost, c =
             _cost_tuple(g, T, base; normalized=false)
-        pmax = T(g.pmax) / base
-        push!(gen_rows, (;
-            i = length(gen_rows) + 1,
-            bus = idx,
+        (;
+            i,
+            bus = id_to_idx[Int(g.bus)],
             pg = T(g.pg) / base,
             qg = T(g.qg) / base,
             qmax = T(g.qmax) / base,
             qmin = T(g.qmin) / base,
             vg = T(g.vg),
             mbase = T(g.mbase),
-            status = Int(status),
-            pmax,
+            status = Int(Bool(g.in_service)),
+            pmax = T(g.pmax) / base,
             pmin = T(g.pmin) / base,
             model_poly,
             startup,
             shutdown,
             n = ncost,
             c,
-        ))
-        if status
-            has_gen[idx] = true
-            if pmax > biggest_gen_pmax
-                biggest_gen_pmax = pmax
-                biggest_gen_bus = idx
-            end
+        )
+    end
+
+    # In-service generators mark their bus and drive the slack fallback below.
+    has_gen = falses(length(bus_rows))
+    biggest_gen_bus = 0
+    biggest_gen_pmax = typemin(T)
+    for g in kept_gens
+        Bool(g.in_service) || continue
+        idx = id_to_idx[Int(g.bus)]
+        has_gen[idx] = true
+        pmax = T(g.pmax) / base
+        if pmax > biggest_gen_pmax
+            biggest_gen_pmax = pmax
+            biggest_gen_bus = idx
         end
     end
 
@@ -359,18 +358,11 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
         bus_rows[biggest_gen_bus] = merge(bus_rows[biggest_gen_bus], (; type = 3))
     end
 
-    kept_branches = Any[]
-    for br in branches(net)
-        f = get(id_to_idx, Int(br.from), 0)
-        t = get(id_to_idx, Int(br.to), 0)
-        (f == 0 || t == 0) && continue
-        status = Bool(br.in_service)
-        filtered && !status && continue
-        push!(kept_branches, br)
-    end
+    kept_branches = [br for br in branches(net)
+                     if get(id_to_idx, Int(br.from), 0) != 0 &&
+                        get(id_to_idx, Int(br.to), 0) != 0]
     m = length(kept_branches)
-    branch_rows = NamedTuple[]
-    for (i, br) in enumerate(kept_branches)
+    branch_rows = map(enumerate(kept_branches)) do (i, br)
         f = id_to_idx[Int(br.from)]
         t = id_to_idx[Int(br.to)]
         label = "branch $i"
@@ -386,7 +378,7 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
         x = _powerdata_real(br.x, T, label, :br_x)
         c1, c2, c3, c4, c5, c6, c7, c8 =
             _branch_coeffs(r, x, b_fr, b_to, g_fr, g_to, tap, shift)
-        push!(branch_rows, (;
+        (;
             i,
             f_bus = f,
             t_bus = t,
@@ -407,15 +399,12 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
             f_idx = i,
             t_idx = i + m,
             c1, c2, c3, c4, c5, c6, c7, c8,
-        ))
+        )
     end
-    arc_rows = NamedTuple[]
-    for (i, br) in enumerate(branch_rows)
-        push!(arc_rows, (; i, bus = br.f_bus, rate_a = br.rate_a))
-    end
-    for (i, br) in enumerate(branch_rows)
-        push!(arc_rows, (; i = i + m, bus = br.t_bus, rate_a = br.rate_a))
-    end
+    arc_rows = vcat(
+        [(; i, bus = br.f_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
+        [(; i = i + m, bus = br.t_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
+    )
 
     storage_rows = [(;
         i = row,

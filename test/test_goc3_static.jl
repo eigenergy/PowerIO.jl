@@ -78,13 +78,12 @@
     )
 
     data = PowerIO.parse_goc3_json(IOBuffer(JSON3.write(doc)))
-    producers_first = true   # sd_00 (producer) is the minimum uid
 
     # --- interval helper ---------------------------------------------------
     @test PowerIO.goc3_interval_bounds([1.0, 1.0], 2) == (1.0, 1.5, 2.0)
 
     # --- static data -------------------------------------------------------
-    sc_data, lengths, cost_pr, cost_cs = PowerIO.goc3_static_data(data, producers_first)
+    sc_data, lengths, cost_pr, cost_cs = PowerIO.goc3_static_data(data)
     @test lengths.L_J_ln == 2
     @test lengths.L_J_xf == 1
     @test lengths.L_J_ac == 3
@@ -100,7 +99,9 @@
     @test length(sc_data.prod) == 1 && sc_data.prod[1].uid == "sd_00"
     @test length(sc_data.cons) == 1 && sc_data.cons[1].uid == "sd_01"
     @test sc_data.acl_branch[1].j_ln == 1 && sc_data.acl_branch[2].j_ln == 2
-    @test sc_data.acx_branch[1].j_ac == 3   # j_xf(1) + L_J_ln(2)
+    @test sc_data.acx_branch[1].j_xf == 1   # per-class only; client adds j_ac = j_xf + L_J_ln
+    @test !hasproperty(sc_data.acx_branch[1], :j_ac)
+    @test !hasproperty(sc_data.acl_branch[1], :j_ac)
     @test sc_data.dc_branch[1].j_dc == 1
     @test isempty(sc_data.vpd) && isempty(sc_data.vwr)      # bounds equal -> fixed
     @test length(sc_data.fpd) == 1 && length(sc_data.fwr) == 1
