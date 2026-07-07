@@ -10,7 +10,7 @@
                 :to_powermodels, :from_powermodels, :to_powerdata,
                 :parse_ac_power_data, :LoadSeries, :read_load_series, :n_periods,
                 :read_gridfm, :read_gridfm_scenarios,
-                :parse_goc3_json, :goc3_scopf_data, :Goc3ScopfData,
+                :parse_goc3_json, :goc3_scopf_data, :ScopfInstance,
                 :goc3_status_flags, :goc3_add_status_flags!, :goc3_interval_bounds,
                 :NetworkPackage, :CompilerPackage, :to_package, :from_package, :read_package,
                 :write_package, :package_model_kind, :package_available,
@@ -43,7 +43,7 @@
     # OperatingPointSeries name is reserved for the coming format-neutral series.
     @test :LoadSeries ∈ names(PowerIO)
     @test :goc3_scopf_data ∈ names(PowerIO)
-    @test :Goc3ScopfData ∈ names(PowerIO)
+    @test :ScopfInstance ∈ names(PowerIO)
     # The individual GOC3 index-set builders behind goc3_scopf_data are internal:
     # defined but unexported (consumers call goc3_scopf_data).
     for sym in (:_goc3_static_data, :_goc3_energy_windows, :_goc3_price_blocks,

@@ -215,7 +215,7 @@
 
     # --- goc3_scopf_data: one exported call == the internal builders -------
     scd = PowerIO.goc3_scopf_data(data)
-    @test scd isa PowerIO.Goc3ScopfData
+    @test scd isa PowerIO.ScopfInstance
     @test scd.static == sc_data
     @test scd.lengths == lengths
     @test scd.energy_windows == ew

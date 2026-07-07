@@ -764,29 +764,25 @@ function _goc3_dc_contingency_flows(data)
 end
 
 """
-    Goc3ScopfData
+    ScopfInstance
 
-Bundle of the static, format-neutral GOC3 security-constrained OPF index sets
-returned by [`goc3_scopf_data`](@ref). Every field is keyed by `uid` and per-class
-GOC3 ordering (`j_ln`/`j_xf`/`j_dc`/`n_p`/`n_q`); none carries a model-specific
-stacked variable index.
+A derived, format-neutral security-constrained OPF instance built from a parsed GOC3
+case by [`goc3_scopf_data`](@ref) — the SCOPF analog of the Rust core's DC-OPF
+`OpfInstance` (`powerio-matrix`). Every field is keyed by `uid` and per-class GOC3
+ordering (`j_ln`/`j_xf`/`j_dc`/`n_p`/`n_q`), with no model-specific stacked variable
+index. GOC3 is the input format, not this type: like `OpfInstance`, it is a projection a
+client reads to build a model, not a stored representation of a format.
 
-This is a consumer *view*, not a canonical storage type. Its topology and per-period
-limit fields project onto the general PowerIO IR; its reserve, energy-window, and
-contingency fields have no IR representation yet (see [`goc3_scopf_data`](@ref) for the
-retirement path and its limits). Fields:
-
+Fields:
 - `static` — buses, shunts, AC/DC branches, transformer control sets, producers,
   consumers, zonal reserves, and device-zone membership sets.
-- `lengths` — the per-class set sizes (`L_J_ln`, `L_J_xf`, `L_J_ac`, ...).
-- `energy_windows` — producer/consumer min and max energy windows and their period
-  memberships.
+- `lengths` — the per-class set sizes.
+- `energy_windows` — producer/consumer min and max energy windows and period memberships.
 - `price_blocks` — `(producer, consumer)`, one row per (device, period, cost block).
-- `ac_contingency_survivors` — `(ln, xf)`, per-contingency surviving AC lines and
-  transformers.
+- `ac_contingency_survivors` — `(ln, xf)`, per-contingency surviving AC lines/transformers.
 - `dc_contingency_flows` — the flattened surviving-DC-line set.
 """
-struct Goc3ScopfData{S,L,E,P,A,D}
+struct ScopfInstance{S,L,E,P,A,D}
     static::S
     lengths::L
     energy_windows::E
@@ -796,40 +792,33 @@ struct Goc3ScopfData{S,L,E,P,A,D}
 end
 
 """
-    goc3_scopf_data(data) -> Goc3ScopfData
+    goc3_scopf_data(data) -> ScopfInstance
 
-Build the full set of static, format-neutral GOC3 SCOPF index sets from a
-[`parse_goc3_json`](@ref) result in one call. This is the single supported entry
-point for GOC3 SCOPF extraction; it supersedes the individual `_goc3_*` builders,
-which are internal. Pure function of `data`: no unit commitment solution and no
-model-specific variable numbering are involved. A security-constrained OPF client
-reads the [`Goc3ScopfData`](@ref) fields and attaches its own stacked global
-variable indices and the UC status on top (see [`goc3_add_status_flags!`](@ref)).
+Build the security-constrained OPF instance from a [`parse_goc3_json`](@ref) result in
+one call, superseding the internal `_goc3_*` builders. Pure function of `data`: no unit
+commitment solution and no model-specific variable numbering. A client reads the
+[`ScopfInstance`](@ref) fields and attaches its own stacked variable indices and UC status
+(see [`goc3_add_status_flags!`](@ref)). This builds the derived instance only; a client
+still reads the parsed GOC3 case ([`parse_goc3_json`](@ref)) for the raw device, reserve,
+and violation-cost fields the instance does not carry.
 
-This is the entry point for the *derived* SCOPF index sets. It does not replace
-[`parse_goc3_json`](@ref): a client also reads the parsed GOC3 case (device, reserve,
-and violation-cost tables) off that result for the raw fields this bundle does not
-carry.
-
-Interim, and only partially retirable today. The static topology maps onto the parsed
-network, and per-period generator/branch bounds and status map onto the operating-point
-series. But reserves, multi-interval energy windows, and contingencies have no general
-IR representation yet: the Rust GOC3 reader retains `reliability`, `active_zonal_reserve`,
-`reactive_zonal_reserve`, `violation_cost`, and simple-dispatchable-device commitment/
-ramp/reserve/cost data in source only (see the warnings in `format/goc3.rs`), and the
-operating-point series is a per-period field overwrite that cannot express cross-period
-energy budgets. Fully retiring `goc3_scopf_data` therefore needs new general IR types (a
-reserve model, a contingency model, a temporal-constraint model), tracked in
-eigenergy/powerio#235. The aim is that `Goc3ScopfData` stays a consumer view projected
-over that IR rather than a GOC3-specific Rust type; for the GOC3 reserve-product taxonomy
-and energy windows that goal has a real tension (a general model must either drop the
-named products or encode them), so treat "no GOC3 anointed in the core" as the target,
-not a guarantee.
+Retirement mirrors the DC-OPF path: the Rust core builds `OpfInstance` from the general IR
+via `build_opf_instance` (`powerio-matrix`), and the target is a canonical Rust
+`ScopfInstance` built by the same kind of projection, which this function then binds — a
+body swap, no consumer change. That is blocked today because the IR cannot yet represent a
+`ScopfInstance`'s inputs: the Rust GOC3 reader keeps `reliability`, `active_zonal_reserve`,
+`reactive_zonal_reserve`, `violation_cost`, and dispatchable-device commitment/cost data
+source-only, and the operating-point series is a per-period field overwrite that cannot
+express cross-period energy budgets. Extending the IR with reserve, contingency, and
+temporal-constraint constructs is tracked in eigenergy/powerio#235. GOC3 stays a format
+and `ScopfInstance` is the derived instance (like `OpfInstance`), so no format is anointed
+in the core — though the GOC3 reserve-product taxonomy and energy windows leave a real
+tension a general model must resolve.
 """
 function goc3_scopf_data(data)
     static, lengths, cost_vector_pr, cost_vector_cs = _goc3_static_data(data)
     pb_pr, pb_cs = _goc3_price_blocks(cost_vector_pr, cost_vector_cs)
-    return Goc3ScopfData(
+    return ScopfInstance(
         static,
         lengths,
         _goc3_energy_windows(data),

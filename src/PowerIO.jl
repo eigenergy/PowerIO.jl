@@ -80,9 +80,9 @@ export to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
        read_gridfm, read_gridfm_scenarios
 
 # GO Challenge 3 (general, format-neutral SCOPF input data). `goc3_scopf_data` is the
-# single entry point: it returns a `Goc3ScopfData` of per-class index sets in one call.
+# single entry point: it returns a `ScopfInstance` of per-class index sets in one call.
 # The individual `_goc3_*` builders behind it are internal.
-export parse_goc3_json, goc3_scopf_data, Goc3ScopfData,
+export parse_goc3_json, goc3_scopf_data, ScopfInstance,
        goc3_status_flags, goc3_add_status_flags!, goc3_interval_bounds
 
 # .pio.json network packages (Rust pkg feature)
