@@ -5,17 +5,23 @@
 Julia side release for ExaModelsPower SCOPF parser integration. The shipped C
 ABI artifacts remain the v0.6.3 binaries.
 
-- GOC3 SCOPF helper APIs now expose format neutral rows with per class indices:
-  `j_ln` for AC lines, `j_xf` for transformers, `j_dc` for DC lines, and
-  `n_p`/`n_q` for reserve zones. Client models own stacked indices such as
-  `j`, `j_ac`, and combined reserve `n`.
-- `goc3_static_data`, `goc3_energy_windows`, `goc3_price_blocks`,
-  `goc3_ac_contingency_survivors`, and `goc3_dc_contingency_flows` return
-  concrete row vector types for empty and nonempty GOC3 sets. These index-set
-  builders emit consumer-shaped rows and are unexported; call them qualified
-  (`PowerIO.goc3_static_data`, ...). The exported GOC3 surface is
-  `parse_goc3_json`, `goc3_status_flags`, `goc3_add_status_flags!`, and
+- `goc3_scopf_data(data) -> Goc3ScopfData` is the single exported entry point for
+  GOC3 SCOPF extraction: one call returns the static topology, per-class index
+  sizes, energy windows, price blocks, and AC/DC contingency survivors. Rows are
+  format neutral with per class indices (`j_ln` AC lines, `j_xf` transformers,
+  `j_dc` DC lines, `n_p`/`n_q` reserve zones); client models own stacked indices
+  (`j`, `j_ac`, combined reserve `n`). The individual `_goc3_*` builders behind it
+  are internal. When the powerio Rust core grows this extraction (issue #235), the
+  function body becomes a `ccall` filling the same `Goc3ScopfData`, with no
+  consumer change.
+- The GOC3 row builders return concrete row vector types for empty and nonempty
+  sets. Exported GOC3 surface: `parse_goc3_json`, `goc3_scopf_data`,
+  `Goc3ScopfData`, `goc3_status_flags`, `goc3_add_status_flags!`,
   `goc3_interval_bounds`.
+- `LoadSeries`, `read_load_series`, and `n_periods` (the ExaModels multiperiod
+  load bridge) are now exported. `LoadSeries` is interim: its `pd`/`qd`/`bus_ids`/
+  `base_mva`/`n_periods` surface stays stable when a later release re-backs it with
+  the Rust `OperatingPointSeries` (issue #236), so no consumer change is required.
 - The ExaModels bridge builds bus, gen, branch, arc, and storage rows into
   concrete row types, so an empty gen/branch/arc/storage section stays a
   concrete `Vector{Row}` instead of inferring `Vector{Any}`, and GPU backends

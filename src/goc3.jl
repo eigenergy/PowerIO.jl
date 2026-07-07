@@ -243,7 +243,7 @@ function goc3_interval_bounds(dt, t)
 end
 
 """
-    goc3_static_data(data)
+    _goc3_static_data(data)
 
 Build the static SCOPF index sets from a `parse_goc3_json` result. Returns
 `(sc_data, lengths, cost_vector_pr, cost_vector_cs)` where `sc_data` is the
@@ -251,7 +251,7 @@ named tuple of buses, shunts, AC/DC branches, transformer control sets,
 producers, consumers, zonal reserves, and device-zone membership sets. Pure
 function of `data`; no unit commitment solution is used.
 """
-function goc3_static_data(data)
+function _goc3_static_data(data)
     L_J_xf = length(data.twt_lookup)
     L_J_ln = length(data.ac_line_lookup)
     L_J_ac = L_J_ln + L_J_xf
@@ -555,7 +555,7 @@ function goc3_static_data(data)
 end
 
 """
-    goc3_energy_windows(data)
+    _goc3_energy_windows(data)
 
 Build the multi-interval energy requirement window sets and their per-period
 membership sets, split by producer/consumer and by max/min. Returns a named
@@ -563,7 +563,7 @@ tuple with fields `W_en_max_pr`, `W_en_max_cs`, `W_en_min_pr`, `W_en_min_cs`,
 `T_w_en_max_pr`, `T_w_en_max_cs`, `T_w_en_min_pr`, `T_w_en_min_cs`. Pure
 function of `data`.
 """
-function goc3_energy_windows(data)
+function _goc3_energy_windows(data)
     periods = data.periods
     dt = Float64.(data.dt)
     ε_time = 1e-6
@@ -652,13 +652,13 @@ function goc3_energy_windows(data)
 end
 
 """
-    goc3_price_blocks(cost_vector_pr, cost_vector_cs)
+    _goc3_price_blocks(cost_vector_pr, cost_vector_cs)
 
 Flatten the per-device energy cost curves into `(p_jtm_flattened_pr,
 p_jtm_flattened_cs)`, one row per (device, period, cost block). Pure function of
-the cost vectors returned by `goc3_static_data`.
+the cost vectors returned by `_goc3_static_data`.
 """
-function goc3_price_blocks(cost_vector_pr, cost_vector_cs)
+function _goc3_price_blocks(cost_vector_pr, cost_vector_cs)
     function flatten(cost_vector)
         rows = Vector{@NamedTuple{flat_k::Int, uid::String, t::Int, m::Int, c_en::Float64, p_max::Float64}}()
         flat_k = 1
@@ -679,7 +679,7 @@ function goc3_price_blocks(cost_vector_pr, cost_vector_cs)
 end
 
 """
-    goc3_ac_contingency_survivors(data, lengths)
+    _goc3_ac_contingency_survivors(data, lengths)
 
 Enumerate, for each contingency, the AC lines and transformers that remain in
 service (the branch is not among the contingency's outaged components). Returns
@@ -688,7 +688,7 @@ rows for that contingency in lookup-iteration order. Rows carry the per-class
 fields `(ctg, j_ln|j_xf, uid, to_bus, fr_bus, b_sr, s_max_ctg)`. The client
 attaches the stacked `j`, `j_ac`, the `u_on` status, and expands over periods.
 """
-function goc3_ac_contingency_survivors(data, lengths)
+function _goc3_ac_contingency_survivors(data, lengths)
     contingencies = data.raw["reliability"]["contingency"]
 
     LnRow = @NamedTuple{ctg::Int, j_ln::Int, uid::String, to_bus::Int, fr_bus::Int, b_sr::Float64, s_max_ctg::Float64}
@@ -732,14 +732,14 @@ function goc3_ac_contingency_survivors(data, lengths)
 end
 
 """
-    goc3_dc_contingency_flows(data)
+    _goc3_dc_contingency_flows(data)
 
 Enumerate the surviving DC lines for each contingency and period, returning the
 flattened `jtk_dc_flattened` set. Rows carry the per-class `j_dc`; the client
 attaches the stacked `j`. Fully pure: no unit commitment status is involved for
 DC lines.
 """
-function goc3_dc_contingency_flows(data)
+function _goc3_dc_contingency_flows(data)
     periods = data.periods
     dt = Float64.(data.dt)
     contingencies = data.raw["reliability"]["contingency"]
@@ -761,4 +761,60 @@ function goc3_dc_contingency_flows(data)
         end
     end
     return jtk_dc_flattened
+end
+
+"""
+    Goc3ScopfData
+
+Bundle of the static, format-neutral GOC3 security-constrained OPF index sets
+returned by [`goc3_scopf_data`](@ref). Every field is keyed by `uid` and per-class
+GOC3 ordering (`j_ln`/`j_xf`/`j_dc`/`n_p`/`n_q`); none carries a model-specific
+stacked variable index. Fields:
+
+- `static` — buses, shunts, AC/DC branches, transformer control sets, producers,
+  consumers, zonal reserves, and device-zone membership sets.
+- `lengths` — the per-class set sizes (`L_J_ln`, `L_J_xf`, `L_J_ac`, ...).
+- `energy_windows` — producer/consumer min and max energy windows and their period
+  memberships.
+- `price_blocks` — `(producer, consumer)`, one row per (device, period, cost block).
+- `ac_contingency_survivors` — `(ln, xf)`, per-contingency surviving AC lines and
+  transformers.
+- `dc_contingency_flows` — the flattened surviving-DC-line set.
+"""
+struct Goc3ScopfData{S,L,E,P,A,D}
+    static::S
+    lengths::L
+    energy_windows::E
+    price_blocks::P
+    ac_contingency_survivors::A
+    dc_contingency_flows::D
+end
+
+"""
+    goc3_scopf_data(data) -> Goc3ScopfData
+
+Build the full set of static, format-neutral GOC3 SCOPF index sets from a
+[`parse_goc3_json`](@ref) result in one call. This is the single supported entry
+point for GOC3 SCOPF extraction; it supersedes the individual `_goc3_*` builders,
+which are internal. Pure function of `data`: no unit commitment solution and no
+model-specific variable numbering are involved. A security-constrained OPF client
+reads the [`Goc3ScopfData`](@ref) fields and attaches its own stacked global
+variable indices and the UC status on top (see [`goc3_add_status_flags!`](@ref)).
+
+Interim: this extraction is pure Julia today. The powerio Rust core will grow the
+same extraction and expose it over the C ABI (eigenergy/powerio#235); when it lands,
+this function's body becomes a `ccall` that fills the same `Goc3ScopfData` fields,
+so no consumer change is required.
+"""
+function goc3_scopf_data(data)
+    static, lengths, cost_vector_pr, cost_vector_cs = _goc3_static_data(data)
+    pb_pr, pb_cs = _goc3_price_blocks(cost_vector_pr, cost_vector_cs)
+    return Goc3ScopfData(
+        static,
+        lengths,
+        _goc3_energy_windows(data),
+        (producer = pb_pr, consumer = pb_cs),
+        _goc3_ac_contingency_survivors(data, lengths),
+        _goc3_dc_contingency_flows(data),
+    )
 end

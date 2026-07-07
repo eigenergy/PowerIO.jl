@@ -110,7 +110,7 @@
     @test PowerIO.goc3_interval_bounds([1.0, 1.0], 2) == (1.0, 1.5, 2.0)
 
     # --- static data -------------------------------------------------------
-    sc_data, lengths, cost_pr, cost_cs = PowerIO.goc3_static_data(data)
+    sc_data, lengths, cost_pr, cost_cs = PowerIO._goc3_static_data(data)
     for rows in (
         sc_data.bus, sc_data.shunt, sc_data.acl_branch, sc_data.acx_branch,
         sc_data.vpd, sc_data.fpd, sc_data.vwr, sc_data.fwr, sc_data.dc_branch,
@@ -156,7 +156,7 @@
     @test sc_data.reactive_reserve_set_cs[1].n_q == 1 && !hasproperty(sc_data.reactive_reserve_set_cs[1], :n)
 
     # --- energy windows ----------------------------------------------------
-    ew = PowerIO.goc3_energy_windows(data)
+    ew = PowerIO._goc3_energy_windows(data)
     for rows in (
         ew.W_en_max_pr, ew.W_en_max_cs, ew.W_en_min_pr, ew.W_en_min_cs,
         ew.T_w_en_max_pr, ew.T_w_en_max_cs, ew.T_w_en_min_pr, ew.T_w_en_min_cs,
@@ -176,7 +176,7 @@
     @test length(ew.T_w_en_min_pr) == 2
 
     # --- price blocks ------------------------------------------------------
-    pjtm_pr, pjtm_cs = PowerIO.goc3_price_blocks(cost_pr, cost_cs)
+    pjtm_pr, pjtm_cs = PowerIO._goc3_price_blocks(cost_pr, cost_cs)
     @test length(pjtm_pr) == 2               # 2 periods x 1 block
     @test [r.flat_k for r in pjtm_pr] == [1, 2]
     @test [r.t for r in pjtm_pr] == [1, 2]
@@ -186,7 +186,7 @@
     @test length(pjtm_cs) == 2 && pjtm_cs[1].uid == "sd_01"
 
     # --- AC contingency survivors -----------------------------------------
-    surv = PowerIO.goc3_ac_contingency_survivors(data, lengths)
+    surv = PowerIO._goc3_ac_contingency_survivors(data, lengths)
     @test all(isconcretetype(eltype(rows)) && eltype(rows) !== Any for rows in surv.ln)
     @test all(isconcretetype(eltype(rows)) && eltype(rows) !== Any for rows in surv.xf)
     @test length(surv.ln) == 3               # one group per contingency
@@ -204,7 +204,7 @@
     @test isempty(surv.xf[3])                # ctg_02 also outages xf_00
 
     # --- DC contingency flows ---------------------------------------------
-    jtk_dc = PowerIO.goc3_dc_contingency_flows(data)
+    jtk_dc = PowerIO._goc3_dc_contingency_flows(data)
     @test isconcretetype(eltype(jtk_dc))
     @test eltype(jtk_dc) !== Any
     # ctg_00 and ctg_02: dc_00 survives x 2 periods; ctg_01 outages dc_00.
@@ -212,6 +212,17 @@
     @test [r.ctg for r in jtk_dc] == [1, 1, 3, 3]
     @test [r.t for r in jtk_dc] == [1, 2, 1, 2]
     @test jtk_dc[1].ctg == 1 && jtk_dc[1].j_dc == 1
+
+    # --- goc3_scopf_data: one exported call == the internal builders -------
+    scd = PowerIO.goc3_scopf_data(data)
+    @test scd isa PowerIO.Goc3ScopfData
+    @test scd.static == sc_data
+    @test scd.lengths == lengths
+    @test scd.energy_windows == ew
+    @test scd.price_blocks.producer == pjtm_pr
+    @test scd.price_blocks.consumer == pjtm_cs
+    @test scd.ac_contingency_survivors == surv
+    @test scd.dc_contingency_flows == jtk_dc
 end
 
 # A real ARPA-E GO Competition Challenge 3 case, parsed from a JSON file, exercises
@@ -244,7 +255,7 @@ const GOC3_REAL_CASE_URL =
         @test length(data.bus_ids) == 14
         @test data.periods == 1:24
 
-        sc_data, lengths, cost_pr, cost_cs = PowerIO.goc3_static_data(data)
+        sc_data, lengths, cost_pr, cost_cs = PowerIO._goc3_static_data(data)
         # Counts pinned to this specific scenario (14 buses, 17 AC lines, 3 transformers,
         # no DC lines, 6 producers, 11 consumers, 24 periods).
         @test lengths.I == 14
@@ -257,21 +268,21 @@ const GOC3_REAL_CASE_URL =
             @test isconcretetype(eltype(rows)) && eltype(rows) !== Any
         end
 
-        ew = PowerIO.goc3_energy_windows(data)
+        ew = PowerIO._goc3_energy_windows(data)
         for rows in (ew.W_en_max_pr, ew.W_en_max_cs, ew.W_en_min_pr, ew.W_en_min_cs)
             @test isconcretetype(eltype(rows)) && eltype(rows) !== Any
         end
 
-        pjtm_pr, pjtm_cs = PowerIO.goc3_price_blocks(cost_pr, cost_cs)
+        pjtm_pr, pjtm_cs = PowerIO._goc3_price_blocks(cost_pr, cost_cs)
         # Total (device, period, cost-block) rows, pinned to this scenario's cost curves.
         @test length(pjtm_pr) == 720 && length(pjtm_cs) == 1056
 
-        surv = PowerIO.goc3_ac_contingency_survivors(data, lengths)
+        surv = PowerIO._goc3_ac_contingency_survivors(data, lengths)
         @test length(surv.ln) == 19 && length(surv.xf) == 19      # one group per contingency
         @test all(isconcretetype(eltype(r)) && eltype(r) !== Any for r in surv.ln)
         @test all(isconcretetype(eltype(r)) && eltype(r) !== Any for r in surv.xf)
 
-        jtk_dc = PowerIO.goc3_dc_contingency_flows(data)
+        jtk_dc = PowerIO._goc3_dc_contingency_flows(data)
         @test isempty(jtk_dc)                                     # no DC lines in this case
     end
 end

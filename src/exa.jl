@@ -358,6 +358,11 @@ reads. With the default `filtered=true`, values are derived from
 [`to_normalized`](@ref): `bus_i` preserves the source bus id, powers are per unit,
 branch angle fields are radians, and branch/generator bus references are indices
 into the bus vector.
+
+This is an ExaModels-facing bridge (a Julia sibling of [`to_powermodels`](@ref)):
+the returned row schema is the field set ExaModelsPower's model builders read. It is
+not a general PowerIO representation and does not port to the Rust core / C ABI; for
+general numeric access use [`to_dense`](@ref) or [`to_arrow`](@ref).
 """
 function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}=Float64)
     if filtered
@@ -616,8 +621,10 @@ This is a focused convenience for ExaModelsPower's multiperiod OPF, which suppli
 per-bus `.Pd`/`.Qd` load tables. PowerIO's general, format-neutral time series is the
 `OperatingPointSeries` (the type of the same name in the powerio Rust core): a time axis
 plus per-period sparse field updates over a base network, which represents more than
-loads and stores only what changes each period. A later release binds that type; consumers
-are encouraged to move to it at their own pace, and `LoadSeries` will not be hard removed.
+loads and stores only what changes each period. A later release binds that type (gated on
+the construct/attach C ABI, eigenergy/powerio#236) and re-backs `LoadSeries` with it, but
+`LoadSeries`'s surface — the `pd`/`qd` matrices, `bus_ids`, `base_mva`, and [`n_periods`](@ref) —
+stays stable and is not hard removed, so no consumer change is required when that lands.
 
 Build one from a load matrix, a per-period demand multiplier, an id-keyed load table, or
 two whitespace-delimited files:

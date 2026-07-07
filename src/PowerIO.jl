@@ -72,15 +72,18 @@ export to_dense, to_arrow, ArrowTable, release_c_data
 export calc_admittance_matrix, calc_susceptance_matrix, calc_incidence_matrix,
        calc_bprime_matrix, calc_bdoubleprime_matrix
 
-# Ecosystem bridges (PowerModels, ExaModels, gridfm)
+# Ecosystem bridges (PowerModels, ExaModels, gridfm). `to_powerdata`/`parse_ac_power_data`
+# and the `LoadSeries` multiperiod-load surface are ExaModels-facing convenience bridges
+# (documented as interim where they will be superseded by the Rust-backed series).
 export to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
+       LoadSeries, read_load_series, n_periods,
        read_gridfm, read_gridfm_scenarios
 
-# GO Challenge 3 (general, format-neutral SCOPF input data). The per-class index-set
-# builders (goc3_static_data, goc3_energy_windows, goc3_price_blocks,
-# goc3_ac_contingency_survivors, goc3_dc_contingency_flows) emit consumer-shaped rows
-# and stay unexported; call them qualified (PowerIO.goc3_static_data, ...).
-export parse_goc3_json, goc3_status_flags, goc3_add_status_flags!, goc3_interval_bounds
+# GO Challenge 3 (general, format-neutral SCOPF input data). `goc3_scopf_data` is the
+# single entry point: it returns a `Goc3ScopfData` of per-class index sets in one call.
+# The individual `_goc3_*` builders behind it are internal.
+export parse_goc3_json, goc3_scopf_data, Goc3ScopfData,
+       goc3_status_flags, goc3_add_status_flags!, goc3_interval_bounds
 
 # .pio.json network packages (Rust pkg feature)
 export NetworkPackage, CompilerPackage, to_package, from_package, read_package, write_package,
