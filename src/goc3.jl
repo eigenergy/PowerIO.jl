@@ -507,16 +507,16 @@ function goc3_static_data(data)
         ], by = x -> x.n_q),
 
         active_reserve_set_pr = reserve_set(data.azr_ids, "active_reserve_uids", "producer",
-            (i, num, dev_uid) -> (i = i, n = num + 1, n_p = num + 1, uid = dev_uid)),
+            (i, num, dev_uid) -> (i = i, n_p = num + 1, uid = dev_uid)),
 
         active_reserve_set_cs = reserve_set(data.azr_ids, "active_reserve_uids", "consumer",
-            (i, num, dev_uid) -> (i = i, n = num + 1, n_p = num + 1, uid = dev_uid)),
+            (i, num, dev_uid) -> (i = i, n_p = num + 1, uid = dev_uid)),
 
         reactive_reserve_set_pr = reserve_set(data.rzr_ids, "reactive_reserve_uids", "producer",
-            (i, num, dev_uid) -> (i = i, n = num + L_N_p + 1, n_q = num + 1, uid = dev_uid)),
+            (i, num, dev_uid) -> (i = i, n_q = num + 1, uid = dev_uid)),
 
         reactive_reserve_set_cs = reserve_set(data.rzr_ids, "reactive_reserve_uids", "consumer",
-            (i, num, dev_uid) -> (i = i, n = num + L_N_p + 1, n_q = num + 1, uid = dev_uid)),
+            (i, num, dev_uid) -> (i = i, n_q = num + 1, uid = dev_uid)),
 
     )
     return sc_data, lengths, cost_vector_pr, cost_vector_cs
@@ -667,14 +667,13 @@ function goc3_ac_contingency_survivors(data, lengths)
         result = Vector{Vector{R}}()
         for ctg in contingencies
             ctg_idx = _uidnum(ctg["uid"]) + 1
+            outaged = Set(String.(ctg["components"]))
             rows = Vector{R}()
-            for component in ctg["components"]
-                for val in values(lookup)
-                    if val["uid"] != component
-                        r = val["r"]
-                        x = val["x"]
-                        push!(rows, mkrow(ctg_idx, val, -x / (x^2 + r^2)))
-                    end
+            for val in values(lookup)
+                if !(String(val["uid"]) in outaged)
+                    r = val["r"]
+                    x = val["x"]
+                    push!(rows, mkrow(ctg_idx, val, -x / (x^2 + r^2)))
                 end
             end
             push!(result, rows)
@@ -713,11 +712,13 @@ function goc3_dc_contingency_flows(data)
 
     jtk_dc_flattened = Vector{@NamedTuple{flat_jtk_dc::Int, ctg::Int, j_dc::Int, to_bus::Int, fr_bus::Int, t::Int, dt::Float64}}()
     flat_jtk_dc = 1
-    for ctg in contingencies, t in periods
-        for component in ctg["components"]
+    for ctg in contingencies
+        outaged = Set(String.(ctg["components"]))
+        ctg_idx = _uidnum(ctg["uid"]) + 1
+        for t in periods
             for val in values(data.dc_line_lookup)
-                if val["uid"] != component
-                    push!(jtk_dc_flattened, (flat_jtk_dc=flat_jtk_dc, ctg = _uidnum(ctg["uid"])+1,
+                if !(String(val["uid"]) in outaged)
+                    push!(jtk_dc_flattened, (flat_jtk_dc=flat_jtk_dc, ctg = ctg_idx,
                     j_dc = _uidnum(val["uid"])+1, to_bus = goc3_bus_id(data, val["to_bus"]),
                     fr_bus = goc3_bus_id(data, val["fr_bus"]), t=t, dt = dt[t]))
                     flat_jtk_dc += 1

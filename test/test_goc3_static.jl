@@ -1,6 +1,7 @@
 @testset "GO Challenge 3 static index sets" begin
     # Minimal synthetic GOC3 document: 2 buses, 2 AC lines, 1 transformer,
-    # 1 DC line, one producer + one consumer, no zonal reserves, 2 periods,
+    # 1 DC line, one producer + one consumer, one active and one reactive
+    # reserve zone, 2 periods,
     # and two contingencies. Field values are chosen so the derived global
     # indices are hand-checkable.
     sdd_common = (
@@ -40,8 +41,10 @@
     )
     doc = (
         network = (
-            bus = [(uid = "bus_00", vm_lb = 0.9, vm_ub = 1.1),
-                   (uid = "bus_01", vm_lb = 0.9, vm_ub = 1.1)],
+            bus = [(uid = "bus_00", vm_lb = 0.9, vm_ub = 1.1,
+                    active_reserve_uids = ["azr_00"], reactive_reserve_uids = ["rzr_00"]),
+                   (uid = "bus_01", vm_lb = 0.9, vm_ub = 1.1,
+                    active_reserve_uids = ["azr_00"], reactive_reserve_uids = ["rzr_00"])],
             shunt = Any[],
             ac_line = [
                 (; uid = "acl_00", to_bus = "bus_01", fr_bus = "bus_00",
@@ -59,6 +62,19 @@
                         pdc_ub = 1.0, qdc_fr_lb = -1.0, qdc_to_lb = -1.0,
                         qdc_fr_ub = 1.0, qdc_to_ub = 1.0)],
             simple_dispatchable_device = [producer, consumer],
+            active_zonal_reserve = [(
+                uid = "azr_00",
+                REG_UP_vio_cost = 1.0, REG_DOWN_vio_cost = 1.0,
+                SYN_vio_cost = 1.0, NSYN_vio_cost = 1.0,
+                RAMPING_RESERVE_UP_vio_cost = 1.0,
+                RAMPING_RESERVE_DOWN_vio_cost = 1.0,
+                REG_UP = 1.0, REG_DOWN = 1.0, SYN = 1.0, NSYN = 1.0,
+            )],
+            reactive_zonal_reserve = [(
+                uid = "rzr_00",
+                REACT_UP_vio_cost = 1.0,
+                REACT_DOWN_vio_cost = 1.0,
+            )],
             violation_cost = (p_bus_vio_cost = 1.0, q_bus_vio_cost = 1.0,
                               s_vio_cost = 1.0, e_vio_cost = 1.0),
         ),
@@ -70,10 +86,21 @@
                 (; uid = "sd_01", cost = [[[20.0, 5.0]], [[21.0, 6.0]]],
                    p_lb = [0.0, 0.0], sdd_ts_common...),
             ],
+            active_zonal_reserve = [(
+                uid = "azr_00",
+                RAMPING_RESERVE_UP = [0.0, 0.0],
+                RAMPING_RESERVE_DOWN = [0.0, 0.0],
+            )],
+            reactive_zonal_reserve = [(
+                uid = "rzr_00",
+                REACT_UP = [0.0, 0.0],
+                REACT_DOWN = [0.0, 0.0],
+            )],
         ),
         reliability = (contingency = [
             (uid = "ctg_00", components = ["acl_00"]),
             (uid = "ctg_01", components = ["dc_00"]),
+            (uid = "ctg_02", components = ["acl_00", "xf_00"]),
         ],),
     )
 
@@ -94,6 +121,8 @@
     @test lengths.L_J_cspr == 2
     @test lengths.I == 2
     @test lengths.L_T == 2
+    @test lengths.L_N_p == 1
+    @test lengths.L_N_q == 1
 
     @test [b.i for b in sc_data.bus] == [1, 2]
     @test length(sc_data.prod) == 1 && sc_data.prod[1].uid == "sd_00"
@@ -108,6 +137,12 @@
     @test sc_data.fpd[1].j_xf == 1 && !hasproperty(sc_data.fpd[1], :j_ac)
     @test sc_data.fwr[1].j_xf == 1 && !hasproperty(sc_data.fwr[1], :j_ac)
     @test cost_pr[1].uid == "sd_00" && cost_cs[1].uid == "sd_01"
+    @test sc_data.active_reserve[1].n_p == 1 && !hasproperty(sc_data.active_reserve[1], :n)
+    @test sc_data.reactive_reserve[1].n_q == 1 && !hasproperty(sc_data.reactive_reserve[1], :n)
+    @test sc_data.active_reserve_set_pr[1].n_p == 1 && !hasproperty(sc_data.active_reserve_set_pr[1], :n)
+    @test sc_data.active_reserve_set_cs[1].n_p == 1 && !hasproperty(sc_data.active_reserve_set_cs[1], :n)
+    @test sc_data.reactive_reserve_set_pr[1].n_q == 1 && !hasproperty(sc_data.reactive_reserve_set_pr[1], :n)
+    @test sc_data.reactive_reserve_set_cs[1].n_q == 1 && !hasproperty(sc_data.reactive_reserve_set_cs[1], :n)
 
     # --- energy windows ----------------------------------------------------
     ew = PowerIO.goc3_energy_windows(data)
@@ -134,7 +169,7 @@
 
     # --- AC contingency survivors -----------------------------------------
     surv = PowerIO.goc3_ac_contingency_survivors(data, lengths)
-    @test length(surv.ln) == 2               # one group per contingency
+    @test length(surv.ln) == 3               # one group per contingency
     @test length(surv.ln[1]) == 1            # ctg_00 outages acl_00 -> acl_01 survives
     @test surv.ln[1][1].uid == "acl_01"
     @test surv.ln[1][1].ctg == 1
@@ -145,11 +180,14 @@
     @test length(surv.ln[2]) == 2            # ctg_01 outages dc_00 -> both lines survive
     @test surv.xf[1][1].j_xf == 1             # transformer survives ctg_00
     @test !hasproperty(surv.xf[1][1], :j_ac)
+    @test length(surv.ln[3]) == 1 && surv.ln[3][1].uid == "acl_01"
+    @test isempty(surv.xf[3])                # ctg_02 also outages xf_00
 
     # --- DC contingency flows ---------------------------------------------
     jtk_dc = PowerIO.goc3_dc_contingency_flows(data)
-    # ctg_00: dc_00 survives x 2 periods = 2 rows; ctg_01 outages dc_00 -> 0 rows
-    @test length(jtk_dc) == 2
-    @test [r.t for r in jtk_dc] == [1, 2]
+    # ctg_00 and ctg_02: dc_00 survives x 2 periods; ctg_01 outages dc_00.
+    @test length(jtk_dc) == 4
+    @test [r.ctg for r in jtk_dc] == [1, 1, 3, 3]
+    @test [r.t for r in jtk_dc] == [1, 2, 1, 2]
     @test jtk_dc[1].ctg == 1 && jtk_dc[1].j_dc == 1
 end
