@@ -771,9 +771,10 @@ returned by [`goc3_scopf_data`](@ref). Every field is keyed by `uid` and per-cla
 GOC3 ordering (`j_ln`/`j_xf`/`j_dc`/`n_p`/`n_q`); none carries a model-specific
 stacked variable index.
 
-This is a consumer *view*, not a canonical storage type: its fields project onto the
-general PowerIO intermediate representation (see [`goc3_scopf_data`](@ref)), so GOC3
-is never anointed as a format in the Rust core. Fields:
+This is a consumer *view*, not a canonical storage type. Its topology and per-period
+limit fields project onto the general PowerIO IR; its reserve, energy-window, and
+contingency fields have no IR representation yet (see [`goc3_scopf_data`](@ref) for the
+retirement path and its limits). Fields:
 
 - `static` — buses, shunts, AC/DC branches, transformer control sets, producers,
   consumers, zonal reserves, and device-zone membership sets.
@@ -805,15 +806,25 @@ model-specific variable numbering are involved. A security-constrained OPF clien
 reads the [`Goc3ScopfData`](@ref) fields and attaches its own stacked global
 variable indices and the UC status on top (see [`goc3_add_status_flags!`](@ref)).
 
-Interim: this extraction is pure Julia today. The retirement target is the general
-PowerIO intermediate representation in the Rust core, not a GOC3-specific type. The
-returned fields project onto canonical IR constructs — static topology in the parsed
-network, per-period bounds/costs/status in the operating-point series, and outages in
-a general contingency block (survivors are a derived view: in-service branches minus
-the outage set). As that IR grows expressive enough to represent GOC3
-(eigenergy/powerio#235), `goc3_scopf_data` becomes a projection over it — a thin C ABI
-helper or binding-side accessors — and `Goc3ScopfData` stays a consumer view. GOC3
-does not become an anointed format in the Rust core or C ABI.
+This is the entry point for the *derived* SCOPF index sets. It does not replace
+[`parse_goc3_json`](@ref): a client also reads the parsed GOC3 case (device, reserve,
+and violation-cost tables) off that result for the raw fields this bundle does not
+carry.
+
+Interim, and only partially retirable today. The static topology maps onto the parsed
+network, and per-period generator/branch bounds and status map onto the operating-point
+series. But reserves, multi-interval energy windows, and contingencies have no general
+IR representation yet: the Rust GOC3 reader retains `reliability`, `active_zonal_reserve`,
+`reactive_zonal_reserve`, `violation_cost`, and simple-dispatchable-device commitment/
+ramp/reserve/cost data in source only (see the warnings in `format/goc3.rs`), and the
+operating-point series is a per-period field overwrite that cannot express cross-period
+energy budgets. Fully retiring `goc3_scopf_data` therefore needs new general IR types (a
+reserve model, a contingency model, a temporal-constraint model), tracked in
+eigenergy/powerio#235. The aim is that `Goc3ScopfData` stays a consumer view projected
+over that IR rather than a GOC3-specific Rust type; for the GOC3 reserve-product taxonomy
+and energy windows that goal has a real tension (a general model must either drop the
+named products or encode them), so treat "no GOC3 anointed in the core" as the target,
+not a guarantee.
 """
 function goc3_scopf_data(data)
     static, lengths, cost_vector_pr, cost_vector_cs = _goc3_static_data(data)

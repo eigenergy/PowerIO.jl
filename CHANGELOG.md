@@ -11,10 +11,11 @@ ABI artifacts remain the v0.6.3 binaries.
   format neutral with per class indices (`j_ln` AC lines, `j_xf` transformers,
   `j_dc` DC lines, `n_p`/`n_q` reserve zones); client models own stacked indices
   (`j`, `j_ac`, combined reserve `n`). The individual `_goc3_*` builders behind it
-  are internal. `Goc3ScopfData` is a consumer view, not a canonical type: its fields
-  project onto the general PowerIO IR (topology, operating-point series,
-  contingencies), so `goc3_scopf_data` retires as a projection over that IR as it
-  grows to represent GOC3 (issue #235) — GOC3 is not anointed in the Rust core.
+  are internal. `Goc3ScopfData` is a consumer view, not a canonical type. Its topology
+  and per-period limits project onto the general PowerIO IR; its reserves, energy
+  windows, and contingencies have no IR representation yet (the Rust GOC3 reader keeps
+  them source only), so fully retiring `goc3_scopf_data` needs new general IR types
+  (reserve, contingency, temporal-constraint), tracked in issue #235.
 - The GOC3 row builders return concrete row vector types for empty and nonempty
   sets. Exported GOC3 surface: `parse_goc3_json`, `goc3_scopf_data`,
   `Goc3ScopfData`, `goc3_status_flags`, `goc3_add_status_flags!`,
