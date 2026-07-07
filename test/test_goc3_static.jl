@@ -80,13 +80,7 @@
     data = PowerIO.parse_goc3_json(IOBuffer(JSON3.write(doc)))
     producers_first = true   # sd_00 (producer) is the minimum uid
 
-    # --- index helpers -----------------------------------------------------
-    @test PowerIO.goc3_is_pr("sd_00", 1, 1, true)
-    @test !PowerIO.goc3_is_pr("sd_01", 1, 1, true)
-    @test PowerIO.goc3_j_prcs("sd_00", 1, 1, true) == 1
-    @test PowerIO.goc3_j_prcs("sd_01", 1, 1, true) == 2
-    @test PowerIO.goc3_j_pr("sd_00", 1, 1, true) == 1
-    @test PowerIO.goc3_j_cs("sd_01", 1, 1, true) == 1   # producers_first: -L_J_pr offset
+    # --- interval helper ---------------------------------------------------
     @test PowerIO.goc3_interval_bounds([1.0, 1.0], 2) == (1.0, 1.5, 2.0)
 
     # --- static data -------------------------------------------------------
@@ -103,20 +97,19 @@
     @test lengths.L_T == 2
 
     @test [b.i for b in sc_data.bus] == [1, 2]
-    @test length(sc_data.prod) == 1 && sc_data.prod[1].j == 5 && sc_data.prod[1].j_pr == 1
-    @test length(sc_data.cons) == 1 && sc_data.cons[1].j == 6 && sc_data.cons[1].j_cs == 1
-    @test sc_data.acl_branch[1].j == 1 && sc_data.acl_branch[2].j == 2
-    @test sc_data.acx_branch[1].j == 3   # j_xf(1) + L_J_ln(2)
-    @test sc_data.dc_branch[1].j == 4    # j_dc(1) + L_J_ac(3)
+    @test length(sc_data.prod) == 1 && sc_data.prod[1].uid == "sd_00"
+    @test length(sc_data.cons) == 1 && sc_data.cons[1].uid == "sd_01"
+    @test sc_data.acl_branch[1].j_ln == 1 && sc_data.acl_branch[2].j_ln == 2
+    @test sc_data.acx_branch[1].j_ac == 3   # j_xf(1) + L_J_ln(2)
+    @test sc_data.dc_branch[1].j_dc == 1
     @test isempty(sc_data.vpd) && isempty(sc_data.vwr)      # bounds equal -> fixed
     @test length(sc_data.fpd) == 1 && length(sc_data.fwr) == 1
-    @test cost_pr[1].j == 5 && cost_cs[1].j == 6
+    @test cost_pr[1].uid == "sd_00" && cost_cs[1].uid == "sd_01"
 
     # --- energy windows ----------------------------------------------------
-    ew = PowerIO.goc3_energy_windows(data, lengths, producers_first)
+    ew = PowerIO.goc3_energy_windows(data)
     @test length(ew.W_en_max_pr) == 1
-    @test ew.W_en_max_pr[1].j == 5
-    @test ew.W_en_max_pr[1].j_pr == 1
+    @test ew.W_en_max_pr[1].uid == "sd_00"
     @test ew.W_en_max_pr[1].e_max == 9.0
     @test ew.W_en_max_pr[1].a_en_max_end == 2.0
     @test isempty(ew.W_en_max_cs)              # consumer has no windows
@@ -133,8 +126,8 @@
     @test [r.t for r in pjtm_pr] == [1, 2]
     @test pjtm_pr[1].c_en == 10.0 && pjtm_pr[1].p_max == 5.0
     @test pjtm_pr[2].c_en == 11.0 && pjtm_pr[2].p_max == 6.0
-    @test pjtm_pr[1].j == 5 && pjtm_pr[1].j_pr == 1
-    @test length(pjtm_cs) == 2 && pjtm_cs[1].j_cs == 1
+    @test pjtm_pr[1].uid == "sd_00"
+    @test length(pjtm_cs) == 2 && pjtm_cs[1].uid == "sd_01"
 
     # --- AC contingency survivors -----------------------------------------
     surv = PowerIO.goc3_ac_contingency_survivors(data, lengths)
@@ -142,25 +135,16 @@
     @test length(surv.ln[1]) == 1            # ctg_00 outages acl_00 -> acl_01 survives
     @test surv.ln[1][1].uid == "acl_01"
     @test surv.ln[1][1].ctg == 1
-    @test surv.ln[1][1].j == 2 && surv.ln[1][1].j_ln == 2
+    @test surv.ln[1][1].j_ln == 2
     @test surv.ln[1][1].b_sr == -1.0        # -x/(x^2+r^2) = -1/(1+0)
     @test surv.ln[1][1].s_max_ctg == 8.0    # mva_ub_em
     @test length(surv.ln[2]) == 2            # ctg_01 outages dc_00 -> both lines survive
-    @test surv.xf[1][1].j == 3 && surv.xf[1][1].j_xf == 1  # transformer survives ctg_00
+    @test surv.xf[1][1].j_ac == 3 && surv.xf[1][1].j_xf == 1  # transformer survives ctg_00
 
     # --- DC contingency flows ---------------------------------------------
-    jtk_dc = PowerIO.goc3_dc_contingency_flows(data, lengths)
+    jtk_dc = PowerIO.goc3_dc_contingency_flows(data)
     # ctg_00: dc_00 survives x 2 periods = 2 rows; ctg_01 outages dc_00 -> 0 rows
     @test length(jtk_dc) == 2
     @test [r.t for r in jtk_dc] == [1, 2]
-    @test jtk_dc[1].ctg == 1 && jtk_dc[1].j == 4 && jtk_dc[1].j_dc == 1
-
-    # --- shutdown power capability ----------------------------------------
-    p_sdpc = PowerIO.goc3_shutdown_power_cap(data, lengths, producers_first)
-    @test size(p_sdpc) == (2, 2, 2)          # (L_J_cspr, L_T, L_T)
-    # producer j_prcs = 1: t_prime=1 uses initial p (10) - ramp*(a_end(t) - 0)
-    @test p_sdpc[1, 1, 1] == 9.0             # 10 - 1*(1-0)
-    @test p_sdpc[1, 2, 1] == 8.0             # 10 - 1*(2-0)
-    @test p_sdpc[1, 2, 2] == 1.0             # p_lb[1]=2 - 1*(2-1)
-    @test p_sdpc[1, 1, 2] == 0.0             # t < t_prime -> untouched
+    @test jtk_dc[1].ctg == 1 && jtk_dc[1].j_dc == 1
 end
