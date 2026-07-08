@@ -45,7 +45,7 @@
                     active_reserve_uids = ["azr_00"], reactive_reserve_uids = ["rzr_00"]),
                    (uid = "bus_01", vm_lb = 0.9, vm_ub = 1.1,
                     active_reserve_uids = ["azr_00"], reactive_reserve_uids = ["rzr_00"])],
-            shunt = Any[],
+            shunt = [(uid = "sh_00", bus = "bus_00", gs = 0.0, bs = 3.0)],
             ac_line = [
                 (; uid = "acl_00", to_bus = "bus_01", fr_bus = "bus_00",
                    r = 0.0, x = 2.0, mva_ub_em = 7.0, acx_common...),
@@ -122,6 +122,20 @@
         @test isconcretetype(eltype(rows))
         @test eltype(rows) !== Any
     end
+    # `isconcretetype && !== Any` is not enough: JSON3 reads an integer-valued number
+    # ("1.0") as Int64, so an untyped row builder yields a concrete-but-wrong `Int64`
+    # field (and a non-isbits `Any` field once a branch differs across rows). Pin the
+    # declared Float64 fields so a builder that drops the typed comprehension is caught.
+    @test length(sc_data.shunt) == 1 && sc_data.shunt[1].uid == "sh_00"
+    @test fieldtype(eltype(sc_data.shunt), :g_sh) === Float64
+    @test fieldtype(eltype(sc_data.shunt), :b_sh) === Float64
+    @test fieldtype(eltype(sc_data.acl_branch), :s_max) === Float64
+    @test fieldtype(eltype(sc_data.acx_branch), :s_max) === Float64
+    @test fieldtype(eltype(sc_data.acx_branch), :g_fr) === Float64
+    @test fieldtype(eltype(sc_data.dc_branch), :pdc_max) === Float64
+    @test fieldtype(eltype(sc_data.active_reserve), :c_rgu) === Float64
+    @test fieldtype(eltype(sc_data.active_reserve), :c_scr) === Float64
+    @test fieldtype(eltype(sc_data.reactive_reserve), :c_qru) === Float64
     @test lengths.L_J_ln == 2
     @test lengths.L_J_xf == 1
     @test lengths.L_J_ac == 3

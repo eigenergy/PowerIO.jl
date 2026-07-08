@@ -17,6 +17,7 @@ makedocs(;
         "Home" => "index.md",
         "Transmission networks" => "transmission.md",
         "Matrices" => "matrices.md",
+        "OPF instance backends" => "opf-backends.md",
         "Distribution networks" => "distribution.md",
         "Ecosystem interop" => "interop.md",
         "Binary distribution" => "binary.md",

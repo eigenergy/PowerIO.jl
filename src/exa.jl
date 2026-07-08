@@ -110,7 +110,7 @@ _powerdata_storage_row_type(::Type{T}) where {T<:Real} = @NamedTuple{
     status::Int,
 }
 
-# The gen/branch/arc/storage rows of `to_powerdata` are built into these four
+# The bus/gen/branch/arc/storage rows of `to_powerdata` are built into these
 # concrete `@NamedTuple` row types. They are the ExaModelsPower bridge schema:
 # the field names ExaModelsPower's `build_*_opf` reads. This schema is a Julia
 # bridge (like `to_powermodels`) and does not port to the Rust core / C ABI, so
@@ -133,6 +133,23 @@ _powerdata_storage_row_type(::Type{T}) where {T<:Real} = @NamedTuple{
 # `rate_a`/`rate_b`/`rate_c`/`angmin`/`angmax` and the `c1..c8` line coefficients;
 # and the full storage table. Until the dense extractors carry those fields, the
 # row schema is built here from the accessors.
+_powerdata_bus_row_type(::Type{T}) where {T<:Real} = @NamedTuple{
+    i::Int,
+    bus_i::Int,
+    type::Int,
+    pd::T,
+    qd::T,
+    gs::T,
+    bs::T,
+    area::Int,
+    vm::T,
+    va::T,
+    baseKV::T,
+    zone::Int,
+    vmax::T,
+    vmin::T,
+}
+
 _powerdata_gen_row_type(::Type{T}) where {T<:Real} = @NamedTuple{
     i::Int,
     bus::Int,
@@ -211,29 +228,28 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
         bs[idx] += _powerdata_real(s.b, T, "shunt $row", :b)
     end
 
-    # Each vector is built with `map`/a comprehension rather than a `NamedTuple[]`
-    # accumulator so its element type is the concrete row type, not the abstract
-    # `NamedTuple`. ExaModelsPower moves these rows to the GPU, and `CuArray`
-    # rejects an abstract element type.
-    bus_rows = map(enumerate(raw_buses)) do (i, b)
-        id = Int(b.id)
-        (;
-            i,
-            bus_i = id,
-            type = bus_type_code(String(b.kind)),
-            pd = pd[i],
-            qd = qd[i],
-            gs = gs[i],
-            bs = bs[i],
-            area = Int(b.area),
-            vm = _powerdata_real(b.vm, T, "bus $id", :vm),
-            va = _powerdata_real(b.va, T, "bus $id", :va),
-            baseKV = _powerdata_real(b.base_kv, T, "bus $id", :base_kv),
-            zone = Int(b.zone),
-            vmax = _powerdata_real(b.vmax, T, "bus $id", :vmax),
-            vmin = _powerdata_real(b.vmin, T, "bus $id", :vmin),
-        )
-    end
+    BusRow = _powerdata_bus_row_type(T)
+    bus_rows = BusRow[
+        let id = Int(b.id)
+            BusRow((;
+                i,
+                bus_i = id,
+                type = bus_type_code(String(b.kind)),
+                pd = pd[i],
+                qd = qd[i],
+                gs = gs[i],
+                bs = bs[i],
+                area = Int(b.area),
+                vm = _powerdata_real(b.vm, T, "bus $id", :vm),
+                va = _powerdata_real(b.va, T, "bus $id", :va),
+                baseKV = _powerdata_real(b.base_kv, T, "bus $id", :base_kv),
+                zone = Int(b.zone),
+                vmax = _powerdata_real(b.vmax, T, "bus $id", :vmax),
+                vmin = _powerdata_real(b.vmin, T, "bus $id", :vmin),
+            ))
+        end
+        for (i, b) in enumerate(raw_buses)
+    ]
 
     kept_gens = [g for g in generators(net) if get(id_to_idx, Int(g.bus), 0) != 0]
     GenRow = _powerdata_gen_row_type(T)
@@ -400,9 +416,10 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
         end
     end
 
-    bus_rows = [
+    BusRow = _powerdata_bus_row_type(T)
+    bus_rows = BusRow[
         let id = Int(b.id), i = id_to_idx[id]
-            (;
+            BusRow((;
                 i,
                 bus_i = id,
                 type = bus_type_code(String(b.kind)),
@@ -417,7 +434,7 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
                 zone = Int(b.zone),
                 vmax = T(b.vmax),
                 vmin = T(b.vmin),
-            )
+            ))
         end
         for b in raw_buses if keep_bus[Int(b.id)]
     ]
@@ -713,6 +730,8 @@ function LoadSeries(net::BalancedNetwork, curve::AbstractVector; T::Type{<:Real}
         throw(ArgumentError("LoadSeries: curve must have at least one period"))
     base, bus_ids, base_pd, base_qd = _load_alignment(net, T)
     c = T[T(x) for x in curve]
+    all(isfinite, c) ||
+        throw(ArgumentError("LoadSeries: curve has a non-finite multiplier"))
     pd = base_pd * transpose(c)
     qd = base_qd * transpose(c)
     LoadSeries{T}(pd, qd, bus_ids, base)
@@ -728,13 +747,20 @@ length. This removes the positional row assumption of the matrix form.
 function LoadSeries(net::BalancedNetwork, pd_by_id::AbstractDict,
                     qd_by_id::AbstractDict; T::Type{<:Real}=Float64)
     base, bus_ids, _, _ = _load_alignment(net, T)
-    pd = _matrix_from_id_table(pd_by_id, bus_ids, :Pd)
-    qd = _matrix_from_id_table(qd_by_id, bus_ids, :Qd)
+    pd = _matrix_from_id_table(pd_by_id, bus_ids, :Pd, T)
+    qd = _matrix_from_id_table(qd_by_id, bus_ids, :Qd, T)
     _check_load_matrix(pd, qd, length(bus_ids))
     LoadSeries{T}(_perunit(pd, base), _perunit(qd, base), bus_ids, base)
 end
 
-function _matrix_from_id_table(by_id::AbstractDict, bus_ids::Vector{Int}, which::Symbol)
+# Build the load matrix at the caller's precision `T` directly, so the GPU-facing
+# `T=Float32` path does not allocate a Float64 matrix here only for `_perunit` to
+# reallocate and convert it.
+function _matrix_from_id_table(by_id::AbstractDict, bus_ids::Vector{Int}, which::Symbol,
+                               ::Type{T}) where {T<:Real}
+    isempty(bus_ids) &&
+        throw(ArgumentError(
+            "LoadSeries: cannot build $which from an id table for a network with no buses"))
     nper = -1
     for id in bus_ids
         haskey(by_id, id) ||
@@ -745,7 +771,7 @@ function _matrix_from_id_table(by_id::AbstractDict, bus_ids::Vector{Int}, which:
             throw(DimensionMismatch(
                 "LoadSeries: $which vectors have unequal lengths ($nper vs $len)"))
     end
-    out = Matrix{Float64}(undef, length(bus_ids), nper)
+    out = Matrix{T}(undef, length(bus_ids), nper)
     for (k, id) in enumerate(bus_ids)
         out[k, :] .= by_id[id]
     end

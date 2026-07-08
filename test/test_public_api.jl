@@ -54,7 +54,8 @@
     # ExaModels PowerData row containers must be concrete isbits so an empty
     # gen/branch/arc/storage section still moves to the GPU (guards the empty->Any
     # inference bug the typed row containers fix).
-    for RT in (PowerIO._powerdata_gen_row_type(Float64),
+    for RT in (PowerIO._powerdata_bus_row_type(Float64),
+               PowerIO._powerdata_gen_row_type(Float64),
                PowerIO._powerdata_branch_row_type(Float64),
                PowerIO._powerdata_arc_row_type(Float64),
                PowerIO._powerdata_storage_row_type(Float64))

@@ -51,8 +51,18 @@ end
         bad = copy(pd_mw); bad[1, 1] = NaN
         @test_throws ArgumentError PowerIO.LoadSeries(net, bad, qd_mw)
         @test_throws ArgumentError PowerIO.LoadSeries(net, Float64[])  # empty curve
+        # the curve constructor validates finiteness like the matrix path (no silent NaN)
+        @test_throws ArgumentError PowerIO.LoadSeries(net, [1.0, NaN, 0.9])
         short_id = Dict(id => pd_mw[k, :] for (k, id) in enumerate(s.bus_ids) if id != 1)
         @test_throws ArgumentError PowerIO.LoadSeries(net, short_id, qd_by_id)
+
+        # the GPU-facing T flows through the id-table build (no Float64 intermediate)
+        s32 = PowerIO.LoadSeries(net, pd_by_id, qd_by_id; T=Float32)
+        @test s32 isa PowerIO.LoadSeries{Float32}
+        @test s32.pd isa Matrix{Float32}
+        # an empty bus set gives a clear error, not a bare "invalid Array dimensions"
+        @test_throws ArgumentError PowerIO._matrix_from_id_table(
+            Dict{Int,Vector{Float64}}(), Int[], :Pd, Float64)
 
         # reading the delimited files matches an in-memory build of the same numbers
         dir = mktempdir()

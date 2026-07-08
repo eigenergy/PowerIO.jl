@@ -228,7 +228,6 @@ _uidnum_order(ids) = sort(String.(ids), by = _uidnum)
 _float_vector(xs) = Float64.(xs)
 _float_matrix(xss) = Vector{Float64}[_float_vector(xs) for xs in xss]
 _float_cube(xsss) = Vector{Vector{Float64}}[_float_matrix(xss) for xss in xsss]
-_typed_empty(rows, empty_rows) = isempty(rows) ? empty_rows : rows
 
 """
     goc3_interval_bounds(dt, t)
@@ -269,15 +268,25 @@ function _goc3_static_data(data)
     lengths = (L_J_xf=L_J_xf, L_J_ln=L_J_ln, L_J_ac=L_J_ac, L_J_dc=L_J_dc, L_J_br=L_J_br, L_J_cs=L_J_cs,
     L_J_pr=L_J_pr, L_J_cspr = L_J_cspr, L_J_sh=L_J_sh, I=I, L_T=L_T, L_N_p, L_N_q)
 
+    # Declared element type for every row vector below. Each vector is built with a
+    # typed comprehension (`Row[...]`), so the field types are these declarations, not
+    # whatever the parsed JSON happened to produce. This matters because JSON3 reads an
+    # integer-valued number ("1.0") as Int64, so an untyped comprehension would give a
+    # `c_su::Int64` row that silently mismatches the Float64 field here, and widens to an
+    # abstract `Any` field when the `additional_shunt` branch differs across rows. These
+    # rows carry a String `uid`, so they stay CPU-side; the point is a concrete,
+    # correctly-Float64 element type so the ExaModelsPower SCOPF builder that re-wraps and
+    # reads them (its `sc_parser`) stays type stable instead of boxing `Any`. The
+    # all-numeric PowerData rows in `exa.jl` are the isbits ones that reach the GPU.
     CostRow = @NamedTuple{bus::Int, uid::String, cost::Vector{Vector{Vector{Float64}}}}
     BusRow = @NamedTuple{i::Int, uid::String, v_min::Float64, v_max::Float64}
-    EmptyShuntRow = @NamedTuple{uid::String, bus::Int, g_sh::Float64, b_sh::Float64}
-    EmptyAclRow = @NamedTuple{j_ln::Int, uid::String, to_bus::Int, fr_bus::Int, c_su::Float64, c_sd::Float64, s_max::Float64, g_sr::Float64, b_sr::Float64, b_ch::Float64, g_fr::Float64, g_to::Float64, b_fr::Float64, b_to::Float64}
-    EmptyAcxRow = @NamedTuple{j_xf::Int, uid::String, to_bus::Int, fr_bus::Int, c_su::Float64, c_sd::Float64, s_max::Float64, g_sr::Float64, b_sr::Float64, b_ch::Float64, g_fr::Float64, g_to::Float64, b_fr::Float64, b_to::Float64}
-    EmptyDcRow = @NamedTuple{j_dc::Int, uid::String, pdc_max::Float64, qdc_fr_min::Float64, qdc_to_min::Float64, qdc_fr_max::Float64, qdc_to_max::Float64, to_bus::Int, fr_bus::Int}
+    ShuntRow = @NamedTuple{uid::String, bus::Int, g_sh::Float64, b_sh::Float64}
+    AclRow = @NamedTuple{j_ln::Int, uid::String, to_bus::Int, fr_bus::Int, c_su::Float64, c_sd::Float64, s_max::Float64, g_sr::Float64, b_sr::Float64, b_ch::Float64, g_fr::Float64, g_to::Float64, b_fr::Float64, b_to::Float64}
+    AcxRow = @NamedTuple{j_xf::Int, uid::String, to_bus::Int, fr_bus::Int, c_su::Float64, c_sd::Float64, s_max::Float64, g_sr::Float64, b_sr::Float64, b_ch::Float64, g_fr::Float64, g_to::Float64, b_fr::Float64, b_to::Float64}
+    DcRow = @NamedTuple{j_dc::Int, uid::String, pdc_max::Float64, qdc_fr_min::Float64, qdc_to_min::Float64, qdc_fr_max::Float64, qdc_to_max::Float64, to_bus::Int, fr_bus::Int}
     SddRow = @NamedTuple{bus::Int, uid::String, c_on::Float64, c_su::Float64, c_sd::Float64, p_ru::Float64, p_rd::Float64, p_ru_su::Float64, p_rd_sd::Float64, c_rgu::Vector{Float64}, c_rgd::Vector{Float64}, c_scr::Vector{Float64}, c_nsc::Vector{Float64}, c_rru_on::Vector{Float64}, c_rru_off::Vector{Float64}, c_rrd_on::Vector{Float64}, c_rrd_off::Vector{Float64}, c_qru::Vector{Float64}, c_qrd::Vector{Float64}, p_rgu_max::Float64, p_rgd_max::Float64, p_scr_max::Float64, p_nsc_max::Float64, p_rru_on_max::Float64, p_rru_off_max::Float64, p_rrd_on_max::Float64, p_rrd_off_max::Float64, p_0::Float64, q_0::Float64, p_max::Vector{Float64}, p_min::Vector{Float64}, q_max::Vector{Float64}, q_min::Vector{Float64}, sus::Vector{Vector{Float64}}}
-    EmptyActiveReserveRow = @NamedTuple{n_p::Int, uid::String, c_rgu::Float64, c_rgd::Float64, c_scr::Float64, c_nsc::Float64, c_rru::Float64, c_rrd::Float64, σ_rgu::Float64, σ_rgd::Float64, σ_scr::Float64, σ_nsc::Float64, p_rru_min::Vector{Float64}, p_rrd_min::Vector{Float64}}
-    EmptyReactiveReserveRow = @NamedTuple{n_q::Int, uid::String, c_qru::Float64, c_qrd::Float64, q_qru_min::Vector{Float64}, q_qrd_min::Vector{Float64}}
+    ActiveReserveRow = @NamedTuple{n_p::Int, uid::String, c_rgu::Float64, c_rgd::Float64, c_scr::Float64, c_nsc::Float64, c_rru::Float64, c_rrd::Float64, σ_rgu::Float64, σ_rgd::Float64, σ_scr::Float64, σ_nsc::Float64, p_rru_min::Vector{Float64}, p_rrd_min::Vector{Float64}}
+    ReactiveReserveRow = @NamedTuple{n_q::Int, uid::String, c_qru::Float64, c_qrd::Float64, q_qru_min::Vector{Float64}, q_qrd_min::Vector{Float64}}
     ActiveReserveSetRow = @NamedTuple{i::Int, n_p::Int, uid::String}
     ReactiveReserveSetRow = @NamedTuple{i::Int, n_q::Int, uid::String}
 
@@ -393,7 +402,7 @@ function _goc3_static_data(data)
             end for uid in bus_order
         ], by = x -> x.i),
 
-        shunt = _by_uidnum(_typed_empty([
+        shunt = _by_uidnum(ShuntRow[
             let val = data.shunt_lookup[uid]
                 uid = String(val["uid"])
                 bus = goc3_bus_id(data, val["bus"])
@@ -401,11 +410,11 @@ function _goc3_static_data(data)
                 b_sh = val["bs"]
                 (uid = uid, bus=bus, g_sh = g_sh, b_sh = b_sh)
             end for uid in keys(data.shunt_lookup)
-        ], EmptyShuntRow[])),
+        ]),
 
         acl_branch = sort(
             # AC lines
-            _typed_empty([
+            AclRow[
                 let val = data.ac_line_lookup[uid]
                     j_ln = _uidnum(val["uid"])+1
                     uid = String(val["uid"])
@@ -433,11 +442,11 @@ function _goc3_static_data(data)
                     (j_ln = j_ln, uid = uid, to_bus = to_bus, fr_bus = fr_bus, c_su = c_su, c_sd = c_sd, s_max = s_max,
                     g_sr = g_sr, b_sr = b_sr, b_ch = b_ch, g_fr = g_fr, g_to = g_to, b_fr = b_fr, b_to = b_to)
                 end for uid in keys(data.ac_line_lookup)
-            ], EmptyAclRow[]), by = x -> x.j_ln),
+            ], by = x -> x.j_ln),
 
             # Transformers
         acx_branch = sort(
-            _typed_empty([
+            AcxRow[
                 let val = data.twt_lookup[uid]
                     j_xf = _uidnum(val["uid"])+1
                     uid = String(val["uid"])
@@ -457,15 +466,15 @@ function _goc3_static_data(data)
                         b_fr = val["b_fr"]
                         b_to = val["b_to"]
                     else
-                        g_fr = 0
-                        g_to = 0
-                        b_fr = 0
-                        b_to = 0
+                        g_fr = 0.0
+                        g_to = 0.0
+                        b_fr = 0.0
+                        b_to = 0.0
                     end
                     (j_xf=j_xf, uid = uid, to_bus = to_bus, fr_bus = fr_bus, c_su = c_su, c_sd = c_sd, s_max = s_max,
                     g_sr = g_sr, b_sr = b_sr, b_ch = b_ch, g_fr = g_fr, g_to = g_to, b_fr = b_fr, b_to = b_to)
                 end for uid in keys(data.twt_lookup)
-            ], EmptyAcxRow[])
+            ]
         , by = x -> x.j_xf),
         #Variable phase difference
         vpd = twt_control_set(@NamedTuple{j_xf::Int64, phi_min::Float64, phi_max::Float64},
@@ -484,7 +493,7 @@ function _goc3_static_data(data)
             val -> val["tm_lb"] >= val["tm_ub"],
             val -> (tau_o = Float64(val["initial_status"]["tm"]),)),
 
-        dc_branch = sort(_typed_empty([
+        dc_branch = sort(DcRow[
             let val = data.dc_line_lookup[uid]
                 j_dc = _uidnum(val["uid"])+1
                 uid = String(val["uid"])
@@ -498,13 +507,13 @@ function _goc3_static_data(data)
                 (j_dc = j_dc, uid=uid, pdc_max=pdc_max, qdc_fr_min=qdc_fr_min, qdc_to_min=qdc_to_min, qdc_fr_max=qdc_fr_max, qdc_to_max=qdc_to_max, to_bus=to_bus, fr_bus=fr_bus)
             end for uid in keys(data.dc_line_lookup)
 
-        ], EmptyDcRow[]), by = x -> x.j_dc),
+        ], by = x -> x.j_dc),
 
         prod = sdd_rows("producer"),
 
         #Consumers
         cons = sdd_rows("consumer"),
-        active_reserve = sort(_typed_empty([
+        active_reserve = sort(ActiveReserveRow[
             let val = data.azr_lookup[key]
                 ts_val = data.azr_ts_lookup[key]
                 n_p = _uidnum(val["uid"]) + 1
@@ -524,8 +533,8 @@ function _goc3_static_data(data)
                 (n_p=n_p, uid=uid, c_rgu=c_rgu, c_rgd=c_rgd, c_scr=c_scr, c_nsc=c_nsc, c_rru=c_rru, c_rrd=c_rrd, σ_rgu=σ_rgu, σ_rgd=σ_rgd, σ_scr=σ_scr,
                 σ_nsc=σ_nsc, p_rru_min=p_rru_min, p_rrd_min=p_rrd_min)
             end for key in keys(data.azr_lookup)
-        ], EmptyActiveReserveRow[]), by = x -> x.n_p),
-        reactive_reserve = sort(_typed_empty([
+        ], by = x -> x.n_p),
+        reactive_reserve = sort(ReactiveReserveRow[
             let val = data.rzr_lookup[key]
                 ts_val = data.rzr_ts_lookup[key]
                 n_q = _uidnum(val["uid"]) + 1
@@ -536,7 +545,7 @@ function _goc3_static_data(data)
                 q_qrd_min = _float_vector(ts_val["REACT_DOWN"])
                 (n_q=n_q, uid=uid, c_qru=c_qru, c_qrd=c_qrd, q_qru_min=q_qru_min, q_qrd_min=q_qrd_min)
             end for key in keys(data.rzr_lookup)
-        ], EmptyReactiveReserveRow[]), by = x -> x.n_q),
+        ], by = x -> x.n_q),
 
         active_reserve_set_pr = reserve_set(ActiveReserveSetRow, data.azr_ids, "active_reserve_uids", "producer",
             (i, num, dev_uid) -> (i = i, n_p = num + 1, uid = dev_uid)),
@@ -767,20 +776,20 @@ end
     ScopfInstance
 
 A derived, format-neutral security-constrained OPF instance built from a parsed GOC3
-case by [`goc3_scopf_data`](@ref) — the SCOPF analog of the Rust core's DC-OPF
+case by [`goc3_scopf_data`](@ref): the SCOPF analog of the Rust core's DC-OPF
 `OpfInstance` (`powerio-matrix`). Every field is keyed by `uid` and per-class GOC3
 ordering (`j_ln`/`j_xf`/`j_dc`/`n_p`/`n_q`), with no model-specific stacked variable
 index. GOC3 is the input format, not this type: like `OpfInstance`, it is a projection a
 client reads to build a model, not a stored representation of a format.
 
 Fields:
-- `static` — buses, shunts, AC/DC branches, transformer control sets, producers,
+- `static`: buses, shunts, AC/DC branches, transformer control sets, producers,
   consumers, zonal reserves, and device-zone membership sets.
-- `lengths` — the per-class set sizes.
-- `energy_windows` — producer/consumer min and max energy windows and period memberships.
-- `price_blocks` — `(producer, consumer)`, one row per (device, period, cost block).
-- `ac_contingency_survivors` — `(ln, xf)`, per-contingency surviving AC lines/transformers.
-- `dc_contingency_flows` — the flattened surviving-DC-line set.
+- `lengths`: the per-class set sizes.
+- `energy_windows`: producer/consumer min and max energy windows and period memberships.
+- `price_blocks`: `(producer, consumer)`, one row per (device, period, cost block).
+- `ac_contingency_survivors`: `(ln, xf)`, per-contingency surviving AC lines/transformers.
+- `dc_contingency_flows`: the flattened surviving-DC-line set.
 """
 struct ScopfInstance{S,L,E,P,A,D}
     static::S
@@ -804,7 +813,7 @@ and violation-cost fields the instance does not carry.
 
 Retirement mirrors the DC-OPF path: the Rust core builds `OpfInstance` from the general IR
 via `build_opf_instance` (`powerio-matrix`), and the target is a canonical Rust
-`ScopfInstance` built by the same kind of projection, which this function then binds — a
+`ScopfInstance` built by the same kind of projection, which this function then binds: a
 body swap, no consumer change. That is blocked today because the IR cannot yet represent a
 `ScopfInstance`'s inputs: the Rust GOC3 reader keeps `reliability`, `active_zonal_reserve`,
 `reactive_zonal_reserve`, `violation_cost`, and dispatchable-device commitment/cost data
@@ -812,7 +821,7 @@ source-only, and the operating-point series is a per-period field overwrite that
 express cross-period energy budgets. Extending the IR with reserve, contingency, and
 temporal-constraint constructs is tracked in eigenergy/powerio#235. GOC3 stays a format
 and `ScopfInstance` is the derived instance (like `OpfInstance`), so no format is anointed
-in the core — though the GOC3 reserve-product taxonomy and energy windows leave a real
+in the core, though the GOC3 reserve-product taxonomy and energy windows leave a real
 tension a general model must resolve.
 """
 function goc3_scopf_data(data)
