@@ -121,6 +121,22 @@
         @test ac.baseMVA == [100.0]
         @test ac.ref_buses == [1]
         @test ac.gen[1].c == pdata.gen[1].c
+        # ExaModelsPower builds a CuArray from each row vector, which needs a
+        # concrete isbits element type, not the abstract NamedTuple a bare
+        # accumulator leaves behind. case14 has no storage, so the storage-derived
+        # bounds must still be empty Float64 vectors, not a NamedTuple fallback.
+        for f in (:bus, :gen, :branch, :arc, :storage)
+            @test isbitstype(eltype(getfield(ac, f)))
+        end
+        # A live nonempty parse must produce rows whose element type is exactly the
+        # declared bridge schema type. This catches a field-name or field-type drift
+        # between the `@NamedTuple` declaration and the row literal that the empty
+        # case in test_public_api.jl (which never builds a row) cannot see.
+        @test eltype(pdata.bus) === PowerIO._powerdata_bus_row_type(Float64)
+        @test eltype(pdata.gen) === PowerIO._powerdata_gen_row_type(Float64)
+        @test eltype(pdata.branch) === PowerIO._powerdata_branch_row_type(Float64)
+        @test eltype(pdata.arc) === PowerIO._powerdata_arc_row_type(Float64)
+        @test ac.pdmax == Float64[] && ac.emax isa Vector{Float64}
 
         if !package_available()
             @test_skip to_package(net)
@@ -248,6 +264,10 @@
         """
         storage_net = parse_str(storage_text, "matpower")
         storage_raw_pd = to_powerdata(storage_net; filtered=false)
+        # Nonempty storage rows carry the declared storage row type (order/field drift guard).
+        @test eltype(storage_raw_pd.storage) === PowerIO._powerdata_storage_row_type(Float64)
+        # The unfiltered bus path is built with the same declared row type as the normalized one.
+        @test eltype(storage_raw_pd.bus) === PowerIO._powerdata_bus_row_type(Float64)
         @test length(storage_raw_pd.storage) == 2
         @test storage_raw_pd.storage[1].storage_bus == 4
         @test storage_raw_pd.storage[1].energy_rating == 6.0

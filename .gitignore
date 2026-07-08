@@ -3,3 +3,7 @@
 /docs/Manifest.toml
 *.cov
 .DS_Store
+
+# Real GOC3 Challenge 3 case fetched on demand by test/test_goc3_static.jl; too
+# large to vendor, so it is downloaded (in CI / locally on first run), not committed.
+/test/data/goc3_14bus_20220707.json

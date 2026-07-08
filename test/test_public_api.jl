@@ -8,8 +8,10 @@
                 :calc_bdoubleprime_matrix, :ArrowTable,
                 :write_pypsa_csv_folder,
                 :to_powermodels, :from_powermodels, :to_powerdata,
-                :parse_ac_power_data, :read_gridfm, :read_gridfm_scenarios,
-                :parse_goc3_json, :goc3_status_flags, :goc3_add_status_flags!,
+                :parse_ac_power_data, :LoadSeries, :read_load_series, :n_periods,
+                :read_gridfm, :read_gridfm_scenarios,
+                :parse_goc3_json, :goc3_scopf_data, :ScopfInstance,
+                :goc3_status_flags, :goc3_add_status_flags!, :goc3_interval_bounds,
                 :NetworkPackage, :CompilerPackage, :to_package, :from_package, :read_package,
                 :write_package, :package_model_kind, :package_available,
                 :validate_package, :package_validation, :package_diagnostics,
@@ -37,6 +39,30 @@
     end
     @test isdefined(PowerIO, :AdmittanceMatrix)
     @test :AdmittanceMatrix ∉ names(PowerIO)
+    # LoadSeries is the exported ExaModelsPower multiperiod-load bridge; the general
+    # OperatingPointSeries name is reserved for the coming format-neutral series.
+    @test :LoadSeries ∈ names(PowerIO)
+    @test :goc3_scopf_data ∈ names(PowerIO)
+    @test :ScopfInstance ∈ names(PowerIO)
+    # The individual GOC3 index-set builders behind goc3_scopf_data are internal:
+    # defined but unexported (consumers call goc3_scopf_data).
+    for sym in (:_goc3_static_data, :_goc3_energy_windows, :_goc3_price_blocks,
+                :_goc3_ac_contingency_survivors, :_goc3_dc_contingency_flows)
+        @test isdefined(PowerIO, sym)
+        @test sym ∉ names(PowerIO)
+    end
+    # ExaModels PowerData row containers must be concrete isbits so an empty
+    # gen/branch/arc/storage section still moves to the GPU (guards the empty->Any
+    # inference bug the typed row containers fix).
+    for RT in (PowerIO._powerdata_bus_row_type(Float64),
+               PowerIO._powerdata_gen_row_type(Float64),
+               PowerIO._powerdata_branch_row_type(Float64),
+               PowerIO._powerdata_arc_row_type(Float64),
+               PowerIO._powerdata_storage_row_type(Float64))
+        @test isconcretetype(RT)
+        @test isbitstype(RT)
+        @test eltype(RT[]) === RT
+    end
     @test isdefined(PowerIO, :NetworkHandle)  # deprecated alias of BalancedNetworkHandle
     @test PowerIO._lib() isa AbstractString
     @test PowerIO.PIO_ABI_VERSION isa Unsigned
@@ -109,4 +135,29 @@ end
     @test PowerIO.bus_type_code("REF") == 3
     @test PowerIO.bus_type_code("ISOLATED") == 4
     @test_throws ArgumentError PowerIO.bus_type_code("SLACK")
+end
+
+@testset "OperatingPointSeries reserved skeleton" begin
+    # The general format-neutral series is a reserved, unexported skeleton until the
+    # C ABI exposes a construct/attach path. Its component structs are constructible,
+    # but every entry point that would build or materialize a series throws until
+    # then, so a throwing constructor is never advertised as usable.
+    for sym in (:OperatingPointSeries, :TimeAxis, :ElementUpdate, :OperatingPoint,
+                :operating_point_series, :materialize_operating_point_series)
+        @test isdefined(PowerIO, sym)
+        @test sym ∉ names(PowerIO)
+    end
+
+    ta = PowerIO.TimeAxis(2, [1.0, 1.0], ["t1", "t2"])
+    @test ta.periods == 2
+    up = PowerIO.ElementUpdate(:bus, "bus_1", nothing, :pd, 1.0)
+    @test up.table === :bus
+    pt = PowerIO.OperatingPoint(0, [up])
+    @test pt.index == 0 && length(pt.updates) == 1
+
+    # The inner constructor throws: a series cannot yet be built from Julia.
+    @test_throws ErrorException PowerIO.OperatingPointSeries(ta, [pt])
+    @test_throws ErrorException PowerIO.OperatingPointSeries(ta, PowerIO.OperatingPoint[])
+    @test_throws ErrorException PowerIO.operating_point_series(ta, [pt])
+    @test_throws ErrorException PowerIO.materialize_operating_point_series(nothing)
 end

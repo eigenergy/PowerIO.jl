@@ -31,6 +31,10 @@
     @test data.periods == 1:2
     @test data.bus_ids == ["bus_00", "bus_01"]
     @test data.bus_id_by_uid == Dict("bus_01" => 2, "bus_00" => 1)
+    # goc3_bus_id maps a uid to its 1-based row index via bus_id_by_uid.
+    @test PowerIO.goc3_bus_id(data, "bus_00") == 1
+    @test PowerIO.goc3_bus_id(data, "bus_01") == 2
+    @test_throws KeyError PowerIO.goc3_bus_id(data, "bus_99")
     @test data.sdd_ids_producer == ["sd_00"]
     @test data.sdd_ids_consumer == ["sd_01"]
     @test data.ac_line_ids == ["acl_00"]

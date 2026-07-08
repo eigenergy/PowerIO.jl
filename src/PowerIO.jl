@@ -58,28 +58,53 @@ using Preferences: load_preference, set_preferences!
 import Libdl
 import SparseArrays
 
-export BalancedNetwork, parse_file, parse_str, from_json, convert_file, convert_str,
-       to_format, to_normalized, to_normalized_with_options, to_json, to_dense,
-       to_matpower, to_arrow, calc_admittance_matrix, calc_susceptance_matrix,
-       calc_incidence_matrix, calc_bprime_matrix, calc_bdoubleprime_matrix,
-       ArrowTable, release_c_data, write_pypsa_csv_folder, to_powermodels, from_powermodels,
-       to_powerdata, parse_ac_power_data, read_gridfm, read_gridfm_scenarios,
-       parse_goc3_json, goc3_status_flags, goc3_add_status_flags!,
-       NetworkPackage, CompilerPackage, to_package, from_package, read_package, write_package,
+# Parsing and the parsed models
+export BalancedNetwork, MulticonductorNetwork, parse_file, parse_str, from_json
+
+# Conversion and serialization
+export convert_file, convert_str, to_format, to_normalized, to_normalized_with_options,
+       to_json, to_matpower, write_pypsa_csv_folder
+
+# Materialized numeric views
+export to_dense, to_arrow, ArrowTable, release_c_data
+
+# Sparse system matrices (Rust matrix feature)
+export calc_admittance_matrix, calc_susceptance_matrix, calc_incidence_matrix,
+       calc_bprime_matrix, calc_bdoubleprime_matrix
+
+# Ecosystem bridges (PowerModels, ExaModels, gridfm). `to_powerdata`/`parse_ac_power_data`
+# and the `LoadSeries` multiperiod-load surface are ExaModels-facing convenience bridges
+# (documented as interim where they will be superseded by the Rust-backed series).
+export to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
+       LoadSeries, read_load_series, n_periods,
+       read_gridfm, read_gridfm_scenarios
+
+# GO Challenge 3 (general, format-neutral SCOPF input data). `goc3_scopf_data` is the
+# single entry point: it returns a `ScopfInstance` of per-class index sets in one call.
+# The individual `_goc3_*` builders behind it are internal.
+export parse_goc3_json, goc3_scopf_data, ScopfInstance,
+       goc3_status_flags, goc3_add_status_flags!, goc3_interval_bounds
+
+# .pio.json network packages (Rust pkg feature)
+export NetworkPackage, CompilerPackage, to_package, from_package, read_package, write_package,
        package_model_kind, package_available, validate_package, package_validation,
        package_diagnostics, package_operating_points, package_study,
-       materialize_operating_point, materialize_study_commit,
-       multiconductor_to_balanced_preflight,
-       lower_multiconductor_to_balanced, arrow_available, gridfm_available,
-       matrix_available, features, MulticonductorNetwork, dist_available, dist_abi_version,
-       dist_capabilities, to_graph
+       materialize_operating_point, materialize_study_commit
+
+# Multiconductor distribution
+export multiconductor_to_balanced_preflight, lower_multiconductor_to_balanced,
+       dist_available, dist_abi_version, dist_capabilities
+
+# Graph projection and feature probes
+export to_graph, features, arrow_available, gridfm_available, matrix_available
 
 include("capi.jl")        # library resolution, ABI handshake, BalancedNetworkHandle, buffer helpers
 include("network.jl")     # BalancedNetwork and the parse / convert / serialize verbs
 include("accessors.jl")   # element tables and scalar accessors
 include("dense.jl")       # to_dense: numeric tables straight from the C ABI extractors
 include("powermodels.jl") # PowerModels.jl network data bridge
-include("powerdata.jl")   # ExaPowerIO / ExaModelsPower PowerData bridge
+include("exa.jl")         # ExaModels bridge: to_powerdata / parse_ac_power_data / LoadSeries
+include("operatingpoints.jl") # OperatingPointSeries skeleton (reserved; not yet functional)
 include("arrow.jl")       # Arrow C Data Interface export (feature arrow)
 include("matrix.jl")      # sparse matrices computed by the Rust matrix API
 include("gridfm.jl")      # gridfm-datakit Parquet reader (feature gridfm)

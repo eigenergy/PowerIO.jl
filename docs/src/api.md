@@ -59,7 +59,14 @@ Pages = ["powermodels.jl"]
 
 ```@autodocs
 Modules = [PowerIO]
-Pages = ["powerdata.jl"]
+Pages = ["exa.jl"]
+```
+
+## Operating point series
+
+```@autodocs
+Modules = [PowerIO]
+Pages = ["operatingpoints.jl"]
 ```
 
 ## Distribution networks
