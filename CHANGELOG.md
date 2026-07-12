@@ -5,12 +5,14 @@
 Artifact repin to the powerio v0.7.0 binaries. `PIO_ABI_VERSION` stays 4 and
 `PIO_DIST_ABI_VERSION` stays 1, so the Julia surface is unchanged.
 
-Upstream, powerio 0.7.0 adds the `powerio-prob` crate (DC OPF, AC OPF, and
-GOC3 SCOPF problem instances) and demotes `powerio-json` from the public case
-format surface while keeping the `"powerio-json"` token as an ABI v4 alias,
-which this package's round trip tests exercise. New C symbols
-(`pio_scopf_parse_str`, `pio_scopf_to_json`, `pio_switches`,
-`pio_branch_charging`, and others) are available to wrap in a later release.
+- Repin `Artifacts.toml` to the powerio v0.7.0 release tarballs.
+- Upstream, powerio 0.7.0 adds the `powerio-prob` crate (DC OPF, AC OPF, and
+  GOC3 SCOPF problem instances) and demotes `powerio-json` from the public
+  case format surface while keeping the `"powerio-json"` token as an ABI v4
+  alias, which this package's round trip tests exercise.
+- New C symbols (`pio_scopf_parse_str`, `pio_scopf_to_json`, `pio_switches`,
+  `pio_branch_charging`, and others) are available to wrap in a later
+  release (#74).
 
 ## 0.6.4
 
