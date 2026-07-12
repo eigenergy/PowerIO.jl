@@ -16,6 +16,10 @@ name: Register Package
 #
 #     ## Breaking changes
 #     ...
+#
+# If Registrator has not replied on the commit thread within ~15 minutes, the
+# bot-authored comment was dropped; post the same comment from a human
+# account (that recovery worked for v0.7.0).
 on:
   workflow_dispatch:
     inputs:
@@ -61,6 +65,7 @@ jobs:
           fi
           sed -i -E "0,/^version *= *\".*\"/s//version = \"$new\"/" Project.toml
           echo "version=$new" >> "$GITHUB_OUTPUT"
+          echo "previous=$cur" >> "$GITHUB_OUTPUT"
           echo "Set version to $new (was $cur)"
 
       - name: Validate changelog entry
@@ -98,6 +103,25 @@ jobs:
             echo "$notes"
             echo "RELEASE_NOTES_EOF"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Require a breaking mention for a breaking bump
+        env:
+          PREVIOUS: ${{ steps.ver.outputs.previous }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          NOTES: ${{ steps.notes.outputs.notes }}
+        # General's AutoMerge holds a breaking version whose release notes
+        # mention neither "breaking" nor "changelog". Fail here, before the
+        # version commit, instead of an hour later on the General PR.
+        run: |
+          IFS=. read -r pma pmi _ <<< "$PREVIOUS"
+          IFS=. read -r nma nmi _ <<< "$VERSION"
+          breaking=false
+          if [ "$nma" -gt "$pma" ]; then breaking=true; fi
+          if [ "$nma" -eq 0 ] && [ "$pma" -eq 0 ] && [ "$nmi" -gt "$pmi" ]; then breaking=true; fi
+          if [ "$breaking" = true ] && ! printf '%s' "$NOTES" | grep -qiE 'breaking|changelog'; then
+            echo "::error::$PREVIOUS -> $VERSION is a breaking bump, and the release notes mention neither \"breaking\" nor \"changelog\". Add the mention (\"no breaking changes\" counts) to the CHANGELOG section or the release_notes input."
+            exit 1
+          fi
 
       - name: Commit the version bump
         id: commit

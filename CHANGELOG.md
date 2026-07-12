@@ -2,8 +2,10 @@
 
 ## 0.7.0
 
-Artifact repin to the powerio v0.7.0 binaries. `PIO_ABI_VERSION` stays 4 and
-`PIO_DIST_ABI_VERSION` stays 1, so the Julia surface is unchanged.
+Artifact repin to the powerio v0.7.0 binaries. No breaking changes in the
+Julia API: `PIO_ABI_VERSION` stays 4 and `PIO_DIST_ABI_VERSION` stays 1, so
+the Julia surface is unchanged, and the minor version tracks the pinned
+powerio release.
 
 - Repin `Artifacts.toml` to the powerio v0.7.0 release tarballs.
 - Upstream, powerio 0.7.0 adds the `powerio-prob` crate (DC OPF, AC OPF, and
