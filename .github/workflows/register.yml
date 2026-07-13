@@ -5,7 +5,9 @@ name: Register Package
 # block*. The notes matter: a pre-1.0 minor bump is a breaking release, and
 # General's AutoMerge holds a breaking version whose trigger carries no change
 # description (it must mention "breaking" or "changelog"). The General PR
-# AutoMerges (~15 minutes for a new version); TagBot then tags here. A green run
+# AutoMerges (~15 minutes for a new version); TagBot then tags here via the
+# TAGBOT_SSH deploy key (the default token cannot tag a commit once any
+# workflow file changed after it). A green run
 # only means the comment was posted: registration errors (duplicate version,
 # compat problems) surface as Registrator replies on the commit thread and the
 # General PR. Manual fallback — comment on any commit:
