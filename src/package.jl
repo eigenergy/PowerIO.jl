@@ -98,9 +98,7 @@ function _package_validation_json(h::PackageHandle, fname::AbstractString)
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.$fname: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
-    return text
+    return _take_string(lib, s)
 end
 
 function _package_diagnostics_json(h::PackageHandle, fname::AbstractString)
@@ -110,9 +108,7 @@ function _package_diagnostics_json(h::PackageHandle, fname::AbstractString)
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.$fname: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
-    return text
+    return _take_string(lib, s)
 end
 
 _package_operating_points_available() =
@@ -246,9 +242,7 @@ function _package_operating_points_json(h::PackageHandle, fname::AbstractString)
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.$fname: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
-    return text
+    return _take_string(lib, s)
 end
 
 function _package_study_json(h::PackageHandle, fname::AbstractString)
@@ -258,9 +252,7 @@ function _package_study_json(h::PackageHandle, fname::AbstractString)
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.$fname: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
-    return text
+    return _take_string(lib, s)
 end
 
 """

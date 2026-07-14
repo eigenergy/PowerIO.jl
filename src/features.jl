@@ -1,3 +1,15 @@
+# One "usable from Julia" probe per optional cargo feature. `features()` and
+# `has_feature`'s pre-0.7 fallback both read this table, so adding a feature is
+# one entry and the two can never disagree.
+const _FEATURE_PROBES = (;
+    arrow = arrow_available,
+    matrix = matrix_available,
+    gridfm = gridfm_available,
+    dist = dist_available,
+    package = package_available,
+    prob = scopf_available,
+)
+
 """
     features() -> NamedTuple
 
@@ -9,14 +21,7 @@ feature ABI handshake passes); [`has_feature`](@ref) asks the library itself
 what it was compiled with. Use this in downstream packages instead of probing
 private symbols.
 """
-features() = (;
-    arrow = arrow_available(),
-    matrix = matrix_available(),
-    gridfm = gridfm_available(),
-    dist = dist_available(),
-    package = package_available(),
-    prob = scopf_available(),
-)
+features() = map(probe -> probe(), _FEATURE_PROBES)
 
 """
     has_feature(feature) -> Bool
@@ -46,16 +51,12 @@ function has_feature(feature::AbstractString)
     end
     # Pre-0.7 fallback: the docstring's "ABI-incompatible answers false" holds
     # here too — library_available() runs the main handshake without throwing —
-    # and each feature delegates to its own probe, so the representative
-    # symbols live in one place and cannot drift from features().
+    # and the probes come from the same table features() reads, so the two
+    # cannot drift.
     library_available() || return false
-    feature == "arrow" && return arrow_available()
-    feature == "matrix" && return matrix_available()
-    feature == "gridfm" && return gridfm_available()
-    feature == "dist" && return dist_available()
-    feature == "pkg" && return package_available()
-    feature == "prob" && return scopf_available()
-    return false
+    probe = get(_FEATURE_PROBES, feature == "pkg" ? :package : Symbol(feature), nothing)
+    probe === nothing && return false
+    return probe()
 end
 
 const _DIST_CAPABILITY_KEYS = (
@@ -104,8 +105,7 @@ function dist_capabilities()
         _feature_call_error("dist_capabilities", "pio_dist_capabilities_json", "dist", e)
     end
     s == C_NULL && error("PowerIO.dist_capabilities: pio_dist_capabilities_json returned null")
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+    text = _take_string(lib, s)
     obj = JSON3.read(text)
 
     flag(k) = Bool(get(obj, k, false))

@@ -142,7 +142,7 @@ function _dense_from_handle(h::BalancedNetworkHandle)
             is_radial = ccall(_library_symbol(lib, :pio_is_radial), Cint, (Ptr{Cvoid},), p) != 0,
         )
         if _has_switch_extractors(lib)
-            ns = Int(ccall(_library_symbol(lib, :pio_n_switches), Csize_t, (Ptr{Cvoid},), p))
+            ns = _handle_count(h, :pio_n_switches)
             dense = merge(dense, (; ns, switch = _switch_tables(h, ns)))
         end
         return dense

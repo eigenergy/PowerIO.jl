@@ -174,21 +174,21 @@ end
         @test d.ng == PowerIO.n_gens(parse_file(joinpath(@__DIR__, "data", "case14.m")))
 
         # The v0.7 dense fields are present exactly when the resolved library
-        # exports the extractors; a pre-0.7 ABI-4 library omits them, so gate
-        # like the other additive-symbol tests instead of erroring on a
-        # missing NamedTuple field.
-        if !(PowerIO._has_switch_extractors() &&
-             PowerIO._exports_symbol(:pio_branch_charging))
-            @test !haskey(d, :ns) && !haskey(d, :switch)
-            @test_skip to_dense(joinpath(@__DIR__, "data", "case14.m")).ns
-        else
-            @test d.ns == 0
+        # exports their extractors; a pre-0.7 ABI-4 library omits them. Each
+        # surface gates on its own symbols, mirroring _dense_from_handle.
+        if PowerIO._exports_symbol(:pio_branch_charging)
             # Terminal charging (pio_branch_charging): a MATPOWER line carries no
             # conductance and splits its total charging b evenly across terminals.
             @test d.branch.g_fr == zeros(20) && d.branch.g_to == zeros(20)
             @test d.branch.b_fr ≈ d.branch.b ./ 2
             @test d.branch.b_fr .+ d.branch.b_to ≈ d.branch.b
+        else
+            @test !haskey(d.branch, :g_fr)
+            @test_skip to_dense(joinpath(@__DIR__, "data", "case14.m")).branch.g_fr
+        end
+        if PowerIO._has_switch_extractors()
             # No switches in case14 (pio_switches / pio_n_switches).
+            @test d.ns == 0
             @test isempty(d.switch.from) && isempty(d.switch.closed)
 
             # A PowerModels case carries first-class switches and an asymmetric
@@ -209,8 +209,12 @@ end
             @test ds.switch.pf[1] ≈ 10.0
             @test ds.switch.current_rating[1] == 0.0    # absent optional comes back 0.0
             row = findfirst(i -> ds.branch.from[i] == 1 && ds.branch.to[i] == 2, 1:ds.m)
-            @test ds.branch.b_fr[row] ≈ 0.02 && ds.branch.b_to[row] ≈ 0.03
             @test ds.branch.b[row] ≈ 0.05
+            PowerIO._exports_symbol(:pio_branch_charging) &&
+                @test ds.branch.b_fr[row] ≈ 0.02 && ds.branch.b_to[row] ≈ 0.03
+        else
+            @test !haskey(d, :ns) && !haskey(d, :switch)
+            @test_skip to_dense(joinpath(@__DIR__, "data", "case14.m")).ns
         end
     end
 end

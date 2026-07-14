@@ -49,7 +49,6 @@ function to_graph(net::MulticonductorNetwork)
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.to_graph: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+    text = _take_string(lib, s)
     return JSON3.read(text)
 end

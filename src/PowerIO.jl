@@ -114,8 +114,8 @@ include("dist.jl")        # MulticonductorNetwork distribution API (feature dist
 include("display.jl")     # compact and multiline display for parsed networks
 include("graphs.jl")      # graph projections for balanced and multiconductor models
 include("package.jl")     # .pio.json network packages (feature pkg)
-include("features.jl")    # public feature probe summary
-include("goc3.jl")        # GO Challenge 3 JSON helpers (pure Julia)
 include("scopf.jl")       # native SCOPF problem instance JSON (feature prob)
+include("features.jl")    # public feature probe summary (reads scopf.jl's probe)
+include("goc3.jl")        # GO Challenge 3 JSON helpers (pure Julia)
 
 end # module

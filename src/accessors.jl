@@ -37,9 +37,12 @@ _handle_count(h::BalancedNetworkHandle, sym::Symbol) =
     Int(GC.@preserve h ccall(_library_symbol(getfield(h, :lib), sym),
                              Csize_t, (Ptr{Cvoid},), h.ptr))
 
-# One string off the live handle via a cap/count C accessor (`pio_network_name`,
+# The binding of the v0.7 scalar string accessors (`pio_network_name`,
 # `pio_source_format`), or `nothing` when there is no live handle or the
-# resolved library lacks `sym`.
+# resolved library lacks `sym`. The public `network_name` / `source_format`
+# stay summary-backed (the summary is cached and its strings come from the
+# same Rust fields), so this is the C surface itself; the drift canary in
+# test_roundtrip.jl pins its agreement with the summary values.
 function _handle_string(net::BalancedNetwork, sym::Symbol)
     h = _maybe_live_handle(net)
     h === nothing && return nothing
@@ -81,30 +84,14 @@ end
 
 base_frequency(net::BalancedNetwork) = Float64(_summary(net).base_frequency)
 
-# The shared three-tier read behind `network_name` / `source_format`: a cached
-# summary is a plain field read; a first access on a live handle takes the
-# dedicated C string accessor instead of building the summary JSON; a
-# handle-less or pre-0.7 library falls back to the summary. Deliberately does
-# NOT build and cache the summary on the C path: reading a name after
-# finalize(net.handle) no longer incidentally worked when a prior name read
-# had warmed the cache — the documented rule (access what you need before
-# finalizing) is the behavior.
-function _scalar_string(net::BalancedNetwork, field::Symbol, sym::Symbol)
-    summary = getfield(net, :summary)
-    summary !== nothing && return String(getproperty(summary, field))
-    value = _handle_string(net, sym)
-    value === nothing || return value
-    return String(getproperty(_summary(net), field))
-end
-
 """
     network_name(net) -> String
 
-The case name carried through from the source file. Reads the cached summary
-when one is already materialized; a first access on a live handle uses the
-dedicated C accessor (`pio_network_name`) instead of building the summary JSON.
+The case name carried through from the source file.
 """
-network_name(net::BalancedNetwork) = _scalar_string(net, :name, :pio_network_name)
+function network_name(net::BalancedNetwork)
+    return String(_summary(net).name)
+end
 
 "Buses, in source order (1-based ids preserved). See the accessor API note."
 buses(net::BalancedNetwork) = net.data.buses
@@ -135,13 +122,10 @@ end
     n_switches(net) -> Int
 
 Number of switch rows (two-terminal ideal switches; PowerModels JSON carries
-them). Reads `pio_n_switches` off the live handle, else the summary counts.
+them). Summary-backed like its count siblings; the dense fast path reads
+`pio_n_switches` directly (see `to_dense`).
 """
 function n_switches(net::BalancedNetwork)
-    h = _maybe_live_handle(net)
-    if h !== nothing && _has_switch_extractors(getfield(h, :lib))
-        return _handle_count(h, :pio_n_switches)
-    end
     return Int(get(_summary(net).counts, :switches, 0))
 end
 
@@ -154,7 +138,9 @@ Examples include `"Matpower"`, `"PowerModelsJson"`, `"EgretJson"`, `"Psse"`,
 `"SurgeJson"`, `"InMemory"`, and `"Normalized"` (the last is the output of
 [`to_normalized`](@ref)).
 """
-source_format(net::BalancedNetwork) = _scalar_string(net, :source_format, :pio_source_format)
+function source_format(net::BalancedNetwork)
+    return String(_summary(net).source_format)
+end
 
 """
     reference_bus_id(net) -> Union{Int,Nothing}

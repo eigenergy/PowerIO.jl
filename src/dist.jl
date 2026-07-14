@@ -256,8 +256,7 @@ function _dist_data(h::MulticonductorNetworkHandle)
     s = GC.@preserve h ccall(_library_symbol(lib, :pio_dist_to_json), Cstring,
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
     s == C_NULL && error("PowerIO: could not serialize the multiconductor model: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+    text = _take_string(lib, s)
     return JSON3.read(text)
 end
 
@@ -268,8 +267,7 @@ function _summary(h::MulticonductorNetworkHandle)
         s = GC.@preserve h ccall(_library_symbol(lib, :pio_dist_summary_json), Cstring,
                                  (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
         s == C_NULL && error("PowerIO: could not serialize the multiconductor summary: " * _cstr(err))
-        text = unsafe_string(s)
-        ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+        text = _take_string(lib, s)
         return JSON3.read(text)
     end
     return nothing
@@ -488,8 +486,7 @@ function to_format(net::MulticonductorNetwork, to::AbstractString)
                              (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
                              h.ptr, String(to), warnbuf, length(warnbuf), err, length(err))
     s == C_NULL && error("PowerIO.to_format(MulticonductorNetwork): " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+    text = _take_string(lib, s)
     return (text, _warn_lines(warnbuf; capped=true))
 end
 
@@ -516,8 +513,7 @@ function convert_file(::Type{MulticonductorNetwork}, path::AbstractString, to::A
         _feature_call_error("convert_file", "pio_dist_convert_file", "dist", e)
     end
     s == C_NULL && error("PowerIO.convert_file(MulticonductorNetwork): " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+    text = _take_string(lib, s)
     return (text, _warn_lines(warnbuf; capped=true))
 end
 
@@ -542,7 +538,6 @@ function convert_str(::Type{MulticonductorNetwork}, text::AbstractString, to::Ab
         _feature_call_error("convert_str", "pio_dist_convert_str", "dist", e)
     end
     s == C_NULL && error("PowerIO.convert_str(MulticonductorNetwork): " * _cstr(err))
-    out = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+    out = _take_string(lib, s)
     return (out, _warn_lines(warnbuf; capped=true))
 end

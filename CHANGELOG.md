@@ -27,10 +27,11 @@ stays 4, `PIO_DIST_ABI_VERSION` stays 1, and the pinned binaries are unchanged.
   columns, axes, units, and availability.
 - `has_feature(name)` asks the library which cargo features it was compiled
   with (`pio_has_feature`), falling back to symbol probes on older libraries.
-- `network_name` and `source_format` on a live balanced handle whose summary
-  is not yet materialized read the dedicated C accessors (`pio_network_name` /
-  `pio_source_format`) instead of building the summary JSON for one string; a
-  cached summary is still a plain field read.
+- The dedicated scalar string accessors (`pio_network_name` /
+  `pio_source_format`) are bound as internals and pinned against the
+  summary-backed `network_name` / `source_format` by a drift canary test; the
+  public accessors keep reading the cached summary, so their behavior is
+  unchanged.
 - `from_json(MulticonductorNetwork, text)` rebuilds a live distribution handle
   from the model JSON `net.data` serializes to (`pio_dist_from_json`), the
   distribution sibling of the balanced `from_json`.
