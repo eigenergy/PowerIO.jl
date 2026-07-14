@@ -88,9 +88,7 @@ function _package_to_json(h::PackageHandle, fname::AbstractString)
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.$fname: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
-    return text
+    return _take_string(lib, s)
 end
 
 function _package_validation_json(h::PackageHandle, fname::AbstractString)
@@ -100,9 +98,7 @@ function _package_validation_json(h::PackageHandle, fname::AbstractString)
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.$fname: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
-    return text
+    return _take_string(lib, s)
 end
 
 function _package_diagnostics_json(h::PackageHandle, fname::AbstractString)
@@ -112,9 +108,7 @@ function _package_diagnostics_json(h::PackageHandle, fname::AbstractString)
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.$fname: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
-    return text
+    return _take_string(lib, s)
 end
 
 _package_operating_points_available() =
@@ -122,12 +116,6 @@ _package_operating_points_available() =
 
 _package_study_available() =
     _exports_symbol(:pio_package_study_json)
-
-_package_materialize_operating_point_available() =
-    _exports_symbol(:pio_package_materialize_operating_point)
-
-_package_materialize_study_commit_available() =
-    _exports_symbol(:pio_package_materialize_study_commit)
 
 function _package_validation_handle(pkg::NetworkPackage, fname::AbstractString)
     h = _package_parse_str_handle(to_json(pkg), fname)
@@ -254,9 +242,7 @@ function _package_operating_points_json(h::PackageHandle, fname::AbstractString)
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.$fname: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
-    return text
+    return _take_string(lib, s)
 end
 
 function _package_study_json(h::PackageHandle, fname::AbstractString)
@@ -266,9 +252,7 @@ function _package_study_json(h::PackageHandle, fname::AbstractString)
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.$fname: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
-    return text
+    return _take_string(lib, s)
 end
 
 """
@@ -283,6 +267,35 @@ function package_operating_points(pkg::NetworkPackage)
     h = _package_parse_str_handle(to_json(pkg), "package_operating_points")
     value = JSON3.read(_package_operating_points_json(h, "package_operating_points"))
     return value === nothing ? nothing : value
+end
+
+"""
+    set_operating_points(pkg::NetworkPackage, series) -> NetworkPackage
+
+Return a package with its operating point series replaced from `series`
+(`pio_package_set_operating_points`): JSON text, or any JSON-serializable value
+in the Rust `OperatingPointSeries` layout — `time_axis` (`periods`,
+`duration_hours`, optional `labels`) plus `points`, each an `index` and sparse
+`updates` of `{element: {table, source_uid | row}, fields: {...}}`. `nothing`
+(or JSON `null`, or an empty series) clears it. Package validation is
+recomputed before returning. Read the series back with
+[`package_operating_points`](@ref) and apply one point with
+[`materialize_operating_point`](@ref). Needs powerio-capi v0.7 built
+`--features pkg`.
+"""
+function set_operating_points(pkg::NetworkPackage, series)
+    _require_export("set_operating_points", :pio_package_set_operating_points,
+                    "powerio v0.7, `--features pkg`")
+    json = series === nothing ? "null" :
+           series isa AbstractString ? String(series) : JSON3.write(series)
+    h = _package_parse_str_handle(to_json(pkg), "set_operating_points")
+    lib = getfield(h, :lib)
+    err = zeros(UInt8, _ERRLEN)
+    rc = GC.@preserve h ccall(_library_symbol(lib, :pio_package_set_operating_points), Cint,
+                              (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t),
+                              h.ptr, json, err, length(err))
+    rc == 0 || error("PowerIO.set_operating_points: " * _cstr(err))
+    return NetworkPackage(_package_to_json(h, "set_operating_points"))
 end
 
 """
@@ -306,10 +319,8 @@ Return a static package with operating point `index` applied. Indices are zero
 based to match the `.pio.json` payload.
 """
 function materialize_operating_point(pkg::NetworkPackage, index::Integer)
-    _package_materialize_operating_point_available() || error(
-        "PowerIO.materialize_operating_point: the C ABI at \"$(_lib())\" does not export " *
-        "pio_package_materialize_operating_point. Rebuild powerio-capi from the matching " *
-        "PowerIO branch.")
+    _require_export("materialize_operating_point", :pio_package_materialize_operating_point,
+                    "`--features pkg`")
     h = _package_parse_str_handle(to_json(pkg), "materialize_operating_point")
     lib = getfield(h, :lib)
     _package_free_fn(lib)
@@ -329,10 +340,8 @@ Return a static package with study commits `0:index` applied. Indices are zero
 based to match the `.pio.json` payload.
 """
 function materialize_study_commit(pkg::NetworkPackage, index::Integer)
-    _package_materialize_study_commit_available() || error(
-        "PowerIO.materialize_study_commit: the C ABI at \"$(_lib())\" does not export " *
-        "pio_package_materialize_study_commit. Rebuild powerio-capi from the matching " *
-        "PowerIO branch.")
+    _require_export("materialize_study_commit", :pio_package_materialize_study_commit,
+                    "`--features pkg`")
     h = _package_parse_str_handle(to_json(pkg), "materialize_study_commit")
     lib = getfield(h, :lib)
     _package_free_fn(lib)
@@ -360,9 +369,7 @@ function multiconductor_to_balanced_preflight(pkg::NetworkPackage; base_mva::Rea
                              (Ptr{Cvoid}, Cdouble, Ptr{UInt8}, Csize_t),
                              h.ptr, base_mva_c, err, length(err))
     s == C_NULL && error("PowerIO.multiconductor_to_balanced_preflight: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
-    return JSON3.read(text)
+    return JSON3.read(_take_string(lib, s))
 end
 
 """
@@ -393,9 +400,7 @@ function _package_extract_ptr(pkg::NetworkPackage, sym::Symbol)
     err = zeros(UInt8, _ERRLEN)
     # ccall needs a literal symbol, so resolve the entry point by hand; the
     # un-dlclosed handle pins the library, as in `_network_free_fn`.
-    _exports_symbol(sym, lib) || error(
-        "PowerIO.from_package: the C ABI at \"$lib\" predates the package payload " *
-        "extraction inverses ($sym). Update the powerio-capi artifact or local library.")
+    _require_export("from_package", sym, "`--features pkg`", lib)
     if sym === :pio_package_to_balanced_network
         _network_free_fn(lib)
     elseif sym === :pio_package_to_multiconductor_network

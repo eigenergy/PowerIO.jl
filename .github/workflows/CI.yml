@@ -78,7 +78,10 @@ jobs:
         run: |
           features=arrow,gridfm,dist,pkg
           if grep -q '^matrix = ' powerio/powerio-capi/Cargo.toml; then
-            features=arrow,matrix,gridfm,dist,pkg
+            features="$features,matrix"
+          fi
+          if grep -q '^prob = ' powerio/powerio-capi/Cargo.toml; then
+            features="$features,prob"
           fi
           cargo build -p powerio-capi --release --features "$features" --manifest-path powerio/Cargo.toml
       - uses: julia-actions/julia-buildpkg@v1

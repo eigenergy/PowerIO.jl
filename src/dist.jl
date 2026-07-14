@@ -256,8 +256,7 @@ function _dist_data(h::MulticonductorNetworkHandle)
     s = GC.@preserve h ccall(_library_symbol(lib, :pio_dist_to_json), Cstring,
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
     s == C_NULL && error("PowerIO: could not serialize the multiconductor model: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+    text = _take_string(lib, s)
     return JSON3.read(text)
 end
 
@@ -268,8 +267,7 @@ function _summary(h::MulticonductorNetworkHandle)
         s = GC.@preserve h ccall(_library_symbol(lib, :pio_dist_summary_json), Cstring,
                                  (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
         s == C_NULL && error("PowerIO: could not serialize the multiconductor summary: " * _cstr(err))
-        text = unsafe_string(s)
-        ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+        text = _take_string(lib, s)
         return JSON3.read(text)
     end
     return nothing
@@ -365,6 +363,29 @@ form of the format-routed [`parse_str`](@ref)`(text, format)`. An OpenDSS
 function parse_str(::Type{MulticonductorNetwork}, text::AbstractString, format::AbstractString)
     h = _dist_parse_handle_str(text, format)
     return MulticonductorNetwork(h)
+end
+
+"""
+    from_json(MulticonductorNetwork, text) -> MulticonductorNetwork
+
+Rebuild a live [`MulticonductorNetwork`](@ref) from the model JSON its `data`
+payload serializes to (`pio_dist_to_json` / `JSON3.write(net.data)`, the same
+object a `.pio.json` package carries under `model.multiconductor_network`) —
+the distribution sibling of [`from_json`](@ref)`(text)`. The rebuilt handle
+retains no source text, so a same format write is a fresh serialization.
+Needs powerio-capi v0.7 built `--features dist`.
+"""
+function from_json(::Type{MulticonductorNetwork}, text::AbstractString)
+    lib = _lib()
+    _ensure_dist_compatible(lib)
+    _require_export("from_json(MulticonductorNetwork)", :pio_dist_from_json,
+                    "powerio v0.7, `--features dist`", lib)
+    _dist_network_free_fn(lib)
+    err = zeros(UInt8, _ERRLEN)
+    ptr = ccall(_library_symbol(lib, :pio_dist_from_json), Ptr{Cvoid},
+                (Cstring, Ptr{UInt8}, Csize_t), String(text), err, length(err))
+    ptr == C_NULL && error("PowerIO.from_json(MulticonductorNetwork): " * _cstr(err))
+    return MulticonductorNetwork(MulticonductorNetworkHandle(ptr, lib))
 end
 
 # --- accessors -------------------------------------------------------------
@@ -465,8 +486,7 @@ function to_format(net::MulticonductorNetwork, to::AbstractString)
                              (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
                              h.ptr, String(to), warnbuf, length(warnbuf), err, length(err))
     s == C_NULL && error("PowerIO.to_format(MulticonductorNetwork): " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+    text = _take_string(lib, s)
     return (text, _warn_lines(warnbuf; capped=true))
 end
 
@@ -493,8 +513,7 @@ function convert_file(::Type{MulticonductorNetwork}, path::AbstractString, to::A
         _feature_call_error("convert_file", "pio_dist_convert_file", "dist", e)
     end
     s == C_NULL && error("PowerIO.convert_file(MulticonductorNetwork): " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+    text = _take_string(lib, s)
     return (text, _warn_lines(warnbuf; capped=true))
 end
 
@@ -519,7 +538,6 @@ function convert_str(::Type{MulticonductorNetwork}, text::AbstractString, to::Ab
         _feature_call_error("convert_str", "pio_dist_convert_str", "dist", e)
     end
     s == C_NULL && error("PowerIO.convert_str(MulticonductorNetwork): " * _cstr(err))
-    out = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+    out = _take_string(lib, s)
     return (out, _warn_lines(warnbuf; capped=true))
 end

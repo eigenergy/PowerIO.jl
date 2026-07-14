@@ -374,6 +374,23 @@ end
         @test PowerIO.n_buses(payload_round_trip) == PowerIO.n_buses(routed)
         @test PowerIO.source_format(payload_round_trip) == PowerIO.source_format(routed)
         @test PowerIO.warnings(payload_round_trip) == PowerIO.warnings(bare)
+
+        if !PowerIO._exports_symbol(:pio_dist_from_json)
+            @test_skip from_json(MulticonductorNetwork, JSON3.write(routed.data))
+        else
+            # from_json(MulticonductorNetwork, text) rebuilds a LIVE handle from
+            # the model JSON (the inverse of pio_dist_to_json), unlike the
+            # payload-only constructor above, so handle transforms work on it.
+            rebuilt = from_json(MulticonductorNetwork, JSON3.write(routed.data))
+            @test rebuilt isa MulticonductorNetwork
+            @test getfield(rebuilt, :handle) !== nothing
+            @test PowerIO.n_buses(rebuilt) == PowerIO.n_buses(routed)
+            @test PowerIO.warnings(rebuilt) == PowerIO.warnings(routed)
+            # The rebuilt handle retains no source text: a same format write is
+            # a fresh serialization, so compare through bmopf on both sides.
+            @test first(to_format(rebuilt, "bmopf")) == first(to_format(routed, "bmopf"))
+            @test_throws ErrorException from_json(MulticonductorNetwork, "not json")
+        end
         if package_available()
             @test_throws ErrorException to_package(bare)
         end

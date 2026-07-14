@@ -66,7 +66,7 @@ export convert_file, convert_str, to_format, to_normalized, to_normalized_with_o
        to_json, to_matpower, write_pypsa_csv_folder
 
 # Materialized numeric views
-export to_dense, to_arrow, ArrowTable, release_c_data
+export to_dense, to_arrow, ArrowTable, release_c_data, arrow_catalog
 
 # Sparse system matrices (Rust matrix feature)
 export calc_admittance_matrix, calc_susceptance_matrix, calc_incidence_matrix,
@@ -81,22 +81,24 @@ export to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
 
 # GO Challenge 3 (general, format-neutral SCOPF input data). `goc3_scopf_data` is the
 # single entry point: it returns a `ScopfInstance` of per-class index sets in one call.
-# The individual `_goc3_*` builders behind it are internal.
+# The individual `_goc3_*` builders behind it are internal. `parse_scopf` is the
+# Rust-parsed sibling: the native problem instance's versioned JSON (feature prob).
 export parse_goc3_json, goc3_scopf_data, ScopfInstance,
-       goc3_status_flags, goc3_add_status_flags!, goc3_interval_bounds
+       goc3_status_flags, goc3_add_status_flags!, goc3_interval_bounds,
+       parse_scopf, scopf_available
 
 # .pio.json network packages (Rust pkg feature)
 export NetworkPackage, CompilerPackage, to_package, from_package, read_package, write_package,
        package_model_kind, package_available, validate_package, package_validation,
        package_diagnostics, package_operating_points, package_study,
-       materialize_operating_point, materialize_study_commit
+       set_operating_points, materialize_operating_point, materialize_study_commit
 
 # Multiconductor distribution
 export multiconductor_to_balanced_preflight, lower_multiconductor_to_balanced,
        dist_available, dist_abi_version, dist_capabilities
 
 # Graph projection and feature probes
-export to_graph, features, arrow_available, gridfm_available, matrix_available
+export to_graph, features, has_feature, arrow_available, gridfm_available, matrix_available
 
 include("capi.jl")        # library resolution, ABI handshake, BalancedNetworkHandle, buffer helpers
 include("network.jl")     # BalancedNetwork and the parse / convert / serialize verbs
@@ -112,7 +114,8 @@ include("dist.jl")        # MulticonductorNetwork distribution API (feature dist
 include("display.jl")     # compact and multiline display for parsed networks
 include("graphs.jl")      # graph projections for balanced and multiconductor models
 include("package.jl")     # .pio.json network packages (feature pkg)
-include("features.jl")    # public feature probe summary
+include("scopf.jl")       # native SCOPF problem instance JSON (feature prob)
+include("features.jl")    # public feature probe summary (reads scopf.jl's probe)
 include("goc3.jl")        # GO Challenge 3 JSON helpers (pure Julia)
 
 end # module

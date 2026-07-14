@@ -77,8 +77,7 @@ function _balanced_summary_json(h::BalancedNetworkHandle)
         s = GC.@preserve h ccall(_library_symbol(lib, :pio_summary_json), Cstring,
                                  (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
         s == C_NULL && error("PowerIO: could not serialize the balanced summary: " * _cstr(err))
-        text = unsafe_string(s)
-        ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+        text = _take_string(lib, s)
         return JSON3.read(text)
     end
     data = JSON3.read(_to_json(h))
@@ -369,8 +368,7 @@ function _format_from_handle(h::BalancedNetworkHandle, to::AbstractString, what:
                              (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
                              h.ptr, String(to), warnbuf, length(warnbuf), err, length(err))
     s == C_NULL && error("PowerIO.to_format: " * _cstr(err) * " ($what)")
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+    text = _take_string(lib, s)
     return (text, _warn_lines(warnbuf; capped=true))
 end
 
@@ -453,8 +451,7 @@ function convert_file(path::AbstractString, to::AbstractString; from=nothing)
               (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
               path, fromc, to, warnbuf, length(warnbuf), err, length(err))
     s == C_NULL && error("PowerIO.convert_file: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+    text = _take_string(lib, s)
     return (text, _warn_lines(warnbuf; capped=true))
 end
 # Explicit transmission marker, symmetric with `convert_file(MulticonductorNetwork, ...)`.
@@ -484,8 +481,7 @@ function convert_str(text::AbstractString, to::AbstractString; from::AbstractStr
               (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
               String(text), String(from), to, warnbuf, length(warnbuf), err, length(err))
     s == C_NULL && error("PowerIO.convert_str: " * _cstr(err))
-    out = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+    out = _take_string(lib, s)
     return (out, _warn_lines(warnbuf; capped=true))
 end
 

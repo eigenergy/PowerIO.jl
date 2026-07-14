@@ -1,7 +1,7 @@
 name = "PowerIO"
 uuid = "05ed8b54-f668-4096-9d0d-e8c3dd9dc169"
 authors = ["Sam Talkington <samtalki@users.noreply.github.com>"]
-version = "0.7.0"
+version = "0.7.1"
 
 [deps]
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"

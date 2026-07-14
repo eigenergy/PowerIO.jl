@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.7.1
+
+Wraps the C symbols powerio 0.7.0 added (#74). All additive: `PIO_ABI_VERSION`
+stays 4, `PIO_DIST_ABI_VERSION` stays 1, and the pinned binaries are unchanged.
+
+- `parse_scopf(text; from="goc3-json")` parses SCOPF source text into the Rust
+  core's native problem instance and returns the versioned 1-based JSON
+  `pio_scopf_to_json` produces (with `pio_scopf_parse_str` /
+  `pio_scopf_instance_free` behind it); `scopf_available()` probes the prob
+  feature and `features()` gains a `prob` field. The pure Julia
+  `goc3_scopf_data` surface is unchanged; the serialization numbers zones and
+  branches from document order while the Julia builders use uid suffixes, and
+  the two agree on official GOC3 files (eigenergy/powerio#252 tracks hardening
+  the renumbering).
+- `to_dense` gains the switch table (`ns`, `switch` with `from`, `to`,
+  `closed`, ratings, and terminal flows via `pio_switches` /
+  `pio_n_switches`) and the terminal branch charging split (`branch.g_fr`,
+  `b_fr`, `g_to`, `b_to` via `pio_branch_charging`); the unexported
+  `n_switches(net)` accessor joins `n_buses` / `n_branches` / `n_gens`. The
+  new fields are present exactly when the resolved library exports the
+  extractors, so an older ABI 4 library keeps its previous `to_dense`
+  behavior instead of erroring.
+- `arrow_catalog()` returns the feature based Arrow table catalog
+  (`pio_arrow_catalog_json`): every table the build can export with its
+  columns, axes, units, and availability.
+- `has_feature(name)` asks the library which cargo features it was compiled
+  with (`pio_has_feature`), falling back to symbol probes on older libraries.
+- The dedicated scalar string accessors (`pio_network_name` /
+  `pio_source_format`) are bound as internals, and a drift canary test asserts
+  they agree with the summary-backed `network_name` / `source_format`; the
+  public accessors keep reading the cached summary, so their behavior is
+  unchanged.
+- `from_json(MulticonductorNetwork, text)` rebuilds a live distribution handle
+  from the model JSON `net.data` serializes to (`pio_dist_from_json`), the
+  distribution sibling of the balanced `from_json`.
+- `set_operating_points(pkg, series)` replaces a package's operating point
+  series from JSON text or any JSON-serializable value and recomputes
+  validation (`pio_package_set_operating_points`); `nothing` clears it. The
+  `OperatingPointSeries` skeleton docs now point at it as the JSON-level
+  attach.
+
 ## 0.7.0
 
 Artifact repin to the powerio v0.7.0 binaries. No breaking changes in the

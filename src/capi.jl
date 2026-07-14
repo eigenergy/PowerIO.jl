@@ -292,6 +292,16 @@ _lib_call_error(e) = error(
     "(`cargo build -p powerio-capi --release` in a sibling powerio checkout) " *
     "or call `set_library!` / set POWERIO_CAPI. Underlying: $e")
 
+# Directed error for an entry point the resolved library predates: `sym` is
+# absent even though the ABI handshake passes (additive symbols do not bump the
+# ABI version). `hint` names the powerio release and cargo feature that ship it.
+function _require_export(fname::AbstractString, sym::Symbol, hint::AbstractString,
+                         lib::AbstractString=_lib())
+    _exports_symbol(sym, lib) && return
+    error("PowerIO.$fname: the C ABI at \"$lib\" does not export $sym ($hint). " *
+          "Update the powerio_capi artifact or rebuild the local library.")
+end
+
 # Sibling of `_lib_call_error` for the feature-gated entry points: the ccall threw
 # because the resolved library lacks `sym`. Anything other than the missing
 # symbol/library ErrorException (e.g. an ArgumentError from argument conversion)
@@ -361,32 +371,50 @@ end
 # compiler may drop the buffer after `pointer(buf)` and a GC mid-copy dangles.
 _cstr(buf::Vector{UInt8}) = GC.@preserve buf unsafe_string(pointer(buf))
 
-# Split a `\n`-joined warn buffer into owned Strings (a SubString would pin the
-# whole buffer-sized parent). `capped`: this fixed-size per-call channel truncates
-# silently on a UTF-8 boundary at the cap, so a fill within 4 bytes of it is the
-# truncation signature — report it rather than under-count fidelity warnings.
+# Owned Strings, one per non-empty line (a SubString would pin the whole
+# buffer-sized parent).
+_nonempty_lines(s::AbstractString) = String.(filter(!isempty, split(s, '\n')))
+
+# Split a `\n`-joined warn buffer into owned Strings. `capped`: this fixed-size
+# per-call channel truncates silently on a UTF-8 boundary at the cap, so a fill
+# within 4 bytes of it is the truncation signature — report it rather than
+# under-count fidelity warnings.
 function _warn_lines(buf::Vector{UInt8}; capped::Bool=false)
     s = _cstr(buf)
-    warns = String.(filter(!isempty, split(s, '\n')))
+    warns = _nonempty_lines(s)
     capped && ncodeunits(s) >= length(buf) - 4 &&
         push!(warns, "... warning list truncated at $(length(buf)) bytes")
     return warns
 end
 
-# Fidelity warnings retained on a handle (`pio_warnings` / `pio_dist_warnings`):
-# the readers that return a handle and no per-call warnbuf (`pio_read_dir`, the
-# dist parsers) park their warnings here. The v4 query returns the joined text's
-# byte length, so size with a null buffer first, then fill exactly — no cap
-# marker, the buffer fits by construction. `query(out, cap)` closes over the
-# handle, so the caller's GC.@preserve covers both calls (the raw pointer never
-# travels alone; see `_normalize_handle`).
-function _warnings_from(query)
+# One string over the cap/count convention (`pio_network_name`,
+# `pio_source_format`, and the joined text behind `_warnings_from`): the query
+# returns the byte length excluding the NUL, so size with a null buffer,
+# allocate, fill exactly. `query(out, cap)` closes over the handle; the
+# caller's GC.@preserve covers both calls (the raw pointer never travels
+# alone; see `_normalize_handle`).
+function _string_from(query)
     n = Int(query(C_NULL, Csize_t(0)))
-    n == 0 && return String[]
+    n == 0 && return ""
     buf = zeros(UInt8, n + 1)  # +1 for the NUL the library always writes
     query(buf, Csize_t(length(buf)))
-    return _warn_lines(buf)
+    return _cstr(buf)
 end
+
+# Take ownership of a Rust-allocated C string: copy it to a Julia String and
+# free the original with `pio_string_free`. The caller has already checked the
+# pointer for NULL (each call site owns its own directed error).
+function _take_string(lib::AbstractString, s::Cstring)
+    text = unsafe_string(s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+    return text
+end
+
+# Fidelity warnings retained on a handle (`pio_warnings` / `pio_dist_warnings`):
+# the readers that return a handle and no per-call warnbuf (`pio_read_dir`, the
+# dist parsers) park their warnings here. `_string_from` owns the size then fill
+# protocol, so the joined text always fits by construction — no cap marker.
+_warnings_from(query) = _nonempty_lines(_string_from(query))
 
 _handle_warnings(h::BalancedNetworkHandle) =
     GC.@preserve h _warnings_from((out, cap) -> ccall(_library_symbol(getfield(h, :lib), :pio_warnings), Csize_t,
@@ -400,7 +428,5 @@ function _to_json(h::BalancedNetworkHandle)
     s = GC.@preserve h ccall(_library_symbol(lib, :pio_to_json), Cstring,
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
     s == C_NULL && error("PowerIO: to_json failed: " * _cstr(err))
-    json = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
-    return json
+    return _take_string(lib, s)
 end

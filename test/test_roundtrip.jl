@@ -21,6 +21,11 @@
         @test net.base_frequency == 60.0
         @test getfield(net, :data) === nothing
         if has_scalar_helpers
+            # Drift canary: the v0.7 C string accessors (pio_network_name /
+            # pio_source_format) agree with the summary-backed public
+            # accessors reading the same Rust fields.
+            @test PowerIO._handle_string(net, :pio_network_name) == PowerIO.network_name(net)
+            @test PowerIO._handle_string(net, :pio_source_format) == PowerIO.source_format(net)
             @test PowerIO.network_name(net) == "case14"
             @test net.warnings == String[]
             @test getfield(net, :data) === nothing
@@ -206,6 +211,46 @@
                     String(uid) == "study:load:buses:0" &&
                     isapprox(Float64(load.p), 7.0; atol=1e-12, rtol=0) &&
                     isapprox(Float64(load.q), 3.0; atol=1e-12, rtol=0)
+            end
+
+            if !PowerIO._exports_symbol(:pio_package_set_operating_points)
+                @test_skip set_operating_points(pkg, nothing)
+            else
+                # set_operating_points attaches a series (any JSON-able value or
+                # JSON text), materialize applies a point, nothing clears it.
+                series = (;
+                    time_axis = (; periods = 1, duration_hours = [1.0]),
+                    points = [(;
+                        index = 0,
+                        updates = [(;
+                            element = (; table = "generators", source_uid = "generators:0"),
+                            fields = (; pg = 123.25),
+                        )],
+                    )],
+                )
+                with_series = set_operating_points(pkg, series)
+                @test with_series isa NetworkPackage
+                @test package_operating_points(pkg) === nothing  # input package untouched
+                echoed = package_operating_points(with_series)
+                @test echoed.time_axis.periods == 1
+                @test echoed.points[1].updates[1].fields.pg == 123.25
+                materialized_point = materialize_operating_point(with_series, 0)
+                @test package_operating_points(materialized_point) === nothing
+                point_net = from_package(materialized_point)
+                @test Float64(first(PowerIO.generators(point_net)).pg) ≈ 123.25
+                # JSON text and `nothing` spellings: text attaches, nothing clears.
+                from_text = set_operating_points(pkg, JSON3.write(series))
+                @test package_operating_points(from_text).time_axis.periods == 1
+                cleared = set_operating_points(with_series, nothing)
+                @test package_operating_points(cleared) === nothing
+                @test package_validation(cleared).status == "ok"
+                # A malformed series is a directed error naming the function.
+                try
+                    set_operating_points(pkg, "not json")
+                    error("expected set_operating_points to fail")
+                catch e
+                    @test occursin("PowerIO.set_operating_points:", sprint(showerror, e))
+                end
             end
         end
 

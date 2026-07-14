@@ -12,14 +12,16 @@
                 :read_gridfm, :read_gridfm_scenarios,
                 :parse_goc3_json, :goc3_scopf_data, :ScopfInstance,
                 :goc3_status_flags, :goc3_add_status_flags!, :goc3_interval_bounds,
+                :parse_scopf, :scopf_available,
                 :NetworkPackage, :CompilerPackage, :to_package, :from_package, :read_package,
                 :write_package, :package_model_kind, :package_available,
                 :validate_package, :package_validation, :package_diagnostics,
-                :package_operating_points, :package_study,
+                :package_operating_points, :package_study, :set_operating_points,
                 :materialize_operating_point, :materialize_study_commit,
                 :multiconductor_to_balanced_preflight,
                 :lower_multiconductor_to_balanced,
                 :arrow_available, :gridfm_available, :matrix_available, :features,
+                :has_feature, :arrow_catalog,
                 :MulticonductorNetwork, :dist_available, :dist_abi_version,
                 :dist_capabilities, :to_graph)
         @test isdefined(PowerIO, sym)
@@ -28,7 +30,7 @@
     @test isdefined(PowerIO, :DistNetwork) # deprecated compatibility binding
     @test !isdefined(PowerIO, :dist_graph)
     # The accessor API the ecosystem bridges read is unexported but must exist.
-    for sym in (:n_buses, :n_branches, :n_gens, :base_mva, :network_name,
+    for sym in (:n_buses, :n_branches, :n_gens, :n_switches, :base_mva, :network_name,
                 :source_format, :reference_bus_id, :reference_bus_indices,
                 :n_components, :is_radial, :bus_type_code, :warnings,
                 :buses, :generators, :branches, :loads, :shunts, :storage, :hvdc,
@@ -69,12 +71,23 @@
     @test PowerIO.PIO_DIST_ABI_VERSION isa Unsigned
 
     f = PowerIO.features()
-    @test propertynames(f) == (:arrow, :matrix, :gridfm, :dist, :package)
+    @test propertynames(f) == (:arrow, :matrix, :gridfm, :dist, :package, :prob)
     @test f.arrow == PowerIO.arrow_available()
     @test f.matrix == PowerIO.matrix_available()
     @test f.gridfm == PowerIO.gridfm_available()
     @test f.dist == PowerIO.dist_available()
     @test f.package == PowerIO.package_available()
+    @test f.prob == PowerIO.scopf_available()
+    # pio_has_feature reports what the library was compiled with; an unknown
+    # feature name is false, never an error, and "package" aliases the C
+    # feature name "pkg" (matching the features() field).
+    @test PowerIO.has_feature("no-such-feature") == false
+    @test PowerIO.has_feature("package") == PowerIO.has_feature("pkg")
+    if PowerIO.library_available()
+        @test PowerIO.has_feature("dist") isa Bool
+        PowerIO._exports_symbol(:pio_has_feature) &&
+            @test PowerIO.has_feature("pkg") == PowerIO.package_available()
+    end
 
     lib = PowerIO._lib()
     PowerIO.set_library!(lib)
@@ -138,10 +151,11 @@ end
 end
 
 @testset "OperatingPointSeries reserved skeleton" begin
-    # The general format-neutral series is a reserved, unexported skeleton until the
-    # C ABI exposes a construct/attach path. Its component structs are constructible,
-    # but every entry point that would build or materialize a series throws until
-    # then, so a throwing constructor is never advertised as usable.
+    # The general format-neutral series is a reserved, unexported skeleton until a
+    # typed binding backs it (the JSON-level attach is set_operating_points). Its
+    # component structs are constructible, but every entry point that would build
+    # or materialize a series throws until then, so a throwing constructor is
+    # never advertised as usable.
     for sym in (:OperatingPointSeries, :TimeAxis, :ElementUpdate, :OperatingPoint,
                 :operating_point_series, :materialize_operating_point_series)
         @test isdefined(PowerIO, sym)

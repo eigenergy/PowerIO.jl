@@ -31,11 +31,26 @@ function _maybe_live_handle(net::BalancedNetwork)
     return (h === nothing || h.ptr == C_NULL) ? nothing : h
 end
 
-function _handle_count(net::BalancedNetwork, sym::Symbol)
+# One count off an already-resolved live handle (`pio_n_switches`): the
+# pointer-lifetime incantation for a `size_t(handle)` C accessor in one place.
+_handle_count(h::BalancedNetworkHandle, sym::Symbol) =
+    Int(GC.@preserve h ccall(_library_symbol(getfield(h, :lib), sym),
+                             Csize_t, (Ptr{Cvoid},), h.ptr))
+
+# The binding of the v0.7 scalar string accessors (`pio_network_name`,
+# `pio_source_format`), or `nothing` when there is no live handle or the
+# resolved library lacks `sym`. The public `network_name` / `source_format`
+# stay summary-backed (the summary is cached and its strings come from the
+# same Rust fields), so this is the C surface itself; the drift canary in
+# test_roundtrip.jl asserts it agrees with the summary values.
+function _handle_string(net::BalancedNetwork, sym::Symbol)
     h = _maybe_live_handle(net)
     h === nothing && return nothing
     lib = getfield(h, :lib)
-    return Int(GC.@preserve h ccall(_library_symbol(lib, sym), Csize_t, (Ptr{Cvoid},), h.ptr))
+    _exports_symbol(sym, lib) || return nothing
+    return GC.@preserve h _string_from((out, cap) -> ccall(
+        _library_symbol(lib, sym), Csize_t,
+        (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, out, cap))
 end
 
 function _handle_bus_ids(h::BalancedNetworkHandle)
@@ -101,6 +116,18 @@ every row, not in-service-filtered.
 """
 function n_gens(net::BalancedNetwork)
     return Int(_summary(net).counts.generators)
+end
+
+"""
+    n_switches(net) -> Int
+
+Number of switch rows (two-terminal ideal switches; PowerModels JSON carries
+them). Summary-backed like its count siblings — both summary builders always
+emit `counts.switches`, so a missing key is a schema skew and errors loudly.
+The dense fast path reads `pio_n_switches` directly (see `to_dense`).
+"""
+function n_switches(net::BalancedNetwork)
+    return Int(_summary(net).counts.switches)
 end
 
 """

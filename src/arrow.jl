@@ -653,3 +653,25 @@ function matrix_available()
         return false
     end
 end
+
+"""
+    arrow_catalog() -> JSON3.Object
+
+The Arrow table catalog (`pio_arrow_catalog_json`): what this library build can
+export over [`to_arrow`](@ref), independent of any parsed network. Top level
+fields are `schema_version`, `producer`, and `tables`; each table entry carries
+`id`, `name`, `schema_version`, `format`, `feature_requirements`, `available`,
+`row_axis`, `col_axis`, `units`, and `columns`. Needs powerio-capi v0.7 built
+`--features arrow`.
+"""
+function arrow_catalog()
+    lib = _lib()
+    _ensure_compatible(lib)
+    _require_export("arrow_catalog", :pio_arrow_catalog_json,
+                    "powerio v0.7, `--features arrow`", lib)
+    err = zeros(UInt8, _ERRLEN)
+    s = ccall(_library_symbol(lib, :pio_arrow_catalog_json), Cstring,
+              (Ptr{UInt8}, Csize_t), err, length(err))
+    s == C_NULL && error("PowerIO.arrow_catalog: " * _cstr(err))
+    return JSON3.read(_take_string(lib, s))
+end
