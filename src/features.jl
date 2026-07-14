@@ -34,21 +34,30 @@ const _FEATURE_PROBE_SYMBOLS = Dict(
     has_feature(feature) -> Bool
 
 Whether the resolved library was compiled with the named cargo feature
-(`pio_has_feature`): `"arrow"`, `"matrix"`, `"gridfm"`, `"dist"`, `"pkg"`, or
-`"prob"`. Unknown names return `false`. Unlike [`features`](@ref), this is
-what the library says it was compiled with; it does not run the per-feature
-ABI handshakes. A pre-0.7 library without `pio_has_feature` is probed by each
-feature's representative entry point instead.
+(`pio_has_feature`): `"arrow"`, `"matrix"`, `"gridfm"`, `"dist"`, `"pkg"` (the
+[`features`](@ref) field name `"package"` is accepted as an alias), or
+`"prob"`. Unknown names return `false`; like the sibling probes this never
+throws — an unresolvable or ABI-incompatible library answers `false`. Unlike
+[`features`](@ref), this is what the library says it was compiled with; it
+does not run the per-feature ABI handshakes. A pre-0.7 library without
+`pio_has_feature` is probed by each feature's representative entry point
+instead.
 """
 function has_feature(feature::AbstractString)
+    feature = feature == "package" ? "pkg" : String(feature)
     lib = _lib()
     if _exports_symbol(:pio_has_feature, lib)
-        _ensure_compatible(lib)
-        return ccall(_library_symbol(lib, :pio_has_feature), Cint,
-                     (Cstring,), String(feature)) != 0
+        try
+            _ensure_compatible(lib)
+            return ccall(_library_symbol(lib, :pio_has_feature), Cint,
+                         (Cstring,), feature) != 0
+        catch e
+            @debug "PowerIO: pio_has_feature probe failed" exception = (e, catch_backtrace())
+            return false
+        end
     end
     feature == "matrix" && return matrix_available()
-    sym = get(_FEATURE_PROBE_SYMBOLS, String(feature), nothing)
+    sym = get(_FEATURE_PROBE_SYMBOLS, feature, nothing)
     sym === nothing && return false
     return _exports_symbol(sym, lib)
 end

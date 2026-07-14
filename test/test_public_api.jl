@@ -78,9 +78,11 @@
     @test f.dist == PowerIO.dist_available()
     @test f.package == PowerIO.package_available()
     @test f.prob == PowerIO.scopf_available()
-    # pio_has_feature is the library's own compile-time answer; an unknown
-    # feature name is false, never an error.
+    # pio_has_feature reports what the library was compiled with; an unknown
+    # feature name is false, never an error, and "package" aliases the C
+    # feature name "pkg" (matching the features() field).
     @test PowerIO.has_feature("no-such-feature") == false
+    @test PowerIO.has_feature("package") == PowerIO.has_feature("pkg")
     if PowerIO.library_available()
         @test PowerIO.has_feature("dist") isa Bool
         PowerIO._exports_symbol(:pio_has_feature) &&

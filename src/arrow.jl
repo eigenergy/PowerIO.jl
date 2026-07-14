@@ -673,7 +673,5 @@ function arrow_catalog()
     s = ccall(_library_symbol(lib, :pio_arrow_catalog_json), Cstring,
               (Ptr{UInt8}, Csize_t), err, length(err))
     s == C_NULL && error("PowerIO.arrow_catalog: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
-    return JSON3.read(text)
+    return JSON3.read(_take_string(lib, s))
 end

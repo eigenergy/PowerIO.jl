@@ -397,9 +397,18 @@ function _string_from(query)
     return _cstr(buf)
 end
 
+# Take ownership of a Rust-allocated C string: copy it to a Julia String and
+# free the original with `pio_string_free`. The caller has already checked the
+# pointer for NULL (each call site owns its own directed error).
+function _take_string(lib::AbstractString, s::Cstring)
+    text = unsafe_string(s)
+    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+    return text
+end
+
 # Fidelity warnings retained on a handle (`pio_warnings` / `pio_dist_warnings`):
 # the readers that return a handle and no per-call warnbuf (`pio_read_dir`, the
-# dist parsers) park their warnings here. `_string_from` owns the size-then-fill
+# dist parsers) park their warnings here. `_string_from` owns the size then fill
 # protocol, so the joined text always fits by construction — no cap marker.
 function _warnings_from(query)
     s = _string_from(query)

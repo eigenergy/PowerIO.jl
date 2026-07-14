@@ -40,22 +40,18 @@ renumbering).
 function parse_scopf(text::AbstractString; from::AbstractString="goc3-json")
     lib = _lib()
     _ensure_compatible(lib)
+    _require_export("parse_scopf", :pio_scopf_parse_str,
+                    "powerio v0.7, `--features prob`", lib)
     err = zeros(UInt8, _ERRLEN)
-    ptr = try
-        ccall(_library_symbol(lib, :pio_scopf_parse_str), Ptr{Cvoid},
-              (Cstring, Cstring, Ptr{UInt8}, Csize_t),
-              String(text), String(from), err, length(err))
-    catch e
-        _feature_call_error("parse_scopf", "pio_scopf_parse_str", "prob", e)
-    end
+    ptr = ccall(_library_symbol(lib, :pio_scopf_parse_str), Ptr{Cvoid},
+                (Cstring, Cstring, Ptr{UInt8}, Csize_t),
+                String(text), String(from), err, length(err))
     ptr == C_NULL && error("PowerIO.parse_scopf: " * _cstr(err))
     try
         s = ccall(_library_symbol(lib, :pio_scopf_to_json), Cstring,
                   (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), ptr, err, length(err))
         s == C_NULL && error("PowerIO.parse_scopf: " * _cstr(err))
-        text_out = unsafe_string(s)
-        ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
-        return JSON3.read(text_out)
+        return JSON3.read(_take_string(lib, s))
     finally
         ccall(_library_symbol(lib, :pio_scopf_instance_free), Cvoid, (Ptr{Cvoid},), ptr)
     end

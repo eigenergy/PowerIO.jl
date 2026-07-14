@@ -162,21 +162,21 @@ builds the JSON payload). Fields:
   and, with a powerio v0.7 library, the terminal charging split
   `g_fr, b_fr, g_to, b_to` (per unit; `b_fr + b_to` recovers `b`, and a
   symmetric MATPOWER line splits as `b/2`).
-- `ns`, `switch` (powerio v0.7 library) — switch count and the switch table:
-  `from, to` (1-based bus ids), `closed::Vector{UInt8}`,
-  `thermal_rating, current_rating, pf, qf, pt, qt` (absent optionals are 0.0).
-  Empty unless the source carries switches (PowerModels JSON).
 - `gen` — NamedTuple of `bus` (1-based id, one row per machine), `pg, pmax, pmin`
   (MW), `in_service`.
-
-The v0.7 fields (`ns`, `switch`, the charging columns) are present exactly when
-the resolved library exports their extractors; an older ABI-4 library returns
-the tuple without them instead of erroring or fabricating values.
 - `demand`, `shunt` — NamedTuples of per-bus `(pd, qd)` and `(gs, bs)` in dense order.
 - `reference_bus::Int` — dense 0-based index *into `bus_ids`* of the single
   reference bus (not a 1-based id), or `-1` when there is no unique reference
   (none, or several).
 - `n_components::Int`, `is_radial::Bool` — connectivity of the in-service topology.
+- `ns`, `switch` (the last two fields, powerio v0.7 library) — switch count and
+  the switch table: `from, to` (1-based bus ids), `closed::Vector{UInt8}`,
+  `thermal_rating, current_rating, pf, qf, pt, qt` (absent optionals are 0.0).
+  Empty unless the source carries switches (PowerModels JSON).
+
+The v0.7 fields (`ns`, `switch`, the charging columns) are present exactly when
+the resolved library exports their extractors; an older ABI-4 library returns
+the tuple without them instead of erroring or fabricating values.
 
 For the rich, lossless element tables (costs, extras, storage, HVDC) use the
 accessors on a [`parse_file`](@ref) `BalancedNetwork`; for self-describing columnar export
