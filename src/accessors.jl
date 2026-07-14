@@ -122,11 +122,12 @@ end
     n_switches(net) -> Int
 
 Number of switch rows (two-terminal ideal switches; PowerModels JSON carries
-them). Summary-backed like its count siblings; the dense fast path reads
-`pio_n_switches` directly (see `to_dense`).
+them). Summary-backed like its count siblings — both summary builders always
+emit `counts.switches`, so a missing key is a schema skew and errors loudly.
+The dense fast path reads `pio_n_switches` directly (see `to_dense`).
 """
 function n_switches(net::BalancedNetwork)
-    return Int(get(_summary(net).counts, :switches, 0))
+    return Int(_summary(net).counts.switches)
 end
 
 """
