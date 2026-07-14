@@ -177,7 +177,7 @@ end
         # exports the extractors; a pre-0.7 ABI-4 library omits them, so gate
         # like the other additive-symbol tests instead of erroring on a
         # missing NamedTuple field.
-        if !(PowerIO._exports_symbol(:pio_switches) &&
+        if !(PowerIO._has_switch_extractors() &&
              PowerIO._exports_symbol(:pio_branch_charging))
             @test !haskey(d, :ns) && !haskey(d, :switch)
             @test_skip to_dense(joinpath(@__DIR__, "data", "case14.m")).ns

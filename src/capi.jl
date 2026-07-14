@@ -371,13 +371,17 @@ end
 # compiler may drop the buffer after `pointer(buf)` and a GC mid-copy dangles.
 _cstr(buf::Vector{UInt8}) = GC.@preserve buf unsafe_string(pointer(buf))
 
-# Split a `\n`-joined warn buffer into owned Strings (a SubString would pin the
-# whole buffer-sized parent). `capped`: this fixed-size per-call channel truncates
-# silently on a UTF-8 boundary at the cap, so a fill within 4 bytes of it is the
-# truncation signature — report it rather than under-count fidelity warnings.
+# Owned Strings, one per non-empty line (a SubString would pin the whole
+# buffer-sized parent).
+_nonempty_lines(s::AbstractString) = String.(filter(!isempty, split(s, '\n')))
+
+# Split a `\n`-joined warn buffer into owned Strings. `capped`: this fixed-size
+# per-call channel truncates silently on a UTF-8 boundary at the cap, so a fill
+# within 4 bytes of it is the truncation signature — report it rather than
+# under-count fidelity warnings.
 function _warn_lines(buf::Vector{UInt8}; capped::Bool=false)
     s = _cstr(buf)
-    warns = String.(filter(!isempty, split(s, '\n')))
+    warns = _nonempty_lines(s)
     capped && ncodeunits(s) >= length(buf) - 4 &&
         push!(warns, "... warning list truncated at $(length(buf)) bytes")
     return warns
@@ -410,10 +414,7 @@ end
 # the readers that return a handle and no per-call warnbuf (`pio_read_dir`, the
 # dist parsers) park their warnings here. `_string_from` owns the size then fill
 # protocol, so the joined text always fits by construction — no cap marker.
-function _warnings_from(query)
-    s = _string_from(query)
-    return String.(filter(!isempty, split(s, '\n')))
-end
+_warnings_from(query) = _nonempty_lines(_string_from(query))
 
 _handle_warnings(h::BalancedNetworkHandle) =
     GC.@preserve h _warnings_from((out, cap) -> ccall(_library_symbol(getfield(h, :lib), :pio_warnings), Csize_t,
@@ -427,7 +428,5 @@ function _to_json(h::BalancedNetworkHandle)
     s = GC.@preserve h ccall(_library_symbol(lib, :pio_to_json), Cstring,
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
     s == C_NULL && error("PowerIO: to_json failed: " * _cstr(err))
-    json = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
-    return json
+    return _take_string(lib, s)
 end

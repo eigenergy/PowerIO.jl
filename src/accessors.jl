@@ -31,16 +31,9 @@ function _maybe_live_handle(net::BalancedNetwork)
     return (h === nothing || h.ptr == C_NULL) ? nothing : h
 end
 
-function _handle_count(net::BalancedNetwork, sym::Symbol)
-    h = _maybe_live_handle(net)
-    h === nothing && return nothing
-    lib = getfield(h, :lib)
-    return Int(GC.@preserve h ccall(_library_symbol(lib, sym), Csize_t, (Ptr{Cvoid},), h.ptr))
-end
-
 # One string off the live handle via a cap/count C accessor (`pio_network_name`,
 # `pio_source_format`), or `nothing` when there is no live handle or the
-# resolved library lacks `sym` — the string sibling of `_handle_count`.
+# resolved library lacks `sym`.
 function _handle_string(net::BalancedNetwork, sym::Symbol)
     h = _maybe_live_handle(net)
     h === nothing && return nothing
@@ -136,8 +129,10 @@ them). Reads `pio_n_switches` off the live handle, else the summary counts.
 """
 function n_switches(net::BalancedNetwork)
     h = _maybe_live_handle(net)
-    if h !== nothing && _exports_symbol(:pio_n_switches, getfield(h, :lib))
-        return _handle_count(net, :pio_n_switches)
+    if h !== nothing && _has_switch_extractors(getfield(h, :lib))
+        lib = getfield(h, :lib)
+        return Int(GC.@preserve h ccall(_library_symbol(lib, :pio_n_switches),
+                                        Csize_t, (Ptr{Cvoid},), h.ptr))
     end
     return Int(get(_summary(net).counts, :switches, 0))
 end

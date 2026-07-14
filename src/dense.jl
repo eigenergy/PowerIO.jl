@@ -52,6 +52,12 @@ function _branch_charging(h::BalancedNetworkHandle, m::Int)
     return (; g_fr, b_fr, g_to, b_to)
 end
 
+# The one predicate for the v0.7 switch surface, shared by `to_dense` and
+# `n_switches` so a partial library cannot make the two disagree: both symbols
+# ship together, so requiring both is the conservative read.
+_has_switch_extractors(lib::AbstractString=_lib()) =
+    _exports_symbol(:pio_n_switches, lib) && _exports_symbol(:pio_switches, lib)
+
 # The switch table (`pio_switches`, powerio v0.7). `from`/`to` are 1-based bus
 # ids; absent optional ratings and terminal flows come back as 0.0.
 function _switch_tables(h::BalancedNetworkHandle, ns::Int)
@@ -135,7 +141,7 @@ function _dense_from_handle(h::BalancedNetworkHandle)
             n_components = Int(ccall(_library_symbol(lib, :pio_n_islands), Csize_t, (Ptr{Cvoid},), p)),
             is_radial = ccall(_library_symbol(lib, :pio_is_radial), Cint, (Ptr{Cvoid},), p) != 0,
         )
-        if _exports_symbol(:pio_n_switches, lib) && _exports_symbol(:pio_switches, lib)
+        if _has_switch_extractors(lib)
             ns = Int(ccall(_library_symbol(lib, :pio_n_switches), Csize_t, (Ptr{Cvoid},), p))
             dense = merge(dense, (; ns, switch = _switch_tables(h, ns)))
         end

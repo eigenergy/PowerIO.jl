@@ -56,6 +56,9 @@ function has_feature(feature::AbstractString)
             return false
         end
     end
+    # Pre-0.7 fallback: the docstring's "ABI-incompatible answers false" holds
+    # here too — library_available() runs the main handshake without throwing.
+    library_available() || return false
     feature == "matrix" && return matrix_available()
     sym = get(_FEATURE_PROBE_SYMBOLS, feature, nothing)
     sym === nothing && return false

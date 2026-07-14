@@ -88,9 +88,7 @@ function _package_to_json(h::PackageHandle, fname::AbstractString)
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.$fname: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
-    return text
+    return _take_string(lib, s)
 end
 
 function _package_validation_json(h::PackageHandle, fname::AbstractString)
@@ -379,9 +377,7 @@ function multiconductor_to_balanced_preflight(pkg::NetworkPackage; base_mva::Rea
                              (Ptr{Cvoid}, Cdouble, Ptr{UInt8}, Csize_t),
                              h.ptr, base_mva_c, err, length(err))
     s == C_NULL && error("PowerIO.multiconductor_to_balanced_preflight: " * _cstr(err))
-    text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
-    return JSON3.read(text)
+    return JSON3.read(_take_string(lib, s))
 end
 
 """
