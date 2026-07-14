@@ -367,6 +367,35 @@ function parse_str(::Type{MulticonductorNetwork}, text::AbstractString, format::
     return MulticonductorNetwork(h)
 end
 
+"""
+    from_json(MulticonductorNetwork, text) -> MulticonductorNetwork
+
+Rebuild a live [`MulticonductorNetwork`](@ref) from the model JSON its `data`
+payload serializes to (`pio_dist_to_json` / `JSON3.write(net.data)`, the same
+object a `.pio.json` package carries under `model.multiconductor_network`) —
+the distribution sibling of [`from_json`](@ref)`(text)`. The rebuilt handle
+retains no source text, so a same format write is a fresh serialization.
+Needs powerio-capi v0.7 built `--features dist`.
+"""
+function from_json(::Type{MulticonductorNetwork}, text::AbstractString)
+    lib = _lib()
+    _ensure_dist_compatible(lib)
+    _exports_symbol(:pio_dist_from_json, lib) || error(
+        "PowerIO.from_json(MulticonductorNetwork): the C ABI at \"$lib\" does not " *
+        "export pio_dist_from_json (powerio v0.7). Update the powerio_capi artifact " *
+        "or rebuild the local library.")
+    _dist_network_free_fn(lib)
+    err = zeros(UInt8, _ERRLEN)
+    ptr = try
+        ccall(_library_symbol(lib, :pio_dist_from_json), Ptr{Cvoid},
+              (Cstring, Ptr{UInt8}, Csize_t), String(text), err, length(err))
+    catch e
+        _feature_call_error("from_json", "pio_dist_from_json", "dist", e)
+    end
+    ptr == C_NULL && error("PowerIO.from_json(MulticonductorNetwork): " * _cstr(err))
+    return MulticonductorNetwork(MulticonductorNetworkHandle(ptr, lib))
+end
+
 # --- accessors -------------------------------------------------------------
 #
 # Pure functions of the materialized payload: they work on a handle-less

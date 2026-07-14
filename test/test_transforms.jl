@@ -160,7 +160,7 @@ end
         @test_skip to_dense("case14.m")
     else
         d = to_dense(joinpath(@__DIR__, "data", "case14.m"))
-        @test (d.n, d.m, d.ng) == (14, 20, 5)
+        @test (d.n, d.m, d.ng, d.ns) == (14, 20, 5, 0)
         @test d.base_mva == 100.0
         @test d.bus_ids == collect(1:14)                # case14 buses are 1..14
         @test d.reference_bus == 0                      # dense 0-based index of the REF bus
@@ -172,5 +172,34 @@ end
         @test sum(d.demand.pd) ≈ 259.0 rtol = 1e-6      # total active demand (MW)
         # The dense gen table lines up with the JSON payload's count.
         @test d.ng == PowerIO.n_gens(parse_file(joinpath(@__DIR__, "data", "case14.m")))
+
+        # Terminal charging (pio_branch_charging): a MATPOWER line carries no
+        # conductance and splits its total charging b evenly across terminals.
+        @test d.branch.g_fr == zeros(20) && d.branch.g_to == zeros(20)
+        @test d.branch.b_fr ≈ d.branch.b ./ 2
+        @test d.branch.b_fr .+ d.branch.b_to ≈ d.branch.b
+        # No switches in case14 (pio_switches / pio_n_switches).
+        @test isempty(d.switch.from) && isempty(d.switch.closed)
+
+        # A PowerModels case carries first-class switches and an asymmetric
+        # charging split; both survive the dense extractors.
+        pm = JSON3.read(read(joinpath(@__DIR__, "data", "case14.pm.json"), String), Dict{String,Any})
+        pm["switch"] = Dict("1" => Dict("index" => 1, "f_bus" => 1, "t_bus" => 5,
+                                        "state" => 1, "thermal_rating" => 1.25, "pf" => 0.1))
+        pm["branch"]["1"]["b_fr"] = 0.02
+        pm["branch"]["1"]["b_to"] = 0.03
+        swnet = parse_str(JSON3.write(pm), "powermodels")
+        @test PowerIO.n_switches(swnet) == 1
+        @test length(swnet.switches) == 1               # the JSON payload table agrees
+        ds = to_dense(swnet)
+        @test ds.ns == 1
+        @test ds.switch.from == [1] && ds.switch.to == [5]
+        @test ds.switch.closed == [0x01]
+        @test ds.switch.thermal_rating[1] ≈ 125.0       # per unit -> MW at baseMVA 100
+        @test ds.switch.pf[1] ≈ 10.0
+        @test ds.switch.current_rating[1] == 0.0        # absent optional comes back 0.0
+        row = findfirst(i -> ds.branch.from[i] == 1 && ds.branch.to[i] == 2, 1:ds.m)
+        @test ds.branch.b_fr[row] ≈ 0.02 && ds.branch.b_to[row] ≈ 0.03
+        @test ds.branch.b[row] ≈ 0.05
     end
 end

@@ -75,6 +75,13 @@ base_frequency(net::BalancedNetwork) = Float64(_summary(net).base_frequency)
 The case name carried through from the source file.
 """
 function network_name(net::BalancedNetwork)
+    h = _maybe_live_handle(net)
+    if h !== nothing && _exports_symbol(:pio_network_name, getfield(h, :lib))
+        lib = getfield(h, :lib)
+        return GC.@preserve h _string_from((out, cap) -> ccall(
+            _library_symbol(lib, :pio_network_name), Csize_t,
+            (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, out, cap))
+    end
     return String(_summary(net).name)
 end
 
@@ -104,6 +111,20 @@ function n_gens(net::BalancedNetwork)
 end
 
 """
+    n_switches(net) -> Int
+
+Number of switch rows (two-terminal ideal switches; PowerModels JSON carries
+them). Reads `pio_n_switches` off the live handle, else the summary counts.
+"""
+function n_switches(net::BalancedNetwork)
+    h = _maybe_live_handle(net)
+    if h !== nothing && _exports_symbol(:pio_n_switches, getfield(h, :lib))
+        return _handle_count(net, :pio_n_switches)
+    end
+    return Int(get(_summary(net).counts, :switches, 0))
+end
+
+"""
     source_format(net) -> String
 
 The format the case was read from, verbatim from the Rust `SourceFormat` enum.
@@ -113,6 +134,13 @@ Examples include `"Matpower"`, `"PowerModelsJson"`, `"EgretJson"`, `"Psse"`,
 [`to_normalized`](@ref)).
 """
 function source_format(net::BalancedNetwork)
+    h = _maybe_live_handle(net)
+    if h !== nothing && _exports_symbol(:pio_source_format, getfield(h, :lib))
+        lib = getfield(h, :lib)
+        return GC.@preserve h _string_from((out, cap) -> ccall(
+            _library_symbol(lib, :pio_source_format), Csize_t,
+            (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, out, cap))
+    end
     return String(_summary(net).source_format)
 end
 

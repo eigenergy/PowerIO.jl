@@ -9,6 +9,7 @@ using Libdl
     include("test_public_api.jl") # module API and pure-Julia accessors
     include("test_goc3.jl")       # GO Challenge 3 JSON helpers
     include("test_goc3_static.jl") # GO Challenge 3 SCOPF static index sets
+    include("test_scopf.jl")      # native SCOPF wire (feature prob)
     include("test_roundtrip.jl")  # C ABI round trip, adapters, packages
     include("test_powermodels_ref.jl") # PowerModels reference utilities
     include("test_transforms.jl") # PyPSA writer, parse dispatch, to_normalized, to_dense

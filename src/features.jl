@@ -3,8 +3,11 @@
 
 Return the optional C ABI features available in the resolved library.
 
-The fields are `arrow`, `matrix`, `gridfm`, `dist`, and `package`. Use this in
-downstream packages instead of probing private symbols.
+The fields are `arrow`, `matrix`, `gridfm`, `dist`, `package`, and `prob`. Each
+field reports "usable from Julia" (symbol present and, where one exists, the
+feature ABI handshake passes); [`has_feature`](@ref) asks the library itself
+what it was compiled with. Use this in downstream packages instead of probing
+private symbols.
 """
 features() = (;
     arrow = arrow_available(),
@@ -12,7 +15,43 @@ features() = (;
     gridfm = gridfm_available(),
     dist = dist_available(),
     package = package_available(),
+    prob = scopf_available(),
 )
+
+# Fallback probes for a pre-0.7 library without `pio_has_feature`: the
+# representative entry point of each cargo feature. `matrix` has no dedicated
+# symbol of its own, so it falls back to `matrix_available` (which reports
+# arrow AND matrix — the closest the older ABI can answer).
+const _FEATURE_PROBE_SYMBOLS = Dict(
+    "arrow" => :pio_to_arrow,
+    "gridfm" => :pio_read_dir,
+    "dist" => :pio_dist_parse_file,
+    "pkg" => :pio_package_parse_str,
+    "prob" => :pio_scopf_parse_str,
+)
+
+"""
+    has_feature(feature) -> Bool
+
+Whether the resolved library was compiled with the named cargo feature
+(`pio_has_feature`): `"arrow"`, `"matrix"`, `"gridfm"`, `"dist"`, `"pkg"`, or
+`"prob"`. Unknown names return `false`. Unlike [`features`](@ref), this is the
+library's own compile-time answer; it does not run the per-feature ABI
+handshakes. A pre-0.7 library without `pio_has_feature` is probed by each
+feature's representative entry point instead.
+"""
+function has_feature(feature::AbstractString)
+    lib = _lib()
+    if _exports_symbol(:pio_has_feature, lib)
+        _ensure_compatible(lib)
+        return ccall(_library_symbol(lib, :pio_has_feature), Cint,
+                     (Cstring,), String(feature)) != 0
+    end
+    feature == "matrix" && return matrix_available()
+    sym = get(_FEATURE_PROBE_SYMBOLS, String(feature), nothing)
+    sym === nothing && return false
+    return _exports_symbol(sym, lib)
+end
 
 const _DIST_CAPABILITY_KEYS = (
     :bmopf_fixed_taps,

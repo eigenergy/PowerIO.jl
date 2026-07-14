@@ -97,6 +97,13 @@ Modules = [PowerIO]
 Pages = ["goc3.jl"]
 ```
 
+## Native SCOPF problem instances
+
+```@autodocs
+Modules = [PowerIO]
+Pages = ["scopf.jl"]
+```
+
 ## Feature probes
 
 ```@autodocs

@@ -286,6 +286,37 @@ function package_operating_points(pkg::NetworkPackage)
 end
 
 """
+    set_operating_points(pkg::NetworkPackage, series) -> NetworkPackage
+
+Return a package with its operating point series replaced from `series`
+(`pio_package_set_operating_points`): JSON text, or any JSON-serializable value
+in the Rust `OperatingPointSeries` layout — `time_axis` (`periods`,
+`duration_hours`, optional `labels`) plus `points`, each an `index` and sparse
+`updates` of `{element: {table, source_uid | row}, fields: {...}}`. `nothing`
+(or JSON `null`, or an empty series) clears it. Package validation is
+recomputed before returning. Read the series back with
+[`package_operating_points`](@ref) and apply one point with
+[`materialize_operating_point`](@ref). Needs powerio-capi v0.7 built
+`--features pkg`.
+"""
+function set_operating_points(pkg::NetworkPackage, series)
+    _exports_symbol(:pio_package_set_operating_points) || error(
+        "PowerIO.set_operating_points: the C ABI at \"$(_lib())\" does not export " *
+        "pio_package_set_operating_points (powerio v0.7, `--features pkg`). Update " *
+        "the powerio_capi artifact or rebuild the local library.")
+    json = series === nothing ? "null" :
+           series isa AbstractString ? String(series) : JSON3.write(series)
+    h = _package_parse_str_handle(to_json(pkg), "set_operating_points")
+    lib = getfield(h, :lib)
+    err = zeros(UInt8, _ERRLEN)
+    rc = GC.@preserve h ccall(_library_symbol(lib, :pio_package_set_operating_points), Cint,
+                              (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t),
+                              h.ptr, json, err, length(err))
+    rc == 0 || error("PowerIO.set_operating_points: " * _cstr(err))
+    return NetworkPackage(_package_to_json(h, "set_operating_points"))
+end
+
+"""
     package_study(pkg::NetworkPackage)
 
 Return the package study block as a JSON3 value, or `nothing`.

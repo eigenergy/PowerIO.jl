@@ -479,3 +479,24 @@ end
         @test_throws ErrorException PowerIO._matrix_axis_metadata(bad_meta_sch)
     end
 end
+
+@testset "arrow catalog" begin
+    if !PowerIO.library_available() || !PowerIO._exports_symbol(:pio_arrow_catalog_json)
+        @test_skip arrow_catalog()
+    else
+        catalog = arrow_catalog()
+        @test haskey(catalog, :schema_version)
+        @test occursin("powerio", String(catalog.producer))
+        names = Set(String(t.name) for t in catalog.tables)
+        # The catalog is feature based: it lists every table this build can
+        # export, and each entry says whether it is available here.
+        for known in keys(PowerIO._ARROW_TABLE_IDS)
+            @test String(known) in names
+        end
+        for t in catalog.tables
+            @test haskey(t, :id) && haskey(t, :available) && haskey(t, :columns)
+        end
+        bus = only(t for t in catalog.tables if String(t.name) == "bus")
+        @test any(c -> String(c.name) == "id", bus.columns)
+    end
+end

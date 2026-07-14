@@ -3,7 +3,8 @@
 # The JSON transport above is the rich, lossless payload (every field + extras). For
 # the matrix-assembly path a consumer wants the numeric tables as dense typed
 # arrays without parsing JSON: the C ABI fills caller-allocated buffers
-# (`pio_bus_ids` / `pio_branches` / `pio_gens` / `pio_bus_demand` / `pio_bus_shunt`)
+# (`pio_bus_ids` / `pio_branches` / `pio_branch_charging` / `pio_switches` /
+# `pio_gens` / `pio_bus_demand` / `pio_bus_shunt`)
 # straight from the IndexCore the handle built once at parse, and answers the
 # topology scalars (`pio_n_islands` / `pio_is_radial` / `pio_ref_bus_index`) off the same core.
 # Raw MATPOWER units throughout: 1-based bus ids in `bus_ids`, branch `from`/`to`,
@@ -36,6 +37,36 @@ function _branch_tables(h::BalancedNetworkHandle, m::Int)
           h.ptr, from, to, r, x, b, tap, shift, insvc, m)
     _check_filled(got, m, "pio_branches")
     return (; from, to, r, x, b, tap, shift, in_service = insvc)
+end
+
+# Per-branch terminal charging (`pio_branch_charging`, powerio v0.7): the
+# asymmetric pi-model split behind the branch table's total `b`. Per unit.
+function _branch_charging(h::BalancedNetworkHandle, m::Int)
+    lib = getfield(h, :lib)
+    g_fr = Vector{Float64}(undef, m); b_fr = Vector{Float64}(undef, m)
+    g_to = Vector{Float64}(undef, m); b_to = Vector{Float64}(undef, m)
+    got = GC.@preserve h ccall(_library_symbol(lib, :pio_branch_charging), Csize_t,
+          (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Csize_t),
+          h.ptr, g_fr, b_fr, g_to, b_to, m)
+    _check_filled(got, m, "pio_branch_charging")
+    return (; g_fr, b_fr, g_to, b_to)
+end
+
+# The switch table (`pio_switches`, powerio v0.7). `from`/`to` are 1-based bus
+# ids; absent optional ratings and terminal flows come back as 0.0.
+function _switch_tables(h::BalancedNetworkHandle, ns::Int)
+    lib = getfield(h, :lib)
+    from = Vector{Int64}(undef, ns); to = Vector{Int64}(undef, ns)
+    closed = Vector{UInt8}(undef, ns)
+    thermal_rating = Vector{Float64}(undef, ns); current_rating = Vector{Float64}(undef, ns)
+    pf = Vector{Float64}(undef, ns); qf = Vector{Float64}(undef, ns)
+    pt = Vector{Float64}(undef, ns); qt = Vector{Float64}(undef, ns)
+    got = GC.@preserve h ccall(_library_symbol(lib, :pio_switches), Csize_t,
+          (Ptr{Cvoid}, Ptr{Int64}, Ptr{Int64}, Ptr{UInt8}, Ptr{Float64}, Ptr{Float64},
+           Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Csize_t),
+          h.ptr, from, to, closed, thermal_rating, current_rating, pf, qf, pt, qt, ns)
+    _check_filled(got, ns, "pio_switches")
+    return (; from, to, closed, thermal_rating, current_rating, pf, qf, pt, qt)
 end
 
 function _gen_tables(h::BalancedNetworkHandle, ng::Int)
@@ -75,20 +106,26 @@ end
 function _dense_from_handle(h::BalancedNetworkHandle)
     GC.@preserve h begin
         lib = getfield(h, :lib)
+        _exports_symbol(:pio_switches, lib) || error(
+            "PowerIO.to_dense: the C ABI at \"$lib\" predates the powerio v0.7 dense " *
+            "extractors (pio_switches / pio_branch_charging). Update the powerio_capi " *
+            "artifact or rebuild the local library.")
         p = h.ptr
         n = Int(ccall(_library_symbol(lib, :pio_n_buses), Csize_t, (Ptr{Cvoid},), p))
         m = Int(ccall(_library_symbol(lib, :pio_n_branches), Csize_t, (Ptr{Cvoid},), p))
         ng = Int(ccall(_library_symbol(lib, :pio_n_gens), Csize_t, (Ptr{Cvoid},), p))
+        ns = Int(ccall(_library_symbol(lib, :pio_n_switches), Csize_t, (Ptr{Cvoid},), p))
         bus_ids = Vector{Int64}(undef, n)
         _check_filled(ccall(_library_symbol(lib, :pio_bus_ids), Csize_t,
                             (Ptr{Cvoid}, Ptr{Int64}, Csize_t), p, bus_ids, n), n, "pio_bus_ids")
         pd, qd = _bus_demand(h, n)
         gs, bs = _bus_shunt(h, n)
         return (;
-            n, m, ng,
+            n, m, ng, ns,
             base_mva = ccall(_library_symbol(lib, :pio_base_mva), Cdouble, (Ptr{Cvoid},), p),
             bus_ids,
-            branch = _branch_tables(h, m),
+            branch = merge(_branch_tables(h, m), _branch_charging(h, m)),
+            switch = _switch_tables(h, ns),
             gen = _gen_tables(h, ng),
             demand = (; pd, qd),
             shunt = (; gs, bs),
@@ -108,13 +145,18 @@ skipping the JSON transport (the fast path for matrix assembly). Takes a parsed
 [`BalancedNetwork`](@ref) (via its live handle) or a `path` to parse first (which never
 builds the JSON payload). Fields:
 
-- `n`, `m`, `ng` — bus / branch / generator counts.
+- `n`, `m`, `ng`, `ns` — bus / branch / generator / switch counts.
 - `base_mva` — system base.
 - `bus_ids::Vector{Int64}` — 1-based bus ids in dense order; row `k` of every
   per-bus table is bus `bus_ids[k]`. Invert it to map a 1-based endpoint id to a
   dense row.
 - `branch` — NamedTuple of `from, to` (1-based bus ids), `r, x, b, tap, shift`
-  (raw MATPOWER units, degrees, total charging, raw tap), and `in_service::Vector{UInt8}`.
+  (raw MATPOWER units, degrees, total charging, raw tap), `in_service::Vector{UInt8}`,
+  and the per-terminal charging split `g_fr, b_fr, g_to, b_to` (per unit;
+  `b_fr + b_to` recovers `b`, and a symmetric MATPOWER line splits as `b/2`).
+- `switch` — NamedTuple of `from, to` (1-based bus ids), `closed::Vector{UInt8}`,
+  `thermal_rating, current_rating, pf, qf, pt, qt` (absent optionals are 0.0).
+  Empty unless the source carries switches (PowerModels JSON).
 - `gen` — NamedTuple of `bus` (1-based id, one row per machine), `pg, pmax, pmin`
   (MW), `in_service`.
 - `demand`, `shunt` — NamedTuples of per-bus `(pd, qd)` and `(gs, bs)` in dense order.

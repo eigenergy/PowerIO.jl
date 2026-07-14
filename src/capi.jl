@@ -373,6 +373,18 @@ function _warn_lines(buf::Vector{UInt8}; capped::Bool=false)
     return warns
 end
 
+# One string over the cap/count convention (`pio_network_name`,
+# `pio_source_format`): the query returns the byte length excluding the NUL, so
+# size with a null buffer, allocate, fill exactly. `query(out, cap)` closes over
+# the handle; the caller's GC.@preserve covers both calls.
+function _string_from(query)
+    n = Int(query(C_NULL, Csize_t(0)))
+    n == 0 && return ""
+    buf = zeros(UInt8, n + 1)  # +1 for the NUL the library always writes
+    query(buf, Csize_t(length(buf)))
+    return _cstr(buf)
+end
+
 # Fidelity warnings retained on a handle (`pio_warnings` / `pio_dist_warnings`):
 # the readers that return a handle and no per-call warnbuf (`pio_read_dir`, the
 # dist parsers) park their warnings here. The v4 query returns the joined text's
