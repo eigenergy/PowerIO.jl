@@ -667,10 +667,8 @@ fields are `schema_version`, `producer`, and `tables`; each table entry carries
 function arrow_catalog()
     lib = _lib()
     _ensure_compatible(lib)
-    _exports_symbol(:pio_arrow_catalog_json, lib) || error(
-        "PowerIO.arrow_catalog: the C ABI at \"$lib\" does not export " *
-        "pio_arrow_catalog_json (powerio v0.7, `--features arrow`). Update the " *
-        "powerio_capi artifact or rebuild the local library.")
+    _require_export("arrow_catalog", :pio_arrow_catalog_json,
+                    "powerio v0.7, `--features arrow`", lib)
     err = zeros(UInt8, _ERRLEN)
     s = ccall(_library_symbol(lib, :pio_arrow_catalog_json), Cstring,
               (Ptr{UInt8}, Csize_t), err, length(err))

@@ -123,12 +123,6 @@ _package_operating_points_available() =
 _package_study_available() =
     _exports_symbol(:pio_package_study_json)
 
-_package_materialize_operating_point_available() =
-    _exports_symbol(:pio_package_materialize_operating_point)
-
-_package_materialize_study_commit_available() =
-    _exports_symbol(:pio_package_materialize_study_commit)
-
 function _package_validation_handle(pkg::NetworkPackage, fname::AbstractString)
     h = _package_parse_str_handle(to_json(pkg), fname)
     lib = getfield(h, :lib)
@@ -300,10 +294,8 @@ recomputed before returning. Read the series back with
 `--features pkg`.
 """
 function set_operating_points(pkg::NetworkPackage, series)
-    _exports_symbol(:pio_package_set_operating_points) || error(
-        "PowerIO.set_operating_points: the C ABI at \"$(_lib())\" does not export " *
-        "pio_package_set_operating_points (powerio v0.7, `--features pkg`). Update " *
-        "the powerio_capi artifact or rebuild the local library.")
+    _require_export("set_operating_points", :pio_package_set_operating_points,
+                    "powerio v0.7, `--features pkg`")
     json = series === nothing ? "null" :
            series isa AbstractString ? String(series) : JSON3.write(series)
     h = _package_parse_str_handle(to_json(pkg), "set_operating_points")
@@ -337,10 +329,8 @@ Return a static package with operating point `index` applied. Indices are zero
 based to match the `.pio.json` payload.
 """
 function materialize_operating_point(pkg::NetworkPackage, index::Integer)
-    _package_materialize_operating_point_available() || error(
-        "PowerIO.materialize_operating_point: the C ABI at \"$(_lib())\" does not export " *
-        "pio_package_materialize_operating_point. Rebuild powerio-capi from the matching " *
-        "PowerIO branch.")
+    _require_export("materialize_operating_point", :pio_package_materialize_operating_point,
+                    "`--features pkg`")
     h = _package_parse_str_handle(to_json(pkg), "materialize_operating_point")
     lib = getfield(h, :lib)
     _package_free_fn(lib)
@@ -360,10 +350,8 @@ Return a static package with study commits `0:index` applied. Indices are zero
 based to match the `.pio.json` payload.
 """
 function materialize_study_commit(pkg::NetworkPackage, index::Integer)
-    _package_materialize_study_commit_available() || error(
-        "PowerIO.materialize_study_commit: the C ABI at \"$(_lib())\" does not export " *
-        "pio_package_materialize_study_commit. Rebuild powerio-capi from the matching " *
-        "PowerIO branch.")
+    _require_export("materialize_study_commit", :pio_package_materialize_study_commit,
+                    "`--features pkg`")
     h = _package_parse_str_handle(to_json(pkg), "materialize_study_commit")
     lib = getfield(h, :lib)
     _package_free_fn(lib)

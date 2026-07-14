@@ -292,6 +292,16 @@ _lib_call_error(e) = error(
     "(`cargo build -p powerio-capi --release` in a sibling powerio checkout) " *
     "or call `set_library!` / set POWERIO_CAPI. Underlying: $e")
 
+# Directed error for an entry point the resolved library predates: `sym` is
+# absent even though the ABI handshake passes (additive symbols do not bump the
+# ABI version). `hint` names the powerio release and cargo feature that ship it.
+function _require_export(fname::AbstractString, sym::Symbol, hint::AbstractString,
+                         lib::AbstractString=_lib())
+    _exports_symbol(sym, lib) && return
+    error("PowerIO.$fname: the C ABI at \"$lib\" does not export $sym ($hint). " *
+          "Update the powerio_capi artifact or rebuild the local library.")
+end
+
 # Sibling of `_lib_call_error` for the feature-gated entry points: the ccall threw
 # because the resolved library lacks `sym`. Anything other than the missing
 # symbol/library ErrorException (e.g. an ArgumentError from argument conversion)

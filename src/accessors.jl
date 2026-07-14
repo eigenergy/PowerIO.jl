@@ -38,6 +38,19 @@ function _handle_count(net::BalancedNetwork, sym::Symbol)
     return Int(GC.@preserve h ccall(_library_symbol(lib, sym), Csize_t, (Ptr{Cvoid},), h.ptr))
 end
 
+# One string off the live handle via a cap/count C accessor (`pio_network_name`,
+# `pio_source_format`), or `nothing` when there is no live handle or the
+# resolved library lacks `sym` — the string sibling of `_handle_count`.
+function _handle_string(net::BalancedNetwork, sym::Symbol)
+    h = _maybe_live_handle(net)
+    h === nothing && return nothing
+    lib = getfield(h, :lib)
+    _exports_symbol(sym, lib) || return nothing
+    return GC.@preserve h _string_from((out, cap) -> ccall(
+        _library_symbol(lib, sym), Csize_t,
+        (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, out, cap))
+end
+
 function _handle_bus_ids(h::BalancedNetworkHandle)
     lib = getfield(h, :lib)
     n = Int(GC.@preserve h ccall(_library_symbol(lib, :pio_n_buses), Csize_t, (Ptr{Cvoid},), h.ptr))
@@ -72,16 +85,15 @@ base_frequency(net::BalancedNetwork) = Float64(_summary(net).base_frequency)
 """
     network_name(net) -> String
 
-The case name carried through from the source file.
+The case name carried through from the source file. Reads the cached summary
+when one is already materialized; a first access on a live handle uses the
+dedicated C accessor (`pio_network_name`) instead of building the summary JSON.
 """
 function network_name(net::BalancedNetwork)
-    h = _maybe_live_handle(net)
-    if h !== nothing && _exports_symbol(:pio_network_name, getfield(h, :lib))
-        lib = getfield(h, :lib)
-        return GC.@preserve h _string_from((out, cap) -> ccall(
-            _library_symbol(lib, :pio_network_name), Csize_t,
-            (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, out, cap))
-    end
+    summary = getfield(net, :summary)
+    summary !== nothing && return String(summary.name)
+    name = _handle_string(net, :pio_network_name)
+    name === nothing || return name
     return String(_summary(net).name)
 end
 
@@ -134,13 +146,10 @@ Examples include `"Matpower"`, `"PowerModelsJson"`, `"EgretJson"`, `"Psse"`,
 [`to_normalized`](@ref)).
 """
 function source_format(net::BalancedNetwork)
-    h = _maybe_live_handle(net)
-    if h !== nothing && _exports_symbol(:pio_source_format, getfield(h, :lib))
-        lib = getfield(h, :lib)
-        return GC.@preserve h _string_from((out, cap) -> ccall(
-            _library_symbol(lib, :pio_source_format), Csize_t,
-            (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, out, cap))
-    end
+    summary = getfield(net, :summary)
+    summary !== nothing && return String(summary.source_format)
+    format = _handle_string(net, :pio_source_format)
+    format === nothing || return format
     return String(_summary(net).source_format)
 end
 

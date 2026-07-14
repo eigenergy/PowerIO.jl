@@ -35,9 +35,9 @@ const _FEATURE_PROBE_SYMBOLS = Dict(
 
 Whether the resolved library was compiled with the named cargo feature
 (`pio_has_feature`): `"arrow"`, `"matrix"`, `"gridfm"`, `"dist"`, `"pkg"`, or
-`"prob"`. Unknown names return `false`. Unlike [`features`](@ref), this is the
-library's own compile-time answer; it does not run the per-feature ABI
-handshakes. A pre-0.7 library without `pio_has_feature` is probed by each
+`"prob"`. Unknown names return `false`. Unlike [`features`](@ref), this is
+what the library says it was compiled with; it does not run the per-feature
+ABI handshakes. A pre-0.7 library without `pio_has_feature` is probed by each
 feature's representative entry point instead.
 """
 function has_feature(feature::AbstractString)

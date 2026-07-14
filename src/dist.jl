@@ -380,10 +380,8 @@ Needs powerio-capi v0.7 built `--features dist`.
 function from_json(::Type{MulticonductorNetwork}, text::AbstractString)
     lib = _lib()
     _ensure_dist_compatible(lib)
-    _exports_symbol(:pio_dist_from_json, lib) || error(
-        "PowerIO.from_json(MulticonductorNetwork): the C ABI at \"$lib\" does not " *
-        "export pio_dist_from_json (powerio v0.7). Update the powerio_capi artifact " *
-        "or rebuild the local library.")
+    _require_export("from_json(MulticonductorNetwork)", :pio_dist_from_json,
+                    "powerio v0.7, `--features dist`", lib)
     _dist_network_free_fn(lib)
     err = zeros(UInt8, _ERRLEN)
     ptr = try

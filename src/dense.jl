@@ -40,7 +40,7 @@ function _branch_tables(h::BalancedNetworkHandle, m::Int)
 end
 
 # Per-branch terminal charging (`pio_branch_charging`, powerio v0.7): the
-# asymmetric pi-model split behind the branch table's total `b`. Per unit.
+# asymmetric pi model split behind the branch table's total `b`. Per unit.
 function _branch_charging(h::BalancedNetworkHandle, m::Int)
     lib = getfield(h, :lib)
     g_fr = Vector{Float64}(undef, m); b_fr = Vector{Float64}(undef, m)
@@ -106,26 +106,28 @@ end
 function _dense_from_handle(h::BalancedNetworkHandle)
     GC.@preserve h begin
         lib = getfield(h, :lib)
-        _exports_symbol(:pio_switches, lib) || error(
-            "PowerIO.to_dense: the C ABI at \"$lib\" predates the powerio v0.7 dense " *
-            "extractors (pio_switches / pio_branch_charging). Update the powerio_capi " *
-            "artifact or rebuild the local library.")
         p = h.ptr
         n = Int(ccall(_library_symbol(lib, :pio_n_buses), Csize_t, (Ptr{Cvoid},), p))
         m = Int(ccall(_library_symbol(lib, :pio_n_branches), Csize_t, (Ptr{Cvoid},), p))
         ng = Int(ccall(_library_symbol(lib, :pio_n_gens), Csize_t, (Ptr{Cvoid},), p))
-        ns = Int(ccall(_library_symbol(lib, :pio_n_switches), Csize_t, (Ptr{Cvoid},), p))
         bus_ids = Vector{Int64}(undef, n)
         _check_filled(ccall(_library_symbol(lib, :pio_bus_ids), Csize_t,
                             (Ptr{Cvoid}, Ptr{Int64}, Csize_t), p, bus_ids, n), n, "pio_bus_ids")
         pd, qd = _bus_demand(h, n)
         gs, bs = _bus_shunt(h, n)
-        return (;
-            n, m, ng, ns,
+        # The v0.7 extractors are guarded per symbol: a pre-v0.7 ABI-4 library
+        # still serves every field it can export, and the new fields are absent
+        # rather than fabricated (a v0.6.3 handle can hold switches and an
+        # asymmetric charging split it has no way to export).
+        branch = _branch_tables(h, m)
+        if _exports_symbol(:pio_branch_charging, lib)
+            branch = merge(branch, _branch_charging(h, m))
+        end
+        dense = (;
+            n, m, ng,
             base_mva = ccall(_library_symbol(lib, :pio_base_mva), Cdouble, (Ptr{Cvoid},), p),
             bus_ids,
-            branch = merge(_branch_tables(h, m), _branch_charging(h, m)),
-            switch = _switch_tables(h, ns),
+            branch,
             gen = _gen_tables(h, ng),
             demand = (; pd, qd),
             shunt = (; gs, bs),
@@ -133,6 +135,11 @@ function _dense_from_handle(h::BalancedNetworkHandle)
             n_components = Int(ccall(_library_symbol(lib, :pio_n_islands), Csize_t, (Ptr{Cvoid},), p)),
             is_radial = ccall(_library_symbol(lib, :pio_is_radial), Cint, (Ptr{Cvoid},), p) != 0,
         )
+        if _exports_symbol(:pio_n_switches, lib) && _exports_symbol(:pio_switches, lib)
+            ns = Int(ccall(_library_symbol(lib, :pio_n_switches), Csize_t, (Ptr{Cvoid},), p))
+            dense = merge(dense, (; ns, switch = _switch_tables(h, ns)))
+        end
+        return dense
     end
 end
 
@@ -145,20 +152,26 @@ skipping the JSON transport (the fast path for matrix assembly). Takes a parsed
 [`BalancedNetwork`](@ref) (via its live handle) or a `path` to parse first (which never
 builds the JSON payload). Fields:
 
-- `n`, `m`, `ng`, `ns` — bus / branch / generator / switch counts.
+- `n`, `m`, `ng` — bus / branch / generator counts.
 - `base_mva` — system base.
 - `bus_ids::Vector{Int64}` — 1-based bus ids in dense order; row `k` of every
   per-bus table is bus `bus_ids[k]`. Invert it to map a 1-based endpoint id to a
   dense row.
 - `branch` — NamedTuple of `from, to` (1-based bus ids), `r, x, b, tap, shift`
   (raw MATPOWER units, degrees, total charging, raw tap), `in_service::Vector{UInt8}`,
-  and the per-terminal charging split `g_fr, b_fr, g_to, b_to` (per unit;
-  `b_fr + b_to` recovers `b`, and a symmetric MATPOWER line splits as `b/2`).
-- `switch` — NamedTuple of `from, to` (1-based bus ids), `closed::Vector{UInt8}`,
+  and, with a powerio v0.7 library, the terminal charging split
+  `g_fr, b_fr, g_to, b_to` (per unit; `b_fr + b_to` recovers `b`, and a
+  symmetric MATPOWER line splits as `b/2`).
+- `ns`, `switch` (powerio v0.7 library) — switch count and the switch table:
+  `from, to` (1-based bus ids), `closed::Vector{UInt8}`,
   `thermal_rating, current_rating, pf, qf, pt, qt` (absent optionals are 0.0).
   Empty unless the source carries switches (PowerModels JSON).
 - `gen` — NamedTuple of `bus` (1-based id, one row per machine), `pg, pmax, pmin`
   (MW), `in_service`.
+
+The v0.7 fields (`ns`, `switch`, the charging columns) are present exactly when
+the resolved library exports their extractors; an older ABI-4 library returns
+the tuple without them instead of erroring or fabricating values.
 - `demand`, `shunt` — NamedTuples of per-bus `(pd, qd)` and `(gs, bs)` in dense order.
 - `reference_bus::Int` — dense 0-based index *into `bus_ids`* of the single
   reference bus (not a 1-based id), or `-1` when there is no unique reference

@@ -82,7 +82,7 @@ export to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
 # GO Challenge 3 (general, format-neutral SCOPF input data). `goc3_scopf_data` is the
 # single entry point: it returns a `ScopfInstance` of per-class index sets in one call.
 # The individual `_goc3_*` builders behind it are internal. `parse_scopf` is the
-# Rust-parsed sibling: the native problem instance's versioned wire JSON (feature prob).
+# Rust-parsed sibling: the native problem instance's versioned JSON (feature prob).
 export parse_goc3_json, goc3_scopf_data, ScopfInstance,
        goc3_status_flags, goc3_add_status_flags!, goc3_interval_bounds,
        parse_scopf, scopf_available
@@ -116,6 +116,6 @@ include("graphs.jl")      # graph projections for balanced and multiconductor mo
 include("package.jl")     # .pio.json network packages (feature pkg)
 include("features.jl")    # public feature probe summary
 include("goc3.jl")        # GO Challenge 3 JSON helpers (pure Julia)
-include("scopf.jl")       # native SCOPF problem instance wire (feature prob)
+include("scopf.jl")       # native SCOPF problem instance JSON (feature prob)
 
 end # module
