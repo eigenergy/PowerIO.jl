@@ -1,0 +1,587 @@
+diff --git a/src/PowerIO.jl b/src/PowerIO.jl
+index e8d465c..cc74389 100644
+--- a/src/PowerIO.jl
++++ b/src/PowerIO.jl
+@@ -66,7 +66,7 @@ export convert_file, convert_str, to_format, to_normalized, to_normalized_with_o
+        to_json, to_matpower, write_pypsa_csv_folder
+ 
+ # Materialized numeric views
+-export to_dense, to_arrow, ArrowTable, release_c_data
++export to_dense, to_arrow, ArrowTable, release_c_data, arrow_catalog
+ 
+ # Sparse system matrices (Rust matrix feature)
+ export calc_admittance_matrix, calc_susceptance_matrix, calc_incidence_matrix,
+@@ -81,22 +81,24 @@ export to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
+ 
+ # GO Challenge 3 (general, format-neutral SCOPF input data). `goc3_scopf_data` is the
+ # single entry point: it returns a `ScopfInstance` of per-class index sets in one call.
+-# The individual `_goc3_*` builders behind it are internal.
++# The individual `_goc3_*` builders behind it are internal. `parse_scopf` is the
++# Rust-parsed sibling: the native problem instance's versioned JSON (feature prob).
+ export parse_goc3_json, goc3_scopf_data, ScopfInstance,
+-       goc3_status_flags, goc3_add_status_flags!, goc3_interval_bounds
++       goc3_status_flags, goc3_add_status_flags!, goc3_interval_bounds,
++       parse_scopf, scopf_available
+ 
+ # .pio.json network packages (Rust pkg feature)
+ export NetworkPackage, CompilerPackage, to_package, from_package, read_package, write_package,
+        package_model_kind, package_available, validate_package, package_validation,
+        package_diagnostics, package_operating_points, package_study,
+-       materialize_operating_point, materialize_study_commit
++       set_operating_points, materialize_operating_point, materialize_study_commit
+ 
+ # Multiconductor distribution
+ export multiconductor_to_balanced_preflight, lower_multiconductor_to_balanced,
+        dist_available, dist_abi_version, dist_capabilities
+ 
+ # Graph projection and feature probes
+-export to_graph, features, arrow_available, gridfm_available, matrix_available
++export to_graph, features, has_feature, arrow_available, gridfm_available, matrix_available
+ 
+ include("capi.jl")        # library resolution, ABI handshake, BalancedNetworkHandle, buffer helpers
+ include("network.jl")     # BalancedNetwork and the parse / convert / serialize verbs
+@@ -114,5 +116,6 @@ include("graphs.jl")      # graph projections for balanced and multiconductor mo
+ include("package.jl")     # .pio.json network packages (feature pkg)
+ include("features.jl")    # public feature probe summary
+ include("goc3.jl")        # GO Challenge 3 JSON helpers (pure Julia)
++include("scopf.jl")       # native SCOPF problem instance JSON (feature prob)
+ 
+ end # module
+diff --git a/src/accessors.jl b/src/accessors.jl
+index 071a87e..dde4dd2 100644
+--- a/src/accessors.jl
++++ b/src/accessors.jl
+@@ -31,11 +31,17 @@ function _maybe_live_handle(net::BalancedNetwork)
+     return (h === nothing || h.ptr == C_NULL) ? nothing : h
+ end
+ 
+-function _handle_count(net::BalancedNetwork, sym::Symbol)
++# One string off the live handle via a cap/count C accessor (`pio_network_name`,
++# `pio_source_format`), or `nothing` when there is no live handle or the
++# resolved library lacks `sym`.
++function _handle_string(net::BalancedNetwork, sym::Symbol)
+     h = _maybe_live_handle(net)
+     h === nothing && return nothing
+     lib = getfield(h, :lib)
+-    return Int(GC.@preserve h ccall(_library_symbol(lib, sym), Csize_t, (Ptr{Cvoid},), h.ptr))
++    _exports_symbol(sym, lib) || return nothing
++    return GC.@preserve h _string_from((out, cap) -> ccall(
++        _library_symbol(lib, sym), Csize_t,
++        (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, out, cap))
+ end
+ 
+ function _handle_bus_ids(h::BalancedNetworkHandle)
+@@ -69,14 +75,26 @@ end
+ 
+ base_frequency(net::BalancedNetwork) = Float64(_summary(net).base_frequency)
+ 
++# The shared three-tier read behind `network_name` / `source_format`: a cached
++# summary is a plain field read; a first access on a live handle takes the
++# dedicated C string accessor instead of building the summary JSON; a
++# handle-less or pre-0.7 library falls back to the summary.
++function _scalar_string(net::BalancedNetwork, field::Symbol, sym::Symbol)
++    summary = getfield(net, :summary)
++    summary !== nothing && return String(getproperty(summary, field))
++    value = _handle_string(net, sym)
++    value === nothing || return value
++    return String(getproperty(_summary(net), field))
++end
++
+ """
+     network_name(net) -> String
+ 
+-The case name carried through from the source file.
++The case name carried through from the source file. Reads the cached summary
++when one is already materialized; a first access on a live handle uses the
++dedicated C accessor (`pio_network_name`) instead of building the summary JSON.
+ """
+-function network_name(net::BalancedNetwork)
+-    return String(_summary(net).name)
+-end
++network_name(net::BalancedNetwork) = _scalar_string(net, :name, :pio_network_name)
+ 
+ "Buses, in source order (1-based ids preserved). See the accessor API note."
+ buses(net::BalancedNetwork) = net.data.buses
+@@ -103,6 +121,22 @@ function n_gens(net::BalancedNetwork)
+     return Int(_summary(net).counts.generators)
+ end
+ 
++"""
++    n_switches(net) -> Int
++
++Number of switch rows (two-terminal ideal switches; PowerModels JSON carries
++them). Reads `pio_n_switches` off the live handle, else the summary counts.
++"""
++function n_switches(net::BalancedNetwork)
++    h = _maybe_live_handle(net)
++    if h !== nothing && _has_switch_extractors(getfield(h, :lib))
++        lib = getfield(h, :lib)
++        return Int(GC.@preserve h ccall(_library_symbol(lib, :pio_n_switches),
++                                        Csize_t, (Ptr{Cvoid},), h.ptr))
++    end
++    return Int(get(_summary(net).counts, :switches, 0))
++end
++
+ """
+     source_format(net) -> String
+ 
+@@ -112,9 +146,7 @@ Examples include `"Matpower"`, `"PowerModelsJson"`, `"EgretJson"`, `"Psse"`,
+ `"SurgeJson"`, `"InMemory"`, and `"Normalized"` (the last is the output of
+ [`to_normalized`](@ref)).
+ """
+-function source_format(net::BalancedNetwork)
+-    return String(_summary(net).source_format)
+-end
++source_format(net::BalancedNetwork) = _scalar_string(net, :source_format, :pio_source_format)
+ 
+ """
+     reference_bus_id(net) -> Union{Int,Nothing}
+diff --git a/src/capi.jl b/src/capi.jl
+index 4227e6d..81c84b7 100644
+--- a/src/capi.jl
++++ b/src/capi.jl
+@@ -292,6 +292,16 @@ _lib_call_error(e) = error(
+     "(`cargo build -p powerio-capi --release` in a sibling powerio checkout) " *
+     "or call `set_library!` / set POWERIO_CAPI. Underlying: $e")
+ 
++# Directed error for an entry point the resolved library predates: `sym` is
++# absent even though the ABI handshake passes (additive symbols do not bump the
++# ABI version). `hint` names the powerio release and cargo feature that ship it.
++function _require_export(fname::AbstractString, sym::Symbol, hint::AbstractString,
++                         lib::AbstractString=_lib())
++    _exports_symbol(sym, lib) && return
++    error("PowerIO.$fname: the C ABI at \"$lib\" does not export $sym ($hint). " *
++          "Update the powerio_capi artifact or rebuild the local library.")
++end
++
+ # Sibling of `_lib_call_error` for the feature-gated entry points: the ccall threw
+ # because the resolved library lacks `sym`. Anything other than the missing
+ # symbol/library ErrorException (e.g. an ArgumentError from argument conversion)
+@@ -361,33 +371,51 @@ end
+ # compiler may drop the buffer after `pointer(buf)` and a GC mid-copy dangles.
+ _cstr(buf::Vector{UInt8}) = GC.@preserve buf unsafe_string(pointer(buf))
+ 
+-# Split a `\n`-joined warn buffer into owned Strings (a SubString would pin the
+-# whole buffer-sized parent). `capped`: this fixed-size per-call channel truncates
+-# silently on a UTF-8 boundary at the cap, so a fill within 4 bytes of it is the
+-# truncation signature — report it rather than under-count fidelity warnings.
++# Owned Strings, one per non-empty line (a SubString would pin the whole
++# buffer-sized parent).
++_nonempty_lines(s::AbstractString) = String.(filter(!isempty, split(s, '\n')))
++
++# Split a `\n`-joined warn buffer into owned Strings. `capped`: this fixed-size
++# per-call channel truncates silently on a UTF-8 boundary at the cap, so a fill
++# within 4 bytes of it is the truncation signature — report it rather than
++# under-count fidelity warnings.
+ function _warn_lines(buf::Vector{UInt8}; capped::Bool=false)
+     s = _cstr(buf)
+-    warns = String.(filter(!isempty, split(s, '\n')))
++    warns = _nonempty_lines(s)
+     capped && ncodeunits(s) >= length(buf) - 4 &&
+         push!(warns, "... warning list truncated at $(length(buf)) bytes")
+     return warns
+ end
+ 
+-# Fidelity warnings retained on a handle (`pio_warnings` / `pio_dist_warnings`):
+-# the readers that return a handle and no per-call warnbuf (`pio_read_dir`, the
+-# dist parsers) park their warnings here. The v4 query returns the joined text's
+-# byte length, so size with a null buffer first, then fill exactly — no cap
+-# marker, the buffer fits by construction. `query(out, cap)` closes over the
+-# handle, so the caller's GC.@preserve covers both calls (the raw pointer never
+-# travels alone; see `_normalize_handle`).
+-function _warnings_from(query)
++# One string over the cap/count convention (`pio_network_name`,
++# `pio_source_format`, and the joined text behind `_warnings_from`): the query
++# returns the byte length excluding the NUL, so size with a null buffer,
++# allocate, fill exactly. `query(out, cap)` closes over the handle; the
++# caller's GC.@preserve covers both calls (the raw pointer never travels
++# alone; see `_normalize_handle`).
++function _string_from(query)
+     n = Int(query(C_NULL, Csize_t(0)))
+-    n == 0 && return String[]
++    n == 0 && return ""
+     buf = zeros(UInt8, n + 1)  # +1 for the NUL the library always writes
+     query(buf, Csize_t(length(buf)))
+-    return _warn_lines(buf)
++    return _cstr(buf)
++end
++
++# Take ownership of a Rust-allocated C string: copy it to a Julia String and
++# free the original with `pio_string_free`. The caller has already checked the
++# pointer for NULL (each call site owns its own directed error).
++function _take_string(lib::AbstractString, s::Cstring)
++    text = unsafe_string(s)
++    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
++    return text
+ end
+ 
++# Fidelity warnings retained on a handle (`pio_warnings` / `pio_dist_warnings`):
++# the readers that return a handle and no per-call warnbuf (`pio_read_dir`, the
++# dist parsers) park their warnings here. `_string_from` owns the size then fill
++# protocol, so the joined text always fits by construction — no cap marker.
++_warnings_from(query) = _nonempty_lines(_string_from(query))
++
+ _handle_warnings(h::BalancedNetworkHandle) =
+     GC.@preserve h _warnings_from((out, cap) -> ccall(_library_symbol(getfield(h, :lib), :pio_warnings), Csize_t,
+                                   (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, out, cap))
+@@ -400,7 +428,5 @@ function _to_json(h::BalancedNetworkHandle)
+     s = GC.@preserve h ccall(_library_symbol(lib, :pio_to_json), Cstring,
+                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
+     s == C_NULL && error("PowerIO: to_json failed: " * _cstr(err))
+-    json = unsafe_string(s)
+-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+-    return json
++    return _take_string(lib, s)
+ end
+diff --git a/src/dense.jl b/src/dense.jl
+index 63a287c..53a55b2 100644
+--- a/src/dense.jl
++++ b/src/dense.jl
+@@ -3,7 +3,8 @@
+ # The JSON transport above is the rich, lossless payload (every field + extras). For
+ # the matrix-assembly path a consumer wants the numeric tables as dense typed
+ # arrays without parsing JSON: the C ABI fills caller-allocated buffers
+-# (`pio_bus_ids` / `pio_branches` / `pio_gens` / `pio_bus_demand` / `pio_bus_shunt`)
++# (`pio_bus_ids` / `pio_branches` / `pio_branch_charging` / `pio_switches` /
++# `pio_gens` / `pio_bus_demand` / `pio_bus_shunt`)
+ # straight from the IndexCore the handle built once at parse, and answers the
+ # topology scalars (`pio_n_islands` / `pio_is_radial` / `pio_ref_bus_index`) off the same core.
+ # Raw MATPOWER units throughout: 1-based bus ids in `bus_ids`, branch `from`/`to`,
+@@ -38,6 +39,42 @@ function _branch_tables(h::BalancedNetworkHandle, m::Int)
+     return (; from, to, r, x, b, tap, shift, in_service = insvc)
+ end
+ 
++# Per-branch terminal charging (`pio_branch_charging`, powerio v0.7): the
++# asymmetric pi model split behind the branch table's total `b`. Per unit.
++function _branch_charging(h::BalancedNetworkHandle, m::Int)
++    lib = getfield(h, :lib)
++    g_fr = Vector{Float64}(undef, m); b_fr = Vector{Float64}(undef, m)
++    g_to = Vector{Float64}(undef, m); b_to = Vector{Float64}(undef, m)
++    got = GC.@preserve h ccall(_library_symbol(lib, :pio_branch_charging), Csize_t,
++          (Ptr{Cvoid}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Csize_t),
++          h.ptr, g_fr, b_fr, g_to, b_to, m)
++    _check_filled(got, m, "pio_branch_charging")
++    return (; g_fr, b_fr, g_to, b_to)
++end
++
++# The one predicate for the v0.7 switch surface, shared by `to_dense` and
++# `n_switches` so a partial library cannot make the two disagree: both symbols
++# ship together, so requiring both is the conservative read.
++_has_switch_extractors(lib::AbstractString=_lib()) =
++    _exports_symbol(:pio_n_switches, lib) && _exports_symbol(:pio_switches, lib)
++
++# The switch table (`pio_switches`, powerio v0.7). `from`/`to` are 1-based bus
++# ids; absent optional ratings and terminal flows come back as 0.0.
++function _switch_tables(h::BalancedNetworkHandle, ns::Int)
++    lib = getfield(h, :lib)
++    from = Vector{Int64}(undef, ns); to = Vector{Int64}(undef, ns)
++    closed = Vector{UInt8}(undef, ns)
++    thermal_rating = Vector{Float64}(undef, ns); current_rating = Vector{Float64}(undef, ns)
++    pf = Vector{Float64}(undef, ns); qf = Vector{Float64}(undef, ns)
++    pt = Vector{Float64}(undef, ns); qt = Vector{Float64}(undef, ns)
++    got = GC.@preserve h ccall(_library_symbol(lib, :pio_switches), Csize_t,
++          (Ptr{Cvoid}, Ptr{Int64}, Ptr{Int64}, Ptr{UInt8}, Ptr{Float64}, Ptr{Float64},
++           Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Ptr{Float64}, Csize_t),
++          h.ptr, from, to, closed, thermal_rating, current_rating, pf, qf, pt, qt, ns)
++    _check_filled(got, ns, "pio_switches")
++    return (; from, to, closed, thermal_rating, current_rating, pf, qf, pt, qt)
++end
++
+ function _gen_tables(h::BalancedNetworkHandle, ng::Int)
+     lib = getfield(h, :lib)
+     bus = Vector{Int64}(undef, ng); pg = Vector{Float64}(undef, ng)
+@@ -84,11 +121,19 @@ function _dense_from_handle(h::BalancedNetworkHandle)
+                             (Ptr{Cvoid}, Ptr{Int64}, Csize_t), p, bus_ids, n), n, "pio_bus_ids")
+         pd, qd = _bus_demand(h, n)
+         gs, bs = _bus_shunt(h, n)
+-        return (;
++        # The v0.7 extractors are guarded per symbol: a pre-v0.7 ABI-4 library
++        # still serves every field it can export, and the new fields are absent
++        # rather than fabricated (a v0.6.3 handle can hold switches and an
++        # asymmetric charging split it has no way to export).
++        branch = _branch_tables(h, m)
++        if _exports_symbol(:pio_branch_charging, lib)
++            branch = merge(branch, _branch_charging(h, m))
++        end
++        dense = (;
+             n, m, ng,
+             base_mva = ccall(_library_symbol(lib, :pio_base_mva), Cdouble, (Ptr{Cvoid},), p),
+             bus_ids,
+-            branch = _branch_tables(h, m),
++            branch,
+             gen = _gen_tables(h, ng),
+             demand = (; pd, qd),
+             shunt = (; gs, bs),
+@@ -96,6 +141,11 @@ function _dense_from_handle(h::BalancedNetworkHandle)
+             n_components = Int(ccall(_library_symbol(lib, :pio_n_islands), Csize_t, (Ptr{Cvoid},), p)),
+             is_radial = ccall(_library_symbol(lib, :pio_is_radial), Cint, (Ptr{Cvoid},), p) != 0,
+         )
++        if _has_switch_extractors(lib)
++            ns = Int(ccall(_library_symbol(lib, :pio_n_switches), Csize_t, (Ptr{Cvoid},), p))
++            dense = merge(dense, (; ns, switch = _switch_tables(h, ns)))
++        end
++        return dense
+     end
+ end
+ 
+@@ -114,7 +164,10 @@ builds the JSON payload). Fields:
+   per-bus table is bus `bus_ids[k]`. Invert it to map a 1-based endpoint id to a
+   dense row.
+ - `branch` — NamedTuple of `from, to` (1-based bus ids), `r, x, b, tap, shift`
+-  (raw MATPOWER units, degrees, total charging, raw tap), and `in_service::Vector{UInt8}`.
++  (raw MATPOWER units, degrees, total charging, raw tap), `in_service::Vector{UInt8}`,
++  and, with a powerio v0.7 library, the terminal charging split
++  `g_fr, b_fr, g_to, b_to` (per unit; `b_fr + b_to` recovers `b`, and a
++  symmetric MATPOWER line splits as `b/2`).
+ - `gen` — NamedTuple of `bus` (1-based id, one row per machine), `pg, pmax, pmin`
+   (MW), `in_service`.
+ - `demand`, `shunt` — NamedTuples of per-bus `(pd, qd)` and `(gs, bs)` in dense order.
+@@ -122,6 +175,14 @@ builds the JSON payload). Fields:
+   reference bus (not a 1-based id), or `-1` when there is no unique reference
+   (none, or several).
+ - `n_components::Int`, `is_radial::Bool` — connectivity of the in-service topology.
++- `ns`, `switch` (the last two fields, powerio v0.7 library) — switch count and
++  the switch table: `from, to` (1-based bus ids), `closed::Vector{UInt8}`,
++  `thermal_rating, current_rating, pf, qf, pt, qt` (absent optionals are 0.0).
++  Empty unless the source carries switches (PowerModels JSON).
++
++The v0.7 fields (`ns`, `switch`, the charging columns) are present exactly when
++the resolved library exports their extractors; an older ABI-4 library returns
++the tuple without them instead of erroring or fabricating values.
+ 
+ For the rich, lossless element tables (costs, extras, storage, HVDC) use the
+ accessors on a [`parse_file`](@ref) `BalancedNetwork`; for self-describing columnar export
+diff --git a/src/features.jl b/src/features.jl
+index c3a69e9..efe04b8 100644
+--- a/src/features.jl
++++ b/src/features.jl
+@@ -3,8 +3,11 @@
+ 
+ Return the optional C ABI features available in the resolved library.
+ 
+-The fields are `arrow`, `matrix`, `gridfm`, `dist`, and `package`. Use this in
+-downstream packages instead of probing private symbols.
++The fields are `arrow`, `matrix`, `gridfm`, `dist`, `package`, and `prob`. Each
++field reports "usable from Julia" (symbol present and, where one exists, the
++feature ABI handshake passes); [`has_feature`](@ref) asks the library itself
++what it was compiled with. Use this in downstream packages instead of probing
++private symbols.
+ """
+ features() = (;
+     arrow = arrow_available(),
+@@ -12,8 +15,56 @@ features() = (;
+     gridfm = gridfm_available(),
+     dist = dist_available(),
+     package = package_available(),
++    prob = scopf_available(),
+ )
+ 
++# Fallback probes for a pre-0.7 library without `pio_has_feature`: the
++# representative entry point of each cargo feature. `matrix` has no dedicated
++# symbol of its own, so it falls back to `matrix_available` (which reports
++# arrow AND matrix — the closest the older ABI can answer).
++const _FEATURE_PROBE_SYMBOLS = Dict(
++    "arrow" => :pio_to_arrow,
++    "gridfm" => :pio_read_dir,
++    "dist" => :pio_dist_parse_file,
++    "pkg" => :pio_package_parse_str,
++    "prob" => :pio_scopf_parse_str,
++)
++
++"""
++    has_feature(feature) -> Bool
++
++Whether the resolved library was compiled with the named cargo feature
++(`pio_has_feature`): `"arrow"`, `"matrix"`, `"gridfm"`, `"dist"`, `"pkg"` (the
++[`features`](@ref) field name `"package"` is accepted as an alias), or
++`"prob"`. Unknown names return `false`; like the sibling probes this never
++throws — an unresolvable or ABI-incompatible library answers `false`. Unlike
++[`features`](@ref), this is what the library says it was compiled with; it
++does not run the per-feature ABI handshakes. A pre-0.7 library without
++`pio_has_feature` is probed by each feature's representative entry point
++instead.
++"""
++function has_feature(feature::AbstractString)
++    feature = feature == "package" ? "pkg" : String(feature)
++    lib = _lib()
++    if _exports_symbol(:pio_has_feature, lib)
++        try
++            _ensure_compatible(lib)
++            return ccall(_library_symbol(lib, :pio_has_feature), Cint,
++                         (Cstring,), feature) != 0
++        catch e
++            @debug "PowerIO: pio_has_feature probe failed" exception = (e, catch_backtrace())
++            return false
++        end
++    end
++    # Pre-0.7 fallback: the docstring's "ABI-incompatible answers false" holds
++    # here too — library_available() runs the main handshake without throwing.
++    library_available() || return false
++    feature == "matrix" && return matrix_available()
++    sym = get(_FEATURE_PROBE_SYMBOLS, feature, nothing)
++    sym === nothing && return false
++    return _exports_symbol(sym, lib)
++end
++
+ const _DIST_CAPABILITY_KEYS = (
+     :bmopf_fixed_taps,
+     :bmopf_center_tap_leakage,
+diff --git a/src/operatingpoints.jl b/src/operatingpoints.jl
+index e69ed68..418a82f 100644
+--- a/src/operatingpoints.jl
++++ b/src/operatingpoints.jl
+@@ -45,12 +45,16 @@ binding of the powerio Rust `OperatingPointSeries` (`powerio-pkg/src/operating.r
+ network). This is more general and more compact than the dense, loads-only [`LoadSeries`](@ref):
+ it carries changes to any field of any element, storing only what differs each period.
+ 
+-Not yet functional. The powerio C ABI exposes reading and materializing an existing series
+-(`pio_package_operating_points_json`, `pio_package_materialize_operating_point`) but not a
+-construct/attach path, so a series cannot yet be built from Julia. The constructor and
+-`materialize_operating_point_series` below throw until that C ABI lands; use [`LoadSeries`](@ref)
+-for multiperiod bus loads in the meantime. Unexported while it is a skeleton so a throwing
+-constructor is not advertised as usable.
++Not yet functional as a typed Julia value. The powerio C ABI reads, attaches, and
++materializes a series at the JSON level (`pio_package_operating_points_json`,
++`pio_package_set_operating_points`, `pio_package_materialize_operating_point`) — from Julia
++that is [`package_operating_points`](@ref), [`set_operating_points`](@ref), and
++[`materialize_operating_point`](@ref) on a [`NetworkPackage`](@ref). What is still missing
++is a typed handle surface to back these structs directly, so the constructor and
++`materialize_operating_point_series` below throw until that binding lands; use
++[`set_operating_points`](@ref) with a JSON series, or [`LoadSeries`](@ref) for multiperiod
++bus loads. Unexported while it is a skeleton so a throwing constructor is not advertised
++as usable.
+ """
+ struct OperatingPointSeries
+     time_axis::TimeAxis
+@@ -58,14 +62,14 @@ struct OperatingPointSeries
+     OperatingPointSeries(::TimeAxis, ::Vector{OperatingPoint}) = error(_OPS_UNAVAILABLE)
+ end
+ 
+-# Reserve these names for the binding to implement once the C ABI exposes operating-point
+-# construct/attach; the catch-all methods below throw until then.
++# Reserve these names for the typed series binding; the catch-all methods below
++# throw until it lands. The JSON-level attach already exists: `set_operating_points`.
+ function operating_point_series end
+ function materialize_operating_point_series end
+ 
+-const _OPS_UNAVAILABLE = "OperatingPointSeries is not yet available: the powerio C ABI " *
+-    "exposes reading/materializing a series but not construct/attach. Use PowerIO.LoadSeries " *
+-    "for multiperiod bus loads until that binding lands."
++const _OPS_UNAVAILABLE = "OperatingPointSeries is not yet available as a typed value. " *
++    "Attach a series to a package as JSON with PowerIO.set_operating_points(pkg, series), " *
++    "or use PowerIO.LoadSeries for multiperiod bus loads, until the typed binding lands."
+ 
+ OperatingPointSeries(::BalancedNetwork, args...; kwargs...) = error(_OPS_UNAVAILABLE)
+ operating_point_series(args...; kwargs...) = error(_OPS_UNAVAILABLE)
+diff --git a/src/package.jl b/src/package.jl
+index bd9cf53..f08d9cd 100644
+--- a/src/package.jl
++++ b/src/package.jl
+@@ -88,9 +88,7 @@ function _package_to_json(h::PackageHandle, fname::AbstractString)
+                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
+                              h.ptr, err, length(err))
+     s == C_NULL && error("PowerIO.$fname: " * _cstr(err))
+-    text = unsafe_string(s)
+-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+-    return text
++    return _take_string(lib, s)
+ end
+ 
+ function _package_validation_json(h::PackageHandle, fname::AbstractString)
+@@ -123,12 +121,6 @@ _package_operating_points_available() =
+ _package_study_available() =
+     _exports_symbol(:pio_package_study_json)
+ 
+-_package_materialize_operating_point_available() =
+-    _exports_symbol(:pio_package_materialize_operating_point)
+-
+-_package_materialize_study_commit_available() =
+-    _exports_symbol(:pio_package_materialize_study_commit)
+-
+ function _package_validation_handle(pkg::NetworkPackage, fname::AbstractString)
+     h = _package_parse_str_handle(to_json(pkg), fname)
+     lib = getfield(h, :lib)
+@@ -285,6 +277,35 @@ function package_operating_points(pkg::NetworkPackage)
+     return value === nothing ? nothing : value
+ end
+ 
++"""
++    set_operating_points(pkg::NetworkPackage, series) -> NetworkPackage
++
++Return a package with its operating point series replaced from `series`
++(`pio_package_set_operating_points`): JSON text, or any JSON-serializable value
++in the Rust `OperatingPointSeries` layout — `time_axis` (`periods`,
++`duration_hours`, optional `labels`) plus `points`, each an `index` and sparse
++`updates` of `{element: {table, source_uid | row}, fields: {...}}`. `nothing`
++(or JSON `null`, or an empty series) clears it. Package validation is
++recomputed before returning. Read the series back with
++[`package_operating_points`](@ref) and apply one point with
++[`materialize_operating_point`](@ref). Needs powerio-capi v0.7 built
++`--features pkg`.
++"""
++function set_operating_points(pkg::NetworkPackage, series)
++    _require_export("set_operating_points", :pio_package_set_operating_points,
++                    "powerio v0.7, `--features pkg`")
++    json = series === nothing ? "null" :
++           series isa AbstractString ? String(series) : JSON3.write(series)
++    h = _package_parse_str_handle(to_json(pkg), "set_operating_points")
++    lib = getfield(h, :lib)
++    err = zeros(UInt8, _ERRLEN)
++    rc = GC.@preserve h ccall(_library_symbol(lib, :pio_package_set_operating_points), Cint,
++                              (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t),
++                              h.ptr, json, err, length(err))
++    rc == 0 || error("PowerIO.set_operating_points: " * _cstr(err))
++    return NetworkPackage(_package_to_json(h, "set_operating_points"))
++end
++
+ """
+     package_study(pkg::NetworkPackage)
+ 
+@@ -306,10 +327,8 @@ Return a static package with operating point `index` applied. Indices are zero
+ based to match the `.pio.json` payload.
+ """
+ function materialize_operating_point(pkg::NetworkPackage, index::Integer)
+-    _package_materialize_operating_point_available() || error(
+-        "PowerIO.materialize_operating_point: the C ABI at \"$(_lib())\" does not export " *
+-        "pio_package_materialize_operating_point. Rebuild powerio-capi from the matching " *
+-        "PowerIO branch.")
++    _require_export("materialize_operating_point", :pio_package_materialize_operating_point,
++                    "`--features pkg`")
+     h = _package_parse_str_handle(to_json(pkg), "materialize_operating_point")
+     lib = getfield(h, :lib)
+     _package_free_fn(lib)
+@@ -329,10 +348,8 @@ Return a static package with study commits `0:index` applied. Indices are zero
+ based to match the `.pio.json` payload.
+ """
+ function materialize_study_commit(pkg::NetworkPackage, index::Integer)
+-    _package_materialize_study_commit_available() || error(
+-        "PowerIO.materialize_study_commit: the C ABI at \"$(_lib())\" does not export " *
+-        "pio_package_materialize_study_commit. Rebuild powerio-capi from the matching " *
+-        "PowerIO branch.")
++    _require_export("materialize_study_commit", :pio_package_materialize_study_commit,
++                    "`--features pkg`")
+     h = _package_parse_str_handle(to_json(pkg), "materialize_study_commit")
+     lib = getfield(h, :lib)
+     _package_free_fn(lib)
+@@ -360,9 +377,7 @@ function multiconductor_to_balanced_preflight(pkg::NetworkPackage; base_mva::Rea
+                              (Ptr{Cvoid}, Cdouble, Ptr{UInt8}, Csize_t),
+                              h.ptr, base_mva_c, err, length(err))
+     s == C_NULL && error("PowerIO.multiconductor_to_balanced_preflight: " * _cstr(err))
+-    text = unsafe_string(s)
+-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+-    return JSON3.read(text)
++    return JSON3.read(_take_string(lib, s))
+ end
+ 
+ """
+@@ -393,9 +408,7 @@ function _package_extract_ptr(pkg::NetworkPackage, sym::Symbol)
+     err = zeros(UInt8, _ERRLEN)
+     # ccall needs a literal symbol, so resolve the entry point by hand; the
+     # un-dlclosed handle pins the library, as in `_network_free_fn`.
+-    _exports_symbol(sym, lib) || error(
+-        "PowerIO.from_package: the C ABI at \"$lib\" predates the package payload " *
+-        "extraction inverses ($sym). Update the powerio-capi artifact or local library.")
++    _require_export("from_package", sym, "`--features pkg`", lib)
+     if sym === :pio_package_to_balanced_network
+         _network_free_fn(lib)
+     elseif sym === :pio_package_to_multiconductor_network

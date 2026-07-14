@@ -31,6 +31,12 @@ function _maybe_live_handle(net::BalancedNetwork)
     return (h === nothing || h.ptr == C_NULL) ? nothing : h
 end
 
+# One count off an already-resolved live handle (`pio_n_switches`): the
+# pointer-lifetime incantation for a `size_t(handle)` C accessor in one place.
+_handle_count(h::BalancedNetworkHandle, sym::Symbol) =
+    Int(GC.@preserve h ccall(_library_symbol(getfield(h, :lib), sym),
+                             Csize_t, (Ptr{Cvoid},), h.ptr))
+
 # One string off the live handle via a cap/count C accessor (`pio_network_name`,
 # `pio_source_format`), or `nothing` when there is no live handle or the
 # resolved library lacks `sym`.
@@ -78,7 +84,11 @@ base_frequency(net::BalancedNetwork) = Float64(_summary(net).base_frequency)
 # The shared three-tier read behind `network_name` / `source_format`: a cached
 # summary is a plain field read; a first access on a live handle takes the
 # dedicated C string accessor instead of building the summary JSON; a
-# handle-less or pre-0.7 library falls back to the summary.
+# handle-less or pre-0.7 library falls back to the summary. Deliberately does
+# NOT build and cache the summary on the C path: reading a name after
+# finalize(net.handle) no longer incidentally worked when a prior name read
+# had warmed the cache — the documented rule (access what you need before
+# finalizing) is the behavior.
 function _scalar_string(net::BalancedNetwork, field::Symbol, sym::Symbol)
     summary = getfield(net, :summary)
     summary !== nothing && return String(getproperty(summary, field))
@@ -130,9 +140,7 @@ them). Reads `pio_n_switches` off the live handle, else the summary counts.
 function n_switches(net::BalancedNetwork)
     h = _maybe_live_handle(net)
     if h !== nothing && _has_switch_extractors(getfield(h, :lib))
-        lib = getfield(h, :lib)
-        return Int(GC.@preserve h ccall(_library_symbol(lib, :pio_n_switches),
-                                        Csize_t, (Ptr{Cvoid},), h.ptr))
+        return _handle_count(h, :pio_n_switches)
     end
     return Int(get(_summary(net).counts, :switches, 0))
 end

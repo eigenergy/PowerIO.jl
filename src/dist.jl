@@ -384,12 +384,8 @@ function from_json(::Type{MulticonductorNetwork}, text::AbstractString)
                     "powerio v0.7, `--features dist`", lib)
     _dist_network_free_fn(lib)
     err = zeros(UInt8, _ERRLEN)
-    ptr = try
-        ccall(_library_symbol(lib, :pio_dist_from_json), Ptr{Cvoid},
-              (Cstring, Ptr{UInt8}, Csize_t), String(text), err, length(err))
-    catch e
-        _feature_call_error("from_json", "pio_dist_from_json", "dist", e)
-    end
+    ptr = ccall(_library_symbol(lib, :pio_dist_from_json), Ptr{Cvoid},
+                (Cstring, Ptr{UInt8}, Csize_t), String(text), err, length(err))
     ptr == C_NULL && error("PowerIO.from_json(MulticonductorNetwork): " * _cstr(err))
     return MulticonductorNetwork(MulticonductorNetworkHandle(ptr, lib))
 end

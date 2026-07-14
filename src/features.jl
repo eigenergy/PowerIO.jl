@@ -18,18 +18,6 @@ features() = (;
     prob = scopf_available(),
 )
 
-# Fallback probes for a pre-0.7 library without `pio_has_feature`: the
-# representative entry point of each cargo feature. `matrix` has no dedicated
-# symbol of its own, so it falls back to `matrix_available` (which reports
-# arrow AND matrix — the closest the older ABI can answer).
-const _FEATURE_PROBE_SYMBOLS = Dict(
-    "arrow" => :pio_to_arrow,
-    "gridfm" => :pio_read_dir,
-    "dist" => :pio_dist_parse_file,
-    "pkg" => :pio_package_parse_str,
-    "prob" => :pio_scopf_parse_str,
-)
-
 """
     has_feature(feature) -> Bool
 
@@ -57,12 +45,17 @@ function has_feature(feature::AbstractString)
         end
     end
     # Pre-0.7 fallback: the docstring's "ABI-incompatible answers false" holds
-    # here too — library_available() runs the main handshake without throwing.
+    # here too — library_available() runs the main handshake without throwing —
+    # and each feature delegates to its own probe, so the representative
+    # symbols live in one place and cannot drift from features().
     library_available() || return false
+    feature == "arrow" && return arrow_available()
     feature == "matrix" && return matrix_available()
-    sym = get(_FEATURE_PROBE_SYMBOLS, feature, nothing)
-    sym === nothing && return false
-    return _exports_symbol(sym, lib)
+    feature == "gridfm" && return gridfm_available()
+    feature == "dist" && return dist_available()
+    feature == "pkg" && return package_available()
+    feature == "prob" && return scopf_available()
+    return false
 end
 
 const _DIST_CAPABILITY_KEYS = (
