@@ -82,6 +82,18 @@ end
 
 base_frequency(net::BalancedNetwork) = Float64(_summary(net).base_frequency)
 
+# The shared three-tier read behind `network_name` / `source_format`: a cached
+# summary is a plain field read; a first access on a live handle takes the
+# dedicated C string accessor instead of building the summary JSON; a
+# handle-less or pre-0.7 library falls back to the summary.
+function _scalar_string(net::BalancedNetwork, field::Symbol, sym::Symbol)
+    summary = getfield(net, :summary)
+    summary !== nothing && return String(getproperty(summary, field))
+    value = _handle_string(net, sym)
+    value === nothing || return value
+    return String(getproperty(_summary(net), field))
+end
+
 """
     network_name(net) -> String
 
@@ -89,13 +101,7 @@ The case name carried through from the source file. Reads the cached summary
 when one is already materialized; a first access on a live handle uses the
 dedicated C accessor (`pio_network_name`) instead of building the summary JSON.
 """
-function network_name(net::BalancedNetwork)
-    summary = getfield(net, :summary)
-    summary !== nothing && return String(summary.name)
-    name = _handle_string(net, :pio_network_name)
-    name === nothing || return name
-    return String(_summary(net).name)
-end
+network_name(net::BalancedNetwork) = _scalar_string(net, :name, :pio_network_name)
 
 "Buses, in source order (1-based ids preserved). See the accessor API note."
 buses(net::BalancedNetwork) = net.data.buses
@@ -145,13 +151,7 @@ Examples include `"Matpower"`, `"PowerModelsJson"`, `"EgretJson"`, `"Psse"`,
 `"SurgeJson"`, `"InMemory"`, and `"Normalized"` (the last is the output of
 [`to_normalized`](@ref)).
 """
-function source_format(net::BalancedNetwork)
-    summary = getfield(net, :summary)
-    summary !== nothing && return String(summary.source_format)
-    format = _handle_string(net, :pio_source_format)
-    format === nothing || return format
-    return String(_summary(net).source_format)
-end
+source_format(net::BalancedNetwork) = _scalar_string(net, :source_format, :pio_source_format)
 
 """
     reference_bus_id(net) -> Union{Int,Nothing}

@@ -412,9 +412,7 @@ function _package_extract_ptr(pkg::NetworkPackage, sym::Symbol)
     err = zeros(UInt8, _ERRLEN)
     # ccall needs a literal symbol, so resolve the entry point by hand; the
     # un-dlclosed handle pins the library, as in `_network_free_fn`.
-    _exports_symbol(sym, lib) || error(
-        "PowerIO.from_package: the C ABI at \"$lib\" predates the package payload " *
-        "extraction inverses ($sym). Update the powerio-capi artifact or local library.")
+    _require_export("from_package", sym, "`--features pkg`", lib)
     if sym === :pio_package_to_balanced_network
         _network_free_fn(lib)
     elseif sym === :pio_package_to_multiconductor_network

@@ -384,9 +384,11 @@ function _warn_lines(buf::Vector{UInt8}; capped::Bool=false)
 end
 
 # One string over the cap/count convention (`pio_network_name`,
-# `pio_source_format`): the query returns the byte length excluding the NUL, so
-# size with a null buffer, allocate, fill exactly. `query(out, cap)` closes over
-# the handle; the caller's GC.@preserve covers both calls.
+# `pio_source_format`, and the joined text behind `_warnings_from`): the query
+# returns the byte length excluding the NUL, so size with a null buffer,
+# allocate, fill exactly. `query(out, cap)` closes over the handle; the
+# caller's GC.@preserve covers both calls (the raw pointer never travels
+# alone; see `_normalize_handle`).
 function _string_from(query)
     n = Int(query(C_NULL, Csize_t(0)))
     n == 0 && return ""
@@ -397,17 +399,11 @@ end
 
 # Fidelity warnings retained on a handle (`pio_warnings` / `pio_dist_warnings`):
 # the readers that return a handle and no per-call warnbuf (`pio_read_dir`, the
-# dist parsers) park their warnings here. The v4 query returns the joined text's
-# byte length, so size with a null buffer first, then fill exactly — no cap
-# marker, the buffer fits by construction. `query(out, cap)` closes over the
-# handle, so the caller's GC.@preserve covers both calls (the raw pointer never
-# travels alone; see `_normalize_handle`).
+# dist parsers) park their warnings here. `_string_from` owns the size-then-fill
+# protocol, so the joined text always fits by construction — no cap marker.
 function _warnings_from(query)
-    n = Int(query(C_NULL, Csize_t(0)))
-    n == 0 && return String[]
-    buf = zeros(UInt8, n + 1)  # +1 for the NUL the library always writes
-    query(buf, Csize_t(length(buf)))
-    return _warn_lines(buf)
+    s = _string_from(query)
+    return String.(filter(!isempty, split(s, '\n')))
 end
 
 _handle_warnings(h::BalancedNetworkHandle) =
