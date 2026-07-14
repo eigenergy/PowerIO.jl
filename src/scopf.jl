@@ -11,13 +11,18 @@
 # ([`goc3_scopf_data`](@ref)); see the `parse_scopf` docstring for how the two
 # relate and where their index conventions differ.
 
+# The three symbols ship together with the prob feature; requiring all of them
+# keeps scopf_available and parse_scopf in agreement on a partial library,
+# like _has_switch_extractors does for the switch surface.
+const _SCOPF_SYMBOLS = (:pio_scopf_parse_str, :pio_scopf_to_json, :pio_scopf_instance_free)
+
 """
     scopf_available() -> Bool
 
 True if the resolved C library exports the `pio_scopf_*` API (built
 `--features prob`, on in the released binaries from powerio v0.7.0).
 """
-scopf_available() = _exports_symbol(:pio_scopf_parse_str)
+scopf_available() = all(sym -> _exports_symbol(sym), _SCOPF_SYMBOLS)
 
 """
     parse_scopf(text; from="goc3-json") -> JSON3.Object
@@ -40,8 +45,9 @@ renumbering).
 function parse_scopf(text::AbstractString; from::AbstractString="goc3-json")
     lib = _lib()
     _ensure_compatible(lib)
-    _require_export("parse_scopf", :pio_scopf_parse_str,
-                    "powerio v0.7, `--features prob`", lib)
+    for sym in _SCOPF_SYMBOLS
+        _require_export("parse_scopf", sym, "powerio v0.7, `--features prob`", lib)
+    end
     err = zeros(UInt8, _ERRLEN)
     ptr = ccall(_library_symbol(lib, :pio_scopf_parse_str), Ptr{Cvoid},
                 (Cstring, Cstring, Ptr{UInt8}, Csize_t),

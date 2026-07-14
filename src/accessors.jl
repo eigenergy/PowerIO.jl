@@ -42,7 +42,7 @@ _handle_count(h::BalancedNetworkHandle, sym::Symbol) =
 # resolved library lacks `sym`. The public `network_name` / `source_format`
 # stay summary-backed (the summary is cached and its strings come from the
 # same Rust fields), so this is the C surface itself; the drift canary in
-# test_roundtrip.jl pins its agreement with the summary values.
+# test_roundtrip.jl asserts it agrees with the summary values.
 function _handle_string(net::BalancedNetwork, sym::Symbol)
     h = _maybe_live_handle(net)
     h === nothing && return nothing

@@ -28,8 +28,8 @@ stays 4, `PIO_DIST_ABI_VERSION` stays 1, and the pinned binaries are unchanged.
 - `has_feature(name)` asks the library which cargo features it was compiled
   with (`pio_has_feature`), falling back to symbol probes on older libraries.
 - The dedicated scalar string accessors (`pio_network_name` /
-  `pio_source_format`) are bound as internals and pinned against the
-  summary-backed `network_name` / `source_format` by a drift canary test; the
+  `pio_source_format`) are bound as internals, and a drift canary test asserts
+  they agree with the summary-backed `network_name` / `source_format`; the
   public accessors keep reading the cached summary, so their behavior is
   unchanged.
 - `from_json(MulticonductorNetwork, text)` rebuilds a live distribution handle
