@@ -3,7 +3,9 @@
 ## 0.7.1
 
 Wraps the C symbols powerio 0.7.0 added (#74). All additive: `PIO_ABI_VERSION`
-stays 4, `PIO_DIST_ABI_VERSION` stays 1, and the pinned binaries are unchanged.
+stays 4 and `PIO_DIST_ABI_VERSION` stays 1. `Artifacts.toml` tracks the
+powerio v0.7.1 binaries (#77), which keep C ABI 4; upstream v0.7.1 hardened
+the SCOPF index classification (eigenergy/powerio#252) with unchanged output.
 
 - `parse_scopf(text; from="goc3-json")` parses SCOPF source text into the Rust
   core's native problem instance and returns the versioned 1-based JSON
@@ -12,8 +14,8 @@ stays 4, `PIO_DIST_ABI_VERSION` stays 1, and the pinned binaries are unchanged.
   feature and `features()` gains a `prob` field. The pure Julia
   `goc3_scopf_data` surface is unchanged; the serialization numbers zones and
   branches from document order while the Julia builders use uid suffixes, and
-  the two agree on official GOC3 files (eigenergy/powerio#252 tracks hardening
-  the renumbering).
+  the two agree on official GOC3 files (powerio v0.7.1 hardened the
+  renumbering structurally, eigenergy/powerio#252).
 - `to_dense` gains the switch table (`ns`, `switch` with `from`, `to`,
   `closed`, ratings, and terminal flows via `pio_switches` /
   `pio_n_switches`) and the terminal branch charging split (`branch.g_fr`,

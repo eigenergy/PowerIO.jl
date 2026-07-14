@@ -39,8 +39,8 @@ This is the Rust-parsed sibling of the pure Julia
 [`goc3_scopf_data`](@ref)`(parse_goc3_json(text))`. One convention differs:
 `pio_scopf_to_json` numbers reserve zones and branches from document order,
 while the Julia builders derive them from uid numeric suffixes; the two agree
-on official GOC3 files (eigenergy/powerio#252 tracks hardening the
-renumbering).
+on official GOC3 files (powerio v0.7.1 hardened the renumbering structurally,
+eigenergy/powerio#252).
 """
 function parse_scopf(text::AbstractString; from::AbstractString="goc3-json")
     lib = _lib()
