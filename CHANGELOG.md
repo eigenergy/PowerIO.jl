@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.2
+
+Tracks powerio v0.7.2, keeping core C ABI v4 and distribution C ABI v1. No
+Julia API changes.
+
+- Binaries repinned to powerio v0.7.2 (#80).
+- Pulls in the upstream v0.7.2 JSON reader hardening (PowerModels,
+  pandapower, egret, GOC3, Surge) and the leading UTF-8 byte order mark
+  strip in every text reader (eigenergy/powerio#260).
+
 ## 0.7.1
 
 Wraps the C symbols powerio 0.7.0 added (#74). All additive: `PIO_ABI_VERSION`
