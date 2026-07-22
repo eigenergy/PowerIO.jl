@@ -52,7 +52,9 @@ end
         New Circuit.c basekv=12.47
         New Transformer.t phases=3 windings=2 buses=[source.1.2.3 load.1.2.3] conns=[wye wye] kvs=[12.47 0.48] kvas=[500 500] xhl=5 taps=[1.025 1.0]
         """)
-        t1 = tap_doc["transformer"]["single_phase"]["t_1"]
+        # Schema 0.1.0 has no tap slot; powerio keeps taps under the
+        # extras escape hatch (extras.transformer.<subtype>.<name>).
+        t1 = tap_doc["extras"]["transformer"]["single_phase"]["t_1"]
         @test t1["tap"] == 1.025
         @test !haskey(t1, "tap_min")
         @test !haskey(t1, "tap_max")
@@ -71,12 +73,13 @@ end
         New Circuit.c basekv=12.47
         New Transformer.dw phases=3 windings=2 buses=[source.1.2.3 load.1.2.3.4] conns=[delta wye] kvs=[12.47 0.48] kvas=[500 500] xhl=5
         """)
+        # Schema 0.1.0 three phase transformers carry one lumped pair on
+        # the wye base; the split _from/_to fields lost their slots.
         dw = dw_doc["transformer"]["delta_wye"]["dw"]
-        @test dw["x_series_from"] > 0
-        @test dw["x_series_to"] > 0
-        @test dw["r_series_from"] > 0
-        @test dw["r_series_to"] > 0
-        @test !haskey(dw, "x_series")
+        @test dw["x_series"] > 0
+        @test dw["r_series"] > 0
+        @test !haskey(dw, "x_series_from")
+        @test !haskey(dw, "r_series_from")
         @test !any(w -> occursin("delta_wye", lowercase(w)) ||
                          occursin("leakage", lowercase(w)), dw_w)
 
