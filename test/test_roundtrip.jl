@@ -153,10 +153,12 @@
             @test package_operating_points(pkg) === nothing
             @test package_study(pkg) === nothing
             pkg_doc = JSON3.read(to_json(pkg))
-            # Same major is the reader policy; byte equality broke this
-            # suite on every additive envelope bump in powerio.
-            @test VersionNumber(String(pkg_doc.schema_version)).major ==
-                  VersionNumber(PowerIO.PIO_PACKAGE_SCHEMA_VERSION).major
+            # The lineage (major.minor while the major is 0) is the reader
+            # policy; byte equality broke this suite on every additive bump
+            # in powerio.
+            doc_v = VersionNumber(String(pkg_doc.schema_version))
+            ref_v = VersionNumber(PowerIO.PIO_PACKAGE_SCHEMA_VERSION)
+            @test (doc_v.major, doc_v.minor) == (ref_v.major, ref_v.minor)
             @test pkg_doc.model_kind == "balanced"
             @test pkg_doc.model.kind == "balanced"
             @test pkg_doc.model.balanced_network.base_mva == 100.0

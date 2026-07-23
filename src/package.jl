@@ -1,7 +1,6 @@
 # `.pio.json` network package envelope over the `pio_package_*` C ABI.
 
-const PIO_PACKAGE_SCHEMA_URL = "https://powerio.dev/schema/pio-package/0.1"
-const PIO_PACKAGE_SCHEMA_VERSION = "0.1.1"
+const PIO_PACKAGE_SCHEMA_VERSION = "0.2.0"
 
 """
     NetworkPackage

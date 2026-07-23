@@ -184,7 +184,6 @@ end
             r3 = [[0.01, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.01]]
             x3 = [[0.10, 0.0, 0.0], [0.0, 0.10, 0.0], [0.0, 0.0, 0.10]]
             ready_pkg = CompilerPackage(JSON3.write((
-                schema = PowerIO.PIO_PACKAGE_SCHEMA_URL,
                 schema_version = PowerIO.PIO_PACKAGE_SCHEMA_VERSION,
                 producer = (tool = "PowerIO.jl test", version = "0"),
                 model_kind = "multiconductor",
