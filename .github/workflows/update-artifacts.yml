@@ -1,6 +1,9 @@
 name: Update artifacts
 
-# Keeps Artifacts.toml tracking the latest powerio binary release.
+# Tracks powerio binary releases end to end, with no human step on the happy
+# path: repin Artifacts.toml, run the test suite against the new binaries,
+# prepend the CHANGELOG.md entry, commit straight to main, and dispatch the
+# Register Package workflow.
 #
 # Three triggers:
 # - schedule: a daily poll of the latest published powerio release — the
@@ -9,7 +12,8 @@ name: Update artifacts
 # - repository_dispatch (powerio-release): fired by powerio's Notify
 #   PowerIO.jl workflow the moment a release is published over there; carries
 #   the tag in the client payload.
-# - workflow_dispatch: manual recovery, or pinning an explicit older tag.
+# - workflow_dispatch: manual recovery, pinning an explicit older tag, or
+#   (open_pr) requesting a reviewed PR instead of the automatic release.
 #
 # gen/update_artifacts.jl refuses a release whose pio_abi_version or
 # pio_dist_abi_version differs from the ABI versions this binding targets (it
@@ -17,10 +21,21 @@ name: Update artifacts
 # matching binding PR merges; the next scheduled run then picks it up. Drafts
 # never match: `gh release view` resolves the latest *published* release.
 #
-# The test suite runs against the regenerated Artifacts.toml before the PR
-# opens, because CI does not run on PRs opened with GITHUB_TOKEN (the
-# recursion guard); close and reopen the PR, or push to its branch, to
-# trigger CI on it anyway.
+# A release is needed when any of: Artifacts.toml changed; the powerio tag
+# pinned in Artifacts.toml is ahead of Project.toml's version (an earlier
+# repin merged but was never registered); the top CHANGELOG.md section is
+# ahead of Project.toml (a binding-only release merged to main, or a register
+# dispatch was lost). The registered version is the top changelog version
+# when it is ahead (a human already declared the release), else the pinned
+# powerio version when that number is ahead, else the next patch; a changelog
+# section is generated only when the top section is not already that version.
+# Because every one of those signals converges once Register Package bumps
+# Project.toml, reruns and the daily schedule are self-healing no-ops.
+#
+# Pushes and PRs made with GITHUB_TOKEN do not trigger CI (the recursion
+# guard); the full test suite runs here against the repinned artifact before
+# anything lands, and the dispatched Register Package run is exempt from the
+# guard (workflow_dispatch always fires).
 on:
   schedule:
     - cron: "23 5 * * *"
@@ -31,13 +46,19 @@ on:
       powerio_tag:
         description: powerio release tag to pull binaries from (empty = latest)
         required: false
+      open_pr:
+        description: open a reviewed PR instead of committing to main and registering
+        type: boolean
+        default: false
 
 permissions:
   contents: write
   pull-requests: write
+  # gh workflow run (the Register Package dispatch) needs actions: write.
+  actions: write
 
-# A dispatch landing mid-scheduled-run would race on the same artifacts/<tag>
-# branch; queue instead.
+# A dispatch landing mid-scheduled-run would race on main (or the same
+# artifacts/<tag> branch); queue instead.
 concurrency:
   group: update-artifacts
   cancel-in-progress: false
@@ -50,11 +71,12 @@ jobs:
       - uses: julia-actions/setup-julia@v3
         with:
           version: "1"
-      - name: Resolve the powerio tag
+      - name: Resolve the powerio tag and release mode
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_TAG: ${{ inputs.powerio_tag }}
           DISPATCH_TAG: ${{ github.event.client_payload.tag }}
+          OPEN_PR: ${{ inputs.open_pr }}
         run: |
           TAG="${INPUT_TAG:-$DISPATCH_TAG}"
           if [ -z "$TAG" ]; then
@@ -68,8 +90,15 @@ jobs:
           # the vX.Y.Z shape powerio tags actually have.
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$ ]] \
             || { echo "refusing tag that does not look like vX.Y.Z" >&2; exit 1; }
+          # A suffixed tag (prerelease) never auto-releases: it does not fit
+          # the version scheme, so it always takes the reviewed PR path.
+          MODE=auto
+          if [ "$OPEN_PR" = "true" ] || ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            MODE=pr
+          fi
           echo "TAG=$TAG" >> "$GITHUB_ENV"
-          echo "tracking powerio $TAG" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "MODE=$MODE" >> "$GITHUB_ENV"
+          echo "tracking powerio $TAG ($MODE mode)" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Regenerate Artifacts.toml
         env:
           GH_TOKEN: ${{ github.token }}
@@ -86,19 +115,103 @@ jobs:
           # otherwise a download flake would let Pkg.test pass vacuously.
           julia --project=. -e 'using PowerIO; PowerIO.library_available() || error("the repinned artifact did not resolve or failed the core ABI check"); PowerIO.arrow_available() || error("the repinned artifact is missing the arrow feature"); PowerIO.matrix_available() || error("the repinned artifact is missing the matrix feature"); PowerIO.gridfm_available() || error("the repinned artifact is missing the gridfm feature"); PowerIO.dist_available() || error("the repinned artifact is missing the dist feature or dist ABI")'
           julia --project=. -e 'using Pkg; Pkg.test()'
-      - name: Open a pull request
+      - name: Decide the release version and update the changelog
+        id: rel
+        run: |
+          newer() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]; }
+          cur=$(sed -nE 's/^version *= *"([^"]+)".*/\1/p' Project.toml | head -1)
+          top=$(awk '/^## / { sub(/^##[[:space:]]+/, ""); sub(/[[:space:]]+$/, ""); print; exit }' CHANGELOG.md)
+          # The tag Artifacts.toml actually pins — NOT $TAG: when the ABI gate
+          # skipped the requested release, the pinned tag is still the old one
+          # and nothing here must claim otherwise.
+          pinned=$(sed -nE 's#.*/releases/download/(v[0-9][^/]*)/.*#\1#p' Artifacts.toml | head -1)
+          pv="${pinned#v}"
+          changed=false
+          git diff --quiet -- Artifacts.toml || changed=true
+          topok=""
+          if [[ "$top" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then topok="$top"; fi
+          pvok=""
+          if [[ "$pv" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then pvok="$pv"; fi
+          if [ "$changed" = false ] \
+             && { [ -z "$topok" ] || ! newer "$topok" "$cur"; } \
+             && { [ -z "$pvok" ] || ! newer "$pvok" "$cur"; }; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "Artifacts.toml ($pinned), CHANGELOG.md, and Project.toml already agree at $cur; nothing to do" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ -n "$topok" ] && newer "$topok" "$cur"; then
+            new="$topok"
+          elif [ -n "$pvok" ] && newer "$pvok" "$cur"; then
+            new="$pvok"
+          else
+            IFS=. read -r ma mi pa <<< "$cur"
+            new="${ma}.${mi}.$((pa + 1))"
+          fi
+          if [ "$top" != "$new" ]; then
+            # cat tolerates whichever of the post-module-split files is absent
+            # (sed would fail the step under set -e on a missing operand).
+            abi=$(cat src/capi.jl src/PowerIO.jl 2>/dev/null | sed -nE 's/.*PIO_ABI_VERSION *= *UInt32\(([0-9]+)\).*/\1/p' | head -1)
+            dist=$(cat src/dist.jl src/PowerIO.jl 2>/dev/null | sed -nE 's/.*PIO_DIST_ABI_VERSION *= *UInt32\(([0-9]+)\).*/\1/p' | head -1)
+            abiclause="keeping the C ABI versions this binding targets"
+            if [ -n "$abi" ] && [ -n "$dist" ]; then
+              abiclause="keeping core C ABI v$abi and distribution C ABI v$dist"
+            fi
+            # "No breaking changes" is load-bearing: General's AutoMerge holds
+            # a breaking (pre-1.0 minor) version whose release notes mention
+            # neither "breaking" nor "changelog", and the register workflow
+            # gates on the same rule. The claim is true because the ABI gate
+            # above refused any binary this binding cannot speak to.
+            entry=$(printf '## %s\n\nTracks powerio %s, %s.\nNo breaking changes: the Julia API is unchanged, and the full test suite\npassed against the pinned binaries before this release (automated repin).\n\n- Binaries repinned to the [powerio %s release](https://github.com/eigenergy/powerio/releases/tag/%s); see its notes for the upstream changes.\n' \
+              "$new" "$pinned" "$abiclause" "$pinned" "$pinned")
+            { head -1 CHANGELOG.md; echo; printf '%s\n' "$entry"; tail -n +2 CHANGELOG.md; } > CHANGELOG.md.tmp
+            mv CHANGELOG.md.tmp CHANGELOG.md
+          fi
+          echo "release=true" >> "$GITHUB_OUTPUT"
+          echo "version=$new" >> "$GITHUB_OUTPUT"
+          echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
+          echo "releasing v$new tracking powerio $pinned (was $cur)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Commit to main and dispatch registration
+        if: env.MODE == 'auto' && steps.rel.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.rel.outputs.version }}
+          PINNED: ${{ steps.rel.outputs.pinned }}
         run: |
-          if git diff --quiet -- Artifacts.toml; then
-            echo "Artifacts.toml already matches $TAG; nothing to do" | tee -a "$GITHUB_STEP_SUMMARY"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Artifacts.toml CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "repin and changelog already on main; re-dispatching registration of $VERSION" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            git commit -m "release: v$VERSION tracking powerio $PINNED"
+            # A human push racing the schedule loses nothing: rebase our one
+            # commit onto whatever landed, then push (HEAD: form also covers a
+            # detached-HEAD checkout).
+            git pull --rebase origin main
+            git push origin HEAD:refs/heads/main
+          fi
+          gh workflow run register.yml --ref main -f version="$VERSION"
+          echo "dispatched Register Package for $VERSION" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Open a pull request
+        if: env.MODE == 'pr' && steps.rel.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.rel.outputs.version }}
+          PINNED: ${{ steps.rel.outputs.pinned }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Artifacts.toml CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "nothing new to put in a PR; dispatch Register Package with version $VERSION to register" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           branch="artifacts/$TAG"
           git switch -c "$branch"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "release: artifact hashes from powerio $TAG"
+          git commit -m "release: artifact hashes and changelog from powerio $TAG"
           # The branch is bot owned and tag scoped, so a re-run replaces it
           # outright; --force-with-lease cannot apply because the shallow
           # fetch has no tracking ref for it.
@@ -109,5 +222,5 @@ jobs:
           else
             gh pr create \
               --title "release: artifact hashes from powerio $TAG" \
-              --body "Regenerates Artifacts.toml from the $TAG release of eigenergy/powerio. The core and distribution ABI versions matched the binding, the required feature surfaces were present, and the test suite passed against these binaries before this PR opened. After merging, dispatch the Register Package workflow with the new version."
+              --body "Regenerates Artifacts.toml from the $TAG release of eigenergy/powerio and prepends the CHANGELOG.md section for v$VERSION. The C ABI versions matched the binding, the required feature surfaces were present, and the test suite passed against these binaries before this PR opened. After merging, the next scheduled Update artifacts run registers v$VERSION automatically; dispatch the Register Package workflow with version $VERSION to register immediately. Edit the changelog section in this PR first if the generated entry is not the whole story (an ABI lockstep change, for example)."
           fi
