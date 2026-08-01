@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.3
+
+Tracks powerio v0.7.3, keeping core C ABI v4 and distribution C ABI v1.
+No breaking changes: the Julia API is unchanged, and the full test suite
+passed against the pinned binaries before this release (automated repin).
+
+- Binaries repinned to the [powerio v0.7.3 release](https://github.com/eigenergy/powerio/releases/tag/v0.7.3); see its notes for the upstream changes.
+
 ## 0.7.2
 
 Tracks powerio v0.7.2, keeping core C ABI v4 and distribution C ABI v1. No
