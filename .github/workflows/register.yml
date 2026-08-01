@@ -3,11 +3,12 @@ name: Register Package
 # Sets the version in Project.toml, commits it to main, and posts the
 # `@JuliaRegistrator register` comment on that commit *with a release-notes
 # block*. Normally dispatched automatically by the Update artifacts workflow,
-# which repins Artifacts.toml, prepends the CHANGELOG.md section, and commits
-# both to main first. Manual dispatch is for binding-only releases and
-# recovery — the top CHANGELOG.md section for the target version must already
-# be on main (the nightly Update artifacts run also notices such a section
-# ahead of Project.toml and dispatches this workflow on its own).
+# which has already committed the version bump, changelog section, and repin
+# to main as one atomic commit — the version-set here is then a no-op and
+# this workflow only validates and posts the Registrator comment. Manual
+# dispatch is the immediate path for a release whose version + changelog
+# already merged to main (the nightly Update artifacts run would otherwise
+# notice the version missing from General and dispatch this itself).
 # The notes matter: a pre-1.0 minor bump is a breaking release, and
 # General's AutoMerge holds a breaking version whose trigger carries no change
 # description (it must mention "breaking" or "changelog"). The General PR
@@ -44,6 +45,12 @@ on:
 
 permissions:
   contents: write
+
+# Duplicate dispatches (a rerun racing the nightly backstop) must not race on
+# the version commit or double-post the Registrator comment mid-flight.
+concurrency:
+  group: register-package
+  cancel-in-progress: false
 
 jobs:
   register:
