@@ -126,10 +126,21 @@ const _MC_TABLE_NAMES = (:buses, :linecodes, :lines, :switches, :transformers, :
 # capacitors" and "this library predates typed capacitors" both arrive as a
 # missing key — and to a caller iterating the table they mean the same thing.
 # Reading `net.data.capacitors` directly would instead throw on almost every
-# network. The empty stand-in is built per miss rather than held in a `const`
-# so nothing JSON3-backed has to survive precompilation.
-_mc_table(net::MulticonductorNetwork, name::Symbol) =
-    (data = net.data; haskey(data, name) ? getproperty(data, name) : JSON3.read("[]"))
+# network.
+#
+# The empty stand-in is parsed once, lazily, into a Ref rather than held in a
+# `const`: nothing JSON3-backed has to survive precompilation, repeated misses
+# do not re-parse, and two reads of the same absent table return the identical
+# object (a caller comparing tables by identity would otherwise see
+# `net.capacitors !== net.capacitors`).
+const _MC_EMPTY_TABLE = Ref{Any}(nothing)
+
+function _mc_table(net::MulticonductorNetwork, name::Symbol)
+    table = get(net.data, name, nothing)
+    table === nothing || return table
+    _MC_EMPTY_TABLE[] === nothing && (_MC_EMPTY_TABLE[] = JSON3.read("[]"))
+    return _MC_EMPTY_TABLE[]
+end
 
 const _MC_SCALARS = (:name, :source_format, :warnings, :base_frequency)
 

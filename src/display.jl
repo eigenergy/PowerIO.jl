@@ -67,8 +67,9 @@ function Base.show(io::IO, ::MIME"text/plain", net::MulticonductorNetwork)
         # The core tables print even at zero; the rest (typed capacitors, IBRs,
         # control profiles, untyped leftovers) only when the case has some, so a
         # typical feeder does not grow four zero rows.
-        (field in _MC_ALWAYS_SHOWN || _display_count(summary, field) > 0) || continue
-        _display_line(io, String(field), _display_count(summary, field))
+        n = _display_count(summary, field)
+        (field in _MC_ALWAYS_SHOWN || n > 0) || continue
+        _display_line(io, String(field), n)
     end
     _display_line(io, "warnings", _display_count(summary, :warnings))
     print(io, "  data: ", _display_data_state(net))

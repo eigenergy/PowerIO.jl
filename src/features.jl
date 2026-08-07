@@ -59,10 +59,14 @@ function has_feature(feature::AbstractString)
     return probe()
 end
 
-# One BMOPF fidelity flag per entry, in the order `pio_dist_capabilities_json`
-# documents them. This tuple is the single source: the all-false default, the
-# parsed result, and the docstring field list are all derived from it, so a new
-# upstream flag is one line here and the three can never disagree.
+# One boolean capability per entry, in the order `pio_dist_capabilities_json`
+# documents them. These tuples are the single source: the all-false default,
+# the parsed result, the docstring field list, and the test assertions all
+# derive from them, so a new upstream flag is one line here and none of the
+# four can disagree.
+#
+# The v0.6.2 set: BMOPF fidelity fixes. Every library from v0.6.2 on reports
+# all six `true`.
 const _DIST_CAPABILITY_KEYS = (
     :bmopf_fixed_taps,
     :bmopf_center_tap_leakage,
@@ -72,14 +76,39 @@ const _DIST_CAPABILITY_KEYS = (
     :bmopf_transformer_diagnostics,
 )
 
-# The two envelope fields the capabilities JSON always carries, ahead of the flags.
-const _DIST_CAPABILITY_FIELDS = (:dist, :schema_version, _DIST_CAPABILITY_KEYS...)
+# The v0.8 era set (capability document 1.1.0). `false` against any library
+# whose document predates them, including released v0.8.0 binaries — additive
+# by design, so no assertion may require them.
+const _DIST_CAPABILITY_V08_KEYS = (
+    :typed_capacitors,
+    :line_and_generator_ratings,
+    :per_sequence_bus_bounds,
+    :transformer_extras_relocation,
+)
 
-_dist_capabilities_default() = NamedTuple{_DIST_CAPABILITY_FIELDS}((
-    dist_available(),
-    nothing,
-    ntuple(_ -> false, length(_DIST_CAPABILITY_KEYS))...,
-))
+# The full documented shape: envelope, flags, then the BMOPF vintage strings
+# (`nothing` when the document predates capability version 1.1.0).
+const _DIST_CAPABILITY_FIELDS = (:dist, :schema_version,
+                                 _DIST_CAPABILITY_KEYS...,
+                                 _DIST_CAPABILITY_V08_KEYS...,
+                                 :bmopf_schema_id, :bmopf_schema_version)
+
+# Keyword construction, not positional-over-the-fields-tuple: with keywords a
+# reordered or grown fields list cannot silently shift a value under the wrong
+# name — the mistake would be a construction error instead.
+_dist_capabilities_from(obj, dist_default) = begin
+    flag(k) = Bool(get(obj, k, false))
+    (;
+        dist = Bool(get(obj, :dist, dist_default)),
+        schema_version = get(obj, :schema_version, nothing),
+        NamedTuple{_DIST_CAPABILITY_KEYS}(map(flag, _DIST_CAPABILITY_KEYS))...,
+        NamedTuple{_DIST_CAPABILITY_V08_KEYS}(map(flag, _DIST_CAPABILITY_V08_KEYS))...,
+        bmopf_schema_id = get(obj, :bmopf_schema_id, nothing),
+        bmopf_schema_version = get(obj, :bmopf_schema_version, nothing),
+    )
+end
+
+_dist_capabilities_default() = _dist_capabilities_from((;), dist_available())
 
 """
     dist_capabilities() -> NamedTuple
@@ -90,24 +119,23 @@ PowerIO C ABI.
 The fields are $(join(string.('`', _DIST_CAPABILITY_FIELDS, '`'), ", ", ", and ")).
 
 Older libraries that do not export `pio_dist_capabilities_json` return the same
-layout with all BMOPF fidelity flags set to `false`. Use this in downstream
-packages when deciding whether PowerIO's BMOPF export already carries a
-specific BMOPF fidelity fix.
+layout with every flag `false` and the strings `nothing`; so does any library
+whose capability document predates a given flag. Absence therefore means "not
+known to this library", never an error, and downstream packages gate a specific
+behavior on its flag: the `bmopf_*` fidelity fixes are v0.6.2, and
+`typed_capacitors`, `line_and_generator_ratings`, `per_sequence_bus_bounds`,
+and `transformer_extras_relocation` report the v0.8 distribution work.
 
-!!! warning
-    These flags cover only the v0.6.2 BMOPF fidelity work, and the C ABI has
-    not extended them since — every release from v0.6.2 on reports the same six
-    `true` values and the same `schema_version`. So this cannot answer "does it
-    know about typed capacitors" or "which BMOPF schema vintage does it write",
-    and gating v0.8 era behavior on it yields a false negative. For payload
-    questions read the network instead: an element table the library does not
-    populate reads as empty (`PowerIO.capacitors(net)`), which is the same
-    answer a caller needs either way.
+`bmopf_schema_id` and `bmopf_schema_version` name the BMOPF schema vintage the
+library's writer targets (v0.8 changed the `\\$id` and relocated transformer
+fields under `extras`, which is exactly what a downstream reader needs to key
+on). Both are `nothing` when the document predates them. Neither identifies a
+vintage alone — upstream serves the schema from an unpinned branch and has
+changed content without moving the version — so pair them.
 """
 function dist_capabilities()
-    default = _dist_capabilities_default()
     lib = _lib()
-    _exports_symbol(:pio_dist_capabilities_json, lib) || return default
+    _exports_symbol(:pio_dist_capabilities_json, lib) || return _dist_capabilities_default()
     _ensure_dist_compatible(lib)
     s = try
         ccall(_library_symbol(lib, :pio_dist_capabilities_json), Cstring, ())
@@ -115,13 +143,5 @@ function dist_capabilities()
         _feature_call_error("dist_capabilities", "pio_dist_capabilities_json", "dist", e)
     end
     s == C_NULL && error("PowerIO.dist_capabilities: pio_dist_capabilities_json returned null")
-    text = _take_string(lib, s)
-    obj = JSON3.read(text)
-
-    flag(k) = Bool(get(obj, k, false))
-    return NamedTuple{_DIST_CAPABILITY_FIELDS}((
-        Bool(get(obj, :dist, default.dist)),
-        get(obj, :schema_version, default.schema_version),
-        map(flag, _DIST_CAPABILITY_KEYS)...,
-    ))
+    return _dist_capabilities_from(JSON3.read(_take_string(lib, s)), dist_available())
 end

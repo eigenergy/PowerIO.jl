@@ -3,27 +3,36 @@
     # The shape comes from one const, so a new upstream flag is a single edit
     # in features.jl rather than four places that can disagree.
     @test keys(caps) == PowerIO._DIST_CAPABILITY_FIELDS
-    @test PowerIO._DIST_CAPABILITY_FIELDS ==
-          (:dist, :schema_version, PowerIO._DIST_CAPABILITY_KEYS...)
     @test caps.dist == PowerIO.dist_available()
     @test caps.schema_version === nothing || caps.schema_version isa AbstractString
-    for k in PowerIO._DIST_CAPABILITY_KEYS
+    for k in (PowerIO._DIST_CAPABILITY_KEYS..., PowerIO._DIST_CAPABILITY_V08_KEYS...)
         @test getproperty(caps, k) isa Bool
     end
-    # Every fidelity flag has been true since powerio v0.6.2, and the C ABI has
-    # not extended the set since. The old gate here pinned `library_version() ==
-    # "0.6.2"` and so has asserted nothing since v0.7.0; any library new enough
-    # to export the symbol reports the full set.
-    if PowerIO.library_available() && PowerIO.dist_available()
-        # Assert the contract, not the exact string. The capability document
-        # is additive and minor-bumped on each addition, so pinning a literal
-        # here breaks the tandem CI the moment powerio adds a flag — a binding
-        # must keep working against a library newer than itself, which is the
-        # whole point of the document being versioned separately from the ABI.
+    @test caps.bmopf_schema_id === nothing || caps.bmopf_schema_id isa AbstractString
+    @test caps.bmopf_schema_version === nothing ||
+          caps.bmopf_schema_version isa AbstractString
+    # Every v0.6.2 fidelity flag has been true since that release. Gate on the
+    # SYMBOL, not on `dist_available()`: a dist-capable library can predate
+    # `pio_dist_capabilities_json` entirely (v0.3.1-v0.6.1), and against one of
+    # those `dist_capabilities()` correctly returns the all-false default with
+    # `schema_version === nothing` — which these assertions must then skip, not
+    # error on. The old gate pinned `library_version() == "0.6.2"` and so had
+    # asserted nothing since v0.7.0.
+    if PowerIO.library_available() && PowerIO.dist_available() &&
+       PowerIO._exports_symbol(:pio_dist_capabilities_json)
+        # Assert the contract, not the exact string: the capability document is
+        # additive and minor-bumped on each addition, so pinning a literal here
+        # breaks the tandem CI the moment powerio adds a flag. A binding must
+        # keep working against a library newer than itself — that is the point
+        # of the document being versioned separately from the ABI.
         @test VersionNumber(caps.schema_version) >= v"1.0.0"
         for k in PowerIO._DIST_CAPABILITY_KEYS
             @test getproperty(caps, k)
         end
+        # The v0.8 era flags and the vintage strings arrive with capability
+        # document 1.1.0; against older documents (released v0.8.0 binaries
+        # included) they are false/nothing by design, so nothing here may
+        # require them.
     end
 end
 

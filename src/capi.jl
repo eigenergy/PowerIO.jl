@@ -392,18 +392,19 @@ _nonempty_lines(s::AbstractString) = String.(filter(!isempty, split(s, '\n')))
 function _warn_lines(buf::Vector{UInt8}; capped::Bool=false)
     s = _cstr(buf)
     warns = _nonempty_lines(s)
-    if capped && ncodeunits(s) >= length(buf) - 4
-        # The library cuts this fixed-size channel at a byte offset, not at a
-        # line boundary, so the last entry is a fragment unless the text
-        # happens to end on a newline. Drop it: a consumer matching warning
-        # text (BMOPFTools classifies fidelity losses by keyword) would
-        # otherwise match half a message, or miss the keyword the cut removed
-        # and silently bucket the warning as something else. Losing one
-        # already-incomplete warning is strictly better than reporting a
-        # corrupted one, and the marker below says the list is short.
-        !isempty(warns) && !endswith(s, '\n') && pop!(warns)
-        push!(warns, "... warning list truncated at $(length(buf)) bytes")
-    end
+    # A near-cap fill is only a truncation SIGNATURE, not proof: the library
+    # cuts at a byte offset with a <= 3-byte UTF-8 backup, joins lines with
+    # '\n', and never writes a trailing newline — so a complete message whose
+    # length happens to land in the same 4-byte band is indistinguishable from
+    # a cut one, and no trailing-newline test can separate them. Keep every
+    # line (dropping the last would delete a real warning exactly when the
+    # fill was complete) and flag that the final entry may be a fragment, so a
+    # consumer matching warning text (BMOPFTools classifies fidelity losses by
+    # keyword) knows not to trust it. Only a length-returning channel upstream
+    # can resolve the ambiguity; until then this marker is the honest report.
+    capped && ncodeunits(s) >= length(buf) - 4 &&
+        push!(warns, "... warning list may be truncated at $(length(buf)) bytes; " *
+                     "the entry before this one may be cut short")
     return warns
 end
 

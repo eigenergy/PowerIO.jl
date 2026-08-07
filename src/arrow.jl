@@ -104,6 +104,16 @@ function _arrow_format_code(::Type{T}) where {T}
     throw(ArgumentError("PowerIO.to_arrow: no Arrow format code for $(T)"))
 end
 
+# The Arrow export schema version this binding's table ids and column layouts
+# mirror (`arrow_export::ARROW_SCHEMA_VERSION` upstream). The C ABI integers do
+# not cover it — the export contract is append-only within a version — so
+# gen/update_artifacts.jl compares this against the library's
+# `pio_wire_versions_json` report before pinning binaries, the same gate that
+# guards the `.pio.json` schema version. Without a mirrored constant the gate
+# has nothing to compare and an arrow relayout would surface as decode errors
+# downstream, the exact failure mode of the v0.8.0 `.pio.json` escape.
+const PIO_ARROW_SCHEMA_VERSION = "1"
+
 const _ARROW_TABLE_IDS = (
     bus = Cint(0),
     branch = Cint(1),

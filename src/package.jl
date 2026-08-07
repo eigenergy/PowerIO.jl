@@ -2,6 +2,18 @@
 
 const PIO_PACKAGE_SCHEMA_VERSION = "0.2.0"
 
+# The reader's own acceptance rule (powerio-pkg `supports_schema_version`,
+# cargo 0.x semantics): while the major is 0 the minor is the breaking axis,
+# so the lineage is the exact major.minor; from 1.0.0 on the major alone
+# decides. One predicate so every site that compares schema versions — the
+# tests, and the textual copy in gen/update_artifacts.jl — asserts the rule
+# the reader actually applies. An unconditional (major, minor) comparison
+# would wrongly refuse additive 1.x releases the reader accepts.
+_same_schema_lineage(a::VersionNumber, b::VersionNumber) =
+    a.major == b.major && (a.major != 0 || a.minor == b.minor)
+_same_schema_lineage(a, b) =
+    _same_schema_lineage(VersionNumber(String(a)), VersionNumber(String(b)))
+
 """
     NetworkPackage
 

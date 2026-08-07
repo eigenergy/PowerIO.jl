@@ -54,28 +54,29 @@ end
 # Parse an ABI constant from the source files that may own it after the module
 # split. Keep this textual so the release updater can run before package
 # instantiation.
-function _binding_uint32_const(name::AbstractString, files)
-    re = Regex("\\b$(name)\\s*=\\s*UInt32\\((\\d+)\\)")
+_binding_uint32_const(name::AbstractString, files) =
+    _binding_const(name, files; value_re = "UInt32\\((\\d+)\\)",
+                   convert = c -> parse(UInt32, c))
+
+# Same src-file walk, parameterized on the value pattern: `value_re` captures
+# the constant's value, `convert` turns the capture into the returned type.
+# One walker so a fix to the path resolution cannot land in one copy and leave
+# the other silently returning `nothing` (both callers treat `nothing` as
+# "constant absent, skip the check", so a stale copy would quietly disarm a
+# gate rather than fail it).
+function _binding_const(name::AbstractString, files; value_re::AbstractString, convert)
+    re = Regex("\\b$(name)\\s*=\\s*$(value_re)")
     for file in files
         path = joinpath(@__DIR__, "..", "src", file)
         isfile(path) || continue
         m = match(re, read(path, String))
-        m === nothing || return parse(UInt32, m.captures[1])
+        m === nothing || return convert(m.captures[1])
     end
     return nothing
 end
 
-# Same, for a string constant (`NAME = "1.2.3"`).
-function _binding_string_const(name::AbstractString, files)
-    re = Regex("\\b$(name)\\s*=\\s*\"([^\"]+)\"")
-    for file in files
-        path = joinpath(@__DIR__, "..", "src", file)
-        isfile(path) || continue
-        m = match(re, read(path, String))
-        m === nothing || return String(m.captures[1])
-    end
-    return nothing
-end
+_binding_string_const(name::AbstractString, files) =
+    _binding_const(name, files; value_re = "\"([^\"]+)\"", convert = String)
 
 # The ABI version this binding targets, parsed from the source of truth.
 function _binding_abi()
@@ -95,6 +96,15 @@ function _skip_release(msg::String)
     summary = get(ENV, "GITHUB_STEP_SUMMARY", "")
     isempty(summary) || open(io -> println(io, msg), summary, "a")
     exit(0)
+end
+
+# A visible note that does NOT park the release: for a check that could not
+# run, as opposed to one that ran and failed. A gate that cannot see its input
+# must say so — a bare skip here is how a gate quietly disarms itself.
+function _gate_note(msg::String)
+    @warn msg
+    summary = get(ENV, "GITHUB_STEP_SUMMARY", "")
+    isempty(summary) || open(io -> println(io, msg), summary, "a")
 end
 
 # Refuse to pin binaries this binding cannot speak to: dlopen the unpacked
@@ -199,20 +209,43 @@ function _check_abi(unpack::String, triplet::String)
                 free = Libdl.dlsym(handle, :pio_string_free; throw_error=false)
                 free === nothing || ccall(free, Cvoid, (Cstring,), ptr)
                 # Textual, like the constant readers above: this script runs
-                # before instantiation, so it cannot depend on JSON3.
+                # before instantiation, so it cannot depend on JSON3. A check
+                # that cannot run notes it loudly instead of skipping in
+                # silence — a renamed constant or a reshaped JSON key would
+                # otherwise disarm the gate with no trace, which is the drift
+                # class the gate exists to catch.
                 for (key, const_name, files) in (
                     ("package", "PIO_PACKAGE_SCHEMA_VERSION", ("package.jl", "PowerIO.jl")),
+                    ("arrow", "PIO_ARROW_SCHEMA_VERSION", ("arrow.jl", "PowerIO.jl")),
                 )
                     want = _binding_string_const(const_name, files)
-                    want === nothing && continue
+                    if want === nothing
+                        _gate_note(
+                            "$tag wire-version gate: $const_name not found in src/ " *
+                            "($(join(files, ", "))); the $key schema check did not run"
+                        )
+                        continue
+                    end
                     m = match(Regex("\"$(key)\"\\s*:\\s*\"([^\"]+)\""), text)
-                    m === nothing && continue
+                    if m === nothing
+                        _gate_note(
+                            "$tag wire-version gate: pio_wire_versions_json reports no " *
+                            "\"$key\" string (feature absent or key reshaped); the $key " *
+                            "schema check did not run"
+                        )
+                        continue
+                    end
                     got = String(m.captures[1])
-                    # While the major is 0 the minor is the breaking axis, so
-                    # compare the lineage rather than the whole string: a patch
-                    # bump is additive and must not park the release.
-                    lineage(v) = (x = VersionNumber(v); (x.major, x.minor))
-                    lineage(got) == lineage(want) || _skip_release(
+                    # The reader's own acceptance rule (mirrored from
+                    # src/package.jl `_same_schema_lineage`, textually because
+                    # this script cannot load the package): exact major.minor
+                    # while the major is 0, major-only from 1.0.0 — so an
+                    # additive 1.x minor bump the reader accepts must not park
+                    # the release, and a 0.x minor bump must.
+                    gv = VersionNumber(got)
+                    wv = VersionNumber(want)
+                    ok = gv.major == wv.major && (gv.major != 0 || gv.minor == wv.minor)
+                    ok || _skip_release(
                         "skipping $tag: its binaries speak $key schema $got, this binding " *
                         "targets $want ($const_name in src/); Artifacts.toml left untouched " *
                         "(repin after the lockstep binding PR merges)"

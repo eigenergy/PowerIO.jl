@@ -180,39 +180,50 @@ end
 @testset "warning buffer truncation" begin
     # The per-call warn channel is a fixed-size buffer the library fills and
     # cuts at a byte offset, not at a line boundary, and it returns no length.
-    # These pin the two behaviors that follow: a full-but-clean fill is not
-    # mistaken for truncation, and a truncated fill never hands back the
-    # fragment it cut. There was no coverage here before v0.8.0 made the
-    # writers chatty enough to reach the cap on ordinary cases.
+    # A near-cap fill is therefore only a truncation signature: a complete
+    # message of the right length is indistinguishable from a cut one (the
+    # library joins with '\n' and never writes a trailing newline). These pin
+    # the honest response: never drop a line — the dropped line would be a
+    # real warning exactly when the fill was complete — and append a marker
+    # saying the final entry may be a fragment. There was no coverage here
+    # before v0.8.0 made the writers chatty enough to reach the cap.
     pack(text, cap) = (buf = zeros(UInt8, cap); b = codeunits(text);
                        copyto!(buf, 1, b, 1, min(length(b), cap - 1)); buf)
+    marker(w) = occursin("may be truncated", w)
 
     # Well under the cap: every line survives, no marker.
     small = PowerIO._warn_lines(pack("first\nsecond\nthird", 512); capped=true)
     @test small == ["first", "second", "third"]
 
-    # Filled to the cap mid-word: the fragment is dropped and the list is
-    # explicitly marked short, so a caller matching warning text can never
-    # match half a message.
+    # Filled to the cap mid-word: every line is kept, including the possible
+    # fragment, and the marker is appended after it naming the cap. Data is
+    # never deleted on a heuristic — the fill may have been complete.
     cap = 64
     long = join(("warning number $i is quite wordy" for i in 1:20), "\n")
     cut = PowerIO._warn_lines(pack(long, cap); capped=true)
-    @test occursin("truncated at $cap bytes", last(cut))
-    @test all(w -> !occursin("truncated", w), cut[1:end-1])
-    @test all(w -> occursin("is quite wordy", w), cut[1:end-1])
+    @test marker(last(cut))
+    @test occursin("$cap bytes", last(cut))
+    @test all(!marker, cut[1:end-1])
+    @test startswith(first(cut), "warning number 1")
+    # The final real entry (the possible fragment) is retained verbatim: what
+    # the C side wrote is exactly the first cap-1 bytes (ASCII here, so no
+    # UTF-8 backup), and the last line of that prefix must come through.
+    written = long[1:cap-1]
+    @test cut[end-1] == last(PowerIO._nonempty_lines(written))
 
-    # A fill that lands exactly on a newline kept a complete final line, so
-    # nothing is dropped beyond adding the marker.
-    exact = "aa\nbb\n"
-    onnl = PowerIO._warn_lines(pack(exact, ncodeunits(exact) + 1); capped=true)
-    @test onnl[1:2] == ["aa", "bb"]
+    # A complete fill that happens to land in the near-cap band gets the same
+    # marker — a false positive the channel cannot avoid — but loses nothing:
+    # both real warnings are still present, whole.
+    snug = "aa\nbb"
+    band = PowerIO._warn_lines(pack(snug, ncodeunits(snug) + 1); capped=true)
+    @test band[1:2] == ["aa", "bb"]
+    @test marker(last(band))
 
     # capped=false is the handle-backed channel, which sizes then fills and so
-    # cannot truncate: no marker, and the fragment is left alone rather than
-    # dropped, because on that channel a full buffer is not evidence of a cut.
+    # cannot truncate: same lines, no marker.
     uncapped = PowerIO._warn_lines(pack(long, cap); capped=false)
-    @test all(w -> !occursin("truncated", w), uncapped)
-    @test length(uncapped) == length(cut)
+    @test all(!marker, uncapped)
+    @test uncapped == cut[1:end-1]
 end
 
 @testset "wire version contract" begin
@@ -240,13 +251,12 @@ end
         @test haskey(doc, :wire_versions)
         @test doc.abi == PowerIO.PIO_ABI_VERSION
 
-        # The one this binding mirrors as a source constant. Compare the
-        # lineage (major.minor while the major is 0) because that is the
-        # reader's own acceptance rule; a patch bump is additive.
+        # The one this binding mirrors as a source constant, compared under
+        # the reader's own acceptance rule (exact major.minor while the major
+        # is 0, major-only after); a patch bump is additive.
         if doc.package !== nothing
-            got = VersionNumber(String(doc.package))
-            want = VersionNumber(PowerIO.PIO_PACKAGE_SCHEMA_VERSION)
-            @test (got.major, got.minor) == (want.major, want.minor)
+            @test PowerIO._same_schema_lineage(doc.package,
+                                               PowerIO.PIO_PACKAGE_SCHEMA_VERSION)
         end
     end
 end
