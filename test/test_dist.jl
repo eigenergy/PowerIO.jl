@@ -15,7 +15,12 @@
     # "0.6.2"` and so has asserted nothing since v0.7.0; any library new enough
     # to export the symbol reports the full set.
     if PowerIO.library_available() && PowerIO.dist_available()
-        @test caps.schema_version == "1.0.0"
+        # Assert the contract, not the exact string. The capability document
+        # is additive and minor-bumped on each addition, so pinning a literal
+        # here breaks the tandem CI the moment powerio adds a flag — a binding
+        # must keep working against a library newer than itself, which is the
+        # whole point of the document being versioned separately from the ABI.
+        @test VersionNumber(caps.schema_version) >= v"1.0.0"
         for k in PowerIO._DIST_CAPABILITY_KEYS
             @test getproperty(caps, k)
         end
