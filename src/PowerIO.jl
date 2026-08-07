@@ -76,7 +76,7 @@ export calc_admittance_matrix, calc_susceptance_matrix, calc_incidence_matrix,
 # and the `LoadSeries` multiperiod-load surface are ExaModels-facing convenience bridges
 # (documented as interim where they will be superseded by the Rust-backed series).
 export to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
-       LoadSeries, read_load_series, n_periods,
+       LoadSeries, read_load_series, n_periods, demands_mw,
        read_gridfm, read_gridfm_scenarios
 
 # GO Challenge 3 (general, format-neutral SCOPF input data). `goc3_scopf_data` is the
@@ -98,7 +98,8 @@ export multiconductor_to_balanced_preflight, lower_multiconductor_to_balanced,
        dist_available, dist_abi_version, dist_capabilities
 
 # Graph projection and feature probes
-export to_graph, features, has_feature, arrow_available, gridfm_available, matrix_available
+export to_graph, features, has_feature, schema_versions, arrow_available,
+       gridfm_available, matrix_available
 
 include("capi.jl")        # library resolution, ABI handshake, BalancedNetworkHandle, buffer helpers
 include("network.jl")     # BalancedNetwork and the parse / convert / serialize verbs

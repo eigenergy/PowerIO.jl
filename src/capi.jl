@@ -242,6 +242,15 @@ const _ERRLEN = 512
 # `_warn_lines(capped=true)` reports a fill near the cap.
 const _WARNLEN = 65536
 
+# The per-call warn buffer, sized but not zero filled: the C side writes the
+# joined text plus NUL on success, and the buffer is only read after success.
+# The leading NUL keeps `_cstr` safe on a path that reads it untouched.
+function _warnbuf()
+    buf = Vector{UInt8}(undef, _WARNLEN)
+    buf[1] = 0x00
+    return buf
+end
+
 # --- handle layer -------------------------------------------------------
 
 # The allocating library's `pio_network_free`, memoized per resolved path:

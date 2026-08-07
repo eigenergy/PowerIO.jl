@@ -1,6 +1,5 @@
 # `.pio.json` network package envelope over the `pio_package_*` C ABI.
-
-const PIO_PACKAGE_SCHEMA_VERSION = "0.2.0"
+# schema_lineage.jl carries `PIO_PACKAGE_SCHEMA_VERSION` and the lineage rule.
 
 include("schema_lineage.jl")
 

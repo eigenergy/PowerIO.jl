@@ -153,8 +153,20 @@
             @test package_operating_points(pkg) === nothing
             @test package_study(pkg) === nothing
             pkg_doc = JSON3.read(to_json(pkg))
-            @test PowerIO._same_schema_lineage(pkg_doc.schema_version,
-                                               PowerIO.PIO_PACKAGE_SCHEMA_VERSION)
+            # Hold the envelope to the package schema the loaded library
+            # reports. A library that predates the report is held to the
+            # binding's major only, its own pre-0.8 acceptance rule; an
+            # exact-minor check against the binding constant would break
+            # on every lockstep window (pinned binaries one envelope
+            # minor behind the binding).
+            lib_pkg_schema = schema_versions().package
+            if lib_pkg_schema === nothing
+                @test VersionNumber(String(pkg_doc.schema_version)).major ==
+                      VersionNumber(PowerIO.PIO_PACKAGE_SCHEMA_VERSION).major
+            else
+                @test PowerIO._same_schema_lineage(pkg_doc.schema_version,
+                                                   lib_pkg_schema)
+            end
             @test pkg_doc.model_kind == "balanced"
             @test pkg_doc.model.kind == "balanced"
             @test pkg_doc.model.balanced_network.base_mva == 100.0

@@ -59,8 +59,7 @@ function has_feature(feature::AbstractString)
     return probe()
 end
 
-# One flag per entry, in the order `pio_dist_capabilities_json` documents
-# them.
+# One flag per entry, in `pio_dist_capabilities_json` document order.
 const _DIST_CAPABILITY_KEYS = (
     :bmopf_fixed_taps,
     :bmopf_center_tap_leakage,
@@ -70,8 +69,7 @@ const _DIST_CAPABILITY_KEYS = (
     :bmopf_transformer_diagnostics,
 )
 
-# Added in capability document 1.1.0; `false` when the document predates
-# them.
+# Added in capability document 1.1.0; an older document reads as `false`.
 const _DIST_CAPABILITY_V08_KEYS = (
     :typed_capacitors,
     :line_and_generator_ratings,
@@ -86,16 +84,18 @@ const _DIST_CAPABILITY_FIELDS = (:dist, :schema_version,
                                  _DIST_CAPABILITY_V08_KEYS...,
                                  :bmopf_schema_id, :bmopf_schema_version)
 
-_dist_capabilities_from(obj) = begin
-    flag(k) = Bool(get(obj, k, false))
-    (;
-        dist = haskey(obj, :dist) ? Bool(obj.dist) : dist_available(),
-        schema_version = get(obj, :schema_version, nothing),
-        NamedTuple{_DIST_CAPABILITY_KEYS}(map(flag, _DIST_CAPABILITY_KEYS))...,
-        NamedTuple{_DIST_CAPABILITY_V08_KEYS}(map(flag, _DIST_CAPABILITY_V08_KEYS))...,
-        bmopf_schema_id = get(obj, :bmopf_schema_id, nothing),
-        bmopf_schema_version = get(obj, :bmopf_schema_version, nothing),
-    )
+function _dist_capabilities_from(obj)
+    # A flag is set only by JSON `true`; null, absence, and a reshaped
+    # value all read as `false`, so the probe never throws on a document.
+    flag(k) = get(obj, k, false) === true
+    return NamedTuple{_DIST_CAPABILITY_FIELDS}((
+        haskey(obj, :dist) ? obj.dist === true : dist_available(),
+        get(obj, :schema_version, nothing),
+        map(flag, _DIST_CAPABILITY_KEYS)...,
+        map(flag, _DIST_CAPABILITY_V08_KEYS)...,
+        get(obj, :bmopf_schema_id, nothing),
+        get(obj, :bmopf_schema_version, nothing),
+    ))
 end
 
 _dist_capabilities_default() = _dist_capabilities_from((;))
@@ -108,10 +108,10 @@ PowerIO C ABI.
 
 The fields are $(join(string.('`', _DIST_CAPABILITY_FIELDS, '`'), ", ", ", and ")).
 
-Older libraries that do not export `pio_dist_capabilities_json` return the
-same layout with every flag `false` and the strings `nothing`; so does a
-library whose capability document predates a flag. Absence means the library
-does not know the capability; it is never an error.
+A library that does not export `pio_dist_capabilities_json` reports every
+flag `false` and every string `nothing`. A capability document that predates
+a flag reports the same `false`. A `false` flag means the library does not
+report the capability; a missing entry never raises an error.
 
 `bmopf_schema_id` and `bmopf_schema_version` name the BMOPF schema vintage
 the library's writer targets. Both are `nothing` when the document predates
@@ -128,4 +128,30 @@ function dist_capabilities()
     end
     s == C_NULL && error("PowerIO.dist_capabilities: pio_dist_capabilities_json returned null")
     return _dist_capabilities_from(JSON3.read(_take_string(lib, s)))
+end
+
+const _SCHEMA_VERSION_FIELDS = (:schema_version, :abi, :package, :arrow)
+
+"""
+    schema_versions() -> NamedTuple
+
+Return the document-format versions the resolved library reports through
+`pio_schema_versions_json` (powerio v0.8).
+
+The fields are `schema_version`, `abi`, `package`, and `arrow`. `package` and
+`arrow` name the `.pio.json` envelope and Arrow schema lineages the library
+speaks; this binding targets `PIO_PACKAGE_SCHEMA_VERSION` and
+`PIO_ARROW_SCHEMA_VERSION`. A field the document does not carry is `nothing`.
+A library without the entry point reports every field `nothing`; a missing
+report never raises an error.
+"""
+function schema_versions()
+    lib = _lib()
+    _exports_symbol(:pio_schema_versions_json, lib) ||
+        return NamedTuple{_SCHEMA_VERSION_FIELDS}((nothing, nothing, nothing, nothing))
+    _ensure_compatible(lib)
+    s = ccall(_library_symbol(lib, :pio_schema_versions_json), Cstring, ())
+    s == C_NULL && error("PowerIO.schema_versions: pio_schema_versions_json returned null")
+    obj = JSON3.read(_take_string(lib, s))
+    return NamedTuple{_SCHEMA_VERSION_FIELDS}(map(k -> get(obj, k, nothing), _SCHEMA_VERSION_FIELDS))
 end

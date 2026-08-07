@@ -15,11 +15,19 @@ foundation: OpenDSS generator and IBR/control data, transformer
 neutral impedance, core shunt and leakage data, and n-winding transformer
 structure where the target format can express it. v0.6.2 adds the BMOPF
 transformer, source, and diagnostic fidelity flags exposed through
-[`dist_capabilities`](@ref).
+[`dist_capabilities`](@ref). v0.8 adds typed capacitor banks, line and
+generator ratings, per-sequence bus bounds, and the transformer extras
+relocation; the same capability document (schema 1.1.0) reports them, plus
+the writer's BMOPF schema vintage (`bmopf_schema_id` /
+`bmopf_schema_version`).
 
-[`dist_capabilities`](@ref) reports finer BMOPF export capabilities. Downstream
-packages should use it instead of checking PowerIO version strings when they
-need v0.6.2 distribution fidelity behavior.
+[`dist_capabilities`](@ref) reports finer BMOPF export capabilities.
+Downstream packages should use it instead of checking PowerIO version
+strings when they need version-specific distribution fidelity behavior. An
+empty optional table has two possible causes: the case has none, or the
+library predates the table. The capability flags tell the two apart — gate
+on `dist_capabilities().typed_capacitors` before you read
+`PowerIO.capacitors(net)`.
 
 ## Formats
 
@@ -81,14 +89,23 @@ PowerIO.generators(net)
 PowerIO.shunts(net)
 PowerIO.switches(net)
 PowerIO.sources(net)        # per-terminal magnitude / angle
+PowerIO.ibrs(net)           # inverter-based resources
+PowerIO.control_profiles(net)
+PowerIO.capacitors(net)     # rated banks: q_rated (var), v_nom (V); powerio v0.8
+PowerIO.untyped(net)        # elements kept verbatim, no typed slot
 
 PowerIO.n_buses(net)
 PowerIO.base_frequency(net)     # Hz
 PowerIO.network_name(net)       # Union{String,Nothing}
 PowerIO.source_format(net)      # "dss", "pmd-json", "bmopf-json", or nothing
 PowerIO.to_graph(net)           # collapsed bus / terminal graph projection
-PowerIO.dist_capabilities()     # BMOPF export fidelity flags
+PowerIO.dist_capabilities()     # fidelity flags and BMOPF schema vintage
 ```
+
+The writer omits `ibrs`, `control_profiles`, and `capacitors` when they are
+empty, so those accessors read a missing payload key as an empty table. The
+other tables are always present in a library payload; a missing one raises a
+`KeyError` and marks a wrong-shaped document.
 
 ## Carrying and exchanging cases
 

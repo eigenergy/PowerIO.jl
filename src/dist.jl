@@ -76,9 +76,11 @@ A parsed multiconductor distribution case. `parse_file` and `parse_str` keep a
 live Rust handle and leave `net.data` empty until first table access. The first
 `net.data` access reads the `pio-payload-multiconductor/1` JSON payload:
 `buses`, `linecodes`, `lines`, `switches`, `transformers`, `loads`,
-`generators`, `shunts`, `sources`, plus `base_frequency`, `name`,
-`source_format`, and parse `warnings`. String bus ids, ordered string terminal
-names, SI units, radians.
+`generators`, `ibrs`, `control_profiles`, `shunts`, `capacitors`, `sources`,
+`untyped`, plus `base_frequency`, `name`, `source_format`, and parse
+`warnings`. The writer omits `ibrs`, `control_profiles`, and `capacitors`
+when they are empty; the accessors read a missing one as an empty table.
+String bus ids, ordered string terminal names, SI units, radians.
 
 Build one with [`parse_file`](@ref)`("feeder.dss")` (the bare verb routes on
 the format) or the explicit `parse_file(MulticonductorNetwork, path)`. A
@@ -118,30 +120,35 @@ const _MC_TABLE_NAMES = (:buses, :linecodes, :lines, :switches, :transformers, :
                          :generators, :ibrs, :control_profiles, :shunts, :capacitors,
                          :sources, :untyped)
 
-# The writer omits an empty table, so a missing key reads as an empty
-# table. Parse the stand-in once, lazily; no JSON3 value may survive
-# precompilation.
-const _MC_EMPTY_TABLE = Ref{Any}(nothing)
+# The writer omits these tables when empty (serde `skip_serializing_if`),
+# and `capacitors` first shipped with powerio v0.8, so a missing key reads
+# as an empty table. Every other table always serializes; a missing one
+# marks a wrong-shaped document and stays a `KeyError`.
+const _MC_OPTIONAL_TABLES = (:ibrs, :control_profiles, :capacitors)
 
 function _mc_table(net::MulticonductorNetwork, name::Symbol)
-    table = _payload_value(net.data, name, nothing)
-    table === nothing || return table
-    _MC_EMPTY_TABLE[] === nothing && (_MC_EMPTY_TABLE[] = JSON3.read("[]"))
-    return _MC_EMPTY_TABLE[]
+    data = net.data
+    if name in _MC_OPTIONAL_TABLES
+        table = _payload_value(data, name, nothing)
+        return table === nothing ? () : table
+    end
+    return getproperty(data, name)
 end
 
-const _MC_SCALARS = (:name, :source_format, :warnings, :base_frequency)
+# One reader per scalar property; `getproperty` and `propertynames` both
+# derive from this table, so the two surfaces cannot drift.
+const _MC_SCALAR_READERS = (; name = network_name, source_format = source_format,
+                            warnings = warnings, base_frequency = base_frequency)
+const _MC_SCALARS = keys(_MC_SCALAR_READERS)
 
-# `show` always lists these tables. The others print only when non-empty.
-const _MC_ALWAYS_SHOWN = (:buses, :linecodes, :lines, :switches, :transformers,
-                          :loads, :generators, :shunts, :sources)
+# `show` hides these tables when empty; the base tables always print.
+const _MC_SHOWN_IF_NONEMPTY = (:ibrs, :control_profiles, :capacitors, :untyped)
+const _MC_ALWAYS_SHOWN = filter(!in(_MC_SHOWN_IF_NONEMPTY), _MC_TABLE_NAMES)
 
 function Base.getproperty(net::MulticonductorNetwork, name::Symbol)
     name === :data && return _materialized_data(net)
-    name === :name && return network_name(net)
-    name === :source_format && return source_format(net)
-    name === :warnings && return warnings(net)
-    name === :base_frequency && return base_frequency(net)
+    reader = get(_MC_SCALAR_READERS, name, nothing)
+    reader === nothing || return reader(net)
     name in _MC_TABLE_NAMES && return _mc_table(net, name)
     return getfield(net, name)
 end
@@ -288,12 +295,9 @@ function _summary(h::MulticonductorNetworkHandle)
     return nothing
 end
 
-_dist_payload_len(data::JSON3.Object, key::Symbol) =
-    haskey(data, key) ? length(getproperty(data, key)) : 0
-
 function _summary_from_data(data::JSON3.Object, ::Type{MulticonductorNetwork})
     count_keys = (_MC_TABLE_NAMES..., :warnings)
-    counts = NamedTuple{count_keys}(map(k -> _dist_payload_len(data, k), count_keys))
+    counts = NamedTuple{count_keys}(map(k -> _payload_len(data, k), count_keys))
     return JSON3.read(JSON3.write((;
         schema_version = 1,
         name = _payload_value(data, :name, ""),
@@ -419,12 +423,7 @@ ibrs(net::MulticonductorNetwork) = _mc_table(net, :ibrs)
 control_profiles(net::MulticonductorNetwork) = _mc_table(net, :control_profiles)
 "Shunts, each with a `terminal_map` and conductance/susceptance matrices."
 shunts(net::MulticonductorNetwork) = _mc_table(net, :shunts)
-"""
-Rated capacitor banks: nameplate `q_rated` (var) and `v_nom` (V), distinct from
-a `shunts` raw admittance. Empty against an older library or a case with none.
-The dss and PMD writers drop these with a fidelity warning; lowering to
-balanced drops them too.
-"""
+"Rated capacitor banks (nameplate `q_rated` var, `v_nom` V). Empty when the case has none; `dist_capabilities().typed_capacitors` reports library support."
 capacitors(net::MulticonductorNetwork) = _mc_table(net, :capacitors)
 "Voltage sources, each with a `terminal_map` and per-terminal magnitude/angle."
 sources(net::MulticonductorNetwork) = _mc_table(net, :sources)
@@ -495,7 +494,7 @@ function to_format(net::MulticonductorNetwork, to::AbstractString)
     h = _live_dist_handle(net, "to_format")
     lib = getfield(h, :lib)
     _ensure_dist_compatible(lib)
-    warnbuf = zeros(UInt8, _WARNLEN)
+    warnbuf = _warnbuf()
     err = zeros(UInt8, _ERRLEN)
     s = GC.@preserve h ccall(_library_symbol(lib, :pio_dist_to_format), Cstring,
                              (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
@@ -517,7 +516,7 @@ fidelity losses, since there is no handle to query).
 function convert_file(::Type{MulticonductorNetwork}, path::AbstractString, to::AbstractString; from=nothing)
     lib = _lib()
     _ensure_dist_compatible(lib)
-    warnbuf = zeros(UInt8, _WARNLEN)
+    warnbuf = _warnbuf()
     err = zeros(UInt8, _ERRLEN)
     fromc = from === nothing ? C_NULL : String(from)
     s = try
@@ -543,7 +542,7 @@ function convert_str(::Type{MulticonductorNetwork}, text::AbstractString, to::Ab
                      from::AbstractString)
     lib = _lib()
     _ensure_dist_compatible(lib)
-    warnbuf = zeros(UInt8, _WARNLEN)
+    warnbuf = _warnbuf()
     err = zeros(UInt8, _ERRLEN)
     s = try
         ccall(_library_symbol(lib, :pio_dist_convert_str), Cstring,

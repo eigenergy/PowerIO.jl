@@ -9,7 +9,7 @@
                 :write_pypsa_csv_folder,
                 :to_powermodels, :from_powermodels, :to_powerdata,
                 :parse_ac_power_data, :LoadSeries, :read_load_series, :n_periods,
-                :read_gridfm, :read_gridfm_scenarios,
+                :demands_mw, :read_gridfm, :read_gridfm_scenarios,
                 :parse_goc3_json, :goc3_scopf_data, :ScopfInstance,
                 :goc3_status_flags, :goc3_add_status_flags!, :goc3_interval_bounds,
                 :parse_scopf, :scopf_available,
@@ -21,7 +21,7 @@
                 :multiconductor_to_balanced_preflight,
                 :lower_multiconductor_to_balanced,
                 :arrow_available, :gridfm_available, :matrix_available, :features,
-                :has_feature, :arrow_catalog,
+                :has_feature, :schema_versions, :arrow_catalog,
                 :MulticonductorNetwork, :dist_available, :dist_abi_version,
                 :dist_capabilities, :to_graph)
         @test isdefined(PowerIO, sym)
@@ -189,21 +189,21 @@ end
     small = PowerIO._warn_lines(pack("first\nsecond\nthird", 512); capped=true)
     @test small == ["first", "second", "third"]
 
-    # Filled to the cap mid-word: every line is kept and the marker names
-    # the cap.
-    cap = 64
+    # Filled to the cap mid-word: keep every line, and the marker names the cap.
+    # Each fixture line is 31 bytes, so the 59-byte write ends inside line 2.
+    cap = 60
     long = join(("warning number $i is quite wordy" for i in 1:20), "\n")
     cut = PowerIO._warn_lines(pack(long, cap); capped=true)
     @test marker(last(cut))
     @test occursin("$cap bytes", last(cut))
     @test all(!marker, cut[1:end-1])
     @test startswith(first(cut), "warning number 1")
-    # The last line the C side wrote comes through verbatim.
+    # The partial last line the C side wrote comes through verbatim.
     written = long[1:cap-1]
+    @test endswith(written, "quite w")
     @test cut[end-1] == last(PowerIO._nonempty_lines(written))
 
-    # A complete fill in the near-cap band also gets the marker; no lines
-    # are lost.
+    # A complete fill in the near-cap band also gets the marker; keep all lines.
     snug = "aa\nbb"
     band = PowerIO._warn_lines(pack(snug, ncodeunits(snug) + 1); capped=true)
     @test band[1:2] == ["aa", "bb"]
@@ -212,7 +212,6 @@ end
     # capped=false is the handle-backed channel, which sizes then fills and so
     # cannot truncate: same lines, no marker.
     uncapped = PowerIO._warn_lines(pack(long, cap); capped=false)
-    @test all(!marker, uncapped)
     @test uncapped == cut[1:end-1]
 end
 
@@ -228,18 +227,28 @@ end
         lib = PowerIO._lib()
         s = ccall(PowerIO._library_symbol(lib, :pio_schema_versions_json), Cstring, ())
         @test s != C_NULL
-        doc = JSON3.read(PowerIO._take_string(lib, s))
+        if s != C_NULL
+            doc = JSON3.read(PowerIO._take_string(lib, s))
 
-        @test haskey(doc, :schema_version)
-        @test doc.abi == PowerIO.PIO_ABI_VERSION
+            @test haskey(doc, :schema_version)
+            @test doc.abi == PowerIO.PIO_ABI_VERSION
 
-        if doc.package !== nothing
-            @test PowerIO._same_schema_lineage(doc.package,
-                                               PowerIO.PIO_PACKAGE_SCHEMA_VERSION)
-        end
-        if doc.arrow !== nothing
-            @test PowerIO._same_schema_lineage(doc.arrow,
-                                               PowerIO.PIO_ARROW_SCHEMA_VERSION)
+            package = get(doc, :package, nothing)
+            if package !== nothing
+                @test PowerIO._same_schema_lineage(package,
+                                                   PowerIO.PIO_PACKAGE_SCHEMA_VERSION)
+            end
+            arrow = get(doc, :arrow, nothing)
+            if arrow !== nothing
+                @test PowerIO._same_schema_lineage(arrow,
+                                                   PowerIO.PIO_ARROW_SCHEMA_VERSION)
+            end
+
+            # The exported probe reads the same document.
+            sv = schema_versions()
+            @test sv.schema_version == doc.schema_version
+            @test sv.abi == doc.abi
+            @test sv.package == package && sv.arrow == arrow
         end
     end
 end

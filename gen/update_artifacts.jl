@@ -73,9 +73,6 @@ function _binding_const(name::AbstractString, files; value_re::AbstractString, c
     return nothing
 end
 
-_binding_string_const(name::AbstractString, files) =
-    _binding_const(name, files; value_re = "\"([^\"]+)\"", convert = String)
-
 # The ABI version this binding targets, parsed from the source of truth.
 function _binding_abi()
     value = _binding_uint32_const("PIO_ABI_VERSION", ("capi.jl", "PowerIO.jl"))
@@ -100,45 +97,37 @@ end
 _skip_release(msg::String) = (_gate_note(msg); exit(0))
 
 # The ABI integers do not cover document formats. Compare the schema
-# versions the library reports with the constants this binding mirrors.
-# A library without `pio_schema_versions_json` is governed by the ABI gate
-# alone.
-function _check_schema_versions(handle)
+# versions the library reports with the constants this binding targets
+# (schema_lineage.jl, included above, defines both). The ABI gate alone
+# governs a library without `pio_schema_versions_json`. Every path that
+# cannot verify a version parks the release; a bad pin ships silently
+# otherwise.
+function _check_schema_versions(handle, tag::String)
     schema_sym = Libdl.dlsym(handle, :pio_schema_versions_json; throw_error=false)
     schema_sym === nothing && return
-    ptr = ccall(schema_sym, Cstring, ())
-    ptr == C_NULL && return
-    text = unsafe_string(ptr)
     free = Libdl.dlsym(handle, :pio_string_free; throw_error=false)
+    ptr = ccall(schema_sym, Cstring, ())
+    ptr == C_NULL && _skip_release(
+        "skipping $tag: pio_schema_versions_json returned null, so the schema " *
+        "checks cannot run; Artifacts.toml left untouched"
+    )
+    text = unsafe_string(ptr)
     free === nothing || ccall(free, Cvoid, (Cstring,), ptr)
     # Textual parse: this script runs before package instantiation, so it
     # cannot use JSON3.
-    for (key, const_name, files) in (
-        ("package", "PIO_PACKAGE_SCHEMA_VERSION", ("package.jl", "PowerIO.jl")),
-        ("arrow", "PIO_ARROW_SCHEMA_VERSION", ("arrow.jl", "PowerIO.jl")),
-    )
-        want = _binding_string_const(const_name, files)
-        if want === nothing
-            _gate_note(
-                "$tag schema-version gate: $const_name not found in src/ " *
-                "($(join(files, ", "))); the $key schema check did not run"
-            )
-            continue
-        end
+    for (key, want) in (("package", PIO_PACKAGE_SCHEMA_VERSION),
+                        ("arrow", PIO_ARROW_SCHEMA_VERSION))
         m = match(Regex("\"$(key)\"\\s*:\\s*\"([^\"]+)\""), text)
-        if m === nothing
-            _gate_note(
-                "$tag schema-version gate: pio_schema_versions_json reports no " *
-                "\"$key\" string (feature absent or key reshaped); the $key " *
-                "schema check did not run"
-            )
-            continue
-        end
+        m === nothing && _skip_release(
+            "skipping $tag: pio_schema_versions_json reports no \"$key\" string " *
+            "(feature absent or key reshaped), so the $key schema check cannot " *
+            "run; Artifacts.toml left untouched"
+        )
         got = String(m.captures[1])
         _same_schema_lineage(got, want) || _skip_release(
             "skipping $tag: its binaries speak $key schema $got, this binding " *
-            "targets $want ($const_name in src/); Artifacts.toml left untouched " *
-            "(repin after the lockstep binding PR merges)"
+            "targets $want; Artifacts.toml left untouched (repin after the " *
+            "lockstep binding PR merges)"
         )
     end
 end
@@ -150,7 +139,7 @@ end
 # Exit 0 without touching Artifacts.toml on a mismatch, so the scheduled
 # tracking run is a clean no-op until the lockstep binding PR merges. A summary
 # line lands in $GITHUB_STEP_SUMMARY when running under Actions.
-function _check_abi(unpack::String, triplet::String)
+function _check_abi(unpack::String, triplet::String, tag::String)
     libsubdir = endswith(triplet, "mingw32") ? "bin" : "lib"
     lib = joinpath(unpack, libsubdir, "libpowerio_capi.$(Libdl.dlext)")
     isfile(lib) || error("no $lib in the $triplet tarball")
@@ -224,7 +213,7 @@ function _check_abi(unpack::String, triplet::String)
             "Artifacts.toml left untouched"
         )
 
-        _check_schema_versions(handle)
+        _check_schema_versions(handle, tag)
     finally
         Libdl.dlclose(handle)
     end
@@ -242,7 +231,7 @@ mktempdir() do tmp
         unpack = joinpath(tmp, triplet)
         mkpath(unpack)
         run(`tar -xzf $tarball -C $unpack`)
-        triplet == host && _check_abi(unpack, triplet)
+        triplet == host && _check_abi(unpack, triplet, tag)
         tree = bytes2hex(GitTools.tree_hash(unpack))
         url = "https://github.com/$REPO/releases/download/$tag/$name"
         push!(
