@@ -1,7 +1,5 @@
 @testset "distribution capabilities" begin
     caps = PowerIO.dist_capabilities()
-    # The shape comes from one const, so a new upstream flag is a single edit
-    # in features.jl rather than four places that can disagree.
     @test keys(caps) == PowerIO._DIST_CAPABILITY_FIELDS
     @test caps.dist == PowerIO.dist_available()
     @test caps.schema_version === nothing || caps.schema_version isa AbstractString
@@ -11,28 +9,16 @@
     @test caps.bmopf_schema_id === nothing || caps.bmopf_schema_id isa AbstractString
     @test caps.bmopf_schema_version === nothing ||
           caps.bmopf_schema_version isa AbstractString
-    # Every v0.6.2 fidelity flag has been true since that release. Gate on the
-    # SYMBOL, not on `dist_available()`: a dist-capable library can predate
-    # `pio_dist_capabilities_json` entirely (v0.3.1-v0.6.1), and against one of
-    # those `dist_capabilities()` correctly returns the all-false default with
-    # `schema_version === nothing` — which these assertions must then skip, not
-    # error on. The old gate pinned `library_version() == "0.6.2"` and so had
-    # asserted nothing since v0.7.0.
+    # Gate on the symbol: dist-capable v0.3.1-v0.6.1 libraries predate
+    # `pio_dist_capabilities_json` and return the all-false default.
     if PowerIO.library_available() && PowerIO.dist_available() &&
        PowerIO._exports_symbol(:pio_dist_capabilities_json)
-        # Assert the contract, not the exact string: the capability document is
-        # additive and minor-bumped on each addition, so pinning a literal here
-        # breaks the tandem CI the moment powerio adds a flag. A binding must
-        # keep working against a library newer than itself — that is the point
-        # of the document being versioned separately from the ABI.
+        # The capability document is additive; do not pin the exact version.
         @test VersionNumber(caps.schema_version) >= v"1.0.0"
         for k in PowerIO._DIST_CAPABILITY_KEYS
             @test getproperty(caps, k)
         end
-        # The v0.8 era flags and the vintage strings arrive with capability
-        # document 1.1.0; against older documents (released v0.8.0 binaries
-        # included) they are false/nothing by design, so nothing here may
-        # require them.
+        # Do not require the v0.8 flags; older documents report them false.
     end
 end
 
@@ -357,18 +343,13 @@ end
             @test err === nothing || !occursin("unknown distribution format", err)
         end
 
-        # Every element table the live library counts has a Julia accessor
-        # (drift canary for `_MC_TABLE_NAMES` against `DistNetwork` in
-        # powerio-dist/src/model.rs). `counts` carries one key per table plus
-        # `warnings`, so an upstream table this binding has not grown yet shows
-        # up here as an uncovered key rather than as a silently missing
-        # accessor — which is exactly how `capacitors` slipped through v0.8.0.
+        # Every table the live library counts must appear in
+        # `_MC_TABLE_NAMES` (drift canary against upstream `DistNetwork`).
         live = PowerIO._summary(net)
         counted = setdiff(collect(keys(live.counts)), [:warnings])
         @test !isempty(counted)
         @test isempty(setdiff(counted, collect(PowerIO._MC_TABLE_NAMES)))
-        # ...and every accessor resolves against a real network, so a name in
-        # the list without a method is caught too.
+        # Every accessor must resolve against a real network.
         for name in PowerIO._MC_TABLE_NAMES
             @test getproperty(net, name) !== nothing
         end

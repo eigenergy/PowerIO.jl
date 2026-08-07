@@ -59,14 +59,8 @@ function has_feature(feature::AbstractString)
     return probe()
 end
 
-# One boolean capability per entry, in the order `pio_dist_capabilities_json`
-# documents them. These tuples are the single source: the all-false default,
-# the parsed result, the docstring field list, and the test assertions all
-# derive from them, so a new upstream flag is one line here and none of the
-# four can disagree.
-#
-# The v0.6.2 set: BMOPF fidelity fixes. Every library from v0.6.2 on reports
-# all six `true`.
+# One flag per entry, in the order `pio_dist_capabilities_json` documents
+# them.
 const _DIST_CAPABILITY_KEYS = (
     :bmopf_fixed_taps,
     :bmopf_center_tap_leakage,
@@ -76,9 +70,8 @@ const _DIST_CAPABILITY_KEYS = (
     :bmopf_transformer_diagnostics,
 )
 
-# The v0.8 era set (capability document 1.1.0). `false` against any library
-# whose document predates them, including released v0.8.0 binaries — additive
-# by design, so no assertion may require them.
+# Added in capability document 1.1.0; `false` when the document predates
+# them.
 const _DIST_CAPABILITY_V08_KEYS = (
     :typed_capacitors,
     :line_and_generator_ratings,
@@ -93,13 +86,10 @@ const _DIST_CAPABILITY_FIELDS = (:dist, :schema_version,
                                  _DIST_CAPABILITY_V08_KEYS...,
                                  :bmopf_schema_id, :bmopf_schema_version)
 
-# Keyword construction, not positional-over-the-fields-tuple: with keywords a
-# reordered or grown fields list cannot silently shift a value under the wrong
-# name — the mistake would be a construction error instead.
-_dist_capabilities_from(obj, dist_default) = begin
+_dist_capabilities_from(obj) = begin
     flag(k) = Bool(get(obj, k, false))
     (;
-        dist = Bool(get(obj, :dist, dist_default)),
+        dist = haskey(obj, :dist) ? Bool(obj.dist) : dist_available(),
         schema_version = get(obj, :schema_version, nothing),
         NamedTuple{_DIST_CAPABILITY_KEYS}(map(flag, _DIST_CAPABILITY_KEYS))...,
         NamedTuple{_DIST_CAPABILITY_V08_KEYS}(map(flag, _DIST_CAPABILITY_V08_KEYS))...,
@@ -108,7 +98,7 @@ _dist_capabilities_from(obj, dist_default) = begin
     )
 end
 
-_dist_capabilities_default() = _dist_capabilities_from((;), dist_available())
+_dist_capabilities_default() = _dist_capabilities_from((;))
 
 """
     dist_capabilities() -> NamedTuple
@@ -118,20 +108,14 @@ PowerIO C ABI.
 
 The fields are $(join(string.('`', _DIST_CAPABILITY_FIELDS, '`'), ", ", ", and ")).
 
-Older libraries that do not export `pio_dist_capabilities_json` return the same
-layout with every flag `false` and the strings `nothing`; so does any library
-whose capability document predates a given flag. Absence therefore means "not
-known to this library", never an error, and downstream packages gate a specific
-behavior on its flag: the `bmopf_*` fidelity fixes are v0.6.2, and
-`typed_capacitors`, `line_and_generator_ratings`, `per_sequence_bus_bounds`,
-and `transformer_extras_relocation` report the v0.8 distribution work.
+Older libraries that do not export `pio_dist_capabilities_json` return the
+same layout with every flag `false` and the strings `nothing`; so does a
+library whose capability document predates a flag. Absence means the library
+does not know the capability; it is never an error.
 
-`bmopf_schema_id` and `bmopf_schema_version` name the BMOPF schema vintage the
-library's writer targets (v0.8 changed the `\$id` and relocated transformer
-fields under `extras`, which is exactly what a downstream reader needs to key
-on). Both are `nothing` when the document predates them. Neither identifies a
-vintage alone — upstream serves the schema from an unpinned branch and has
-changed content without moving the version — so pair them.
+`bmopf_schema_id` and `bmopf_schema_version` name the BMOPF schema vintage
+the library's writer targets. Both are `nothing` when the document predates
+them. Neither identifies a vintage alone; use them together.
 """
 function dist_capabilities()
     lib = _lib()
@@ -143,5 +127,5 @@ function dist_capabilities()
         _feature_call_error("dist_capabilities", "pio_dist_capabilities_json", "dist", e)
     end
     s == C_NULL && error("PowerIO.dist_capabilities: pio_dist_capabilities_json returned null")
-    return _dist_capabilities_from(JSON3.read(_take_string(lib, s)), dist_available())
+    return _dist_capabilities_from(JSON3.read(_take_string(lib, s)))
 end

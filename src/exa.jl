@@ -788,8 +788,7 @@ periods) and build a [`LoadSeries`](@ref). Reads the same `.Pd` / `.Qd` files a 
 !!! danger "Do not pass these straight to `mpopf_model`"
     The files hold **MW**; a `LoadSeries` holds **per unit**. `ExaModelsPower.mpopf_model`
     takes its `pd` / `qd` keywords in MW and divides by `baseMVA` itself, so handing it
-    `series.pd` divides twice — a silent 100x under-demand on a 100 MVA base. The model
-    still solves; the answer is just wrong, with no error and no warning.
+    `series.pd` divides twice — a silent 100x under-demand on a 100 MVA base.
 
     Multiply back by the series' `base_mva` field to feed that interface:
 
@@ -798,10 +797,6 @@ periods) and build a [`LoadSeries`](@ref). Reads the same `.Pd` / `.Qd` files a 
     mpopf_model("case5.m", "", ""; pd = series.pd .* series.base_mva,
                 qd = series.qd .* series.base_mva, N = n_periods(series))
     ```
-
-    Per unit is the right convention for a PowerIO series — it matches
-    [`to_normalized`](@ref) and every other numeric surface here — so the conversion
-    belongs at the boundary, not in this function.
 """
 function read_load_series(net::BalancedNetwork, pd_path::AbstractString,
                           qd_path::AbstractString; T::Type{<:Real}=Float64)

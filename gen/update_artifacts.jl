@@ -18,6 +18,8 @@ using SHA
 import Libdl
 import Pkg.GitTools
 
+include(joinpath(@__DIR__, "..", "src", "schema_lineage.jl"))
+
 const REPO = "eigenergy/powerio"
 
 # (Julia platform triplet, Artifacts.toml platform keys); must stay in sync with
@@ -58,12 +60,8 @@ _binding_uint32_const(name::AbstractString, files) =
     _binding_const(name, files; value_re = "UInt32\\((\\d+)\\)",
                    convert = c -> parse(UInt32, c))
 
-# Same src-file walk, parameterized on the value pattern: `value_re` captures
-# the constant's value, `convert` turns the capture into the returned type.
-# One walker so a fix to the path resolution cannot land in one copy and leave
-# the other silently returning `nothing` (both callers treat `nothing` as
-# "constant absent, skip the check", so a stale copy would quietly disarm a
-# gate rather than fail it).
+# Find `name` in the src files. `value_re` captures the value; `convert`
+# makes the return type. `nothing` means the constant is absent.
 function _binding_const(name::AbstractString, files; value_re::AbstractString, convert)
     re = Regex("\\b$(name)\\s*=\\s*$(value_re)")
     for file in files
@@ -91,20 +89,58 @@ function _binding_dist_abi()
     return _binding_uint32_const("PIO_DIST_ABI_VERSION", ("dist.jl", "PowerIO.jl"))
 end
 
-function _skip_release(msg::String)
-    @warn msg
-    summary = get(ENV, "GITHUB_STEP_SUMMARY", "")
-    isempty(summary) || open(io -> println(io, msg), summary, "a")
-    exit(0)
-end
-
-# A visible note that does NOT park the release: for a check that could not
-# run, as opposed to one that ran and failed. A gate that cannot see its input
-# must say so — a bare skip here is how a gate quietly disarms itself.
+# Warn and write the step summary, but do not stop the release. Use for a
+# check that could not run.
 function _gate_note(msg::String)
     @warn msg
     summary = get(ENV, "GITHUB_STEP_SUMMARY", "")
     isempty(summary) || open(io -> println(io, msg), summary, "a")
+end
+
+_skip_release(msg::String) = (_gate_note(msg); exit(0))
+
+# The ABI integers do not cover document formats. Compare the schema
+# versions the library reports with the constants this binding mirrors.
+# A library without `pio_schema_versions_json` is governed by the ABI gate
+# alone.
+function _check_schema_versions(handle)
+    schema_sym = Libdl.dlsym(handle, :pio_schema_versions_json; throw_error=false)
+    schema_sym === nothing && return
+    ptr = ccall(schema_sym, Cstring, ())
+    ptr == C_NULL && return
+    text = unsafe_string(ptr)
+    free = Libdl.dlsym(handle, :pio_string_free; throw_error=false)
+    free === nothing || ccall(free, Cvoid, (Cstring,), ptr)
+    # Textual parse: this script runs before package instantiation, so it
+    # cannot use JSON3.
+    for (key, const_name, files) in (
+        ("package", "PIO_PACKAGE_SCHEMA_VERSION", ("package.jl", "PowerIO.jl")),
+        ("arrow", "PIO_ARROW_SCHEMA_VERSION", ("arrow.jl", "PowerIO.jl")),
+    )
+        want = _binding_string_const(const_name, files)
+        if want === nothing
+            _gate_note(
+                "$tag schema-version gate: $const_name not found in src/ " *
+                "($(join(files, ", "))); the $key schema check did not run"
+            )
+            continue
+        end
+        m = match(Regex("\"$(key)\"\\s*:\\s*\"([^\"]+)\""), text)
+        if m === nothing
+            _gate_note(
+                "$tag schema-version gate: pio_schema_versions_json reports no " *
+                "\"$key\" string (feature absent or key reshaped); the $key " *
+                "schema check did not run"
+            )
+            continue
+        end
+        got = String(m.captures[1])
+        _same_schema_lineage(got, want) || _skip_release(
+            "skipping $tag: its binaries speak $key schema $got, this binding " *
+            "targets $want ($const_name in src/); Artifacts.toml left untouched " *
+            "(repin after the lockstep binding PR merges)"
+        )
+    end
 end
 
 # Refuse to pin binaries this binding cannot speak to: dlopen the unpacked
@@ -188,71 +224,7 @@ function _check_abi(unpack::String, triplet::String)
             "Artifacts.toml left untouched"
         )
 
-        # Wire formats are versioned separately from the ABI on purpose: the C
-        # policy is that new data arrives through versioned payloads rather
-        # than signature changes, so both ABI integers above can match a
-        # library whose document formats this binding can no longer read. That
-        # is not hypothetical — powerio v0.8.0 moved `.pio.json` from 0.1.1 to
-        # 0.2.0 with ABI 4 and dist ABI 1 unchanged, every check above passed,
-        # the repin landed, and the mismatch only surfaced as a test failure
-        # after the release was already public.
-        #
-        # So compare the versions the library reports against the constants
-        # this binding mirrors. Only checked when the library exposes
-        # `pio_schema_versions_json`; an older library skips this and is governed
-        # by the ABI gate alone, as before.
-        schema_sym = Libdl.dlsym(handle, :pio_schema_versions_json; throw_error=false)
-        if schema_sym !== nothing
-            ptr = ccall(schema_sym, Cstring, ())
-            if ptr != C_NULL
-                text = unsafe_string(ptr)
-                free = Libdl.dlsym(handle, :pio_string_free; throw_error=false)
-                free === nothing || ccall(free, Cvoid, (Cstring,), ptr)
-                # Textual, like the constant readers above: this script runs
-                # before instantiation, so it cannot depend on JSON3. A check
-                # that cannot run notes it loudly instead of skipping in
-                # silence — a renamed constant or a reshaped JSON key would
-                # otherwise disarm the gate with no trace, which is the drift
-                # class the gate exists to catch.
-                for (key, const_name, files) in (
-                    ("package", "PIO_PACKAGE_SCHEMA_VERSION", ("package.jl", "PowerIO.jl")),
-                    ("arrow", "PIO_ARROW_SCHEMA_VERSION", ("arrow.jl", "PowerIO.jl")),
-                )
-                    want = _binding_string_const(const_name, files)
-                    if want === nothing
-                        _gate_note(
-                            "$tag schema-version gate: $const_name not found in src/ " *
-                            "($(join(files, ", "))); the $key schema check did not run"
-                        )
-                        continue
-                    end
-                    m = match(Regex("\"$(key)\"\\s*:\\s*\"([^\"]+)\""), text)
-                    if m === nothing
-                        _gate_note(
-                            "$tag schema-version gate: pio_schema_versions_json reports no " *
-                            "\"$key\" string (feature absent or key reshaped); the $key " *
-                            "schema check did not run"
-                        )
-                        continue
-                    end
-                    got = String(m.captures[1])
-                    # The reader's own acceptance rule (mirrored from
-                    # src/package.jl `_same_schema_lineage`, textually because
-                    # this script cannot load the package): exact major.minor
-                    # while the major is 0, major-only from 1.0.0 — so an
-                    # additive 1.x minor bump the reader accepts must not park
-                    # the release, and a 0.x minor bump must.
-                    gv = VersionNumber(got)
-                    wv = VersionNumber(want)
-                    ok = gv.major == wv.major && (gv.major != 0 || gv.minor == wv.minor)
-                    ok || _skip_release(
-                        "skipping $tag: its binaries speak $key schema $got, this binding " *
-                        "targets $want ($const_name in src/); Artifacts.toml left untouched " *
-                        "(repin after the lockstep binding PR merges)"
-                    )
-                end
-            end
-        end
+        _check_schema_versions(handle)
     finally
         Libdl.dlclose(handle)
     end

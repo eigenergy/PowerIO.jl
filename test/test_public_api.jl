@@ -178,15 +178,9 @@ end
 end
 
 @testset "warning buffer truncation" begin
-    # The per-call warn channel is a fixed-size buffer the library fills and
-    # cuts at a byte offset, not at a line boundary, and it returns no length.
-    # A near-cap fill is therefore only a truncation signature: a complete
-    # message of the right length is indistinguishable from a cut one (the
-    # library joins with '\n' and never writes a trailing newline). These pin
-    # the honest response: never drop a line — the dropped line would be a
-    # real warning exactly when the fill was complete — and append a marker
-    # saying the final entry may be a fragment. There was no coverage here
-    # before v0.8.0 made the writers chatty enough to reach the cap.
+    # The warn channel is cut at a byte offset and returns no length, so a
+    # near-cap fill only signals possible truncation. These tests pin the
+    # response: keep every line, append a marker.
     pack(text, cap) = (buf = zeros(UInt8, cap); b = codeunits(text);
                        copyto!(buf, 1, b, 1, min(length(b), cap - 1)); buf)
     marker(w) = occursin("may be truncated", w)
@@ -195,9 +189,8 @@ end
     small = PowerIO._warn_lines(pack("first\nsecond\nthird", 512); capped=true)
     @test small == ["first", "second", "third"]
 
-    # Filled to the cap mid-word: every line is kept, including the possible
-    # fragment, and the marker is appended after it naming the cap. Data is
-    # never deleted on a heuristic — the fill may have been complete.
+    # Filled to the cap mid-word: every line is kept and the marker names
+    # the cap.
     cap = 64
     long = join(("warning number $i is quite wordy" for i in 1:20), "\n")
     cut = PowerIO._warn_lines(pack(long, cap); capped=true)
@@ -205,15 +198,12 @@ end
     @test occursin("$cap bytes", last(cut))
     @test all(!marker, cut[1:end-1])
     @test startswith(first(cut), "warning number 1")
-    # The final real entry (the possible fragment) is retained verbatim: what
-    # the C side wrote is exactly the first cap-1 bytes (ASCII here, so no
-    # UTF-8 backup), and the last line of that prefix must come through.
+    # The last line the C side wrote comes through verbatim.
     written = long[1:cap-1]
     @test cut[end-1] == last(PowerIO._nonempty_lines(written))
 
-    # A complete fill that happens to land in the near-cap band gets the same
-    # marker — a false positive the channel cannot avoid — but loses nothing:
-    # both real warnings are still present, whole.
+    # A complete fill in the near-cap band also gets the marker; no lines
+    # are lost.
     snug = "aa\nbb"
     band = PowerIO._warn_lines(pack(snug, ncodeunits(snug) + 1); capped=true)
     @test band[1:2] == ["aa", "bb"]
@@ -227,20 +217,12 @@ end
 end
 
 @testset "schema version contract" begin
-    # The ABI integers do not cover document formats: powerio's own policy is
-    # that new data arrives through versioned payloads rather than signature
-    # changes. So a library can pass both ABI handshakes while speaking a
-    # `.pio.json` lineage this binding cannot read — which is exactly what
-    # v0.8.0 did, with the mismatch surfacing only after release.
-    #
-    # `pio_schema_versions_json` closes that: every version the library stamps
-    # into a document is reported, and the constants mirrored here are checked
-    # against it rather than trusted.
+    # The ABI integers do not cover document formats. Check the versions
+    # the library reports against the mirrored constants.
     if !PowerIO.library_available()
         @test_skip "library unavailable"
     elseif !PowerIO._exports_symbol(:pio_schema_versions_json)
-        # Older binaries have no such entry point; the ABI gate governs them,
-        # as it did before.
+        # Older binaries lack the entry point; the ABI gate governs them.
         @test_skip "library predates pio_schema_versions_json"
     else
         lib = PowerIO._lib()
@@ -251,12 +233,13 @@ end
         @test haskey(doc, :schema_version)
         @test doc.abi == PowerIO.PIO_ABI_VERSION
 
-        # The one this binding mirrors as a source constant, compared under
-        # the reader's own acceptance rule (exact major.minor while the major
-        # is 0, major-only after); a patch bump is additive.
         if doc.package !== nothing
             @test PowerIO._same_schema_lineage(doc.package,
                                                PowerIO.PIO_PACKAGE_SCHEMA_VERSION)
+        end
+        if doc.arrow !== nothing
+            @test PowerIO._same_schema_lineage(doc.arrow,
+                                               PowerIO.PIO_ARROW_SCHEMA_VERSION)
         end
     end
 end

@@ -112,31 +112,19 @@ function _materialized_data(net::MulticonductorNetwork)
     return data
 end
 
-# Every element table in the multiconductor payload, in the order
-# `powerio-dist`'s `DistNetwork` declares them. This tuple is the single source
-# for `getproperty`, `propertynames`, the payload-derived summary counts, and
-# the `show` methods, so tracking a new upstream table is one entry here plus
-# its accessor. `test_dist.jl` canaries it against the counts a live library
-# reports, which is what catches an upstream table this list has not grown yet.
+# Element tables, in the order `powerio-dist`'s `DistNetwork` declares
+# them. All table surfaces derive from this tuple.
 const _MC_TABLE_NAMES = (:buses, :linecodes, :lines, :switches, :transformers, :loads,
                          :generators, :ibrs, :control_profiles, :shunts, :capacitors,
                          :sources, :untyped)
 
-# The writer skips a table it has no elements for, so "this case has no
-# capacitors" and "this library predates typed capacitors" both arrive as a
-# missing key — and to a caller iterating the table they mean the same thing.
-# Reading `net.data.capacitors` directly would instead throw on almost every
-# network.
-#
-# The empty stand-in is parsed once, lazily, into a Ref rather than held in a
-# `const`: nothing JSON3-backed has to survive precompilation, repeated misses
-# do not re-parse, and two reads of the same absent table return the identical
-# object (a caller comparing tables by identity would otherwise see
-# `net.capacitors !== net.capacitors`).
+# The writer omits an empty table, so a missing key reads as an empty
+# table. Parse the stand-in once, lazily; no JSON3 value may survive
+# precompilation.
 const _MC_EMPTY_TABLE = Ref{Any}(nothing)
 
 function _mc_table(net::MulticonductorNetwork, name::Symbol)
-    table = get(net.data, name, nothing)
+    table = _payload_value(net.data, name, nothing)
     table === nothing || return table
     _MC_EMPTY_TABLE[] === nothing && (_MC_EMPTY_TABLE[] = JSON3.read("[]"))
     return _MC_EMPTY_TABLE[]
@@ -144,9 +132,7 @@ end
 
 const _MC_SCALARS = (:name, :source_format, :warnings, :base_frequency)
 
-# `show` lists these unconditionally, so its output is stable across cases; the
-# remaining tables print only when non-empty. A display policy, not a second
-# copy of the table list — it is checked against `_MC_TABLE_NAMES` in the tests.
+# `show` always lists these tables. The others print only when non-empty.
 const _MC_ALWAYS_SHOWN = (:buses, :linecodes, :lines, :switches, :transformers,
                           :loads, :generators, :shunts, :sources)
 
@@ -306,10 +292,8 @@ _dist_payload_len(data::JSON3.Object, key::Symbol) =
     haskey(data, key) ? length(getproperty(data, key)) : 0
 
 function _summary_from_data(data::JSON3.Object, ::Type{MulticonductorNetwork})
-    counts = NamedTuple{(_MC_TABLE_NAMES..., :warnings)}((
-        map(name -> _dist_payload_len(data, name), _MC_TABLE_NAMES)...,
-        _dist_payload_len(data, :warnings),
-    ))
+    count_keys = (_MC_TABLE_NAMES..., :warnings)
+    counts = NamedTuple{count_keys}(map(k -> _dist_payload_len(data, k), count_keys))
     return JSON3.read(JSON3.write((;
         schema_version = 1,
         name = _payload_value(data, :name, ""),
@@ -436,10 +420,10 @@ control_profiles(net::MulticonductorNetwork) = _mc_table(net, :control_profiles)
 "Shunts, each with a `terminal_map` and conductance/susceptance matrices."
 shunts(net::MulticonductorNetwork) = _mc_table(net, :shunts)
 """
-Rated capacitor banks: nameplate `q_rated` (var) and `v_nom` (V), distinct from a
-`shunts` raw admittance. powerio v0.8 and newer; empty against an older library or
-a case with none. The dss and PMD writers drop these with a fidelity warning, and
-lowering to balanced drops them too — a rated bank has no balanced shunt equivalent.
+Rated capacitor banks: nameplate `q_rated` (var) and `v_nom` (V), distinct from
+a `shunts` raw admittance. Empty against an older library or a case with none.
+The dss and PMD writers drop these with a fidelity warning; lowering to
+balanced drops them too.
 """
 capacitors(net::MulticonductorNetwork) = _mc_table(net, :capacitors)
 "Voltage sources, each with a `terminal_map` and per-terminal magnitude/angle."

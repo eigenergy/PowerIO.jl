@@ -237,19 +237,9 @@ function _classify_family(text::AbstractString)
 end
 
 const _ERRLEN = 512
-# Per-call fidelity warnings (pio_to_format / pio_convert_file / pio_write_dir)
-# can run long on a lossy conversion; give them headroom. Overflow truncates
-# silently, so `_warn_lines(capped=true)` reports a fill near the cap.
-#
-# 64 KiB, not the original 4 KiB: powerio v0.8 warns per element rather than
-# per network (typed capacitors dropped by the dss and PMD writers, line and
-# generator rating drops, linecode `source` drops, dangling bus and linecode
-# references, `extras` relocations), so a real feeder with a few dozen rated
-# banks overflowed 4 KiB routinely. The buffer is one allocation per call and
-# only the filled prefix is read, so the headroom is close to free. This is a
-# mitigation, not the fix: the C entry points return no length, so truncation
-# is still only detectable heuristically. A size-then-fill or length-returning
-# warning channel upstream is the real answer.
+# Fidelity warnings come per element, so one feeder can pass 4 KiB. The C
+# entry points return no length; overflow truncates silently, and
+# `_warn_lines(capped=true)` reports a fill near the cap.
 const _WARNLEN = 65536
 
 # --- handle layer -------------------------------------------------------
@@ -392,16 +382,9 @@ _nonempty_lines(s::AbstractString) = String.(filter(!isempty, split(s, '\n')))
 function _warn_lines(buf::Vector{UInt8}; capped::Bool=false)
     s = _cstr(buf)
     warns = _nonempty_lines(s)
-    # A near-cap fill is only a truncation SIGNATURE, not proof: the library
-    # cuts at a byte offset with a <= 3-byte UTF-8 backup, joins lines with
-    # '\n', and never writes a trailing newline — so a complete message whose
-    # length happens to land in the same 4-byte band is indistinguishable from
-    # a cut one, and no trailing-newline test can separate them. Keep every
-    # line (dropping the last would delete a real warning exactly when the
-    # fill was complete) and flag that the final entry may be a fragment, so a
-    # consumer matching warning text (BMOPFTools classifies fidelity losses by
-    # keyword) knows not to trust it. Only a length-returning channel upstream
-    # can resolve the ambiguity; until then this marker is the honest report.
+    # The library cuts at a byte offset and returns no length, so a
+    # near-cap fill only signals possible truncation. Keep every line and
+    # mark that the last entry may be cut.
     capped && ncodeunits(s) >= length(buf) - 4 &&
         push!(warns, "... warning list may be truncated at $(length(buf)) bytes; " *
                      "the entry before this one may be cut short")
