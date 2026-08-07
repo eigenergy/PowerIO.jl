@@ -171,12 +171,13 @@ The artifact pipeline behind released versions is described in
 
 ## Version line
 
-0.6.2 tracks powerio v0.6.2 in lockstep: core C ABI 4, distribution C ABI 1,
-with the Arrow, matrix, GridFM, distribution, package, BMOPF fidelity, and study
-package features enabled in the released artifacts. The Julia package stays thin
-around the C ABI while owning stable Julia entry points for parsing, conversion,
-packages, dense tables, Arrow tables, distribution networks, GridFM, and
-ecosystem interop.
+Each PowerIO.jl release pins one powerio release. `Artifacts.toml` records
+the exact pinned tag, and each CHANGELOG section names the C ABI pair it
+keeps. The released artifacts enable the Arrow,
+matrix, GridFM, distribution, package, and problem-instance features. The
+Julia package stays thin around the C ABI while owning stable Julia entry
+points for parsing, conversion, packages, dense tables, Arrow tables,
+distribution networks, GridFM, and ecosystem interop.
 `PowerIO_jll` remains the later distribution cleanup. Version history is in
 [CHANGELOG.md](CHANGELOG.md).
 

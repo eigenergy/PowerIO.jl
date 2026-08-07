@@ -61,5 +61,5 @@ At first use the binding checks the library's ABI version
 mismatched library with an error stating both versions. Distribution calls
 also check `pio_dist_abi_version`. [`PowerIO.library_available`](@ref) probes
 without throwing, and [`PowerIO.features`](@ref) reports the optional Arrow,
-matrix, GridFM, distribution, and package features. [`PowerIO.dist_capabilities`](@ref)
+matrix, GridFM, distribution, package, and problem-instance (`prob`) features. [`PowerIO.dist_capabilities`](@ref)
 reports finer distribution fidelity flags for downstream packages.
