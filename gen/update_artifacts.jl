@@ -65,6 +65,18 @@ function _binding_uint32_const(name::AbstractString, files)
     return nothing
 end
 
+# Same, for a string constant (`NAME = "1.2.3"`).
+function _binding_string_const(name::AbstractString, files)
+    re = Regex("\\b$(name)\\s*=\\s*\"([^\"]+)\"")
+    for file in files
+        path = joinpath(@__DIR__, "..", "src", file)
+        isfile(path) || continue
+        m = match(re, read(path, String))
+        m === nothing || return String(m.captures[1])
+    end
+    return nothing
+end
+
 # The ABI version this binding targets, parsed from the source of truth.
 function _binding_abi()
     value = _binding_uint32_const("PIO_ABI_VERSION", ("capi.jl", "PowerIO.jl"))
@@ -165,6 +177,49 @@ function _check_abi(unpack::String, triplet::String)
             "skipping $tag: its binaries report pkg but do not expose pio_package_parse_str; " *
             "Artifacts.toml left untouched"
         )
+
+        # Wire formats are versioned separately from the ABI on purpose: the C
+        # policy is that new data arrives through versioned payloads rather
+        # than signature changes, so both ABI integers above can match a
+        # library whose document formats this binding can no longer read. That
+        # is not hypothetical — powerio v0.8.0 moved `.pio.json` from 0.1.1 to
+        # 0.2.0 with ABI 4 and dist ABI 1 unchanged, every check above passed,
+        # the repin landed, and the mismatch only surfaced as a test failure
+        # after the release was already public.
+        #
+        # So compare the versions the library reports against the constants
+        # this binding mirrors. Only checked when the library exposes
+        # `pio_wire_versions_json`; an older library skips this and is governed
+        # by the ABI gate alone, as before.
+        wire_sym = Libdl.dlsym(handle, :pio_wire_versions_json; throw_error=false)
+        if wire_sym !== nothing
+            ptr = ccall(wire_sym, Cstring, ())
+            if ptr != C_NULL
+                text = unsafe_string(ptr)
+                free = Libdl.dlsym(handle, :pio_string_free; throw_error=false)
+                free === nothing || ccall(free, Cvoid, (Cstring,), ptr)
+                # Textual, like the constant readers above: this script runs
+                # before instantiation, so it cannot depend on JSON3.
+                for (key, const_name, files) in (
+                    ("package", "PIO_PACKAGE_SCHEMA_VERSION", ("package.jl", "PowerIO.jl")),
+                )
+                    want = _binding_string_const(const_name, files)
+                    want === nothing && continue
+                    m = match(Regex("\"$(key)\"\\s*:\\s*\"([^\"]+)\""), text)
+                    m === nothing && continue
+                    got = String(m.captures[1])
+                    # While the major is 0 the minor is the breaking axis, so
+                    # compare the lineage rather than the whole string: a patch
+                    # bump is additive and must not park the release.
+                    lineage(v) = (x = VersionNumber(v); (x.major, x.minor))
+                    lineage(got) == lineage(want) || _skip_release(
+                        "skipping $tag: its binaries speak $key schema $got, this binding " *
+                        "targets $want ($const_name in src/); Artifacts.toml left untouched " *
+                        "(repin after the lockstep binding PR merges)"
+                    )
+                end
+            end
+        end
     finally
         Libdl.dlclose(handle)
     end

@@ -214,3 +214,39 @@ end
     @test all(w -> !occursin("truncated", w), uncapped)
     @test length(uncapped) == length(cut)
 end
+
+@testset "wire version contract" begin
+    # The ABI integers do not cover document formats: powerio's own policy is
+    # that new data arrives through versioned payloads rather than signature
+    # changes. So a library can pass both ABI handshakes while speaking a
+    # `.pio.json` lineage this binding cannot read — which is exactly what
+    # v0.8.0 did, with the mismatch surfacing only after release.
+    #
+    # `pio_wire_versions_json` closes that: every version the library stamps
+    # into a document is reported, and the constants mirrored here are checked
+    # against it rather than trusted.
+    if !PowerIO.library_available()
+        @test_skip "library unavailable"
+    elseif !PowerIO._exports_symbol(:pio_wire_versions_json)
+        # Older binaries have no such entry point; the ABI gate governs them,
+        # as it did before.
+        @test_skip "library predates pio_wire_versions_json"
+    else
+        lib = PowerIO._lib()
+        s = ccall(PowerIO._library_symbol(lib, :pio_wire_versions_json), Cstring, ())
+        @test s != C_NULL
+        doc = JSON3.read(PowerIO._take_string(lib, s))
+
+        @test haskey(doc, :wire_versions)
+        @test doc.abi == PowerIO.PIO_ABI_VERSION
+
+        # The one this binding mirrors as a source constant. Compare the
+        # lineage (major.minor while the major is 0) because that is the
+        # reader's own acceptance rule; a patch bump is additive.
+        if doc.package !== nothing
+            got = VersionNumber(String(doc.package))
+            want = VersionNumber(PowerIO.PIO_PACKAGE_SCHEMA_VERSION)
+            @test (got.major, got.minor) == (want.major, want.minor)
+        end
+    end
+end
