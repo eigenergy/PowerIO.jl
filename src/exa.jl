@@ -791,7 +791,7 @@ periods) and build a [`LoadSeries`](@ref). Reads the same `.Pd` / `.Qd` files a 
     `series.pd` divides twice — a silent 100x under-demand on a 100 MVA base. The model
     still solves; the answer is just wrong, with no error and no warning.
 
-    Multiply back by [`base_mva`](@ref) to feed that interface:
+    Multiply back by the series' `base_mva` field to feed that interface:
 
     ```julia
     series = read_load_series(net, "case5.Pd", "case5.Qd")
