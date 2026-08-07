@@ -199,11 +199,11 @@ function _check_abi(unpack::String, triplet::String)
         #
         # So compare the versions the library reports against the constants
         # this binding mirrors. Only checked when the library exposes
-        # `pio_wire_versions_json`; an older library skips this and is governed
+        # `pio_schema_versions_json`; an older library skips this and is governed
         # by the ABI gate alone, as before.
-        wire_sym = Libdl.dlsym(handle, :pio_wire_versions_json; throw_error=false)
-        if wire_sym !== nothing
-            ptr = ccall(wire_sym, Cstring, ())
+        schema_sym = Libdl.dlsym(handle, :pio_schema_versions_json; throw_error=false)
+        if schema_sym !== nothing
+            ptr = ccall(schema_sym, Cstring, ())
             if ptr != C_NULL
                 text = unsafe_string(ptr)
                 free = Libdl.dlsym(handle, :pio_string_free; throw_error=false)
@@ -221,7 +221,7 @@ function _check_abi(unpack::String, triplet::String)
                     want = _binding_string_const(const_name, files)
                     if want === nothing
                         _gate_note(
-                            "$tag wire-version gate: $const_name not found in src/ " *
+                            "$tag schema-version gate: $const_name not found in src/ " *
                             "($(join(files, ", "))); the $key schema check did not run"
                         )
                         continue
@@ -229,7 +229,7 @@ function _check_abi(unpack::String, triplet::String)
                     m = match(Regex("\"$(key)\"\\s*:\\s*\"([^\"]+)\""), text)
                     if m === nothing
                         _gate_note(
-                            "$tag wire-version gate: pio_wire_versions_json reports no " *
+                            "$tag schema-version gate: pio_schema_versions_json reports no " *
                             "\"$key\" string (feature absent or key reshaped); the $key " *
                             "schema check did not run"
                         )
