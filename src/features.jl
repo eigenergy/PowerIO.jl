@@ -127,7 +127,7 @@ behavior on its flag: the `bmopf_*` fidelity fixes are v0.6.2, and
 and `transformer_extras_relocation` report the v0.8 distribution work.
 
 `bmopf_schema_id` and `bmopf_schema_version` name the BMOPF schema vintage the
-library's writer targets (v0.8 changed the `\\$id` and relocated transformer
+library's writer targets (v0.8 changed the `\$id` and relocated transformer
 fields under `extras`, which is exactly what a downstream reader needs to key
 on). Both are `nothing` when the document predates them. Neither identifies a
 vintage alone — upstream serves the schema from an unpinned branch and has
