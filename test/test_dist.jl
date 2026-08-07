@@ -1,31 +1,24 @@
 @testset "distribution capabilities" begin
     caps = PowerIO.dist_capabilities()
-    @test keys(caps) == (
-        :dist,
-        :schema_version,
-        :bmopf_fixed_taps,
-        :bmopf_center_tap_leakage,
-        :bmopf_delta_wye_leakage,
-        :bmopf_delta_roll,
-        :bmopf_voltage_source_merge,
-        :bmopf_transformer_diagnostics,
-    )
+    # The shape comes from one const, so a new upstream flag is a single edit
+    # in features.jl rather than four places that can disagree.
+    @test keys(caps) == PowerIO._DIST_CAPABILITY_FIELDS
+    @test PowerIO._DIST_CAPABILITY_FIELDS ==
+          (:dist, :schema_version, PowerIO._DIST_CAPABILITY_KEYS...)
     @test caps.dist == PowerIO.dist_available()
     @test caps.schema_version === nothing || caps.schema_version isa AbstractString
-    @test caps.bmopf_fixed_taps isa Bool
-    @test caps.bmopf_center_tap_leakage isa Bool
-    @test caps.bmopf_delta_wye_leakage isa Bool
-    @test caps.bmopf_delta_roll isa Bool
-    @test caps.bmopf_voltage_source_merge isa Bool
-    @test caps.bmopf_transformer_diagnostics isa Bool
-    if PowerIO.library_available() && PowerIO.dist_available() && PowerIO.library_version() == "0.6.2"
+    for k in PowerIO._DIST_CAPABILITY_KEYS
+        @test getproperty(caps, k) isa Bool
+    end
+    # Every fidelity flag has been true since powerio v0.6.2, and the C ABI has
+    # not extended the set since. The old gate here pinned `library_version() ==
+    # "0.6.2"` and so has asserted nothing since v0.7.0; any library new enough
+    # to export the symbol reports the full set.
+    if PowerIO.library_available() && PowerIO.dist_available()
         @test caps.schema_version == "1.0.0"
-        @test caps.bmopf_fixed_taps
-        @test caps.bmopf_center_tap_leakage
-        @test caps.bmopf_delta_wye_leakage
-        @test caps.bmopf_delta_roll
-        @test caps.bmopf_voltage_source_merge
-        @test caps.bmopf_transformer_diagnostics
+        for k in PowerIO._DIST_CAPABILITY_KEYS
+            @test getproperty(caps, k)
+        end
     end
 end
 
@@ -184,7 +177,6 @@ end
             r3 = [[0.01, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.01]]
             x3 = [[0.10, 0.0, 0.0], [0.0, 0.10, 0.0], [0.0, 0.0, 0.10]]
             ready_pkg = CompilerPackage(JSON3.write((
-                schema = PowerIO.PIO_PACKAGE_SCHEMA_URL,
                 schema_version = PowerIO.PIO_PACKAGE_SCHEMA_VERSION,
                 producer = (tool = "PowerIO.jl test", version = "0"),
                 model_kind = "multiconductor",
@@ -196,12 +188,14 @@ end
                         buses = [
                             (id = "sourcebus", terminals = ["1", "2", "3"], grounded = String[],
                              v_min = nothing, v_max = nothing, vpn_min = nothing, vpn_max = nothing,
-                             vpp_min = nothing, vpp_max = nothing, vsym_min = nothing,
-                             vsym_max = nothing, extras = (;)),
+                             vpp_min = nothing, vpp_max = nothing, vpos_min = nothing,
+                             vpos_max = nothing, vneg_max = nothing, vzero_max = nothing,
+                             vn_max = nothing, extras = (;)),
                             (id = "loadbus", terminals = ["1", "2", "3"], grounded = String[],
                              v_min = nothing, v_max = nothing, vpn_min = nothing, vpn_max = nothing,
-                             vpp_min = nothing, vpp_max = nothing, vsym_min = nothing,
-                             vsym_max = nothing, extras = (;)),
+                             vpp_min = nothing, vpp_max = nothing, vpos_min = nothing,
+                             vpos_max = nothing, vneg_max = nothing, vzero_max = nothing,
+                             vn_max = nothing, extras = (;)),
                         ],
                         linecodes = [(
                             name = "lc", n_conductors = 3, r_series = r3, x_series = x3,
@@ -348,6 +342,25 @@ end
             end
             @test err === nothing || !occursin("unknown distribution format", err)
         end
+
+        # Every element table the live library counts has a Julia accessor
+        # (drift canary for `_MC_TABLE_NAMES` against `DistNetwork` in
+        # powerio-dist/src/model.rs). `counts` carries one key per table plus
+        # `warnings`, so an upstream table this binding has not grown yet shows
+        # up here as an uncovered key rather than as a silently missing
+        # accessor — which is exactly how `capacitors` slipped through v0.8.0.
+        live = PowerIO._summary(net)
+        counted = setdiff(collect(keys(live.counts)), [:warnings])
+        @test !isempty(counted)
+        @test isempty(setdiff(counted, collect(PowerIO._MC_TABLE_NAMES)))
+        # ...and every accessor resolves against a real network, so a name in
+        # the list without a method is caught too.
+        for name in PowerIO._MC_TABLE_NAMES
+            @test getproperty(net, name) !== nothing
+        end
+        # The display policy list must stay a subset of the tables themselves.
+        @test isempty(setdiff(collect(PowerIO._MC_ALWAYS_SHOWN),
+                              collect(PowerIO._MC_TABLE_NAMES)))
 
         # Cross-model requests are directed errors, both directions, and the
         # explicit BalancedNetwork marker bypasses routing to the balanced

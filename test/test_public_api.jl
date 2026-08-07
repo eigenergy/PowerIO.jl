@@ -35,6 +35,7 @@
                 :n_components, :is_radial, :bus_type_code, :warnings,
                 :buses, :generators, :branches, :loads, :shunts, :storage, :hvdc,
                 :lines, :linecodes, :switches, :transformers, :sources,
+                :ibrs, :control_profiles, :capacitors, :untyped,
                 :base_frequency,
                 :abi_version, :library_version, :library_available)
         @test isdefined(PowerIO, sym)
@@ -174,4 +175,42 @@ end
     @test_throws ErrorException PowerIO.OperatingPointSeries(ta, PowerIO.OperatingPoint[])
     @test_throws ErrorException PowerIO.operating_point_series(ta, [pt])
     @test_throws ErrorException PowerIO.materialize_operating_point_series(nothing)
+end
+
+@testset "warning buffer truncation" begin
+    # The per-call warn channel is a fixed-size buffer the library fills and
+    # cuts at a byte offset, not at a line boundary, and it returns no length.
+    # These pin the two behaviors that follow: a full-but-clean fill is not
+    # mistaken for truncation, and a truncated fill never hands back the
+    # fragment it cut. There was no coverage here before v0.8.0 made the
+    # writers chatty enough to reach the cap on ordinary cases.
+    pack(text, cap) = (buf = zeros(UInt8, cap); b = codeunits(text);
+                       copyto!(buf, 1, b, 1, min(length(b), cap - 1)); buf)
+
+    # Well under the cap: every line survives, no marker.
+    small = PowerIO._warn_lines(pack("first\nsecond\nthird", 512); capped=true)
+    @test small == ["first", "second", "third"]
+
+    # Filled to the cap mid-word: the fragment is dropped and the list is
+    # explicitly marked short, so a caller matching warning text can never
+    # match half a message.
+    cap = 64
+    long = join(("warning number $i is quite wordy" for i in 1:20), "\n")
+    cut = PowerIO._warn_lines(pack(long, cap); capped=true)
+    @test occursin("truncated at $cap bytes", last(cut))
+    @test all(w -> !occursin("truncated", w), cut[1:end-1])
+    @test all(w -> occursin("is quite wordy", w), cut[1:end-1])
+
+    # A fill that lands exactly on a newline kept a complete final line, so
+    # nothing is dropped beyond adding the marker.
+    exact = "aa\nbb\n"
+    onnl = PowerIO._warn_lines(pack(exact, ncodeunits(exact) + 1); capped=true)
+    @test onnl[1:2] == ["aa", "bb"]
+
+    # capped=false is the handle-backed channel, which sizes then fills and so
+    # cannot truncate: no marker, and the fragment is left alone rather than
+    # dropped, because on that channel a full buffer is not evidence of a cut.
+    uncapped = PowerIO._warn_lines(pack(long, cap); capped=false)
+    @test all(w -> !occursin("truncated", w), uncapped)
+    @test length(uncapped) == length(cut)
 end

@@ -240,7 +240,17 @@ const _ERRLEN = 512
 # Per-call fidelity warnings (pio_to_format / pio_convert_file / pio_write_dir)
 # can run long on a lossy conversion; give them headroom. Overflow truncates
 # silently, so `_warn_lines(capped=true)` reports a fill near the cap.
-const _WARNLEN = 4096
+#
+# 64 KiB, not the original 4 KiB: powerio v0.8 warns per element rather than
+# per network (typed capacitors dropped by the dss and PMD writers, line and
+# generator rating drops, linecode `source` drops, dangling bus and linecode
+# references, `extras` relocations), so a real feeder with a few dozen rated
+# banks overflowed 4 KiB routinely. The buffer is one allocation per call and
+# only the filled prefix is read, so the headroom is close to free. This is a
+# mitigation, not the fix: the C entry points return no length, so truncation
+# is still only detectable heuristically. A size-then-fill or length-returning
+# warning channel upstream is the real answer.
+const _WARNLEN = 65536
 
 # --- handle layer -------------------------------------------------------
 
@@ -382,8 +392,18 @@ _nonempty_lines(s::AbstractString) = String.(filter(!isempty, split(s, '\n')))
 function _warn_lines(buf::Vector{UInt8}; capped::Bool=false)
     s = _cstr(buf)
     warns = _nonempty_lines(s)
-    capped && ncodeunits(s) >= length(buf) - 4 &&
+    if capped && ncodeunits(s) >= length(buf) - 4
+        # The library cuts this fixed-size channel at a byte offset, not at a
+        # line boundary, so the last entry is a fragment unless the text
+        # happens to end on a newline. Drop it: a consumer matching warning
+        # text (BMOPFTools classifies fidelity losses by keyword) would
+        # otherwise match half a message, or miss the keyword the cut removed
+        # and silently bucket the warning as something else. Losing one
+        # already-incomplete warning is strictly better than reporting a
+        # corrupted one, and the marker below says the list is short.
+        !isempty(warns) && !endswith(s, '\n') && pop!(warns)
         push!(warns, "... warning list truncated at $(length(buf)) bytes")
+    end
     return warns
 end
 

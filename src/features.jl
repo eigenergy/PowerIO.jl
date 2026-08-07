@@ -59,6 +59,10 @@ function has_feature(feature::AbstractString)
     return probe()
 end
 
+# One BMOPF fidelity flag per entry, in the order `pio_dist_capabilities_json`
+# documents them. This tuple is the single source: the all-false default, the
+# parsed result, and the docstring field list are all derived from it, so a new
+# upstream flag is one line here and the three can never disagree.
 const _DIST_CAPABILITY_KEYS = (
     :bmopf_fixed_taps,
     :bmopf_center_tap_leakage,
@@ -68,16 +72,14 @@ const _DIST_CAPABILITY_KEYS = (
     :bmopf_transformer_diagnostics,
 )
 
-_dist_capabilities_default() = (;
-    dist = dist_available(),
-    schema_version = nothing,
-    bmopf_fixed_taps = false,
-    bmopf_center_tap_leakage = false,
-    bmopf_delta_wye_leakage = false,
-    bmopf_delta_roll = false,
-    bmopf_voltage_source_merge = false,
-    bmopf_transformer_diagnostics = false,
-)
+# The two envelope fields the capabilities JSON always carries, ahead of the flags.
+const _DIST_CAPABILITY_FIELDS = (:dist, :schema_version, _DIST_CAPABILITY_KEYS...)
+
+_dist_capabilities_default() = NamedTuple{_DIST_CAPABILITY_FIELDS}((
+    dist_available(),
+    nothing,
+    ntuple(_ -> false, length(_DIST_CAPABILITY_KEYS))...,
+))
 
 """
     dist_capabilities() -> NamedTuple
@@ -85,14 +87,22 @@ _dist_capabilities_default() = (;
 Return fine grained distribution fidelity capabilities reported by the resolved
 PowerIO C ABI.
 
-The fields are `dist`, `schema_version`, `bmopf_fixed_taps`,
-`bmopf_center_tap_leakage`, `bmopf_delta_wye_leakage`, `bmopf_delta_roll`,
-`bmopf_voltage_source_merge`, and `bmopf_transformer_diagnostics`.
+The fields are $(join(string.('`', _DIST_CAPABILITY_FIELDS, '`'), ", ", ", and ")).
 
 Older libraries that do not export `pio_dist_capabilities_json` return the same
 layout with all BMOPF fidelity flags set to `false`. Use this in downstream
 packages when deciding whether PowerIO's BMOPF export already carries a
-specific v0.6.2 fidelity fix.
+specific BMOPF fidelity fix.
+
+!!! warning
+    These flags cover only the v0.6.2 BMOPF fidelity work, and the C ABI has
+    not extended them since — every release from v0.6.2 on reports the same six
+    `true` values and the same `schema_version`. So this cannot answer "does it
+    know about typed capacitors" or "which BMOPF schema vintage does it write",
+    and gating v0.8 era behavior on it yields a false negative. For payload
+    questions read the network instead: an element table the library does not
+    populate reads as empty (`PowerIO.capacitors(net)`), which is the same
+    answer a caller needs either way.
 """
 function dist_capabilities()
     default = _dist_capabilities_default()
@@ -109,14 +119,9 @@ function dist_capabilities()
     obj = JSON3.read(text)
 
     flag(k) = Bool(get(obj, k, false))
-    return (;
-        dist = Bool(get(obj, :dist, default.dist)),
-        schema_version = get(obj, :schema_version, default.schema_version),
-        bmopf_fixed_taps = flag(:bmopf_fixed_taps),
-        bmopf_center_tap_leakage = flag(:bmopf_center_tap_leakage),
-        bmopf_delta_wye_leakage = flag(:bmopf_delta_wye_leakage),
-        bmopf_delta_roll = flag(:bmopf_delta_roll),
-        bmopf_voltage_source_merge = flag(:bmopf_voltage_source_merge),
-        bmopf_transformer_diagnostics = flag(:bmopf_transformer_diagnostics),
-    )
+    return NamedTuple{_DIST_CAPABILITY_FIELDS}((
+        Bool(get(obj, :dist, default.dist)),
+        get(obj, :schema_version, default.schema_version),
+        map(flag, _DIST_CAPABILITY_KEYS)...,
+    ))
 end

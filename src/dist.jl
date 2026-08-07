@@ -112,27 +112,45 @@ function _materialized_data(net::MulticonductorNetwork)
     return data
 end
 
+# Every element table in the multiconductor payload, in the order
+# `powerio-dist`'s `DistNetwork` declares them. This tuple is the single source
+# for `getproperty`, `propertynames`, the payload-derived summary counts, and
+# the `show` methods, so tracking a new upstream table is one entry here plus
+# its accessor. `test_dist.jl` canaries it against the counts a live library
+# reports, which is what catches an upstream table this list has not grown yet.
+const _MC_TABLE_NAMES = (:buses, :linecodes, :lines, :switches, :transformers, :loads,
+                         :generators, :ibrs, :control_profiles, :shunts, :capacitors,
+                         :sources, :untyped)
+
+# The writer skips a table it has no elements for, so "this case has no
+# capacitors" and "this library predates typed capacitors" both arrive as a
+# missing key — and to a caller iterating the table they mean the same thing.
+# Reading `net.data.capacitors` directly would instead throw on almost every
+# network. The empty stand-in is built per miss rather than held in a `const`
+# so nothing JSON3-backed has to survive precompilation.
+_mc_table(net::MulticonductorNetwork, name::Symbol) =
+    (data = net.data; haskey(data, name) ? getproperty(data, name) : JSON3.read("[]"))
+
+const _MC_SCALARS = (:name, :source_format, :warnings, :base_frequency)
+
+# `show` lists these unconditionally, so its output is stable across cases; the
+# remaining tables print only when non-empty. A display policy, not a second
+# copy of the table list — it is checked against `_MC_TABLE_NAMES` in the tests.
+const _MC_ALWAYS_SHOWN = (:buses, :linecodes, :lines, :switches, :transformers,
+                          :loads, :generators, :shunts, :sources)
+
 function Base.getproperty(net::MulticonductorNetwork, name::Symbol)
     name === :data && return _materialized_data(net)
     name === :name && return network_name(net)
     name === :source_format && return source_format(net)
     name === :warnings && return warnings(net)
     name === :base_frequency && return base_frequency(net)
-    name === :buses && return buses(net)
-    name === :linecodes && return linecodes(net)
-    name === :lines && return lines(net)
-    name === :switches && return switches(net)
-    name === :transformers && return transformers(net)
-    name === :loads && return loads(net)
-    name === :generators && return generators(net)
-    name === :shunts && return shunts(net)
-    name === :sources && return sources(net)
+    name in _MC_TABLE_NAMES && return _mc_table(net, name)
     return getfield(net, name)
 end
 
 function Base.propertynames(::MulticonductorNetwork, private::Bool=false)
-    public = (:name, :source_format, :warnings, :base_frequency, :buses, :linecodes, :lines,
-              :switches, :transformers, :loads, :generators, :shunts, :sources, :data)
+    public = (_MC_SCALARS..., _MC_TABLE_NAMES..., :data)
     return private ? (public..., :handle, :summary) : public
 end
 
@@ -277,21 +295,10 @@ _dist_payload_len(data::JSON3.Object, key::Symbol) =
     haskey(data, key) ? length(getproperty(data, key)) : 0
 
 function _summary_from_data(data::JSON3.Object, ::Type{MulticonductorNetwork})
-    counts = (;
-        buses = _dist_payload_len(data, :buses),
-        linecodes = _dist_payload_len(data, :linecodes),
-        lines = _dist_payload_len(data, :lines),
-        switches = _dist_payload_len(data, :switches),
-        transformers = _dist_payload_len(data, :transformers),
-        loads = _dist_payload_len(data, :loads),
-        generators = _dist_payload_len(data, :generators),
-        ibrs = _dist_payload_len(data, :ibrs),
-        control_profiles = _dist_payload_len(data, :control_profiles),
-        shunts = _dist_payload_len(data, :shunts),
-        sources = _dist_payload_len(data, :sources),
-        untyped = _dist_payload_len(data, :untyped),
-        warnings = _dist_payload_len(data, :warnings),
-    )
+    counts = NamedTuple{(_MC_TABLE_NAMES..., :warnings)}((
+        map(name -> _dist_payload_len(data, name), _MC_TABLE_NAMES)...,
+        _dist_payload_len(data, :warnings),
+    ))
     return JSON3.read(JSON3.write((;
         schema_version = 1,
         name = _payload_value(data, :name, ""),
@@ -398,23 +405,36 @@ end
 n_buses(net::MulticonductorNetwork) = Int(_summary(net).counts.buses)
 
 "Buses, in source order: string ids, ordered `terminals`, explicit `grounded` terminals."
-buses(net::MulticonductorNetwork) = net.data.buses
-"Lines (conductor-level), each with `terminal_map_from` / `terminal_map_to` and a `linecode`."
-lines(net::MulticonductorNetwork) = net.data.lines
-"Line codes: per-unit-length impedance and shunt matrices, row-major, SI."
-linecodes(net::MulticonductorNetwork) = net.data.linecodes
+buses(net::MulticonductorNetwork) = _mc_table(net, :buses)
+"Lines (conductor-level), each with `terminal_map_from` / `terminal_map_to` and a `linecode`. Optional per-conductor `i_max` (A) and `s_max` (VA) override the linecode's ratings."
+lines(net::MulticonductorNetwork) = _mc_table(net, :lines)
+"Line codes: per-unit-length impedance and shunt matrices, row-major, SI. Optional `source` names the matrix provenance."
+linecodes(net::MulticonductorNetwork) = _mc_table(net, :linecodes)
 "Switches, with the same terminal maps as lines."
-switches(net::MulticonductorNetwork) = net.data.switches
+switches(net::MulticonductorNetwork) = _mc_table(net, :switches)
 "Transformers: windings with terminal maps, connection kinds, and impedances."
-transformers(net::MulticonductorNetwork) = net.data.transformers
+transformers(net::MulticonductorNetwork) = _mc_table(net, :transformers)
 "Loads, each with a `terminal_map` and a voltage model."
-loads(net::MulticonductorNetwork) = net.data.loads
-"Generators, each with a `terminal_map`."
-generators(net::MulticonductorNetwork) = net.data.generators
+loads(net::MulticonductorNetwork) = _mc_table(net, :loads)
+"Generators, each with a `terminal_map` and optional per-conductor `s_max` (VA) / `i_max` (A)."
+generators(net::MulticonductorNetwork) = _mc_table(net, :generators)
+"Inverter-based resources, each with a `terminal_map`. Empty unless the source case carries them."
+ibrs(net::MulticonductorNetwork) = _mc_table(net, :ibrs)
+"Control profiles attached to controllable elements. Empty unless the source case carries them."
+control_profiles(net::MulticonductorNetwork) = _mc_table(net, :control_profiles)
 "Shunts, each with a `terminal_map` and conductance/susceptance matrices."
-shunts(net::MulticonductorNetwork) = net.data.shunts
+shunts(net::MulticonductorNetwork) = _mc_table(net, :shunts)
+"""
+Rated capacitor banks: nameplate `q_rated` (var) and `v_nom` (V), distinct from a
+`shunts` raw admittance. powerio v0.8 and newer; empty against an older library or
+a case with none. The dss and PMD writers drop these with a fidelity warning, and
+lowering to balanced drops them too — a rated bank has no balanced shunt equivalent.
+"""
+capacitors(net::MulticonductorNetwork) = _mc_table(net, :capacitors)
 "Voltage sources, each with a `terminal_map` and per-terminal magnitude/angle."
-sources(net::MulticonductorNetwork) = net.data.sources
+sources(net::MulticonductorNetwork) = _mc_table(net, :sources)
+"Elements the reader kept verbatim because they have no typed slot."
+untyped(net::MulticonductorNetwork) = _mc_table(net, :untyped)
 
 """
     base_frequency(net::MulticonductorNetwork) -> Float64

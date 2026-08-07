@@ -63,8 +63,11 @@ function Base.show(io::IO, ::MIME"text/plain", net::MulticonductorNetwork)
     println(io, "MulticonductorNetwork{", _display_source(summary), "}")
     _display_line(io, "name", _display_name(summary))
     _display_line(io, "base_frequency", string(Float64(summary.base_frequency), " Hz"))
-    for field in (:buses, :linecodes, :lines, :switches, :transformers, :loads,
-                  :generators, :shunts, :sources)
+    for field in _MC_TABLE_NAMES
+        # The core tables print even at zero; the rest (typed capacitors, IBRs,
+        # control profiles, untyped leftovers) only when the case has some, so a
+        # typical feeder does not grow four zero rows.
+        (field in _MC_ALWAYS_SHOWN || _display_count(summary, field) > 0) || continue
         _display_line(io, String(field), _display_count(summary, field))
     end
     _display_line(io, "warnings", _display_count(summary, :warnings))

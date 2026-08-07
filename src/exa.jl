@@ -782,8 +782,26 @@ end
     read_load_series(net::BalancedNetwork, pd_path, qd_path; T=Float64)
 
 Read two whitespace-delimited MW load matrices (rows = buses in `net`'s order, columns =
-periods) and build a [`LoadSeries`](@ref). Replaces a raw `readdlm` of the `.Pd` / `.Qd`
-files with a dimension-checked, per-unitized, bus-aligned series.
+periods) and build a [`LoadSeries`](@ref). Reads the same `.Pd` / `.Qd` files a raw
+`readdlm` would, but dimension-checked, bus-aligned, and **converted to per unit**.
+
+!!! danger "Do not pass these straight to `mpopf_model`"
+    The files hold **MW**; a `LoadSeries` holds **per unit**. `ExaModelsPower.mpopf_model`
+    takes its `pd` / `qd` keywords in MW and divides by `baseMVA` itself, so handing it
+    `series.pd` divides twice — a silent 100x under-demand on a 100 MVA base. The model
+    still solves; the answer is just wrong, with no error and no warning.
+
+    Multiply back by [`base_mva`](@ref) to feed that interface:
+
+    ```julia
+    series = read_load_series(net, "case5.Pd", "case5.Qd")
+    mpopf_model("case5.m", "", ""; pd = series.pd .* series.base_mva,
+                qd = series.qd .* series.base_mva, N = n_periods(series))
+    ```
+
+    Per unit is the right convention for a PowerIO series — it matches
+    [`to_normalized`](@ref) and every other numeric surface here — so the conversion
+    belongs at the boundary, not in this function.
 """
 function read_load_series(net::BalancedNetwork, pd_path::AbstractString,
                           qd_path::AbstractString; T::Type{<:Real}=Float64)
