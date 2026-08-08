@@ -112,9 +112,14 @@ function _check_schema_versions(handle, tag::String)
         "checks cannot run; Artifacts.toml left untouched"
     )
     text = unsafe_string(ptr)
+    # `pio_string_free` ships together with `pio_schema_versions_json`, so the
+    # guard's leak path is unreachable in practice; it keeps a hypothetical
+    # report-only build from crashing the gate.
     free === nothing || ccall(free, Cvoid, (Cstring,), ptr)
     # Textual parse: this script runs before package instantiation, so it
-    # cannot use JSON3.
+    # cannot use JSON3. The report is a flat object (one "package" and one
+    # "arrow" string, per the powerio-capi contract), so first-match regexes
+    # cannot land on a nested key.
     for (key, want) in (("package", PIO_PACKAGE_SCHEMA_VERSION),
                         ("arrow", PIO_ARROW_SCHEMA_VERSION))
         m = match(Regex("\"$(key)\"\\s*:\\s*\"([^\"]+)\""), text)
