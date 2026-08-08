@@ -1,31 +1,27 @@
 @testset "distribution capabilities" begin
     caps = PowerIO.dist_capabilities()
-    @test keys(caps) == (
-        :dist,
-        :schema_version,
-        :bmopf_fixed_taps,
-        :bmopf_center_tap_leakage,
-        :bmopf_delta_wye_leakage,
-        :bmopf_delta_roll,
-        :bmopf_voltage_source_merge,
-        :bmopf_transformer_diagnostics,
-    )
+    @test keys(caps) == PowerIO._DIST_CAPABILITY_FIELDS
     @test caps.dist == PowerIO.dist_available()
     @test caps.schema_version === nothing || caps.schema_version isa AbstractString
-    @test caps.bmopf_fixed_taps isa Bool
-    @test caps.bmopf_center_tap_leakage isa Bool
-    @test caps.bmopf_delta_wye_leakage isa Bool
-    @test caps.bmopf_delta_roll isa Bool
-    @test caps.bmopf_voltage_source_merge isa Bool
-    @test caps.bmopf_transformer_diagnostics isa Bool
-    if PowerIO.library_available() && PowerIO.dist_available() && PowerIO.library_version() == "0.6.2"
-        @test caps.schema_version == "1.0.0"
-        @test caps.bmopf_fixed_taps
-        @test caps.bmopf_center_tap_leakage
-        @test caps.bmopf_delta_wye_leakage
-        @test caps.bmopf_delta_roll
-        @test caps.bmopf_voltage_source_merge
-        @test caps.bmopf_transformer_diagnostics
+    for k in (PowerIO._DIST_CAPABILITY_KEYS..., PowerIO._DIST_CAPABILITY_V08_KEYS...)
+        @test getproperty(caps, k) isa Bool
+    end
+    @test caps.bmopf_schema_id === nothing || caps.bmopf_schema_id isa AbstractString
+    @test caps.bmopf_schema_version === nothing ||
+          caps.bmopf_schema_version isa AbstractString
+    # Gate on the symbol: dist-capable v0.3.1-v0.6.1 libraries predate
+    # `pio_dist_capabilities_json` and return the all-false default.
+    if PowerIO.library_available() && PowerIO.dist_available() &&
+       PowerIO._exports_symbol(:pio_dist_capabilities_json)
+        # The capability document is additive; do not pin the exact version.
+        # The `isa` guard turns a document without `schema_version` into a
+        # clean failure instead of a `VersionNumber(nothing)` test error.
+        @test caps.schema_version isa AbstractString &&
+              VersionNumber(caps.schema_version) >= v"1.0.0"
+        for k in PowerIO._DIST_CAPABILITY_KEYS
+            @test getproperty(caps, k)
+        end
+        # Do not require the v0.8 flags; older documents report them false.
     end
 end
 
@@ -52,12 +48,18 @@ end
         New Circuit.c basekv=12.47
         New Transformer.t phases=3 windings=2 buses=[source.1.2.3 load.1.2.3] conns=[wye wye] kvs=[12.47 0.48] kvas=[500 500] xhl=5 taps=[1.025 1.0]
         """)
-        # Schema 0.1.0 has no tap slot; powerio keeps taps under the
-        # extras escape hatch (extras.transformer.<subtype>.<name>).
-        t1 = tap_doc["extras"]["transformer"]["single_phase"]["t_1"]
+        # Schema 0.1.0 has no tap slot. A 0.8-era writer relocates taps to
+        # the extras escape hatch (extras.transformer.<subtype>.<name>); a
+        # 0.7-era writer keeps them on the subtype object. The fidelity
+        # gate is home-independent: the tap survives with its value, and no
+        # tap bounds are fabricated in either home.
+        typed = tap_doc["transformer"]["single_phase"]["t_1"]
+        overflow = get(get(get(tap_doc, "extras", Dict()), "transformer", Dict()),
+                       "single_phase", Dict())
+        t1 = haskey(overflow, "t_1") ? overflow["t_1"] : typed
         @test t1["tap"] == 1.025
-        @test !haskey(t1, "tap_min")
-        @test !haskey(t1, "tap_max")
+        @test !haskey(t1, "tap_min") && !haskey(typed, "tap_min")
+        @test !haskey(t1, "tap_max") && !haskey(typed, "tap_max")
         @test !any(w -> occursin("tap", lowercase(w)) && occursin("dropped", lowercase(w)), tap_w)
 
         ct_doc, _ = _bmopf_doc_from_dss("""
@@ -74,12 +76,16 @@ end
         New Transformer.dw phases=3 windings=2 buses=[source.1.2.3 load.1.2.3.4] conns=[delta wye] kvs=[12.47 0.48] kvas=[500 500] xhl=5
         """)
         # Schema 0.1.0 three phase transformers carry one lumped pair on
-        # the wye base; the split _from/_to fields lost their slots.
+        # the wye base (a 0.8-era writer); a 0.7-era writer still emits the
+        # split _from/_to fields. The fidelity gate is shape-independent:
+        # the leakage survives as positive series impedance in exactly one
+        # of the two shapes, with no leakage warning.
         dw = dw_doc["transformer"]["delta_wye"]["dw"]
-        @test dw["x_series"] > 0
-        @test dw["r_series"] > 0
-        @test !haskey(dw, "x_series_from")
-        @test !haskey(dw, "r_series_from")
+        lumped = haskey(dw, "x_series")
+        @test lumped ? dw["x_series"] > 0 : dw["x_series_to"] > 0
+        @test lumped ? dw["r_series"] > 0 : dw["r_series_to"] > 0
+        @test lumped == !haskey(dw, "x_series_from")
+        @test lumped == !haskey(dw, "r_series_from")
         @test !any(w -> occursin("delta_wye", lowercase(w)) ||
                          occursin("leakage", lowercase(w)), dw_w)
 
@@ -183,9 +189,12 @@ end
             z3 = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
             r3 = [[0.01, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.01]]
             x3 = [[0.10, 0.0, 0.0], [0.0, 0.10, 0.0], [0.0, 0.0, 0.10]]
+            # Stamp the package schema the loaded library speaks, so the
+            # fixture survives version skew in both directions; the binding
+            # constant covers a library that predates the report.
             ready_pkg = CompilerPackage(JSON3.write((
-                schema = PowerIO.PIO_PACKAGE_SCHEMA_URL,
-                schema_version = PowerIO.PIO_PACKAGE_SCHEMA_VERSION,
+                schema_version = something(schema_versions().package,
+                                           PowerIO.PIO_PACKAGE_SCHEMA_VERSION),
                 producer = (tool = "PowerIO.jl test", version = "0"),
                 model_kind = "multiconductor",
                 model = (
@@ -196,12 +205,14 @@ end
                         buses = [
                             (id = "sourcebus", terminals = ["1", "2", "3"], grounded = String[],
                              v_min = nothing, v_max = nothing, vpn_min = nothing, vpn_max = nothing,
-                             vpp_min = nothing, vpp_max = nothing, vsym_min = nothing,
-                             vsym_max = nothing, extras = (;)),
+                             vpp_min = nothing, vpp_max = nothing, vpos_min = nothing,
+                             vpos_max = nothing, vneg_max = nothing, vzero_max = nothing,
+                             vn_max = nothing, extras = (;)),
                             (id = "loadbus", terminals = ["1", "2", "3"], grounded = String[],
                              v_min = nothing, v_max = nothing, vpn_min = nothing, vpn_max = nothing,
-                             vpp_min = nothing, vpp_max = nothing, vsym_min = nothing,
-                             vsym_max = nothing, extras = (;)),
+                             vpp_min = nothing, vpp_max = nothing, vpos_min = nothing,
+                             vpos_max = nothing, vneg_max = nothing, vzero_max = nothing,
+                             vn_max = nothing, extras = (;)),
                         ],
                         linecodes = [(
                             name = "lc", n_conductors = 3, r_series = r3, x_series = x3,
@@ -348,6 +359,26 @@ end
             end
             @test err === nothing || !occursin("unknown distribution format", err)
         end
+
+        # Every table the live library counts must appear in
+        # `_MC_TABLE_NAMES` (drift canary against upstream `DistNetwork`).
+        live = PowerIO._summary(net)
+        counted = setdiff(collect(keys(live.counts)), [:warnings])
+        @test !isempty(counted)
+        @test isempty(setdiff(counted, collect(PowerIO._MC_TABLE_NAMES)))
+        # Every accessor must return a countable table that agrees with the
+        # live summary, so a renamed or typo'd tuple entry cannot hide
+        # behind the missing-key empty fallback.
+        for name in PowerIO._MC_TABLE_NAMES
+            table = getproperty(net, name)
+            @test table isa Union{JSON3.Array,Tuple{}}
+            if haskey(live.counts, name)
+                @test length(table) == Int(live.counts[name])
+            end
+        end
+        # The display policy list must stay a subset of the tables themselves.
+        @test isempty(setdiff(collect(PowerIO._MC_ALWAYS_SHOWN),
+                              collect(PowerIO._MC_TABLE_NAMES)))
 
         # Cross-model requests are directed errors, both directions, and the
         # explicit BalancedNetwork marker bypasses routing to the balanced

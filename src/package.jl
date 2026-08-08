@@ -1,7 +1,7 @@
 # `.pio.json` network package envelope over the `pio_package_*` C ABI.
+# schema_lineage.jl carries `PIO_PACKAGE_SCHEMA_VERSION` and the lineage rule.
 
-const PIO_PACKAGE_SCHEMA_URL = "https://powerio.dev/schema/pio-package/0.1"
-const PIO_PACKAGE_SCHEMA_VERSION = "0.1.1"
+include("schema_lineage.jl")
 
 """
     NetworkPackage

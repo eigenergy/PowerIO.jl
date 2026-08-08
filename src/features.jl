@@ -59,6 +59,7 @@ function has_feature(feature::AbstractString)
     return probe()
 end
 
+# One flag per entry, in `pio_dist_capabilities_json` document order.
 const _DIST_CAPABILITY_KEYS = (
     :bmopf_fixed_taps,
     :bmopf_center_tap_leakage,
@@ -68,16 +69,36 @@ const _DIST_CAPABILITY_KEYS = (
     :bmopf_transformer_diagnostics,
 )
 
-_dist_capabilities_default() = (;
-    dist = dist_available(),
-    schema_version = nothing,
-    bmopf_fixed_taps = false,
-    bmopf_center_tap_leakage = false,
-    bmopf_delta_wye_leakage = false,
-    bmopf_delta_roll = false,
-    bmopf_voltage_source_merge = false,
-    bmopf_transformer_diagnostics = false,
+# Added in capability document 1.1.0; an older document reads as `false`.
+const _DIST_CAPABILITY_V08_KEYS = (
+    :typed_capacitors,
+    :line_and_generator_ratings,
+    :per_sequence_bus_bounds,
+    :transformer_extras_relocation,
 )
+
+# The full documented shape: envelope, flags, then the BMOPF vintage strings
+# (`nothing` when the document predates capability version 1.1.0).
+const _DIST_CAPABILITY_FIELDS = (:dist, :schema_version,
+                                 _DIST_CAPABILITY_KEYS...,
+                                 _DIST_CAPABILITY_V08_KEYS...,
+                                 :bmopf_schema_id, :bmopf_schema_version)
+
+function _dist_capabilities_from(obj)
+    # A flag is set only by JSON `true`; null, absence, and a reshaped
+    # value all read as `false`, so the probe never throws on a document.
+    flag(k) = get(obj, k, false) === true
+    return NamedTuple{_DIST_CAPABILITY_FIELDS}((
+        haskey(obj, :dist) ? obj.dist === true : dist_available(),
+        get(obj, :schema_version, nothing),
+        map(flag, _DIST_CAPABILITY_KEYS)...,
+        map(flag, _DIST_CAPABILITY_V08_KEYS)...,
+        get(obj, :bmopf_schema_id, nothing),
+        get(obj, :bmopf_schema_version, nothing),
+    ))
+end
+
+_dist_capabilities_default() = _dist_capabilities_from((;))
 
 """
     dist_capabilities() -> NamedTuple
@@ -85,19 +106,20 @@ _dist_capabilities_default() = (;
 Return fine grained distribution fidelity capabilities reported by the resolved
 PowerIO C ABI.
 
-The fields are `dist`, `schema_version`, `bmopf_fixed_taps`,
-`bmopf_center_tap_leakage`, `bmopf_delta_wye_leakage`, `bmopf_delta_roll`,
-`bmopf_voltage_source_merge`, and `bmopf_transformer_diagnostics`.
+The fields are $(join(string.('`', _DIST_CAPABILITY_FIELDS, '`'), ", ", ", and ")).
 
-Older libraries that do not export `pio_dist_capabilities_json` return the same
-layout with all BMOPF fidelity flags set to `false`. Use this in downstream
-packages when deciding whether PowerIO's BMOPF export already carries a
-specific v0.6.2 fidelity fix.
+A library that does not export `pio_dist_capabilities_json` reports every
+flag `false` and every string `nothing`. A capability document that predates
+a flag reports the same `false`. A `false` flag means the library does not
+report the capability; a missing entry never raises an error.
+
+`bmopf_schema_id` and `bmopf_schema_version` name the BMOPF schema vintage
+the library's writer targets. Both are `nothing` when the document predates
+them. Neither identifies a vintage alone; use them together.
 """
 function dist_capabilities()
-    default = _dist_capabilities_default()
     lib = _lib()
-    _exports_symbol(:pio_dist_capabilities_json, lib) || return default
+    _exports_symbol(:pio_dist_capabilities_json, lib) || return _dist_capabilities_default()
     _ensure_dist_compatible(lib)
     s = try
         ccall(_library_symbol(lib, :pio_dist_capabilities_json), Cstring, ())
@@ -105,18 +127,31 @@ function dist_capabilities()
         _feature_call_error("dist_capabilities", "pio_dist_capabilities_json", "dist", e)
     end
     s == C_NULL && error("PowerIO.dist_capabilities: pio_dist_capabilities_json returned null")
-    text = _take_string(lib, s)
-    obj = JSON3.read(text)
+    return _dist_capabilities_from(JSON3.read(_take_string(lib, s)))
+end
 
-    flag(k) = Bool(get(obj, k, false))
-    return (;
-        dist = Bool(get(obj, :dist, default.dist)),
-        schema_version = get(obj, :schema_version, default.schema_version),
-        bmopf_fixed_taps = flag(:bmopf_fixed_taps),
-        bmopf_center_tap_leakage = flag(:bmopf_center_tap_leakage),
-        bmopf_delta_wye_leakage = flag(:bmopf_delta_wye_leakage),
-        bmopf_delta_roll = flag(:bmopf_delta_roll),
-        bmopf_voltage_source_merge = flag(:bmopf_voltage_source_merge),
-        bmopf_transformer_diagnostics = flag(:bmopf_transformer_diagnostics),
-    )
+const _SCHEMA_VERSION_FIELDS = (:schema_version, :abi, :package, :arrow)
+
+"""
+    schema_versions() -> NamedTuple
+
+Return the document-format versions the resolved library reports through
+`pio_schema_versions_json` (powerio v0.8).
+
+The fields are `schema_version`, `abi`, `package`, and `arrow`. `package` and
+`arrow` name the `.pio.json` envelope and Arrow schema lineages the library
+speaks; this binding targets `PIO_PACKAGE_SCHEMA_VERSION` and
+`PIO_ARROW_SCHEMA_VERSION`. A field the document does not carry is `nothing`.
+A library without the entry point reports every field `nothing`; a missing
+report never raises an error.
+"""
+function schema_versions()
+    lib = _lib()
+    _exports_symbol(:pio_schema_versions_json, lib) ||
+        return NamedTuple{_SCHEMA_VERSION_FIELDS}((nothing, nothing, nothing, nothing))
+    _ensure_compatible(lib)
+    s = ccall(_library_symbol(lib, :pio_schema_versions_json), Cstring, ())
+    s == C_NULL && error("PowerIO.schema_versions: pio_schema_versions_json returned null")
+    obj = JSON3.read(_take_string(lib, s))
+    return NamedTuple{_SCHEMA_VERSION_FIELDS}(map(k -> get(obj, k, nothing), _SCHEMA_VERSION_FIELDS))
 end

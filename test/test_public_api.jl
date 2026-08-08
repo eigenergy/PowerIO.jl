@@ -9,7 +9,7 @@
                 :write_pypsa_csv_folder,
                 :to_powermodels, :from_powermodels, :to_powerdata,
                 :parse_ac_power_data, :LoadSeries, :read_load_series, :n_periods,
-                :read_gridfm, :read_gridfm_scenarios,
+                :demands_mw, :read_gridfm, :read_gridfm_scenarios,
                 :parse_goc3_json, :goc3_scopf_data, :ScopfInstance,
                 :goc3_status_flags, :goc3_add_status_flags!, :goc3_interval_bounds,
                 :parse_scopf, :scopf_available,
@@ -21,7 +21,7 @@
                 :multiconductor_to_balanced_preflight,
                 :lower_multiconductor_to_balanced,
                 :arrow_available, :gridfm_available, :matrix_available, :features,
-                :has_feature, :arrow_catalog,
+                :has_feature, :schema_versions, :arrow_catalog,
                 :MulticonductorNetwork, :dist_available, :dist_abi_version,
                 :dist_capabilities, :to_graph)
         @test isdefined(PowerIO, sym)
@@ -35,6 +35,7 @@
                 :n_components, :is_radial, :bus_type_code, :warnings,
                 :buses, :generators, :branches, :loads, :shunts, :storage, :hvdc,
                 :lines, :linecodes, :switches, :transformers, :sources,
+                :ibrs, :control_profiles, :capacitors, :untyped,
                 :base_frequency,
                 :abi_version, :library_version, :library_available)
         @test isdefined(PowerIO, sym)
@@ -174,4 +175,80 @@ end
     @test_throws ErrorException PowerIO.OperatingPointSeries(ta, PowerIO.OperatingPoint[])
     @test_throws ErrorException PowerIO.operating_point_series(ta, [pt])
     @test_throws ErrorException PowerIO.materialize_operating_point_series(nothing)
+end
+
+@testset "warning buffer truncation" begin
+    # The warn channel is cut at a byte offset and returns no length, so a
+    # near-cap fill only signals possible truncation. These tests pin the
+    # response: keep every line, append a marker.
+    pack(text, cap) = (buf = zeros(UInt8, cap); b = codeunits(text);
+                       copyto!(buf, 1, b, 1, min(length(b), cap - 1)); buf)
+    marker(w) = occursin("may be truncated", w)
+
+    # Well under the cap: every line survives, no marker.
+    small = PowerIO._warn_lines(pack("first\nsecond\nthird", 512); capped=true)
+    @test small == ["first", "second", "third"]
+
+    # Filled to the cap mid-word: keep every line, and the marker names the cap.
+    # Each fixture line is 31 bytes, so the 59-byte write ends inside line 2.
+    cap = 60
+    long = join(("warning number $i is quite wordy" for i in 1:20), "\n")
+    cut = PowerIO._warn_lines(pack(long, cap); capped=true)
+    @test marker(last(cut))
+    @test occursin("$cap bytes", last(cut))
+    @test all(!marker, cut[1:end-1])
+    @test startswith(first(cut), "warning number 1")
+    # The partial last line the C side wrote comes through verbatim.
+    written = long[1:cap-1]
+    @test endswith(written, "quite w")
+    @test cut[end-1] == last(PowerIO._nonempty_lines(written))
+
+    # A complete fill in the near-cap band also gets the marker; keep all lines.
+    snug = "aa\nbb"
+    band = PowerIO._warn_lines(pack(snug, ncodeunits(snug) + 1); capped=true)
+    @test band[1:2] == ["aa", "bb"]
+    @test marker(last(band))
+
+    # capped=false is the handle-backed channel, which sizes then fills and so
+    # cannot truncate: same lines, no marker.
+    uncapped = PowerIO._warn_lines(pack(long, cap); capped=false)
+    @test uncapped == cut[1:end-1]
+end
+
+@testset "schema version contract" begin
+    # The ABI integers do not cover document formats. Check the versions
+    # the library reports against the mirrored constants.
+    if !PowerIO.library_available()
+        @test_skip "library unavailable"
+    elseif !PowerIO._exports_symbol(:pio_schema_versions_json)
+        # Older binaries lack the entry point; the ABI gate governs them.
+        @test_skip "library predates pio_schema_versions_json"
+    else
+        lib = PowerIO._lib()
+        s = ccall(PowerIO._library_symbol(lib, :pio_schema_versions_json), Cstring, ())
+        @test s != C_NULL
+        if s != C_NULL
+            doc = JSON3.read(PowerIO._take_string(lib, s))
+
+            @test haskey(doc, :schema_version)
+            @test doc.abi == PowerIO.PIO_ABI_VERSION
+
+            package = get(doc, :package, nothing)
+            if package !== nothing
+                @test PowerIO._same_schema_lineage(package,
+                                                   PowerIO.PIO_PACKAGE_SCHEMA_VERSION)
+            end
+            arrow = get(doc, :arrow, nothing)
+            if arrow !== nothing
+                @test PowerIO._same_schema_lineage(arrow,
+                                                   PowerIO.PIO_ARROW_SCHEMA_VERSION)
+            end
+
+            # The exported probe reads the same document.
+            sv = schema_versions()
+            @test sv.schema_version == doc.schema_version
+            @test sv.abi == doc.abi
+            @test sv.package == package && sv.arrow == arrow
+        end
+    end
 end

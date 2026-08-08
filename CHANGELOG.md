@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.8.0
+
+Tracks the powerio v0.8 document surface: the `.pio.json` envelope moves to
+schema 0.2.0 and the distribution capability document to 1.1.0. Breaking for
+the Julia API: `PIO_PACKAGE_SCHEMA_URL` is removed, `dist_capabilities()`
+reports a wider layout, and the warning truncation marker text changed.
+Binaries stay pinned to powerio v0.7.3 until the automated repin; the test
+suite passes against both vintages.
+
+- `dist_capabilities()` reports the powerio v0.8 flags (`typed_capacitors`,
+  `line_and_generator_ratings`, `per_sequence_bus_bounds`,
+  `transformer_extras_relocation`) and the writer's BMOPF schema vintage
+  (`bmopf_schema_id`, `bmopf_schema_version`). The probe never throws on a
+  document entry: a null or reshaped flag reads as `false`. Breaking: the
+  NamedTuple grows from 8 to 14 fields.
+- New `MulticonductorNetwork` tables: `ibrs`, `control_profiles`,
+  `capacitors` (powerio v0.8 typed banks), and `untyped`, as accessors and
+  properties. The writer omits the first three when empty, so a missing key
+  reads as an empty table; a missing always-serialized table still raises
+  `KeyError`, so a wrong-shaped document fails loudly.
+- New exported `schema_versions()`: the document-format lineages the library
+  reports through `pio_schema_versions_json` (powerio v0.8).
+  `PIO_PACKAGE_SCHEMA_VERSION` is now `"0.2.0"`, and the release gate parks
+  a repin whose binaries report a different package or Arrow lineage.
+- New exported `demands_mw(series)`: the `LoadSeries` matrices rescaled to
+  MW for interfaces that divide by `baseMVA` themselves, such as
+  `ExaModelsPower.mpopf_model`.
+- The per-call warning buffer grows from 4 KiB to 64 KiB and is no longer
+  zero filled; a near-cap fill appends a marker and keeps every line,
+  including a partially cut last line. Breaking: the marker text is now
+  "warning list may be truncated". `to_matpower` skips the warn channel
+  whose output it always discarded.
+- Removed `PIO_PACKAGE_SCHEMA_URL` (breaking): the envelope no longer
+  carries a schema URL; `schema_versions()` and the version constants cover
+  lineage checks.
+
 ## 0.7.3
 
 Tracks powerio v0.7.3, keeping core C ABI v4 and distribution C ABI v1.

@@ -35,6 +35,11 @@ end
         @test s.pd[:, 2] ≈ 1.1 .* base_pd atol = 1e-10
         @test s.qd[:, 3] ≈ 0.9 .* base_qd atol = 1e-10
 
+        # demands_mw inverts the per-unit conversion for MW interfaces
+        mw = demands_mw(s)
+        @test mw.pd ≈ pd_mw atol = 1e-8
+        @test mw.qd ≈ qd_mw atol = 1e-8
+
         # the curve constructor is the same series, and scales loads only
         sc = PowerIO.LoadSeries(net, mult)
         @test sc.pd ≈ s.pd

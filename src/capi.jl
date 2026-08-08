@@ -237,10 +237,19 @@ function _classify_family(text::AbstractString)
 end
 
 const _ERRLEN = 512
-# Per-call fidelity warnings (pio_to_format / pio_convert_file / pio_write_dir)
-# can run long on a lossy conversion; give them headroom. Overflow truncates
-# silently, so `_warn_lines(capped=true)` reports a fill near the cap.
-const _WARNLEN = 4096
+# Fidelity warnings come per element, so one feeder can pass 4 KiB. The C
+# entry points return no length; overflow truncates silently, and
+# `_warn_lines(capped=true)` reports a fill near the cap.
+const _WARNLEN = 65536
+
+# The per-call warn buffer, sized but not zero filled: the C side writes the
+# joined text plus NUL on success, and the buffer is only read after success.
+# The leading NUL keeps `_cstr` safe on a path that reads it untouched.
+function _warnbuf()
+    buf = Vector{UInt8}(undef, _WARNLEN)
+    buf[1] = 0x00
+    return buf
+end
 
 # --- handle layer -------------------------------------------------------
 
@@ -382,8 +391,12 @@ _nonempty_lines(s::AbstractString) = String.(filter(!isempty, split(s, '\n')))
 function _warn_lines(buf::Vector{UInt8}; capped::Bool=false)
     s = _cstr(buf)
     warns = _nonempty_lines(s)
+    # The library cuts at a byte offset and returns no length, so a
+    # near-cap fill only signals possible truncation. Keep every line and
+    # mark that the last entry may be cut.
     capped && ncodeunits(s) >= length(buf) - 4 &&
-        push!(warns, "... warning list truncated at $(length(buf)) bytes")
+        push!(warns, "... warning list may be truncated at $(length(buf)) bytes; " *
+                     "the entry before this one may be cut short")
     return warns
 end
 

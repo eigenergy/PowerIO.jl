@@ -668,6 +668,16 @@ Number of periods in a [`LoadSeries`](@ref).
 n_periods(s::LoadSeries) = size(s.pd, 2)
 n_buses(s::LoadSeries) = size(s.pd, 1)
 
+"""
+    demands_mw(series::LoadSeries) -> (; pd, qd)
+
+The demand matrices rescaled to MW: `series.pd .* series.base_mva` and the
+same for `qd`. `ExaModelsPower.mpopf_model` takes its `pd` / `qd` keywords in
+MW and divides by `baseMVA` itself, so pass these matrices to that interface,
+never the per-unit fields.
+"""
+demands_mw(s::LoadSeries) = (; pd = s.pd .* s.base_mva, qd = s.qd .* s.base_mva)
+
 function Base.show(io::IO, s::LoadSeries{T}) where {T}
     print(io, "LoadSeries{$T}: ", n_buses(s), " buses, ", n_periods(s), " periods")
 end
@@ -782,8 +792,20 @@ end
     read_load_series(net::BalancedNetwork, pd_path, qd_path; T=Float64)
 
 Read two whitespace-delimited MW load matrices (rows = buses in `net`'s order, columns =
-periods) and build a [`LoadSeries`](@ref). Replaces a raw `readdlm` of the `.Pd` / `.Qd`
-files with a dimension-checked, per-unitized, bus-aligned series.
+periods) and build a [`LoadSeries`](@ref). Reads the same `.Pd` / `.Qd` files a raw
+`readdlm` would, but dimension-checked, bus-aligned, and **converted to per unit**.
+
+!!! danger "Do not pass the matrices straight to `mpopf_model`"
+    The files hold **MW**. A `LoadSeries` holds **per unit**.
+    `ExaModelsPower.mpopf_model` divides its `pd` / `qd` keywords by `baseMVA`
+    again, so the demand comes out 100x too small on a 100 MVA base — with no
+    error. Feed that interface through [`demands_mw`](@ref):
+
+    ```julia
+    series = read_load_series(net, "case5.Pd", "case5.Qd")
+    mw = demands_mw(series)
+    mpopf_model("case5.m", "", ""; pd = mw.pd, qd = mw.qd, N = n_periods(series))
+    ```
 """
 function read_load_series(net::BalancedNetwork, pd_path::AbstractString,
                           qd_path::AbstractString; T::Type{<:Real}=Float64)

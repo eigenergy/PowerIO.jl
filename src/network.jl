@@ -120,8 +120,12 @@ end
 _payload_value(data::JSON3.Object, key::Symbol, default) =
     haskey(data, key) ? getproperty(data, key) : default
 
-_payload_len(data::JSON3.Object, key::Symbol) =
-    haskey(data, key) ? length(getproperty(data, key)) : 0
+# A missing key and an explicit JSON `null` both count as zero, so a summary
+# never throws on a document an accessor tolerates.
+function _payload_len(data::JSON3.Object, key::Symbol)
+    value = _payload_value(data, key, nothing)
+    return value === nothing ? 0 : length(value)
+end
 
 function _summary_from_data(data::JSON3.Object, ::Type{BalancedNetwork})
     reference_ids = Int[]
@@ -360,21 +364,24 @@ function to_json(net::BalancedNetwork)
     return (h === nothing || h.ptr == C_NULL) ? JSON3.write(net.data) : _to_json(h)
 end
 
-function _format_from_handle(h::BalancedNetworkHandle, to::AbstractString, what::AbstractString)
+# `want_warnings=false` skips the warn channel: a one-byte buffer in, no
+# split out, for callers that discard the warnings by construction.
+function _format_from_handle(h::BalancedNetworkHandle, to::AbstractString, what::AbstractString;
+                             want_warnings::Bool=true)
     lib = getfield(h, :lib)
-    warnbuf = zeros(UInt8, _WARNLEN)
+    warnbuf = want_warnings ? _warnbuf() : UInt8[0x00]
     err = zeros(UInt8, _ERRLEN)
     s = GC.@preserve h ccall(_library_symbol(lib, :pio_to_format), Cstring,
                              (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
                              h.ptr, String(to), warnbuf, length(warnbuf), err, length(err))
     s == C_NULL && error("PowerIO.to_format: " * _cstr(err) * " ($what)")
     text = _take_string(lib, s)
-    return (text, _warn_lines(warnbuf; capped=true))
+    return (text, want_warnings ? _warn_lines(warnbuf; capped=true) : String[])
 end
 
 # `matpower` flows through the one string-keyed writer like every other format
 # (v4 retired the per-format `pio_to_matpower`); a byte-exact MATPOWER round trip
-# warns about nothing, so drop the warnings and return the text alone.
+# warns about nothing, so skip the warn channel and return the text alone.
 """
     to_matpower(net::BalancedNetwork) -> String
 
@@ -382,7 +389,8 @@ Serialize `net` to MATPOWER `.m` text, byte exact when the input was MATPOWER. F
 file in one shot use [`convert_file`](@ref)`(path, "matpower")`.
 """
 to_matpower(net::BalancedNetwork) =
-    first(_format_from_handle(_live_handle(net, "to_matpower"), "matpower", repr(network_name(net))))
+    first(_format_from_handle(_live_handle(net, "to_matpower"), "matpower",
+                              repr(network_name(net)); want_warnings=false))
 
 """
     to_format(net::BalancedNetwork, to) -> (text, warnings)
@@ -442,7 +450,7 @@ function convert_file(path::AbstractString, to::AbstractString; from=nothing)
     dist_src && _cross_model_error("convert_file")
     lib = _lib()
     _ensure_compatible(lib)
-    warnbuf = zeros(UInt8, _WARNLEN)
+    warnbuf = _warnbuf()
     err = zeros(UInt8, _ERRLEN)
     # Pass the format hint as a `String` (ccall roots it) or `C_NULL` for inference.
     # v4 argument order is (path, from, to), matching pio_to_format / pio_parse_str.
@@ -474,7 +482,7 @@ function convert_str(text::AbstractString, to::AbstractString; from::AbstractStr
     (dist_to || dist_from) && _cross_model_error("convert_str")
     lib = _lib()
     _ensure_compatible(lib)
-    warnbuf = zeros(UInt8, _WARNLEN)
+    warnbuf = _warnbuf()
     err = zeros(UInt8, _ERRLEN)
     # v4 argument order is (text, from, to), matching pio_convert_file.
     s = ccall(_library_symbol(lib, :pio_convert_str), Cstring,
@@ -498,7 +506,7 @@ PyPSA static-network CSV schema can't carry. Needs `net`'s live Rust handle
 function write_pypsa_csv_folder(net::BalancedNetwork, out_dir::AbstractString)
     h = _live_handle(net, "write_pypsa_csv_folder")
     lib = getfield(h, :lib)
-    warnbuf = zeros(UInt8, _WARNLEN)
+    warnbuf = _warnbuf()
     err = zeros(UInt8, _ERRLEN)
     # `pio_write_dir` is the generic directory writer; `pypsa-csv` is the one such
     # format today. Fallible `int` return (0 = success), the warnbuf/errbuf

@@ -23,7 +23,7 @@ No signature mismatch was found between the Julia `ccall` declarations and `powe
 
 ## C ABI Inventory
 
-Core balanced API: `pio_abi_version`, `pio_version`, `pio_classify_str`, `pio_parse_file`, `pio_parse_str`, `pio_from_json`, `pio_warnings`, `pio_to_json`, `pio_network_free`, and `pio_string_free`.
+Core balanced API: `pio_abi_version`, `pio_version`, `pio_classify_str`, `pio_parse_file`, `pio_parse_str`, `pio_from_json`, `pio_warnings`, `pio_to_json`, `pio_network_free`, `pio_schema_versions_json`, and `pio_string_free`.
 
 Balanced transforms, converters, and dense tables: `pio_normalize`, `pio_normalize_with_options`, `pio_to_format`, `pio_convert_file`, `pio_convert_str`, `pio_write_dir`, `pio_n_buses`, `pio_n_branches`, `pio_n_gens`, `pio_base_mva`, `pio_ref_bus_index`, `pio_ref_bus_indices`, `pio_n_islands`, `pio_is_radial`, `pio_bus_ids`, `pio_branches`, `pio_gens`, `pio_bus_demand`, and `pio_bus_shunt`.
 

@@ -18,6 +18,8 @@ using SHA
 import Libdl
 import Pkg.GitTools
 
+include(joinpath(@__DIR__, "..", "src", "schema_lineage.jl"))
+
 const REPO = "eigenergy/powerio"
 
 # (Julia platform triplet, Artifacts.toml platform keys); must stay in sync with
@@ -54,13 +56,19 @@ end
 # Parse an ABI constant from the source files that may own it after the module
 # split. Keep this textual so the release updater can run before package
 # instantiation.
-function _binding_uint32_const(name::AbstractString, files)
-    re = Regex("\\b$(name)\\s*=\\s*UInt32\\((\\d+)\\)")
+_binding_uint32_const(name::AbstractString, files) =
+    _binding_const(name, files; value_re = "UInt32\\((\\d+)\\)",
+                   convert = c -> parse(UInt32, c))
+
+# Find `name` in the src files. `value_re` captures the value; `convert`
+# makes the return type. `nothing` means the constant is absent.
+function _binding_const(name::AbstractString, files; value_re::AbstractString, convert)
+    re = Regex("\\b$(name)\\s*=\\s*$(value_re)")
     for file in files
         path = joinpath(@__DIR__, "..", "src", file)
         isfile(path) || continue
         m = match(re, read(path, String))
-        m === nothing || return parse(UInt32, m.captures[1])
+        m === nothing || return convert(m.captures[1])
     end
     return nothing
 end
@@ -78,11 +86,55 @@ function _binding_dist_abi()
     return _binding_uint32_const("PIO_DIST_ABI_VERSION", ("dist.jl", "PowerIO.jl"))
 end
 
-function _skip_release(msg::String)
+# Warn and write the step summary, but do not stop the release. Use for a
+# check that could not run.
+function _gate_note(msg::String)
     @warn msg
     summary = get(ENV, "GITHUB_STEP_SUMMARY", "")
     isempty(summary) || open(io -> println(io, msg), summary, "a")
-    exit(0)
+end
+
+_skip_release(msg::String) = (_gate_note(msg); exit(0))
+
+# The ABI integers do not cover document formats. Compare the schema
+# versions the library reports with the constants this binding targets
+# (schema_lineage.jl, included above, defines both). The ABI gate alone
+# governs a library without `pio_schema_versions_json`. Every path that
+# cannot verify a version parks the release; a bad pin ships silently
+# otherwise.
+function _check_schema_versions(handle, tag::String)
+    schema_sym = Libdl.dlsym(handle, :pio_schema_versions_json; throw_error=false)
+    schema_sym === nothing && return
+    free = Libdl.dlsym(handle, :pio_string_free; throw_error=false)
+    ptr = ccall(schema_sym, Cstring, ())
+    ptr == C_NULL && _skip_release(
+        "skipping $tag: pio_schema_versions_json returned null, so the schema " *
+        "checks cannot run; Artifacts.toml left untouched"
+    )
+    text = unsafe_string(ptr)
+    # `pio_string_free` ships together with `pio_schema_versions_json`, so the
+    # guard's leak path is unreachable in practice; it keeps a hypothetical
+    # report-only build from crashing the gate.
+    free === nothing || ccall(free, Cvoid, (Cstring,), ptr)
+    # Textual parse: this script runs before package instantiation, so it
+    # cannot use JSON3. The report is a flat object (one "package" and one
+    # "arrow" string, per the powerio-capi contract), so first-match regexes
+    # cannot land on a nested key.
+    for (key, want) in (("package", PIO_PACKAGE_SCHEMA_VERSION),
+                        ("arrow", PIO_ARROW_SCHEMA_VERSION))
+        m = match(Regex("\"$(key)\"\\s*:\\s*\"([^\"]+)\""), text)
+        m === nothing && _skip_release(
+            "skipping $tag: pio_schema_versions_json reports no \"$key\" string " *
+            "(feature absent or key reshaped), so the $key schema check cannot " *
+            "run; Artifacts.toml left untouched"
+        )
+        got = String(m.captures[1])
+        _same_schema_lineage(got, want) || _skip_release(
+            "skipping $tag: its binaries speak $key schema $got, this binding " *
+            "targets $want; Artifacts.toml left untouched (repin after the " *
+            "lockstep binding PR merges)"
+        )
+    end
 end
 
 # Refuse to pin binaries this binding cannot speak to: dlopen the unpacked
@@ -92,7 +144,7 @@ end
 # Exit 0 without touching Artifacts.toml on a mismatch, so the scheduled
 # tracking run is a clean no-op until the lockstep binding PR merges. A summary
 # line lands in $GITHUB_STEP_SUMMARY when running under Actions.
-function _check_abi(unpack::String, triplet::String)
+function _check_abi(unpack::String, triplet::String, tag::String)
     libsubdir = endswith(triplet, "mingw32") ? "bin" : "lib"
     lib = joinpath(unpack, libsubdir, "libpowerio_capi.$(Libdl.dlext)")
     isfile(lib) || error("no $lib in the $triplet tarball")
@@ -165,6 +217,8 @@ function _check_abi(unpack::String, triplet::String)
             "skipping $tag: its binaries report pkg but do not expose pio_package_parse_str; " *
             "Artifacts.toml left untouched"
         )
+
+        _check_schema_versions(handle, tag)
     finally
         Libdl.dlclose(handle)
     end
@@ -182,7 +236,7 @@ mktempdir() do tmp
         unpack = joinpath(tmp, triplet)
         mkpath(unpack)
         run(`tar -xzf $tarball -C $unpack`)
-        triplet == host && _check_abi(unpack, triplet)
+        triplet == host && _check_abi(unpack, triplet, tag)
         tree = bytes2hex(GitTools.tree_hash(unpack))
         url = "https://github.com/$REPO/releases/download/$tag/$name"
         push!(
