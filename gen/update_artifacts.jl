@@ -55,20 +55,16 @@ end
 
 # Parse an ABI constant from the source files that may own it after the module
 # split. Keep this textual so the release updater can run before package
-# instantiation.
-_binding_uint32_const(name::AbstractString, files) =
-    _binding_const(name, files; value_re = "UInt32\\((\\d+)\\)",
-                   convert = c -> parse(UInt32, c))
-
-# Find `name` in the src files. `value_re` captures the value; `convert`
-# makes the return type. `nothing` means the constant is absent.
-function _binding_const(name::AbstractString, files; value_re::AbstractString, convert)
-    re = Regex("\\b$(name)\\s*=\\s*$(value_re)")
+# instantiation. `nothing` means the constant is absent. (The schema lineage
+# constants need no such reader: schema_lineage.jl is included above, since it
+# has no package dependencies of its own.)
+function _binding_uint32_const(name::AbstractString, files)
+    re = Regex("\\b$(name)\\s*=\\s*UInt32\\((\\d+)\\)")
     for file in files
         path = joinpath(@__DIR__, "..", "src", file)
         isfile(path) || continue
         m = match(re, read(path, String))
-        m === nothing || return convert(m.captures[1])
+        m === nothing || return parse(UInt32, m.captures[1])
     end
     return nothing
 end
@@ -86,15 +82,14 @@ function _binding_dist_abi()
     return _binding_uint32_const("PIO_DIST_ABI_VERSION", ("dist.jl", "PowerIO.jl"))
 end
 
-# Warn and write the step summary, but do not stop the release. Use for a
-# check that could not run.
-function _gate_note(msg::String)
+# Park the release: warn, write the step summary, and exit 0 without touching
+# Artifacts.toml. Every gate that fails or cannot run ends here.
+function _skip_release(msg::String)
     @warn msg
     summary = get(ENV, "GITHUB_STEP_SUMMARY", "")
     isempty(summary) || open(io -> println(io, msg), summary, "a")
+    exit(0)
 end
-
-_skip_release(msg::String) = (_gate_note(msg); exit(0))
 
 # The ABI integers do not cover document formats. Compare the schema
 # versions the library reports with the constants this binding targets

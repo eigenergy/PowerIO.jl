@@ -1,7 +1,6 @@
 # `.pio.json` network package envelope over the `pio_package_*` C ABI.
-# schema_lineage.jl carries `PIO_PACKAGE_SCHEMA_VERSION` and the lineage rule.
-
-include("schema_lineage.jl")
+# `PIO_PACKAGE_SCHEMA_VERSION` and the lineage rule live in schema_lineage.jl,
+# included from PowerIO.jl ahead of every module that reads them.
 
 """
     NetworkPackage

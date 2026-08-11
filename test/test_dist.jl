@@ -21,7 +21,18 @@
         for k in PowerIO._DIST_CAPABILITY_KEYS
             @test getproperty(caps, k)
         end
-        # Do not require the v0.8 flags; older documents report them false.
+        # The v0.8 flags and the BMOPF vintage strings arrived in capability
+        # document 1.1.0, so gate on the document version rather than skipping
+        # them: an older document is silent, a 1.1.0+ document that drops one
+        # is a regression this suite has to catch.
+        if caps.schema_version isa AbstractString &&
+           VersionNumber(caps.schema_version) >= v"1.1.0"
+            for k in PowerIO._DIST_CAPABILITY_V08_KEYS
+                @test getproperty(caps, k)
+            end
+            @test caps.bmopf_schema_id isa AbstractString
+            @test caps.bmopf_schema_version isa AbstractString
+        end
     end
 end
 
@@ -371,7 +382,9 @@ end
         # behind the missing-key empty fallback.
         for name in PowerIO._MC_TABLE_NAMES
             table = getproperty(net, name)
-            @test table isa Union{JSON3.Array,Tuple{}}
+            # Present or omitted, every accessor hands back the same kind of
+            # table, so `Tables.jl` and `eltype` consumers see one shape.
+            @test table isa JSON3.Array
             if haskey(live.counts, name)
                 @test length(table) == Int(live.counts[name])
             end

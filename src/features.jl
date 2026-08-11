@@ -59,7 +59,10 @@ function has_feature(feature::AbstractString)
     return probe()
 end
 
-# One flag per entry, in `pio_dist_capabilities_json` document order.
+# One flag per entry. This is the NamedTuple's field order, not the document's:
+# `pio_dist_capabilities_json` emits `bmopf_schema_id` / `bmopf_schema_version`
+# between these flags and the v0.8 ones. Each key is read by name, so the two
+# orders are independent.
 const _DIST_CAPABILITY_KEYS = (
     :bmopf_fixed_taps,
     :bmopf_center_tap_leakage,
@@ -88,13 +91,17 @@ function _dist_capabilities_from(obj)
     # A flag is set only by JSON `true`; null, absence, and a reshaped
     # value all read as `false`, so the probe never throws on a document.
     flag(k) = get(obj, k, false) === true
+    # Same rule for the string entries: only a JSON string reads as a value.
+    # Null, absence, and a reshaped entry (a number, an object) all read as
+    # `nothing`, so a caller can `String(...)` any non-`nothing` field.
+    str(k) = (v = get(obj, k, nothing); v isa AbstractString ? String(v) : nothing)
     return NamedTuple{_DIST_CAPABILITY_FIELDS}((
         haskey(obj, :dist) ? obj.dist === true : dist_available(),
-        get(obj, :schema_version, nothing),
+        str(:schema_version),
         map(flag, _DIST_CAPABILITY_KEYS)...,
         map(flag, _DIST_CAPABILITY_V08_KEYS)...,
-        get(obj, :bmopf_schema_id, nothing),
-        get(obj, :bmopf_schema_version, nothing),
+        str(:bmopf_schema_id),
+        str(:bmopf_schema_version),
     ))
 end
 
@@ -142,8 +149,12 @@ The fields are `schema_version`, `abi`, `package`, and `arrow`. `package` and
 `arrow` name the `.pio.json` envelope and Arrow schema lineages the library
 speaks; this binding targets `PIO_PACKAGE_SCHEMA_VERSION` and
 `PIO_ARROW_SCHEMA_VERSION`. A field the document does not carry is `nothing`.
-A library without the entry point reports every field `nothing`; a missing
-report never raises an error.
+A library without the entry point reports every field `nothing`, so an absent
+report is not an error.
+
+Unlike the never-throwing probes ([`features`](@ref), [`has_feature`](@ref)),
+this one runs the core ABI handshake: an unresolvable or ABI-incompatible
+library raises, as it does for every other call that reads the library.
 """
 function schema_versions()
     lib = _lib()

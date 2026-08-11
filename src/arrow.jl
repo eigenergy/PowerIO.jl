@@ -104,9 +104,10 @@ function _arrow_format_code(::Type{T}) where {T}
     throw(ArgumentError("PowerIO.to_arrow: no Arrow format code for $(T)"))
 end
 
-# `PIO_ARROW_SCHEMA_VERSION` lives in schema_lineage.jl (included by
-# package.jl); gen/update_artifacts.jl checks it against the library's
-# `pio_schema_versions_json` report before it pins binaries.
+# `PIO_ARROW_SCHEMA_VERSION` lives in schema_lineage.jl, next to the package
+# lineage it shares a release gate with; gen/update_artifacts.jl checks it
+# against the library's `pio_schema_versions_json` report before it pins
+# binaries.
 
 const _ARROW_TABLE_IDS = (
     bus = Cint(0),

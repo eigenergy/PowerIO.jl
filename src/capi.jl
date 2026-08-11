@@ -244,10 +244,13 @@ const _WARNLEN = 65536
 
 # The per-call warn buffer, sized but not zero filled: the C side writes the
 # joined text plus NUL on success, and the buffer is only read after success.
-# The leading NUL keeps `_cstr` safe on a path that reads it untouched.
+# `_cstr` scans to the first NUL. Both ends carry one: the first makes an
+# untouched buffer read as "", and the last holds the scan inside the
+# allocation if a library build returns success but writes no channel.
 function _warnbuf()
     buf = Vector{UInt8}(undef, _WARNLEN)
     buf[1] = 0x00
+    buf[end] = 0x00
     return buf
 end
 
@@ -384,17 +387,15 @@ _cstr(buf::Vector{UInt8}) = GC.@preserve buf unsafe_string(pointer(buf))
 # buffer-sized parent).
 _nonempty_lines(s::AbstractString) = String.(filter(!isempty, split(s, '\n')))
 
-# Split a `\n`-joined warn buffer into owned Strings. `capped`: this fixed-size
-# per-call channel truncates silently on a UTF-8 boundary at the cap, so a fill
-# within 4 bytes of it is the truncation signature — report it rather than
-# under-count fidelity warnings.
+# Split a `\n`-joined warn buffer into owned Strings. `capped` marks the
+# fixed-size per-call channel. That channel cuts at a byte offset on a UTF-8
+# boundary and gives no length, so a fill within 4 bytes of the cap can be a
+# cut. Keep every line and add the mark. The `length(buf) > 4` guard applies
+# to the one-byte buffer that `want_warnings=false` passes.
 function _warn_lines(buf::Vector{UInt8}; capped::Bool=false)
     s = _cstr(buf)
     warns = _nonempty_lines(s)
-    # The library cuts at a byte offset and returns no length, so a
-    # near-cap fill only signals possible truncation. Keep every line and
-    # mark that the last entry may be cut.
-    capped && ncodeunits(s) >= length(buf) - 4 &&
+    capped && length(buf) > 4 && ncodeunits(s) >= length(buf) - 4 &&
         push!(warns, "... warning list may be truncated at $(length(buf)) bytes; " *
                      "the entry before this one may be cut short")
     return warns

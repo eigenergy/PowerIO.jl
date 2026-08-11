@@ -101,6 +101,7 @@ export multiconductor_to_balanced_preflight, lower_multiconductor_to_balanced,
 export to_graph, features, has_feature, schema_versions, arrow_available,
        gridfm_available, matrix_available
 
+include("schema_lineage.jl") # document-format lineages this binding targets (arrow.jl, package.jl, features.jl, gen/)
 include("capi.jl")        # library resolution, ABI handshake, BalancedNetworkHandle, buffer helpers
 include("network.jl")     # BalancedNetwork and the parse / convert / serialize verbs
 include("accessors.jl")   # element tables and scalar accessors

@@ -126,11 +126,21 @@ const _MC_TABLE_NAMES = (:buses, :linecodes, :lines, :switches, :transformers, :
 # marks a wrong-shaped document and stays a `KeyError`.
 const _MC_OPTIONAL_TABLES = (:ibrs, :control_profiles, :capacitors)
 
+# The keys `_summary_from_data` counts, hoisted to a const so the `NamedTuple`
+# type is known at compile time instead of built per call.
+const _MC_COUNT_KEYS = (_MC_TABLE_NAMES..., :warnings)
+
+# The stand-in an omitted optional table reads as. A parsed empty `JSON3.Array`
+# rather than `()`, so every accessor returns the same kind of table whether the
+# key was there or not: `Tables.jl`, `collect`, and `eltype` consumers cannot
+# tell an empty case from a present-but-empty one.
+const _MC_EMPTY_TABLE = JSON3.read("[]")
+
 function _mc_table(net::MulticonductorNetwork, name::Symbol)
     data = net.data
     if name in _MC_OPTIONAL_TABLES
         table = _payload_value(data, name, nothing)
-        return table === nothing ? () : table
+        return table === nothing ? _MC_EMPTY_TABLE : table
     end
     return getproperty(data, name)
 end
@@ -141,8 +151,10 @@ const _MC_SCALAR_READERS = (; name = network_name, source_format = source_format
                             warnings = warnings, base_frequency = base_frequency)
 const _MC_SCALARS = keys(_MC_SCALAR_READERS)
 
-# `show` hides these tables when empty; the base tables always print.
-const _MC_SHOWN_IF_NONEMPTY = (:ibrs, :control_profiles, :capacitors, :untyped)
+# `show` hides these tables when empty; the base tables always print. Derived
+# from the omitted-when-empty set plus `untyped` (always serialized, but noise
+# on the common case), so the two policies cannot drift apart by hand.
+const _MC_SHOWN_IF_NONEMPTY = (_MC_OPTIONAL_TABLES..., :untyped)
 const _MC_ALWAYS_SHOWN = filter(!in(_MC_SHOWN_IF_NONEMPTY), _MC_TABLE_NAMES)
 
 function Base.getproperty(net::MulticonductorNetwork, name::Symbol)
@@ -296,8 +308,7 @@ function _summary(h::MulticonductorNetworkHandle)
 end
 
 function _summary_from_data(data::JSON3.Object, ::Type{MulticonductorNetwork})
-    count_keys = (_MC_TABLE_NAMES..., :warnings)
-    counts = NamedTuple{count_keys}(map(k -> _payload_len(data, k), count_keys))
+    counts = NamedTuple{_MC_COUNT_KEYS}(map(k -> _payload_len(data, k), _MC_COUNT_KEYS))
     return JSON3.read(JSON3.write((;
         schema_version = 1,
         name = _payload_value(data, :name, ""),
