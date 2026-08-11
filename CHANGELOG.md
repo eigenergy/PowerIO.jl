@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.2
+
+Tracks powerio v0.8.1, keeping core C ABI v4 and distribution C ABI v1.
+No breaking changes: the Julia API is unchanged, and the full test suite
+passed against the pinned binaries before this release (automated repin).
+
+- Binaries repinned to the [powerio v0.8.1 release](https://github.com/eigenergy/powerio/releases/tag/v0.8.1); see its notes for the upstream changes.
+
+## 0.8.1
+
+Tracks powerio v0.8.0, keeping core C ABI v4 and distribution C ABI v1.
+No breaking changes: the Julia API is unchanged, and the full test suite
+passed against the pinned binaries before this release (automated repin).
+
+- Binaries repinned to the [powerio v0.8.0 release](https://github.com/eigenergy/powerio/releases/tag/v0.8.0); see its notes for the upstream changes.
+
 ## 0.8.0
 
 Tracks the powerio v0.8 document surface: the `.pio.json` envelope moves to
