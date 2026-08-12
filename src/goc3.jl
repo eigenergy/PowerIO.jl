@@ -264,9 +264,13 @@ function _goc3_static_data(data)
     L_N_q = length(data.rzr_lookup)
     I  = length(data.bus_lookup)
     L_T = length(data.dt)
+    # Contingency count. The survivor builders below already read this section; a
+    # client that sizes per-contingency arrays should not have to reach back into
+    # the raw document for the one number that fixes their extent.
+    K = length(_goc3_required_section(_goc3_required_object(data.raw, "reliability"), "contingency"))
 
     lengths = (L_J_xf=L_J_xf, L_J_ln=L_J_ln, L_J_ac=L_J_ac, L_J_dc=L_J_dc, L_J_br=L_J_br, L_J_cs=L_J_cs,
-    L_J_pr=L_J_pr, L_J_cspr = L_J_cspr, L_J_sh=L_J_sh, I=I, L_T=L_T, L_N_p, L_N_q)
+    L_J_pr=L_J_pr, L_J_cspr = L_J_cspr, L_J_sh=L_J_sh, I=I, L_T=L_T, L_N_p, L_N_q, K)
 
     # Declared element type for every row vector below. Each vector is built with a
     # typed comprehension (`Row[...]`), so the field types are these declarations, not
@@ -280,11 +284,16 @@ function _goc3_static_data(data)
     # all-numeric PowerData rows in `exa.jl` are the isbits ones that reach the GPU.
     CostRow = @NamedTuple{bus::Int, uid::String, cost::Vector{Vector{Vector{Float64}}}}
     BusRow = @NamedTuple{i::Int, uid::String, v_min::Float64, v_max::Float64}
-    ShuntRow = @NamedTuple{uid::String, bus::Int, g_sh::Float64, b_sh::Float64}
+    ShuntRow = @NamedTuple{j_sh::Int, uid::String, bus::Int, g_sh::Float64, b_sh::Float64}
     AclRow = @NamedTuple{j_ln::Int, uid::String, to_bus::Int, fr_bus::Int, c_su::Float64, c_sd::Float64, s_max::Float64, g_sr::Float64, b_sr::Float64, b_ch::Float64, g_fr::Float64, g_to::Float64, b_fr::Float64, b_to::Float64}
     AcxRow = @NamedTuple{j_xf::Int, uid::String, to_bus::Int, fr_bus::Int, c_su::Float64, c_sd::Float64, s_max::Float64, g_sr::Float64, b_sr::Float64, b_ch::Float64, g_fr::Float64, g_to::Float64, b_fr::Float64, b_to::Float64}
     DcRow = @NamedTuple{j_dc::Int, uid::String, pdc_max::Float64, qdc_fr_min::Float64, qdc_to_min::Float64, qdc_fr_max::Float64, qdc_to_max::Float64, to_bus::Int, fr_bus::Int}
-    SddRow = @NamedTuple{bus::Int, uid::String, c_on::Float64, c_su::Float64, c_sd::Float64, p_ru::Float64, p_rd::Float64, p_ru_su::Float64, p_rd_sd::Float64, c_rgu::Vector{Float64}, c_rgd::Vector{Float64}, c_scr::Vector{Float64}, c_nsc::Vector{Float64}, c_rru_on::Vector{Float64}, c_rru_off::Vector{Float64}, c_rrd_on::Vector{Float64}, c_rrd_off::Vector{Float64}, c_qru::Vector{Float64}, c_qrd::Vector{Float64}, p_rgu_max::Float64, p_rgd_max::Float64, p_scr_max::Float64, p_nsc_max::Float64, p_rru_on_max::Float64, p_rru_off_max::Float64, p_rrd_on_max::Float64, p_rrd_off_max::Float64, p_0::Float64, q_0::Float64, p_max::Vector{Float64}, p_min::Vector{Float64}, q_max::Vector{Float64}, q_min::Vector{Float64}, sus::Vector{Vector{Float64}}}
+    # The reactive capability block (`q_bound_cap` … `q_0`) closes the last gap that
+    # forced a SCOPF client to keep reading `sdd_lookup` dicts alongside these rows.
+    # A device declares exactly one mode; the parameters of the mode it did not
+    # declare are `NaN`, so a row used without checking its flag poisons the model
+    # loudly instead of contributing a silent zero.
+    SddRow = @NamedTuple{bus::Int, uid::String, c_on::Float64, c_su::Float64, c_sd::Float64, p_ru::Float64, p_rd::Float64, p_ru_su::Float64, p_rd_sd::Float64, c_rgu::Vector{Float64}, c_rgd::Vector{Float64}, c_scr::Vector{Float64}, c_nsc::Vector{Float64}, c_rru_on::Vector{Float64}, c_rru_off::Vector{Float64}, c_rrd_on::Vector{Float64}, c_rrd_off::Vector{Float64}, c_qru::Vector{Float64}, c_qrd::Vector{Float64}, p_rgu_max::Float64, p_rgd_max::Float64, p_scr_max::Float64, p_nsc_max::Float64, p_rru_on_max::Float64, p_rru_off_max::Float64, p_rrd_on_max::Float64, p_rrd_off_max::Float64, p_0::Float64, q_0::Float64, p_max::Vector{Float64}, p_min::Vector{Float64}, q_max::Vector{Float64}, q_min::Vector{Float64}, sus::Vector{Vector{Float64}}, q_bound_cap::Int, q_linear_cap::Int, beta_ub::Float64, beta_lb::Float64, q_0_ub::Float64, q_0_lb::Float64, beta::Float64, q_p0::Float64}
     ActiveReserveRow = @NamedTuple{n_p::Int, uid::String, c_rgu::Float64, c_rgd::Float64, c_scr::Float64, c_nsc::Float64, c_rru::Float64, c_rrd::Float64, σ_rgu::Float64, σ_rgd::Float64, σ_scr::Float64, σ_nsc::Float64, p_rru_min::Vector{Float64}, p_rrd_min::Vector{Float64}}
     ReactiveReserveRow = @NamedTuple{n_q::Int, uid::String, c_qru::Float64, c_qrd::Float64, q_qru_min::Vector{Float64}, q_qrd_min::Vector{Float64}}
     ActiveReserveSetRow = @NamedTuple{i::Int, n_p::Int, uid::String}
@@ -357,10 +366,29 @@ function _goc3_static_data(data)
         q_max = _float_vector(ts_val["q_ub"])
         q_min = _float_vector(ts_val["q_lb"])
         sus = _float_matrix(val["startup_states"])
+        # Reactive capability. The two mode flags are mutually exclusive, and a
+        # device may set neither: on the official C3E4N00073D1 scenario every
+        # device does, leaving reactive power governed by q_lb / q_ub alone. Both
+        # flags are still required to be present, so a document that omits them
+        # fails here rather than silently reading as "no capability". A mode's
+        # parameters are absent unless its flag is set, and read as NaN.
+        q_bound_cap = Int(_goc3_required(val, "q_bound_cap"))
+        q_linear_cap = Int(_goc3_required(val, "q_linear_cap"))
+        _cap(flag, key) = flag == 1 ? Float64(_goc3_required(val, key)) : NaN
+        beta_ub = _cap(q_bound_cap, "beta_ub")
+        beta_lb = _cap(q_bound_cap, "beta_lb")
+        q_0_ub = _cap(q_bound_cap, "q_0_ub")
+        q_0_lb = _cap(q_bound_cap, "q_0_lb")
+        beta = _cap(q_linear_cap, "beta")
+        # The document's `q_0` under the linear-cap mode is the intercept of the
+        # q-p line, a different quantity from `initial_status.q` above, which this
+        # row already calls `q_0`. Named `q_p0` so both survive on one row.
+        q_p0 = _cap(q_linear_cap, "q_0")
         return (bus=bus, uid = uid, c_on = c_on, c_su = c_su, c_sd = c_sd, p_ru = p_ru, p_rd = p_rd, p_ru_su = p_ru_su, p_rd_sd = p_rd_sd,
         c_rgu = c_rgu, c_rgd = c_rgd, c_scr = c_scr, c_nsc = c_nsc, c_rru_on = c_rru_on, c_rru_off = c_rru_off, c_rrd_on = c_rrd_on, c_rrd_off = c_rrd_off,
         c_qru = c_qru, c_qrd = c_qrd, p_rgu_max = p_rgu_max, p_rgd_max = p_rgd_max, p_scr_max = p_scr_max, p_nsc_max = p_nsc_max, p_rru_on_max = p_rru_on_max,
-        p_rru_off_max=p_rru_off_max, p_rrd_on_max=p_rrd_on_max, p_rrd_off_max=p_rrd_off_max, p_0=p_0, q_0=q_0, p_max=p_max, p_min=p_min, q_max=q_max, q_min=q_min, sus=sus)
+        p_rru_off_max=p_rru_off_max, p_rrd_on_max=p_rrd_on_max, p_rrd_off_max=p_rrd_off_max, p_0=p_0, q_0=q_0, p_max=p_max, p_min=p_min, q_max=q_max, q_min=q_min, sus=sus,
+        q_bound_cap=q_bound_cap, q_linear_cap=q_linear_cap, beta_ub=beta_ub, beta_lb=beta_lb, q_0_ub=q_0_ub, q_0_lb=q_0_lb, beta=beta, q_p0=q_p0)
     end
     sdd_rows(device_type) =
         SddRow[sdd_row(uid, data.sdd_lookup[uid]) for uid in sdd_order if data.sdd_lookup[uid]["device_type"] == device_type]
@@ -405,10 +433,13 @@ function _goc3_static_data(data)
         shunt = _by_uidnum(ShuntRow[
             let val = data.shunt_lookup[uid]
                 uid = String(val["uid"])
+                # Same uid-suffix rule the AC line, transformer and DC line rows
+                # use for their per-class indices.
+                j_sh = _uidnum(uid) + 1
                 bus = goc3_bus_id(data, val["bus"])
                 g_sh = val["gs"]
                 b_sh = val["bs"]
-                (uid = uid, bus=bus, g_sh = g_sh, b_sh = b_sh)
+                (j_sh = j_sh, uid = uid, bus=bus, g_sh = g_sh, b_sh = b_sh)
             end for uid in keys(data.shunt_lookup)
         ]),
 
@@ -773,31 +804,89 @@ function _goc3_dc_contingency_flows(data)
 end
 
 """
+    _goc3_violation_cost(data)
+
+The case's four violation prices, typed. The document names them
+`p_bus_vio_cost` / `q_bus_vio_cost` / `s_vio_cost` / `e_vio_cost`; the `_vio_cost`
+suffix is dropped because the container already says violation cost.
+
+Any of the four may be absent and then reads `NaN`: GOCompetition's own 14-bus
+validation case omits `e_vio_cost`, so requiring all four would reject a valid
+document. A model that prices a violation it did not find a cost for produces a
+NaN objective rather than a free violation.
+"""
+function _goc3_violation_cost(data)
+    vc = data.violation_cost
+    price(key) = haskey(vc, key) ? Float64(vc[key]) : NaN
+    return (p_bus = price("p_bus_vio_cost"), q_bus = price("q_bus_vio_cost"),
+            s = price("s_vio_cost"), e = price("e_vio_cost"))
+end
+
+"""
+    _goc3_producers_first(data)
+
+Whether the producer uid block precedes the consumer block. A model that stacks both
+classes into one variable vector addresses a device by its uid number minus a
+per-class offset, which is a bijection only when each class owns one contiguous uid
+range.
+
+Warns when the ranges interleave instead of throwing. The uid-suffix rule behind every
+per-class index here (`j_ln`, `j_xf`, `j_dc`, `j_sh`, and this one) assumes uids of the
+form `<prefix>_<0-based index>`, which official Challenge 3 scenario files use and
+GOCompetition's own 14-bus validation case does not: its uids are names like
+`"Gen Bus 1 #1"`, so the rule reads bus numbers. Those indices are already unsound on
+such a file, so refusing here would reject a document the rest of this surface still
+parses, and the warning says so once rather than failing one field.
+"""
+function _goc3_producers_first(data)
+    pr = sort([_uidnum(uid) for uid in data.sdd_ids_producer])
+    cs = sort([_uidnum(uid) for uid in data.sdd_ids_consumer])
+    (isempty(pr) || isempty(cs)) && return true
+    contiguous(v) = last(v) - first(v) + 1 == length(v)
+    if !(contiguous(pr) && contiguous(cs) && (last(pr) < first(cs) || last(cs) < first(pr)))
+        @warn "PowerIO.goc3_scopf_data: producer and consumer uid numbers do not form " *
+              "two disjoint contiguous blocks, so `producers_first` and every per-class " *
+              "uid-suffix index are unreliable for this case" producers = first(pr):last(pr) n_producers = length(pr) consumers = first(cs):last(cs) n_consumers = length(cs)
+    end
+    return first(pr) < first(cs)
+end
+
+"""
     ScopfInstance
 
 A derived, format-neutral security-constrained OPF instance built from a parsed GOC3
 case by [`goc3_scopf_data`](@ref): the SCOPF analog of the Rust core's DC-OPF
 `OpfInstance` (`powerio-matrix`). Every field is keyed by `uid` and per-class GOC3
-ordering (`j_ln`/`j_xf`/`j_dc`/`n_p`/`n_q`), with no model-specific stacked variable
+ordering (`j_ln`/`j_xf`/`j_dc`/`j_sh`/`n_p`/`n_q`), with no model-specific stacked variable
 index. GOC3 is the input format, not this type: like `OpfInstance`, it is a projection a
 client reads to build a model, not a stored representation of a format.
 
 Fields:
 - `static`: buses, shunts, AC/DC branches, transformer control sets, producers,
-  consumers, zonal reserves, and device-zone membership sets.
-- `lengths`: the per-class set sizes.
+  consumers, zonal reserves, and device-zone membership sets. Producer and consumer
+  rows carry the reactive capability block: the mutually exclusive `q_bound_cap` and
+  `q_linear_cap` flags, and the `beta_ub`/`beta_lb`/`q_0_ub`/`q_0_lb` or `beta`/`q_p0`
+  parameters of whichever is set. A device may set neither, in which case every
+  parameter is `NaN`; read the flags before the parameters.
+- `lengths`: the per-class set sizes, including the contingency count `K`.
 - `energy_windows`: producer/consumer min and max energy windows and period memberships.
 - `price_blocks`: `(producer, consumer)`, one row per (device, period, cost block).
 - `ac_contingency_survivors`: `(ln, xf)`, per-contingency surviving AC lines/transformers.
 - `dc_contingency_flows`: the flattened surviving-DC-line set.
+- `violation_cost`: `(p_bus, q_bus, s, e)`, the case's four violation prices.
+- `producers_first`: `true` when the producer uid block precedes the consumer block.
+  A model that stacks producers and consumers into one variable vector needs this to
+  place its per-class offsets; see [`goc3_scopf_data`](@ref) for the check behind it.
 """
-struct ScopfInstance{S,L,E,P,A,D}
+struct ScopfInstance{S,L,E,P,A,D,V}
     static::S
     lengths::L
     energy_windows::E
     price_blocks::P
     ac_contingency_survivors::A
     dc_contingency_flows::D
+    violation_cost::V
+    producers_first::Bool
 end
 
 """
@@ -807,9 +896,15 @@ Build the security-constrained OPF instance from a [`parse_goc3_json`](@ref) res
 one call, superseding the internal `_goc3_*` builders. Pure function of `data`: no unit
 commitment solution and no model-specific variable numbering. A client reads the
 [`ScopfInstance`](@ref) fields and attaches its own stacked variable indices and UC status
-(see [`goc3_add_status_flags!`](@ref)). This builds the derived instance only; a client
-still reads the parsed GOC3 case ([`parse_goc3_json`](@ref)) for the raw device, reserve,
-and violation-cost fields the instance does not carry.
+(see [`goc3_add_status_flags!`](@ref)). The instance carries every case field a SCOPF model
+needs, so a client reads [`parse_goc3_json`](@ref)'s lookups only for the period axis
+(`periods`, `dt`) and to match a unit commitment solution back to devices.
+
+`producers_first` reports which of the two device classes owns the lower uid block. A model
+that stacks producers and consumers into one variable vector derives its per-class offsets
+from a device's uid number, which requires each class to occupy one contiguous uid range;
+this errors when they interleave rather than returning offsets that would silently address
+the wrong device.
 
 Retirement mirrors the DC-OPF path: the Rust core builds `OpfInstance` from the general IR
 via `build_opf_instance` (`powerio-matrix`), and the target is a canonical Rust
@@ -834,5 +929,7 @@ function goc3_scopf_data(data)
         (producer = pb_pr, consumer = pb_cs),
         _goc3_ac_contingency_survivors(data, lengths),
         _goc3_dc_contingency_flows(data),
+        _goc3_violation_cost(data),
+        _goc3_producers_first(data),
     )
 end
