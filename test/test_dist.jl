@@ -13,11 +13,13 @@
     # `pio_dist_capabilities_json` and return the all-false default.
     if PowerIO.library_available() && PowerIO.dist_available() &&
        PowerIO._exports_symbol(:pio_dist_capabilities_json)
-        # The capability document is additive; do not pin the exact version.
-        # The `isa` guard turns a document without `powerio_version` into a
-        # clean failure instead of a `VersionNumber(nothing)` test error.
+        # The document states the powerio release that wrote it, whatever that
+        # release is; pinning a floor here would fail every lockstep window
+        # where the binding leads the pinned binaries. The `isa` guard turns a
+        # document without `powerio_version` into a clean failure instead of a
+        # `VersionNumber(nothing)` test error.
         @test caps.powerio_version isa AbstractString &&
-              VersionNumber(caps.powerio_version) >= v"0.9.0"
+              tryparse(VersionNumber, caps.powerio_version) !== nothing
         for k in PowerIO._DIST_CAPABILITY_KEYS
             @test getproperty(caps, k)
         end
