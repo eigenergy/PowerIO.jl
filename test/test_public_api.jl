@@ -242,7 +242,7 @@ end
             sv = schema_versions()
             @test sv.powerio_version == doc.powerio_version
             @test sv.abi == doc.abi
-            @test sv.package == package && sv.arrow == arrow
+            @test sv.bmopf_schema == get(doc, :bmopf_schema, nothing)
         end
     end
 end
