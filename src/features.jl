@@ -79,7 +79,7 @@ const _DIST_CAPABILITY_V08_KEYS = (
 
 # The full documented shape: envelope, flags, then the BMOPF vintage strings
 # (`nothing` when the document predates capability version 1.1.0).
-const _DIST_CAPABILITY_FIELDS = (:dist, :schema_version,
+const _DIST_CAPABILITY_FIELDS = (:dist, :powerio_version,
                                  _DIST_CAPABILITY_KEYS...,
                                  _DIST_CAPABILITY_V08_KEYS...,
                                  :bmopf_schema_id, :bmopf_schema_version)
@@ -90,7 +90,7 @@ function _dist_capabilities_from(obj)
     flag(k) = get(obj, k, false) === true
     return NamedTuple{_DIST_CAPABILITY_FIELDS}((
         haskey(obj, :dist) ? obj.dist === true : dist_available(),
-        get(obj, :schema_version, nothing),
+        get(obj, :powerio_version, nothing),
         map(flag, _DIST_CAPABILITY_KEYS)...,
         map(flag, _DIST_CAPABILITY_V08_KEYS)...,
         get(obj, :bmopf_schema_id, nothing),
@@ -130,28 +130,29 @@ function dist_capabilities()
     return _dist_capabilities_from(JSON3.read(_take_string(lib, s)))
 end
 
-const _SCHEMA_VERSION_FIELDS = (:schema_version, :abi, :package, :arrow)
+const _DOCUMENT_VERSION_FIELDS = (:powerio_version, :abi, :bmopf_schema)
 
 """
     schema_versions() -> NamedTuple
 
-Return the document-format versions the resolved library reports through
-`pio_schema_versions_json` (powerio v0.8).
+Return the versions the resolved library reports through
+`pio_schema_versions_json` (powerio v0.9).
 
-The fields are `schema_version`, `abi`, `package`, and `arrow`. `package` and
-`arrow` name the `.pio.json` envelope and Arrow schema lineages the library
-speaks; this binding targets `PIO_PACKAGE_SCHEMA_VERSION` and
-`PIO_ARROW_SCHEMA_VERSION`. A field the document does not carry is `nothing`.
-A library without the entry point reports every field `nothing`; a missing
-report never raises an error.
+The fields are `powerio_version`, `abi`, and `bmopf_schema`. Every document
+powerio authors states one version, the release that wrote it, so the
+per-document lineages this used to report (`package`, `arrow`) are gone.
+`bmopf_schema` names a foreign schema the IEEE task force owns, which is why it
+stays separate. A field the document does not carry is `nothing`. A library
+without the entry point reports every field `nothing`; a missing report never
+raises an error.
 """
 function schema_versions()
     lib = _lib()
     _exports_symbol(:pio_schema_versions_json, lib) ||
-        return NamedTuple{_SCHEMA_VERSION_FIELDS}((nothing, nothing, nothing, nothing))
+        return NamedTuple{_DOCUMENT_VERSION_FIELDS}((nothing, nothing, nothing))
     _ensure_compatible(lib)
     s = ccall(_library_symbol(lib, :pio_schema_versions_json), Cstring, ())
     s == C_NULL && error("PowerIO.schema_versions: pio_schema_versions_json returned null")
     obj = JSON3.read(_take_string(lib, s))
-    return NamedTuple{_SCHEMA_VERSION_FIELDS}(map(k -> get(obj, k, nothing), _SCHEMA_VERSION_FIELDS))
+    return NamedTuple{_DOCUMENT_VERSION_FIELDS}(map(k -> get(obj, k, nothing), _DOCUMENT_VERSION_FIELDS))
 end

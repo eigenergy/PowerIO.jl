@@ -7,7 +7,7 @@
         text = read(goc3_path, String)
         doc = PowerIO.parse_scopf(text)
         @test String(doc.schema) == "powerio.scopf.julia"
-        @test String(doc.schema_version) == "1.0.0"
+        @test haskey(doc, :powerio_version)
         @test Int(doc.index_base) == 1
         @test haskey(doc, :instance)
 

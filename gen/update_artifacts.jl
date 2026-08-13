@@ -117,20 +117,19 @@ function _check_schema_versions(handle, tag::String)
     # report-only build from crashing the gate.
     free === nothing || ccall(free, Cvoid, (Cstring,), ptr)
     # Textual parse: this script runs before package instantiation, so it
-    # cannot use JSON3. The report is a flat object (one "package" and one
-    # "arrow" string, per the powerio-capi contract), so first-match regexes
+    # cannot use JSON3. The report is a flat object, so a first-match regex
     # cannot land on a nested key.
-    for (key, want) in (("package", PIO_PACKAGE_SCHEMA_VERSION),
-                        ("arrow", PIO_ARROW_SCHEMA_VERSION))
+    want = lstrip(tag, 'v')
+    for key in (POWERIO_VERSION_KEY,)
         m = match(Regex("\"$(key)\"\\s*:\\s*\"([^\"]+)\""), text)
         m === nothing && _skip_release(
             "skipping $tag: pio_schema_versions_json reports no \"$key\" string " *
-            "(feature absent or key reshaped), so the $key schema check cannot " *
+            "(key reshaped), so the version check cannot " *
             "run; Artifacts.toml left untouched"
         )
         got = String(m.captures[1])
         _same_schema_lineage(got, want) || _skip_release(
-            "skipping $tag: its binaries speak $key schema $got, this binding " *
+            "skipping $tag: its binaries are powerio $got, this binding " *
             "targets $want; Artifacts.toml left untouched (repin after the " *
             "lockstep binding PR merges)"
         )

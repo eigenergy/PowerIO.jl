@@ -299,7 +299,7 @@ function _summary_from_data(data::JSON3.Object, ::Type{MulticonductorNetwork})
     count_keys = (_MC_TABLE_NAMES..., :warnings)
     counts = NamedTuple{count_keys}(map(k -> _payload_len(data, k), count_keys))
     return JSON3.read(JSON3.write((;
-        schema_version = 1,
+        powerio_version = something(schema_versions().powerio_version, ""),
         name = _payload_value(data, :name, ""),
         source_format = _payload_value(data, :source_format, "InMemory"),
         base_frequency = _payload_value(data, :base_frequency, 60.0),

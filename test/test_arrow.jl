@@ -367,7 +367,7 @@ end
                 got = to_arrow(path, Symbol(table_name))
                 expected = fixture["tables"][table_name]
                 @test got.table == expected["table"]
-                @test got.schema_version == expected["schema_version"]
+                @test got.powerio_version == expected["powerio_version"]
                 @test got.format == expected["format"]
                 @test got.row_axis == expected["row_axis"]
                 @test got.col_axis == expected["col_axis"]
@@ -485,7 +485,7 @@ end
         @test_skip arrow_catalog()
     else
         catalog = arrow_catalog()
-        @test haskey(catalog, :schema_version)
+        @test haskey(catalog, :powerio_version)
         @test occursin("powerio", String(catalog.producer))
         names = Set(String(t.name) for t in catalog.tables)
         # The catalog is feature based: it lists every table this build can

@@ -230,23 +230,17 @@ end
         if s != C_NULL
             doc = JSON3.read(PowerIO._take_string(lib, s))
 
-            @test haskey(doc, :schema_version)
+            @test haskey(doc, :powerio_version)
             @test doc.abi == PowerIO.PIO_ABI_VERSION
 
-            package = get(doc, :package, nothing)
-            if package !== nothing
-                @test PowerIO._same_schema_lineage(package,
-                                                   PowerIO.PIO_PACKAGE_SCHEMA_VERSION)
-            end
-            arrow = get(doc, :arrow, nothing)
-            if arrow !== nothing
-                @test PowerIO._same_schema_lineage(arrow,
-                                                   PowerIO.PIO_ARROW_SCHEMA_VERSION)
-            end
+            # The per document lineages are gone: one powerio version covers
+            # every document the library authors.
+            @test get(doc, :package, nothing) === nothing
+            @test get(doc, :arrow, nothing) === nothing
 
             # The exported probe reads the same document.
             sv = schema_versions()
-            @test sv.schema_version == doc.schema_version
+            @test sv.powerio_version == doc.powerio_version
             @test sv.abi == doc.abi
             @test sv.package == package && sv.arrow == arrow
         end

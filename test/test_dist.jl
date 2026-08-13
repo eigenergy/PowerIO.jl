@@ -2,7 +2,7 @@
     caps = PowerIO.dist_capabilities()
     @test keys(caps) == PowerIO._DIST_CAPABILITY_FIELDS
     @test caps.dist == PowerIO.dist_available()
-    @test caps.schema_version === nothing || caps.schema_version isa AbstractString
+    @test caps.powerio_version === nothing || caps.powerio_version isa AbstractString
     for k in (PowerIO._DIST_CAPABILITY_KEYS..., PowerIO._DIST_CAPABILITY_V08_KEYS...)
         @test getproperty(caps, k) isa Bool
     end
@@ -14,10 +14,10 @@
     if PowerIO.library_available() && PowerIO.dist_available() &&
        PowerIO._exports_symbol(:pio_dist_capabilities_json)
         # The capability document is additive; do not pin the exact version.
-        # The `isa` guard turns a document without `schema_version` into a
+        # The `isa` guard turns a document without `powerio_version` into a
         # clean failure instead of a `VersionNumber(nothing)` test error.
-        @test caps.schema_version isa AbstractString &&
-              VersionNumber(caps.schema_version) >= v"1.0.0"
+        @test caps.powerio_version isa AbstractString &&
+              VersionNumber(caps.powerio_version) >= v"0.9.0"
         for k in PowerIO._DIST_CAPABILITY_KEYS
             @test getproperty(caps, k)
         end
@@ -193,8 +193,7 @@ end
             # fixture survives version skew in both directions; the binding
             # constant covers a library that predates the report.
             ready_pkg = CompilerPackage(JSON3.write((
-                schema_version = something(schema_versions().package,
-                                           PowerIO.PIO_PACKAGE_SCHEMA_VERSION),
+                powerio_version = something(schema_versions().powerio_version,),
                 producer = (tool = "PowerIO.jl test", version = "0"),
                 model_kind = "multiconductor",
                 model = (
