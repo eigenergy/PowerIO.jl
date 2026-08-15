@@ -21,7 +21,7 @@
                 :multiconductor_to_balanced_preflight,
                 :lower_multiconductor_to_balanced,
                 :arrow_available, :gridfm_available, :matrix_available, :features,
-                :has_feature, :schema_versions, :arrow_catalog,
+                :has_feature, :schema_versions, :build_info, :arrow_catalog,
                 :MulticonductorNetwork, :dist_available, :dist_abi_version,
                 :dist_capabilities, :to_graph)
         @test isdefined(PowerIO, sym)

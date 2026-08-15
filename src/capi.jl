@@ -145,7 +145,7 @@ end
 # from an incompatible commit" into a clear error at the boundary, instead of a
 # cryptic ccall fault (a wrong signature) or silently wrong numbers deep in a solver.
 
-const PIO_ABI_VERSION = UInt32(4)
+const PIO_ABI_VERSION = UInt32(5)
 const _ABI_OK = Ref{Bool}(false)
 const _ABI_OK_LIB = Ref{String}("")
 
