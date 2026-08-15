@@ -177,42 +177,26 @@ end
     @test_throws ErrorException PowerIO.materialize_operating_point_series(nothing)
 end
 
-@testset "warning buffer truncation" begin
-    # The warn channel is cut at a byte offset and returns no length, so a
-    # near-cap fill only signals possible truncation. These tests pin the
-    # response: keep every line, append a marker.
-    pack(text, cap) = (buf = zeros(UInt8, cap); b = codeunits(text);
-                       copyto!(buf, 1, b, 1, min(length(b), cap - 1)); buf)
-    marker(w) = occursin("may be truncated", w)
+@testset "conversion warnings are not truncated" begin
+    # ABI 5 hands the warning list back as an owned string through an out
+    # pointer. The 64 KiB guess this binding used to make, and the "may be
+    # truncated" marker it appended near the cap, are both gone: there is no
+    # cap to approach.
+    @test !isdefined(PowerIO, :_WARNLEN)
+    @test !isdefined(PowerIO, :_warnbuf)
+    @test !isdefined(PowerIO, :_warn_lines)
 
-    # Well under the cap: every line survives, no marker.
-    small = PowerIO._warn_lines(pack("first\nsecond\nthird", 512); capped=true)
-    @test small == ["first", "second", "third"]
+    # A case whose conversion loses nothing reports an empty list, not an
+    # empty string, and the C side signals that with a NULL out pointer.
+    net = PowerIO.parse_file(joinpath(@__DIR__, "data", "case9.m"))
+    _, clean = PowerIO.to_format(net, "matpower")
+    @test clean isa Vector{String}
 
-    # Filled to the cap mid-word: keep every line, and the marker names the cap.
-    # Each fixture line is 31 bytes, so the 59-byte write ends inside line 2.
-    cap = 60
-    long = join(("warning number $i is quite wordy" for i in 1:20), "\n")
-    cut = PowerIO._warn_lines(pack(long, cap); capped=true)
-    @test marker(last(cut))
-    @test occursin("$cap bytes", last(cut))
-    @test all(!marker, cut[1:end-1])
-    @test startswith(first(cut), "warning number 1")
-    # The partial last line the C side wrote comes through verbatim.
-    written = long[1:cap-1]
-    @test endswith(written, "quite w")
-    @test cut[end-1] == last(PowerIO._nonempty_lines(written))
-
-    # A complete fill in the near-cap band also gets the marker; keep all lines.
-    snug = "aa\nbb"
-    band = PowerIO._warn_lines(pack(snug, ncodeunits(snug) + 1); capped=true)
-    @test band[1:2] == ["aa", "bb"]
-    @test marker(last(band))
-
-    # capped=false is the handle-backed channel, which sizes then fills and so
-    # cannot truncate: same lines, no marker.
-    uncapped = PowerIO._warn_lines(pack(long, cap); capped=false)
-    @test uncapped == cut[1:end-1]
+    # Every warning survives regardless of how many there are. A lossy target
+    # produces one per element, which is what used to overrun the guess.
+    _, lossy = PowerIO.to_format(net, "psse")
+    @test lossy isa Vector{String}
+    @test all(w -> !occursin("may be truncated", w), lossy)
 end
 
 @testset "schema version contract" begin

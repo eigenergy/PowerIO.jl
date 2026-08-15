@@ -237,18 +237,20 @@ function _classify_family(text::AbstractString)
 end
 
 const _ERRLEN = 512
-# Fidelity warnings come per element, so one feeder can pass 4 KiB. The C
-# entry points return no length; overflow truncates silently, and
-# `_warn_lines(capped=true)` reports a fill near the cap.
-const _WARNLEN = 65536
 
-# The per-call warn buffer, sized but not zero filled: the C side writes the
-# joined text plus NUL on success, and the buffer is only read after success.
-# The leading NUL keeps `_cstr` safe on a path that reads it untouched.
-function _warnbuf()
-    buf = Vector{UInt8}(undef, _WARNLEN)
-    buf[1] = 0x00
-    return buf
+# ABI 5 hands conversion warnings back through an out pointer as one owned
+# string, so there is nothing to size and nothing to truncate. Before that this
+# binding guessed 64 KiB and appended a "may be truncated" marker when the fill
+# came near the cap, which is the wrong shape for an unbounded list: warnings
+# come one per lossy element, so a large case always beat the guess.
+_warnref() = Ref{Ptr{UInt8}}(C_NULL)
+
+# Take ownership of an out-param warning string: split it into lines and free
+# it. A NULL out pointer means the conversion lost nothing.
+function _take_warnings(lib::AbstractString, ref::Ref{Ptr{UInt8}})
+    p = ref[]
+    p == C_NULL && return String[]
+    return _nonempty_lines(_take_string(lib, Cstring(p)))
 end
 
 # --- handle layer -------------------------------------------------------
@@ -387,18 +389,6 @@ _nonempty_lines(s::AbstractString) = String.(filter(!isempty, split(s, '\n')))
 # Split a `\n`-joined warn buffer into owned Strings. `capped`: this fixed-size
 # per-call channel truncates silently on a UTF-8 boundary at the cap, so a fill
 # within 4 bytes of it is the truncation signature — report it rather than
-# under-count fidelity warnings.
-function _warn_lines(buf::Vector{UInt8}; capped::Bool=false)
-    s = _cstr(buf)
-    warns = _nonempty_lines(s)
-    # The library cuts at a byte offset and returns no length, so a
-    # near-cap fill only signals possible truncation. Keep every line and
-    # mark that the last entry may be cut.
-    capped && ncodeunits(s) >= length(buf) - 4 &&
-        push!(warns, "... warning list may be truncated at $(length(buf)) bytes; " *
-                     "the entry before this one may be cut short")
-    return warns
-end
 
 # One string over the cap/count convention (`pio_network_name`,
 # `pio_source_format`, and the joined text behind `_warnings_from`): the query

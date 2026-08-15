@@ -494,14 +494,14 @@ function to_format(net::MulticonductorNetwork, to::AbstractString)
     h = _live_dist_handle(net, "to_format")
     lib = getfield(h, :lib)
     _ensure_dist_compatible(lib)
-    warnbuf = _warnbuf()
+    warnref = _warnref()
     err = zeros(UInt8, _ERRLEN)
     s = GC.@preserve h ccall(_library_symbol(lib, :pio_dist_to_format), Cstring,
-                             (Ptr{Cvoid}, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
-                             h.ptr, String(to), warnbuf, length(warnbuf), err, length(err))
+                             (Ptr{Cvoid}, Cstring, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
+                             h.ptr, String(to), warnref, err, length(err))
     s == C_NULL && error("PowerIO.to_format(MulticonductorNetwork): " * _cstr(err))
     text = _take_string(lib, s)
-    return (text, _warn_lines(warnbuf; capped=true))
+    return (text, _take_warnings(lib, warnref))
 end
 
 """
@@ -516,19 +516,19 @@ fidelity losses, since there is no handle to query).
 function convert_file(::Type{MulticonductorNetwork}, path::AbstractString, to::AbstractString; from=nothing)
     lib = _lib()
     _ensure_dist_compatible(lib)
-    warnbuf = _warnbuf()
+    warnref = _warnref()
     err = zeros(UInt8, _ERRLEN)
     fromc = from === nothing ? C_NULL : String(from)
     s = try
         ccall(_library_symbol(lib, :pio_dist_convert_file), Cstring,
-              (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
-              path, fromc, String(to), warnbuf, length(warnbuf), err, length(err))
+              (Cstring, Cstring, Cstring, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
+              path, fromc, String(to), warnref, err, length(err))
     catch e
         _feature_call_error("convert_file", "pio_dist_convert_file", "dist", e)
     end
     s == C_NULL && error("PowerIO.convert_file(MulticonductorNetwork): " * _cstr(err))
     text = _take_string(lib, s)
-    return (text, _warn_lines(warnbuf; capped=true))
+    return (text, _take_warnings(lib, warnref))
 end
 
 """
@@ -542,16 +542,16 @@ function convert_str(::Type{MulticonductorNetwork}, text::AbstractString, to::Ab
                      from::AbstractString)
     lib = _lib()
     _ensure_dist_compatible(lib)
-    warnbuf = _warnbuf()
+    warnref = _warnref()
     err = zeros(UInt8, _ERRLEN)
     s = try
         ccall(_library_symbol(lib, :pio_dist_convert_str), Cstring,
-              (Cstring, Cstring, Cstring, Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t),
-              String(text), String(from), String(to), warnbuf, length(warnbuf), err, length(err))
+              (Cstring, Cstring, Cstring, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
+              String(text), String(from), String(to), warnref, err, length(err))
     catch e
         _feature_call_error("convert_str", "pio_dist_convert_str", "dist", e)
     end
     s == C_NULL && error("PowerIO.convert_str(MulticonductorNetwork): " * _cstr(err))
     out = _take_string(lib, s)
-    return (out, _warn_lines(warnbuf; capped=true))
+    return (out, _take_warnings(lib, warnref))
 end
