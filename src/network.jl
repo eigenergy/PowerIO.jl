@@ -379,24 +379,26 @@ function to_json(net::BalancedNetwork)
     return (h === nothing || h.ptr == C_NULL) ? JSON3.write(net.data) : _to_json(h)
 end
 
-# `want_warnings=false` skips the warn channel: a one-byte buffer in, no
-# split out, for callers that discard the warnings by construction.
+# `want_warnings=false` skips the warn channel by passing NULL, which is how the
+# C side is told to discard it. Passing a live ref and dropping it unread leaks
+# the string the writer allocated into it.
 function _format_from_handle(h::BalancedNetworkHandle, to::AbstractString, what::AbstractString;
                              want_warnings::Bool=true)
     lib = getfield(h, :lib)
     warnref = _warnref()
+    warnarg = want_warnings ? warnref : Ptr{Ptr{UInt8}}(C_NULL)
     err = zeros(UInt8, _ERRLEN)
     s = GC.@preserve h ccall(_library_symbol(lib, :pio_to_format), Cstring,
                              (Ptr{Cvoid}, Cstring, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
-                             h.ptr, String(to), warnref, err, length(err))
+                             h.ptr, String(to), warnarg, err, length(err))
     s == C_NULL && error("PowerIO.to_format: " * _cstr(err) * " ($what)")
     text = _take_string(lib, s)
     return (text, want_warnings ? _take_warnings(lib, warnref) : String[])
 end
 
 # `matpower` flows through the one string-keyed writer like every other format
-# (v4 retired the per-format `pio_to_matpower`); a byte-exact MATPOWER round trip
-# warns about nothing, so skip the warn channel and return the text alone.
+# (v4 retired the per-format `pio_to_matpower`). The writer warns whenever the
+# source was not MATPOWER, so discard the channel rather than collect it.
 """
     to_matpower(net::BalancedNetwork) -> String
 
