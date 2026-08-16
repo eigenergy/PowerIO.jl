@@ -367,7 +367,10 @@ end
                 got = to_arrow(path, Symbol(table_name))
                 expected = fixture["tables"][table_name]
                 @test got.table == expected["table"]
-                @test got.powerio_version == expected["powerio_version"]
+                # The version names the release that wrote the document, so it
+                # moves every release while the rest of the fixture does not.
+                # Hold it to what the library reports rather than re-vendoring.
+                @test got.powerio_version == schema_versions().powerio_version
                 @test got.format == expected["format"]
                 @test got.row_axis == expected["row_axis"]
                 @test got.col_axis == expected["col_axis"]
