@@ -105,6 +105,10 @@ function _bus_shunt(h::BalancedNetworkHandle, n::Int)
     return (gs, bs)
 end
 
+# The C ABI reports "no unique reference bus" as -1, having no option type.
+# Julia has one, and `reference_bus_id` already uses it.
+_optional_index(raw::Int64) = raw < 0 ? nothing : Int(raw)
+
 # Dense numeric extraction off a live handle, shared by the BalancedNetwork and path
 # methods. The whole body runs under GC.@preserve h: a dozen ccalls with Julia
 # allocations between them, exactly the case where a finalizer racing the raw
@@ -137,7 +141,10 @@ function _dense_from_handle(h::BalancedNetworkHandle)
             gen = _gen_tables(h, ng),
             demand = (; pd, qd),
             shunt = (; gs, bs),
-            reference_bus = Int(ccall(_library_symbol(lib, :pio_ref_bus_index), Int64, (Ptr{Cvoid},), p)),
+            # The C -1 is "no unique reference"; Julia spells absence
+            # `nothing`, as `reference_bus_id` already does.
+            reference_bus = _optional_index(
+                ccall(_library_symbol(lib, :pio_ref_bus_index), Int64, (Ptr{Cvoid},), p)),
             n_components = Int(ccall(_library_symbol(lib, :pio_n_islands), Csize_t, (Ptr{Cvoid},), p)),
             is_radial = ccall(_library_symbol(lib, :pio_is_radial), Cint, (Ptr{Cvoid},), p) != 0,
         )
@@ -171,9 +178,10 @@ builds the JSON payload). Fields:
 - `gen` — NamedTuple of `bus` (1-based id, one row per machine), `pg, pmax, pmin`
   (MW), `in_service`.
 - `demand`, `shunt` — NamedTuples of per-bus `(pd, qd)` and `(gs, bs)` in dense order.
-- `reference_bus::Int` — dense 0-based index *into `bus_ids`* of the single
-  reference bus (not a 1-based id), or `-1` when there is no unique reference
-  (none, or several).
+- `reference_bus::Union{Int,Nothing}` — dense 0-based index *into `bus_ids`* of
+  the single reference bus (not a 1-based id), or `nothing` when there is no
+  unique reference (none, or several). The C ABI spells that case `-1`; this
+  binding maps it, matching `reference_bus_id` and the Python `to_dense`.
 - `n_components::Int`, `is_radial::Bool` — connectivity of the in-service topology.
 - `ns`, `switch` (the last two fields, powerio v0.7 library) — switch count and
   the switch table: `from, to` (1-based bus ids), `closed::Vector{UInt8}`,
