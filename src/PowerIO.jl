@@ -59,7 +59,7 @@ import Libdl
 import SparseArrays
 
 # Parsing and the parsed models
-export BalancedNetwork, MulticonductorNetwork, parse_file, parse_str, from_json
+export BalancedNetwork, MulticonductorNetwork, parse_file, parse_str, parse_bytes, from_json
 
 # Conversion and serialization
 export convert_file, convert_str, to_format, to_normalized, to_normalized_with_options,

@@ -1,7 +1,7 @@
 @testset "public API loads" begin
     # The module must load with no C library present (the binding is lazy),
     # and its public API must exist.
-    for sym in (:BalancedNetwork, :parse_file, :parse_str, :from_json, :convert_file,
+    for sym in (:BalancedNetwork, :parse_file, :parse_str, :parse_bytes, :from_json, :convert_file,
                 :convert_str, :to_format, :to_normalized, :to_normalized_with_options,
                 :to_json, :to_dense, :to_matpower, :to_arrow, :calc_admittance_matrix,
                 :calc_susceptance_matrix, :calc_incidence_matrix, :calc_bprime_matrix,
@@ -175,6 +175,27 @@ end
     @test_throws ErrorException PowerIO.OperatingPointSeries(ta, PowerIO.OperatingPoint[])
     @test_throws ErrorException PowerIO.operating_point_series(ta, [pt])
     @test_throws ErrorException PowerIO.materialize_operating_point_series(nothing)
+end
+
+@testset "parse_bytes" begin
+    # The byte entry point takes an explicit length, so it needs no NUL and can
+    # carry binary. Against a text case it must agree with the path parse.
+    path = joinpath(@__DIR__, "data", "case9.m")
+    from_path = parse_file(path)
+    from_bytes = parse_bytes(read(path), "matpower")
+    @test from_bytes isa BalancedNetwork
+    @test length(from_bytes.data.buses) == length(from_path.data.buses)
+    @test length(from_bytes.data.branches) == length(from_path.data.branches)
+
+    # A read-only view of the same bytes works: the binding copies what it must
+    # before the ccall rather than assuming a Vector{UInt8}.
+    @test parse_bytes(view(read(path), :), "matpower") isa BalancedNetwork
+
+    # Bytes a text format cannot decode surface as that, not as a bad case.
+    @test_throws ErrorException parse_bytes(UInt8[0xff, 0xfe, 0x00], "matpower")
+
+    # The type marker form is symmetric with parse_str / parse_file.
+    @test parse_bytes(BalancedNetwork, read(path), "matpower") isa BalancedNetwork
 end
 
 @testset "conversion warnings are not truncated" begin

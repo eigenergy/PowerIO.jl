@@ -253,6 +253,21 @@ function parse_str(::Type{BalancedNetwork}, text::AbstractString, format::Abstra
 end
 
 """
+    parse_bytes(bytes, format) -> BalancedNetwork
+
+Parse in-memory case bytes under an explicit `format`. Accepts every
+[`parse_str`](@ref) token plus `"pwb"`: PowerWorld binary has no text form, so
+this is the only way to read one without a file on disk. Text formats must be
+UTF-8.
+"""
+function parse_bytes(bytes::AbstractVector{UInt8}, format::AbstractString)
+    h = _parse_handle_bytes(bytes, format)
+    return BalancedNetwork(h)
+end
+parse_bytes(::Type{BalancedNetwork}, bytes::AbstractVector{UInt8}, format::AbstractString) =
+    parse_bytes(bytes, format)
+
+"""
     from_json(text) -> BalancedNetwork
 
 Rebuild a live [`BalancedNetwork`](@ref) from the JSON transport produced by

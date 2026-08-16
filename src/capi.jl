@@ -361,6 +361,29 @@ function _parse_handle_str(text::AbstractString, format::AbstractString)
     return BalancedNetworkHandle(ptr, lib)
 end
 
+# The byte sibling: `pio_parse_bytes` takes an explicit length, so the buffer
+# needs no NUL and may hold binary. It is the only in-memory route to the
+# PowerWorld `.pwb` reader. `GC.@preserve` roots the array for the call; the C
+# side copies whatever it retains before returning.
+function _parse_handle_bytes(bytes::AbstractVector{UInt8}, format::AbstractString)
+    lib = _lib()
+    _ensure_compatible(lib)
+    _network_free_fn(lib)
+    err = zeros(UInt8, _ERRLEN)
+    buf = bytes isa Vector{UInt8} ? bytes : Vector{UInt8}(bytes)
+    ptr = try
+        GC.@preserve buf begin
+            ccall(_library_symbol(lib, :pio_parse_bytes), Ptr{Cvoid},
+                  (Ptr{UInt8}, Csize_t, Cstring, Ptr{UInt8}, Csize_t),
+                  pointer(buf), length(buf), String(format), err, length(err))
+        end
+    catch e
+        _lib_call_error(e)
+    end
+    ptr == C_NULL && error("PowerIO.parse_bytes: " * _cstr(err))
+    return BalancedNetworkHandle(ptr, lib)
+end
+
 # `from_json` rebuilds from the canonical JSON snapshot `_to_json` writes.
 # The distinct label keeps the error pointed at `from_json`.
 function _from_json_handle(text::AbstractString)
