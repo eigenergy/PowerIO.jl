@@ -15,10 +15,17 @@ name: Update artifacts
 # - repository_dispatch (powerio-release): fired by powerio's Notify
 #   PowerIO.jl workflow the moment a release is published over there; carries
 #   the tag in the client payload.
-# - workflow_dispatch: manual recovery, pinning an explicit tag, or (open_pr)
-#   requesting a reviewed PR instead of the automatic release. Pinning a tag
-#   OLDER than the current pin, or a prerelease, requires open_pr: the
-#   automatic path refuses downgrades and non-vX.Y.Z tags.
+# - workflow_dispatch: manual recovery, pinning an explicit tag, and the ONLY
+#   trigger that can release. Pinning a tag OLDER than the current pin, or a
+#   prerelease, always takes the PR path: the release path refuses downgrades
+#   and non-vX.Y.Z tags.
+#
+# A release needs an explicit human instruction. Only a workflow_dispatch run
+# with release=true commits to main and registers. The schedule and the powerio
+# repository_dispatch always open a reviewed PR instead. This keeps a powerio
+# binary release from publishing whatever Julia API changes sit unreleased on
+# main: the automation cannot know whether they are breaking, and the changelog
+# entry it writes claims they are not.
 #
 # gen/update_artifacts.jl refuses a release whose pio_abi_version or
 # pio_dist_abi_version differs from the ABI versions this binding targets (it
@@ -61,8 +68,8 @@ on:
       powerio_tag:
         description: powerio release tag to pull binaries from (empty = latest)
         required: false
-      open_pr:
-        description: open a reviewed PR instead of committing to main and registering
+      release:
+        description: commit to main and register. Off = open a reviewed PR instead.
         type: boolean
         default: false
 
@@ -91,7 +98,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           INPUT_TAG: ${{ inputs.powerio_tag }}
           DISPATCH_TAG: ${{ github.event.client_payload.tag }}
-          OPEN_PR: ${{ inputs.open_pr }}
+          DO_RELEASE: ${{ inputs.release }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           TAG="${INPUT_TAG:-$DISPATCH_TAG}"
           if [ -z "$TAG" ]; then
@@ -105,11 +113,15 @@ jobs:
           # the vX.Y.Z shape powerio tags actually have.
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$ ]] \
             || { echo "refusing tag that does not look like vX.Y.Z" >&2; exit 1; }
-          # A suffixed tag (prerelease) never auto-releases: it does not fit
-          # the version scheme, so it always takes the reviewed PR path.
-          MODE=auto
-          if [ "$OPEN_PR" = "true" ] || ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            MODE=pr
+          # A release needs an explicit human instruction: a workflow_dispatch
+          # run with release=true. The schedule and the powerio dispatch always
+          # take the PR path, because neither can know whether unreleased Julia
+          # changes on main are breaking. A suffixed tag (prerelease) also never
+          # releases: it does not fit the version scheme.
+          MODE=pr
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$DO_RELEASE" = "true" ] \
+             && [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            MODE=auto
           fi
           # Never auto-downgrade: a deliberately pinned newer/prerelease tag
           # must not be silently reverted by the nightly poll, and pinning an
@@ -125,7 +137,7 @@ jobs:
           REPIN=true
           if [ "$MODE" = "auto" ] && newer "$(core "$pinned_now")" "$(core "$TAG")"; then
             REPIN=false
-            echo "refusing to auto-downgrade from $pinned_now to $TAG; dispatch with open_pr to downgrade" \
+            echo "refusing to downgrade from $pinned_now to $TAG; dispatch without release to downgrade" \
               | tee -a "$GITHUB_STEP_SUMMARY"
           fi
           echo "TAG=$TAG" >> "$GITHUB_ENV"

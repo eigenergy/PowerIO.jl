@@ -14,16 +14,21 @@
         p_ramp_res_down_online_ub = 0.0, p_ramp_res_down_offline_ub = 0.0,
         startup_states = Vector{Vector{Float64}}(),
     )
+    # One device per reactive capability mode, so both branches of the row builder
+    # are covered and the unselected mode's NaN fields are observable.
     producer = (;
         uid = "sd_00", device_type = "producer", bus = "bus_00",
         initial_status = (on_status = 1, p = 10.0, q = 0.0),
         energy_req_ub = [[0.0, 2.0, 9.0]], energy_req_lb = [[0.0, 2.0, 1.0]],
+        q_bound_cap = 1, q_linear_cap = 0,
+        beta_ub = 0.31, beta_lb = -0.17, q_0_ub = 0.41, q_0_lb = -0.29,
         sdd_common...,
     )
     consumer = (;
         uid = "sd_01", device_type = "consumer", bus = "bus_01",
         initial_status = (on_status = 1, p = 4.0, q = 0.0),
         energy_req_ub = Vector{Vector{Float64}}(), energy_req_lb = Vector{Vector{Float64}}(),
+        q_bound_cap = 0, q_linear_cap = 1, beta = 0.13, q_0 = 0.07,
         sdd_common...,
     )
     sdd_ts_common = (
@@ -129,6 +134,11 @@
     @test length(sc_data.shunt) == 1 && sc_data.shunt[1].uid == "sh_00"
     @test fieldtype(eltype(sc_data.shunt), :g_sh) === Float64
     @test fieldtype(eltype(sc_data.shunt), :b_sh) === Float64
+    # Per-class shunt index, same uid-suffix rule and leading position as the
+    # branch classes, so a client stops re-deriving it from the uid string.
+    @test sc_data.shunt[1].j_sh == 1
+    @test propertynames(sc_data.shunt[1])[1] === :j_sh
+    @test fieldtype(eltype(sc_data.shunt), :j_sh) === Int
     @test fieldtype(eltype(sc_data.acl_branch), :s_max) === Float64
     @test fieldtype(eltype(sc_data.acx_branch), :s_max) === Float64
     @test fieldtype(eltype(sc_data.acx_branch), :g_fr) === Float64
@@ -148,10 +158,59 @@
     @test lengths.L_T == 2
     @test lengths.L_N_p == 1
     @test lengths.L_N_q == 1
+    # The contingency count, so a client sizing per-contingency arrays does not
+    # reach back into the raw document.
+    @test lengths.K == 3
+    @test lengths.K == length(data.raw["reliability"]["contingency"])
 
     @test [b.i for b in sc_data.bus] == [1, 2]
     @test length(sc_data.prod) == 1 && sc_data.prod[1].uid == "sd_00"
     @test length(sc_data.cons) == 1 && sc_data.cons[1].uid == "sd_01"
+
+    # --- reactive capability ------------------------------------------------
+    # The producer declares the bound-cap mode, the consumer the linear-cap mode.
+    # Each carries its own parameters and NaN for the mode it did not declare, so
+    # a row read without checking its flag fails loudly.
+    let p = sc_data.prod[1], c = sc_data.cons[1]
+        @test (p.q_bound_cap, p.q_linear_cap) == (1, 0)
+        @test (p.beta_ub, p.beta_lb, p.q_0_ub, p.q_0_lb) == (0.31, -0.17, 0.41, -0.29)
+        @test isnan(p.beta) && isnan(p.q_p0)
+
+        @test (c.q_bound_cap, c.q_linear_cap) == (0, 1)
+        @test (c.beta, c.q_p0) == (0.13, 0.07)
+        @test all(isnan, (c.beta_ub, c.beta_lb, c.q_0_ub, c.q_0_lb))
+
+        # `q_p0` is the linear-cap intercept from the document's `q_0`; the row's
+        # own `q_0` stays `initial_status.q`.
+        @test p.q_0 == 0.0 && c.q_0 == 0.0
+
+        # Setting neither mode is legal and common: every device on the official
+        # C3E4N00073D1 scenario does it, leaving reactive power governed by
+        # q_lb / q_ub alone. Every capability parameter is then NaN.
+        neither = deepcopy(JSON3.read(JSON3.write(doc), Dict{String,Any}))
+        for dev in neither["network"]["simple_dispatchable_device"]
+            dev["q_bound_cap"] = 0
+            dev["q_linear_cap"] = 0
+        end
+        nscd = PowerIO.goc3_scopf_data(PowerIO.parse_goc3_json(neither))
+        for r in vcat(nscd.static.prod, nscd.static.cons)
+            @test (r.q_bound_cap, r.q_linear_cap) == (0, 0)
+            @test all(isnan, (r.beta_ub, r.beta_lb, r.q_0_ub, r.q_0_lb, r.beta, r.q_p0))
+        end
+        for f in (:q_bound_cap, :q_linear_cap)
+            @test fieldtype(eltype(sc_data.prod), f) === Int
+        end
+        for f in (:beta_ub, :beta_lb, :q_0_ub, :q_0_lb, :beta, :q_p0)
+            @test fieldtype(eltype(sc_data.prod), f) === Float64
+        end
+    end
+
+    # Both mode flags are required: a device declaring neither leaves its reactive
+    # power unconstrained, which is a malformed case rather than a default.
+    let bad = deepcopy(JSON3.read(JSON3.write(doc), Dict{String,Any}))
+        delete!(bad["network"]["simple_dispatchable_device"][1], "q_bound_cap")
+        @test_throws ErrorException PowerIO.goc3_scopf_data(PowerIO.parse_goc3_json(bad))
+    end
     @test sc_data.acl_branch[1].j_ln == 1 && sc_data.acl_branch[2].j_ln == 2
     @test sc_data.acx_branch[1].j_xf == 1   # per-class only; client adds j_ac = j_xf + L_J_ln
     @test !hasproperty(sc_data.acx_branch[1], :j_ac)
@@ -230,13 +289,34 @@
     # --- goc3_scopf_data: one exported call == the internal builders -------
     scd = PowerIO.goc3_scopf_data(data)
     @test scd isa PowerIO.ScopfInstance
-    @test scd.static == sc_data
+    # `isequal`, not `==`: the reactive capability parameters of the mode a device
+    # did not declare are NaN, and `NaN == NaN` is false, so `==` reports two
+    # identical instances as unequal. Anything diffing these rows wants `isequal`.
+    @test isequal(scd.static, sc_data)
     @test scd.lengths == lengths
     @test scd.energy_windows == ew
     @test scd.price_blocks.producer == pjtm_pr
     @test scd.price_blocks.consumer == pjtm_cs
     @test scd.ac_contingency_survivors == surv
     @test scd.dc_contingency_flows == jtk_dc
+    @test scd.violation_cost == (p_bus = 1.0, q_bus = 1.0, s = 1.0, e = 1.0)
+    @test scd.producers_first          # sd_00 producer, sd_01 consumer
+
+    # The stacked per-class offset a model derives from a uid number is only a
+    # bijection when each class owns one contiguous uid block. Interleaving them
+    # warns; it does not throw, because every other per-class uid-suffix index on a
+    # such a document is unsound in the same way and still parses.
+    let mixed = deepcopy(JSON3.read(JSON3.write(doc), Dict{String,Any}))
+        devs = mixed["network"]["simple_dispatchable_device"]
+        push!(devs, merge(deepcopy(devs[1]), Dict("uid" => "sd_02")))
+        push!(devs, merge(deepcopy(devs[2]), Dict("uid" => "sd_03")))
+        ts = mixed["time_series_input"]["simple_dispatchable_device"]
+        push!(ts, merge(deepcopy(ts[1]), Dict("uid" => "sd_02")))
+        push!(ts, merge(deepcopy(ts[2]), Dict("uid" => "sd_03")))
+        # producers {0, 2}, consumers {1, 3}: neither block is contiguous.
+        mixed_data = PowerIO.parse_goc3_json(mixed)
+        @test_logs (:warn,) match_mode = :any PowerIO.goc3_scopf_data(mixed_data)
+    end
 end
 
 # A real ARPA-E GO Competition Challenge 3 case, parsed from a JSON file, exercises
@@ -277,6 +357,44 @@ const GOC3_REAL_CASE_URL =
         @test (lengths.L_J_pr, lengths.L_J_cs, lengths.L_T) == (6, 11, 24)
         @test length(sc_data.prod) == 6 && length(sc_data.cons) == 11
         @test [b.i for b in sc_data.bus] == collect(1:14)
+        @test lengths.K == length(data.raw["reliability"]["contingency"])
+        # `j_sh` is the uid-suffix rule, the same one `j_ln` / `j_xf` / `j_dc` use,
+        # so it agrees with what a client would derive from the uid itself. It is
+        # NOT a contiguous 1:L_J_sh ordinal: this case names its single shunt
+        # "Shunt Bus 6", so `j_sh == 7` with `L_J_sh == 1`. That is the documented
+        # divergence between the uid-suffix builders and document-order numbering
+        # (see `parse_scopf`); the two agree on official Challenge 3 scenario files,
+        # whose uids are `<prefix>_<0-based index>`. A client sizing an array by
+        # `L_J_sh` and indexing it by `j_sh` is only safe on those files.
+        @test [s.j_sh for s in sc_data.shunt] ==
+              [PowerIO._uidnum(s.uid) + 1 for s in sc_data.shunt]
+        @test [s.j_ln for s in sc_data.acl_branch] ==
+              [PowerIO._uidnum(s.uid) + 1 for s in sc_data.acl_branch]
+        # The two reactive capability modes are mutually exclusive; a device may set
+        # neither (every device on the official C3E4N00073D1 scenario does, though
+        # every device on this one sets exactly one). Whichever mode is set has
+        # finite parameters and the other's are NaN.
+        for r in vcat(sc_data.prod, sc_data.cons)
+            @test r.q_bound_cap + r.q_linear_cap <= 1
+            bound = (r.beta_ub, r.beta_lb, r.q_0_ub, r.q_0_lb)
+            linear = (r.beta, r.q_p0)
+            @test all(r.q_bound_cap == 1 ? isfinite : isnan, bound)
+            @test all(r.q_linear_cap == 1 ? isfinite : isnan, linear)
+        end
+        @test any(r -> r.q_bound_cap == 1 || r.q_linear_cap == 1,
+                  vcat(sc_data.prod, sc_data.cons))
+
+        # This case names its devices ("Gen Bus 1 #1"), so the uid-suffix rule reads
+        # bus numbers and the two device classes overlap. That is the documented
+        # warning, not a parse failure.
+        scd = @test_logs (:warn,) match_mode = :any PowerIO.goc3_scopf_data(data)
+        @test propertynames(scd.violation_cost) == (:p_bus, :q_bus, :s, :e)
+        # This case omits `e_vio_cost`, which is why the four prices are optional.
+        @test all(isfinite, (scd.violation_cost.p_bus, scd.violation_cost.q_bus,
+                             scd.violation_cost.s))
+        @test isnan(scd.violation_cost.e)
+        @test !haskey(data.violation_cost, "e_vio_cost")
+        @test scd.producers_first isa Bool
         for rows in (sc_data.bus, sc_data.acl_branch, sc_data.acx_branch, sc_data.dc_branch,
                      sc_data.prod, sc_data.cons, cost_pr, cost_cs)
             @test isconcretetype(eltype(rows)) && eltype(rows) !== Any

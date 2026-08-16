@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.9.0
+
+Completes the GOC3 SCOPF instance. A client now builds a security-constrained
+OPF model from `goc3_scopf_data` alone. Before this, it also had to read
+`parse_goc3_json`'s raw dictionaries for five separate things.
+
+Breaking: four returned NamedTuples grow. Positional destructuring and
+`propertynames` order change. Binaries are unchanged. Core C ABI stays v4 and
+distribution C ABI stays v1, so this is a Julia-only release.
+
+- Producer and consumer rows carry the reactive capability block. The two mode
+  flags `q_bound_cap` and `q_linear_cap` are mutually exclusive. The bound-cap
+  mode adds `beta_ub`, `beta_lb`, `q_0_ub` and `q_0_lb`. The linear-cap mode
+  adds `beta` and `q_p0`. A device can set neither mode. Every device on the
+  official C3E4N00073D1 scenario does. The parameters of a mode a device did not
+  set read `NaN`. A row used without a flag check then gives a NaN objective
+  instead of a silent zero. `q_p0` holds the document's linear-cap `q_0`, under
+  a new name because the row already uses `q_0` for `initial_status.q`.
+  Breaking: `SddRow` grows from 34 to 42 fields. `NaN` also makes `==` report
+  two identical row sets as unequal, so use `isequal`.
+- `ScopfInstance` gains `violation_cost`: the four prices as `(p_bus, q_bus, s,
+  e)`. Each price can be absent and then reads `NaN`. GOCompetition's own
+  14-bus validation case omits `e_vio_cost`.
+- `ScopfInstance` gains `producers_first`. A model that stacks producers and
+  consumers into one variable vector needs it to place the per-class offsets.
+  It warns when the two device classes interleave.
+- `ScopfInstance.lengths` gains `K`, the contingency count. The survivor
+  builders already read it. Breaking: `lengths` grows from 13 to 14 fields.
+- Shunt rows gain the per-class index `j_sh`. It uses the same uid-suffix rule
+  as `j_ln`, `j_xf` and `j_dc`. Breaking: `ShuntRow` grows from 4 to 5 fields
+  and `j_sh` leads the row.
+- `update-artifacts.yml` no longer releases without an explicit instruction.
+  Only a `workflow_dispatch` run with `release=true` commits to main and
+  registers. The daily schedule and the powerio release dispatch now open a
+  reviewed PR. Neither can know whether unreleased Julia changes on main are
+  breaking, and the changelog entry the automation writes claims they are not.
+- `demands_mw` and `read_load_series` no longer say that
+  `ExaModelsPower.mpopf_model` divides its `pd` and `qd` keywords by `baseMVA`.
+  That interface gives MW matrices to `LoadSeries`, which converts them.
+
 ## 0.8.4
 
 Tracks powerio v0.8.3, keeping core C ABI v4 and distribution C ABI v1.
