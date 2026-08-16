@@ -159,13 +159,12 @@
             # exact-minor check against the binding constant would break
             # on every lockstep window (pinned binaries one envelope
             # minor behind the binding).
-            lib_pkg_schema = schema_versions().package
-            if lib_pkg_schema === nothing
-                @test VersionNumber(String(pkg_doc.schema_version)).major ==
-                      VersionNumber(PowerIO.PIO_PACKAGE_SCHEMA_VERSION).major
-            else
-                @test PowerIO._same_schema_lineage(pkg_doc.schema_version,
-                                                   lib_pkg_schema)
+            # The document states the powerio release that wrote it, and the
+            # library reports the same value, so the two must agree exactly.
+            lib_version = schema_versions().powerio_version
+            @test haskey(pkg_doc, :powerio_version)
+            if lib_version !== nothing
+                @test String(pkg_doc.powerio_version) == String(lib_version)
             end
             @test pkg_doc.model_kind == "balanced"
             @test pkg_doc.model.kind == "balanced"

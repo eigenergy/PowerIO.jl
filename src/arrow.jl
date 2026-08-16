@@ -104,7 +104,7 @@ function _arrow_format_code(::Type{T}) where {T}
     throw(ArgumentError("PowerIO.to_arrow: no Arrow format code for $(T)"))
 end
 
-# `PIO_ARROW_SCHEMA_VERSION` lives in schema_lineage.jl (included by
+# The lineage rule lives in schema_lineage.jl (included by
 # package.jl); gen/update_artifacts.jl checks it against the library's
 # `pio_schema_versions_json` report before it pins binaries.
 
@@ -428,13 +428,13 @@ function _with_matrix_metadata(cols::NamedTuple, table::Symbol,
                                metadata::Dict{String,String})
     table in _MATRIX_ARROW_TABLES || return cols
     reported = get(metadata, "powerio.table", String(table))
-    schema_version = get(metadata, "powerio.schema_version", "")
+    powerio_version = get(metadata, "powerio.version", "")
     format = get(metadata, "powerio.format", "coo")
     row_axis = get(metadata, "powerio.row_axis", "solver_bus")
     col_axis = get(metadata, "powerio.col_axis", table == :incidence ? "solver_branch" : "solver_bus")
     row_count = parse(Int, metadata["powerio.row_count"])
     col_count = parse(Int, metadata["powerio.col_count"])
-    return (; cols..., table=reported, schema_version, format, row_axis, col_axis,
+    return (; cols..., table=reported, powerio_version, format, row_axis, col_axis,
             row_count, col_count)
 end
 
@@ -663,8 +663,8 @@ end
 
 The Arrow table catalog (`pio_arrow_catalog_json`): what this library build can
 export over [`to_arrow`](@ref), independent of any parsed network. Top level
-fields are `schema_version`, `producer`, and `tables`; each table entry carries
-`id`, `name`, `schema_version`, `format`, `feature_requirements`, `available`,
+fields are `powerio_version`, `producer`, and `tables`; each table entry carries
+`id`, `name`, `format`, `feature_requirements`, `available`,
 `row_axis`, `col_axis`, `units`, and `columns`. Needs powerio-capi v0.7 built
 `--features arrow`.
 """

@@ -102,7 +102,7 @@ function _balanced_summary_json(h::BalancedNetworkHandle)
     radial = (GC.@preserve h ccall(_library_symbol(lib, :pio_is_radial),
                                    Cint, (Ptr{Cvoid},), h.ptr)) != 0
     return JSON3.read(JSON3.write((;
-        schema_version = 1,
+        powerio_version = something(schema_versions().powerio_version, ""),
         name = _payload_value(data, :name, ""),
         source_format = _payload_value(data, :source_format, "InMemory"),
         base_mva = _payload_value(data, :base_mva, 0.0),
@@ -146,7 +146,7 @@ function _summary_from_data(data::JSON3.Object, ::Type{BalancedNetwork})
         warnings = _payload_len(data, :warnings),
     )
     return JSON3.read(JSON3.write((;
-        schema_version = 1,
+        powerio_version = something(schema_versions().powerio_version, ""),
         name = _payload_value(data, :name, ""),
         source_format = _payload_value(data, :source_format, "InMemory"),
         base_mva = _payload_value(data, :base_mva, 0.0),
