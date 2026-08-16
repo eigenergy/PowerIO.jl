@@ -151,6 +151,16 @@ calc_bdoubleprime_matrix(path::AbstractString; from=nothing) =
 Return a PowerModels sign convention susceptance matrix as a
 `PowerIO.AdmittanceMatrix{Float64}`. This is the sign adjusted form of Rust's
 `B'` matrix: `calc_susceptance_matrix(net).matrix == -calc_bprime_matrix(net).matrix`.
+
+`B'` is the fast decoupled power flow matrix, so a phase shifting branch folds
+into the off diagonal and the result is **not symmetric in general**. On
+PowerModels' `case5.m`, whose 3-4 pair carries a one degree shift, the two off
+diagonal entries differ by 0.23.
+
+It is therefore not the DC OPF `B`-theta Laplacian, which is a different matrix:
+that one weights each branch by `DcConvention`, stays symmetric, and routes phase
+shifts through the injection vector rather than the matrix. Build that one from
+[`calc_incidence_matrix`](@ref) and the branch series values.
 """
 function calc_susceptance_matrix(net::BalancedNetwork)
     bp = calc_bprime_matrix(net)
