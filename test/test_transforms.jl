@@ -164,6 +164,30 @@ end
         @test d.base_mva == 100.0
         @test d.bus_ids == collect(1:14)                # case14 buses are 1..14
         @test d.reference_bus == 0                      # dense 0-based index of the REF bus
+        # Absence is `nothing`, not the C ABI's -1. Two slack buses means no
+        # unique reference, and `bus_ids[ref + 1]` has to fail there rather
+        # than quietly reach for index 0.
+        two_slacks = """
+        function mpc = twoslack
+        mpc.version = '2';
+        mpc.baseMVA = 100;
+        mpc.bus = [
+        \t1\t3\t0\t0\t0\t0\t1\t1\t0\t230\t1\t1.1\t0.9;
+        \t2\t3\t0\t0\t0\t0\t1\t1\t0\t230\t1\t1.1\t0.9;
+        \t3\t1\t50\t10\t0\t0\t1\t1\t0\t230\t1\t1.1\t0.9;
+        ];
+        mpc.gen = [
+        \t1\t0\t0\t100\t-100\t1\t100\t1\t100\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0;
+        \t2\t0\t0\t100\t-100\t1\t100\t1\t300\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0;
+        ];
+        mpc.branch = [
+        \t1\t2\t0.01\t0.1\t0\t0\t0\t0\t0\t0\t1\t-360\t360;
+        \t2\t3\t0.01\t0.1\t0\t0\t0\t0\t0\t0\t1\t-360\t360;
+        ];
+        """
+        multi = to_dense(parse_str(two_slacks, "matpower"))
+        @test multi.reference_bus === nothing
+        @test_throws MethodError multi.bus_ids[multi.reference_bus + 1]
         @test d.n_components == 1
         @test d.is_radial == false                      # case14 has loops
         @test length(d.branch.from) == 20 && length(d.branch.x) == 20

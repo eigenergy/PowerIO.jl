@@ -1,7 +1,7 @@
 @testset "public API loads" begin
     # The module must load with no C library present (the binding is lazy),
     # and its public API must exist.
-    for sym in (:BalancedNetwork, :parse_file, :parse_str, :from_json, :convert_file,
+    for sym in (:BalancedNetwork, :parse_file, :parse_str, :parse_bytes, :from_json, :convert_file,
                 :convert_str, :to_format, :to_normalized, :to_normalized_with_options,
                 :to_json, :to_dense, :to_matpower, :to_arrow, :calc_admittance_matrix,
                 :calc_susceptance_matrix, :calc_incidence_matrix, :calc_bprime_matrix,
@@ -21,7 +21,7 @@
                 :multiconductor_to_balanced_preflight,
                 :lower_multiconductor_to_balanced,
                 :arrow_available, :gridfm_available, :matrix_available, :features,
-                :has_feature, :schema_versions, :arrow_catalog,
+                :has_feature, :schema_versions, :build_info, :arrow_catalog,
                 :MulticonductorNetwork, :dist_available, :dist_abi_version,
                 :dist_capabilities, :to_graph)
         @test isdefined(PowerIO, sym)
@@ -177,42 +177,47 @@ end
     @test_throws ErrorException PowerIO.materialize_operating_point_series(nothing)
 end
 
-@testset "warning buffer truncation" begin
-    # The warn channel is cut at a byte offset and returns no length, so a
-    # near-cap fill only signals possible truncation. These tests pin the
-    # response: keep every line, append a marker.
-    pack(text, cap) = (buf = zeros(UInt8, cap); b = codeunits(text);
-                       copyto!(buf, 1, b, 1, min(length(b), cap - 1)); buf)
-    marker(w) = occursin("may be truncated", w)
+@testset "parse_bytes" begin
+    # The byte entry point takes an explicit length, so it needs no NUL and can
+    # carry binary. Against a text case it must agree with the path parse.
+    path = joinpath(@__DIR__, "data", "case9.m")
+    from_path = parse_file(path)
+    from_bytes = parse_bytes(read(path), "matpower")
+    @test from_bytes isa BalancedNetwork
+    @test length(from_bytes.data.buses) == length(from_path.data.buses)
+    @test length(from_bytes.data.branches) == length(from_path.data.branches)
 
-    # Well under the cap: every line survives, no marker.
-    small = PowerIO._warn_lines(pack("first\nsecond\nthird", 512); capped=true)
-    @test small == ["first", "second", "third"]
+    # A read-only view of the same bytes works: the binding copies what it must
+    # before the ccall rather than assuming a Vector{UInt8}.
+    @test parse_bytes(view(read(path), :), "matpower") isa BalancedNetwork
 
-    # Filled to the cap mid-word: keep every line, and the marker names the cap.
-    # Each fixture line is 31 bytes, so the 59-byte write ends inside line 2.
-    cap = 60
-    long = join(("warning number $i is quite wordy" for i in 1:20), "\n")
-    cut = PowerIO._warn_lines(pack(long, cap); capped=true)
-    @test marker(last(cut))
-    @test occursin("$cap bytes", last(cut))
-    @test all(!marker, cut[1:end-1])
-    @test startswith(first(cut), "warning number 1")
-    # The partial last line the C side wrote comes through verbatim.
-    written = long[1:cap-1]
-    @test endswith(written, "quite w")
-    @test cut[end-1] == last(PowerIO._nonempty_lines(written))
+    # Bytes a text format cannot decode surface as that, not as a bad case.
+    @test_throws ErrorException parse_bytes(UInt8[0xff, 0xfe, 0x00], "matpower")
 
-    # A complete fill in the near-cap band also gets the marker; keep all lines.
-    snug = "aa\nbb"
-    band = PowerIO._warn_lines(pack(snug, ncodeunits(snug) + 1); capped=true)
-    @test band[1:2] == ["aa", "bb"]
-    @test marker(last(band))
+    # The type marker form is symmetric with parse_str / parse_file.
+    @test parse_bytes(BalancedNetwork, read(path), "matpower") isa BalancedNetwork
+end
 
-    # capped=false is the handle-backed channel, which sizes then fills and so
-    # cannot truncate: same lines, no marker.
-    uncapped = PowerIO._warn_lines(pack(long, cap); capped=false)
-    @test uncapped == cut[1:end-1]
+@testset "conversion warnings are not truncated" begin
+    # ABI 5 hands the warning list back as an owned string through an out
+    # pointer. The 64 KiB guess this binding used to make, and the "may be
+    # truncated" marker it appended near the cap, are both gone: there is no
+    # cap to approach.
+    @test !isdefined(PowerIO, :_WARNLEN)
+    @test !isdefined(PowerIO, :_warnbuf)
+    @test !isdefined(PowerIO, :_warn_lines)
+
+    # A case whose conversion loses nothing reports an empty list, not an
+    # empty string, and the C side signals that with a NULL out pointer.
+    net = PowerIO.parse_file(joinpath(@__DIR__, "data", "case9.m"))
+    _, clean = PowerIO.to_format(net, "matpower")
+    @test clean isa Vector{String}
+
+    # Every warning survives regardless of how many there are. A lossy target
+    # produces one per element, which is what used to overrun the guess.
+    _, lossy = PowerIO.to_format(net, "psse")
+    @test lossy isa Vector{String}
+    @test all(w -> !occursin("may be truncated", w), lossy)
 end
 
 @testset "schema version contract" begin

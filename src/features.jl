@@ -156,3 +156,27 @@ function schema_versions()
     obj = JSON3.read(_take_string(lib, s))
     return NamedTuple{_DOCUMENT_VERSION_FIELDS}(map(k -> get(obj, k, nothing), _DOCUMENT_VERSION_FIELDS))
 end
+
+"""
+    build_info() -> Union{NamedTuple,Nothing}
+
+Everything the loaded library reports about itself in one call: `powerio_version`,
+`abi`, a `features` table, `foreign_schemas`, and `error_categories`.
+
+`curl_version_info` is the shape it follows, and the reason to prefer it over
+[`schema_versions`](@ref), [`dist_capabilities`](@ref) and
+[`matrix_available`](@ref): those answer one question each and need a new symbol
+to answer a new one, while this grows by adding a key. `error_categories` is the
+closed set of tokens that classify a C error message, for a caller that wants to
+branch on the kind of failure rather than match on prose.
+
+Returns `nothing` when the library predates the entry point.
+"""
+function build_info()
+    lib = _lib()
+    _exports_symbol(:pio_build_info, lib) || return nothing
+    _ensure_compatible(lib)
+    s = ccall(_library_symbol(lib, :pio_build_info), Cstring, ())
+    s == C_NULL && error("PowerIO.build_info: pio_build_info returned null")
+    return JSON3.read(_take_string(lib, s))
+end

@@ -59,7 +59,7 @@ import Libdl
 import SparseArrays
 
 # Parsing and the parsed models
-export BalancedNetwork, MulticonductorNetwork, parse_file, parse_str, from_json
+export BalancedNetwork, MulticonductorNetwork, parse_file, parse_str, parse_bytes, from_json
 
 # Conversion and serialization
 export convert_file, convert_str, to_format, to_normalized, to_normalized_with_options,
@@ -98,8 +98,8 @@ export multiconductor_to_balanced_preflight, lower_multiconductor_to_balanced,
        dist_available, dist_abi_version, dist_capabilities
 
 # Graph projection and feature probes
-export to_graph, features, has_feature, schema_versions, arrow_available,
-       gridfm_available, matrix_available
+export to_graph, features, has_feature, schema_versions, build_info,
+       arrow_available, gridfm_available, matrix_available
 
 include("capi.jl")        # library resolution, ABI handshake, BalancedNetworkHandle, buffer helpers
 include("network.jl")     # BalancedNetwork and the parse / convert / serialize verbs
