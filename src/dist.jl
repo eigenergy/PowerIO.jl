@@ -466,6 +466,9 @@ end
 The parse warnings — everything the reader could not represent or had to
 assume. Read from the live handle (`pio_dist_warnings`) when there is one,
 else from the payload's `warnings` field, so they survive a package round trip.
+
+Each line reads `CODE: message`; see [`warnings(::BalancedNetwork)`](@ref) for
+how to read one.
 """
 function warnings(net::MulticonductorNetwork)
     h = getfield(net, :handle)

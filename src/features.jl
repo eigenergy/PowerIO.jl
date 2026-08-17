@@ -167,8 +167,9 @@ Everything the loaded library reports about itself in one call: `powerio_version
 [`schema_versions`](@ref), [`dist_capabilities`](@ref) and
 [`matrix_available`](@ref): those answer one question each and need a new symbol
 to answer a new one, while this grows by adding a key. `error_categories` is the
-closed set of tokens that classify a C error message, for a caller that wants to
-branch on the kind of failure rather than match on prose.
+closed set of coarse tokens a failure projects onto, for a caller that wants to
+branch on the kind of failure rather than match on prose; the finer identity is
+the dotted code every warning line and every error message leads with.
 
 Returns `nothing` when the library predates the entry point.
 """

@@ -100,6 +100,19 @@
         @test !isempty(psse_text)
         @test psse_warnings isa AbstractVector{<:AbstractString}
 
+        # Every warning line leads with its code: split at the first ": " and
+        # the left side is a dotted code whose first segment names the stage.
+        # A consumer branches on that, never on the prose after it.
+        @test !isempty(psse_warnings)
+        for line in psse_warnings
+            parts = split(line, ": "; limit = 2)
+            @test length(parts) == 2
+            @test occursin(r"^[A-Z][A-Z0-9_]*(\.[A-Z0-9_]+)+$", parts[1])
+            @test split(parts[1], '.')[1] in
+                  ("PARSE", "READ", "CANONICALIZE", "VALIDATE", "LOWER", "BUILD",
+                   "EMIT", "BIND", "PARTNER", "REQUEST")
+        end
+
         # convert_str is the in-memory sibling of convert_file (v4 pio_convert_str);
         # matpower -> psse matches the file conversion byte for byte.
         cs_text, cs_warnings = convert_str(read(joinpath(data, "case14.m"), String), "psse"; from = "matpower")

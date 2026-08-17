@@ -426,6 +426,11 @@ to_format(net::BalancedNetwork, to::AbstractString) =
 
 The fidelity warnings retained on a live handle (`pio_warnings`) — what the reader
 could not represent or had to assume. Empty for a handle-less [`BalancedNetwork`](@ref).
+
+Each line reads `CODE: message`. Split at the first `": "`: the left side is a
+stable dotted code (`READ.DSS.INCLUDE_REFUSED`) whose first segment names the
+stage, and the right side is prose under no stability promise. Branch on the
+code, never on the message.
 """
 function warnings(net::BalancedNetwork)
     h = net.handle
