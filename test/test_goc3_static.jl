@@ -6,8 +6,6 @@
     # indices are hand-checkable.
     sdd_common = (
         on_cost = 1.0, startup_cost = 2.0, shutdown_cost = 3.0,
-        p_ramp_up_ub = 1.0, p_ramp_down_ub = 1.0,
-        p_startup_ramp_ub = 1.0, p_shutdown_ramp_ub = 1.0,
         p_reg_res_up_ub = 0.0, p_reg_res_down_ub = 0.0,
         p_syn_res_ub = 0.0, p_nsyn_res_ub = 0.0,
         p_ramp_res_up_online_ub = 0.0, p_ramp_res_up_offline_ub = 0.0,
@@ -20,6 +18,8 @@
         uid = "sd_00", device_type = "producer", bus = "bus_00",
         initial_status = (on_status = 1, p = 10.0, q = 0.0),
         energy_req_ub = [[0.0, 2.0, 9.0]], energy_req_lb = [[0.0, 2.0, 1.0]],
+        p_ramp_up_ub = 1.5, p_ramp_down_ub = 0.75,
+        p_startup_ramp_ub = 0.5, p_shutdown_ramp_ub = 0.25,
         q_bound_cap = 1, q_linear_cap = 0,
         beta_ub = 0.31, beta_lb = -0.17, q_0_ub = 0.41, q_0_lb = -0.29,
         sdd_common...,
@@ -28,6 +28,8 @@
         uid = "sd_01", device_type = "consumer", bus = "bus_01",
         initial_status = (on_status = 1, p = 4.0, q = 0.0),
         energy_req_ub = Vector{Vector{Float64}}(), energy_req_lb = Vector{Vector{Float64}}(),
+        p_ramp_up_ub = 2.5, p_ramp_down_ub = 1.75,
+        p_startup_ramp_ub = 1.25, p_shutdown_ramp_ub = 0.6,
         q_bound_cap = 0, q_linear_cap = 1, beta = 0.13, q_0 = 0.07,
         sdd_common...,
     )
