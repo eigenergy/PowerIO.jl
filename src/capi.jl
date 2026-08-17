@@ -236,11 +236,14 @@ function _classify_family(text::AbstractString)
     lib = _lib()
     _exports_symbol(:pio_classify_str, lib) || return :unavailable
     _ensure_compatible(lib)
-    buf = zeros(UInt8, 64)
-    n = ccall(_library_symbol(lib, :pio_classify_str), Csize_t,
-              (Cstring, Ptr{UInt8}, Csize_t), String(text), buf, length(buf))
-    n == 0 && return :unknown
-    return Symbol(first(split(_cstr(buf), ':')))
+    fn = _library_symbol(lib, :pio_classify_str)
+    json = String(text)
+    # `pio_classify_str` returns the full length and truncates into the buffer,
+    # so size it first: nothing bounds a future format token.
+    label = _string_from((out, cap) -> ccall(fn, Csize_t,
+                                             (Cstring, Ptr{UInt8}, Csize_t), json, out, cap))
+    isempty(label) && return :unknown
+    return Symbol(first(split(label, ':')))
 end
 
 const _ERRLEN = 512
