@@ -2,14 +2,17 @@
 
 ## 0.9.0
 
-Completes the GOC3 SCOPF instance. A client now builds a security-constrained
-OPF model from `goc3_scopf_data` alone. Before this, it also had to read
-`parse_goc3_json`'s raw dictionaries for five separate things.
+Moves the binding to powerio C ABI 5 and completes the GOC3 SCOPF instance. A client now builds a security constrained OPF model from `goc3_scopf_data` alone. Before this, it also had to read `parse_goc3_json`'s raw dictionaries for five separate things.
 
-Breaking: four returned NamedTuples grow. Positional destructuring and
-`propertynames` order change. Binaries are unchanged. Core C ABI stays v4 and
-distribution C ABI stays v1, so this is a Julia-only release.
+Breaking: four returned NamedTuples grow. Positional destructuring and `propertynames` order change.
 
+**This release needs powerio v0.9.0 binaries.** `PIO_ABI_VERSION` is 5 (`src/capi.jl`) and the binding gates on it by equality, so an older library fails `_ensure_compatible` at the first call into it with a version mismatch error rather than degrading. That includes the v0.8.3 artifact 0.8.4 pinned, which reports ABI 4: the pin and the binding move together and cannot be upgraded separately. `PIO_DIST_ABI_VERSION` stays 1.
+
+**What ABI 5 changes for a caller** ([migration guide](https://powerio.dev/guide/abi-v5.html)). The seven conversion entry points return their fidelity loss warnings through an owned out pointer instead of a caller buffer, so a long warning list is no longer truncated with nothing saying so. `pio_n_buses` and `pio_bus_ids` report the star lowered bus space, so `length(bus_ids) == n_buses` holds and both agree with `bus_demand`, `bus_shunt` and the island count on a case carrying an in service three winding transformer. The three `pio_acopf_*` symbols are gone; nothing here referenced them. Seven JSON documents changed shape while their symbols kept their signatures: `schema_version` is `powerio_version`, `pio_schema_versions_json` dropped four keys, `pio_summary_json` gained a `topology` block, and the Arrow metadata key is `powerio.version`. A binding built against ABI 4 passes the handshake and then reads `null` for keys it mirrors, which is why the integer moved.
+
+**Reader and writer output moves with the binaries, and no C declaration shows it.** Three classes, each detailed in [powerio's own 0.9.0 notes](https://github.com/eigenergy/powerio/releases/tag/v0.9.0). A PSS/E case whose space delimited records pad a quoted field parses to different values: both delimiter styles trim now, so `' 1'` reads `1`, and a blank quoted field holds its column instead of vanishing and shifting every column after it. PowerWorld device ids and circuits are stored trimmed, and a value equal to the positional default the writer re-derives is not retained, for every parallel circuit rather than the first alone, so code reading `extras["id"]` or the circuit key off a parsed PowerWorld case finds nothing where a default used to sit. The MATPOWER writer's dropped extras warning carries the count of elements it covers and covers three winding transformers.
+
+- Breaking: the deprecated bindings `Network`, `DistNetwork` and `NetworkHandle` are removed. 0.3.0 introduced them as compatibility names for `BalancedNetwork`, `MulticonductorNetwork` and `BalancedNetworkHandle`, no entry since recorded a removal, and they resolved through 0.8.4. powerio 0.9.0 drops the same names from its Rust and Python surfaces.
 - Producer and consumer rows carry the reactive capability block. The two mode
   flags `q_bound_cap` and `q_linear_cap` are mutually exclusive. The bound-cap
   mode adds `beta_ub`, `beta_lb`, `q_0_ub` and `q_0_lb`. The linear-cap mode

@@ -174,7 +174,6 @@ function _summary(net::BalancedNetwork)
     return summary
 end
 
-Base.@deprecate_binding Network BalancedNetwork
 
 """
     parse_file(path; from=nothing) -> BalancedNetwork | MulticonductorNetwork
