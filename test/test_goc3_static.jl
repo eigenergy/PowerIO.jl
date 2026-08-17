@@ -167,6 +167,27 @@
     @test length(sc_data.prod) == 1 && sc_data.prod[1].uid == "sd_00"
     @test length(sc_data.cons) == 1 && sc_data.cons[1].uid == "sd_01"
 
+    # --- commitment ramp limits and initial operating point ------------------
+    # A startup or shutdown power trajectory needs the two ramp limits, the initial
+    # dispatch and the per-period p_lb series. Check each against the raw document
+    # entry for the same device id, so the row is provably the whole read.
+    for r in vcat(sc_data.prod, sc_data.cons)
+        val = data.sdd_lookup[r.uid]
+        ts_val = data.sdd_ts_lookup[r.uid]
+        @test r.p_ru == Float64(val["p_ramp_up_ub"])
+        @test r.p_rd == Float64(val["p_ramp_down_ub"])
+        @test r.p_ru_su == Float64(val["p_startup_ramp_ub"])
+        @test r.p_rd_sd == Float64(val["p_shutdown_ramp_ub"])
+        @test r.p_0 == Float64(val["initial_status"]["p"])
+        @test r.q_0 == Float64(val["initial_status"]["q"])
+        @test r.p_min == Float64.(ts_val["p_lb"])
+        @test r.p_max == Float64.(ts_val["p_ub"])
+    end
+    for f in (:p_ru, :p_rd, :p_ru_su, :p_rd_sd, :p_0, :q_0)
+        @test fieldtype(eltype(sc_data.prod), f) === Float64
+        @test fieldtype(eltype(sc_data.cons), f) === Float64
+    end
+
     # --- reactive capability ------------------------------------------------
     # The producer declares the bound-cap mode, the consumer the linear-cap mode.
     # Each carries its own parameters and NaN for the mode it did not declare, so
@@ -383,6 +404,24 @@ const GOC3_REAL_CASE_URL =
         end
         @test any(r -> r.q_bound_cap == 1 || r.q_linear_cap == 1,
                   vcat(sc_data.prod, sc_data.cons))
+
+        # The ramp limits and initial dispatch a startup or shutdown trajectory
+        # needs, on all 17 devices of a real scenario, each against the raw
+        # document entry for the same device id.
+        @test length(vcat(sc_data.prod, sc_data.cons)) == 17
+        for r in vcat(sc_data.prod, sc_data.cons)
+            val = data.sdd_lookup[r.uid]
+            ts_val = data.sdd_ts_lookup[r.uid]
+            @test r.p_ru == Float64(val["p_ramp_up_ub"])
+            @test r.p_rd == Float64(val["p_ramp_down_ub"])
+            @test r.p_ru_su == Float64(val["p_startup_ramp_ub"])
+            @test r.p_rd_sd == Float64(val["p_shutdown_ramp_ub"])
+            @test r.p_0 == Float64(val["initial_status"]["p"])
+            @test r.q_0 == Float64(val["initial_status"]["q"])
+            @test r.p_min == Float64.(ts_val["p_lb"])
+            @test r.p_max == Float64.(ts_val["p_ub"])
+            @test length(r.p_min) == lengths.L_T
+        end
 
         # This case names its devices ("Gen Bus 1 #1"), so the uid-suffix rule reads
         # bus numbers and the two device classes overlap. That is the documented
