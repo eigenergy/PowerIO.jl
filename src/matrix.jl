@@ -161,6 +161,28 @@ It is therefore not the DC OPF `B`-theta Laplacian, which is a different matrix:
 that one weights each branch by `DcConvention`, stays symmetric, and routes phase
 shifts through the injection vector rather than the matrix. Build that one from
 [`calc_incidence_matrix`](@ref) and the branch series values.
+
+# Convention
+
+Each branch enters with the series susceptance `x / (r^2 + x^2)` from its own
+impedance: Rust builds `B'` under the BX scheme, which keeps the resistance and
+sets the tap magnitude to one. That weight is a positive Laplacian edge weight
+in [`calc_bprime_matrix`](@ref), where off diagonal entries are negative and
+each diagonal is the sum over its incident branches. Negating flips both signs,
+so here the off diagonal entries are positive and the diagonals negative.
+
+# Extending the generic
+
+A downstream package can add a method to this generic for its own network type,
+returning a matrix under a different sign, a different per branch weight, or a
+different phase shifter treatment. Nothing at the call site distinguishes the
+methods, so:
+
+- [`calc_bprime_matrix`](@ref) names one matrix and one convention. Use it when
+  a package extends the generic, and when the positive Laplacian form is what
+  the caller wants regardless of which packages are loaded.
+- A package adding a method for its own network type owns documenting that
+  method's convention: sign, per branch weight, and phase shifter treatment.
 """
 function calc_susceptance_matrix(net::BalancedNetwork)
     bp = calc_bprime_matrix(net)
