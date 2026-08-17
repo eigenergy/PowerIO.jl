@@ -8,7 +8,9 @@ name: Register Package
 # this workflow only validates and posts the Registrator comment. Manual
 # dispatch is the immediate path for a release whose version + changelog
 # already merged to main (the nightly Update artifacts run would otherwise
-# notice the version missing from General and dispatch this itself).
+# notice the version missing from General and dispatch this itself). Either way
+# the run resolves Artifacts.toml first and fails if the pinned binaries do not
+# load, so a direct dispatch cannot register a version against a stale pin.
 # The notes matter: a pre-1.0 minor bump is a breaking release, and
 # General's AutoMerge holds a breaking version whose trigger carries no change
 # description (it must mention "breaking" or "changelog"). The General PR
@@ -60,6 +62,17 @@ jobs:
         with:
           ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: "1"
+
+      - name: Check the pinned artifact
+        # A direct dispatch skips the release-state test Update artifacts runs,
+        # so resolve Artifacts.toml here: registering a version whose pinned
+        # binaries this binding cannot speak to ships a package that cannot load.
+        run: |
+          julia --project=. -e 'using Pkg; Pkg.instantiate()'
+          julia --project=. -e 'using PowerIO; PowerIO.library_available() || error("the pinned artifact did not resolve or failed the core ABI check")'
 
       - name: Set the version in Project.toml
         id: ver

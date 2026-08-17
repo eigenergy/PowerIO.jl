@@ -51,8 +51,13 @@ name: Update artifacts
 # The version registered is the top changelog version when ahead (a human
 # already declared the release), else the pinned powerio version when that
 # number is ahead, else the next patch — except that when the CURRENT version
-# never registered, it is re-registered first and a pending repin is deferred
-# one run (General's AutoMerge requires sequential version numbers).
+# never registered, the version is held there and re-registered first, carrying
+# any pending repin with it (General's AutoMerge requires sequential version
+# numbers, so only the number is held back).
+#
+# When the ABI gate leaves Artifacts.toml unrepinned, the run reports
+# release=false with the reason and stops. A parked release is the documented
+# outcome, so it must not fail the job or release the stale pin.
 #
 # Pushes and PRs made with GITHUB_TOKEN do not trigger CI (the recursion
 # guard); the full test suite runs here against the exact release state
@@ -155,6 +160,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           newer() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]; }
+          # gen/update_artifacts.jl's ABI gate warns and exits 0 with
+          # Artifacts.toml untouched. Releasing that stale pin fails the
+          # library_available() probe below, so park instead.
+          if [ "$REPIN" = "true" ]; then
+            pinned_now=$(sed -nE 's#.*/releases/download/(v[0-9][^/]*)/.*#\1#p' Artifacts.toml | head -1)
+            if [ "$pinned_now" != "$TAG" ]; then
+              echo "release=false" >> "$GITHUB_OUTPUT"
+              echo "the repin to $TAG did not land; Artifacts.toml still pins ${pinned_now:-nothing}. Nothing to release until the gate that parked it clears" \
+                | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
           # While a reviewed artifacts/* PR is open, the automatic path stands
           # down entirely — releasing around a pending review would bypass it.
           if [ "$MODE" = "auto" ]; then
@@ -197,13 +214,11 @@ jobs:
             new="$topok"
           elif [ "$registered" = false ]; then
             # cur itself never landed in General; register it first (AutoMerge
-            # requires sequential version numbers). A repin racing this state
-            # is deferred to the next run — it must not leapfrog cur.
+            # requires sequential version numbers). The guard is on the version
+            # only — the repin ships in that same release.
             if [ "$changed" = true ]; then
-              git checkout -- Artifacts.toml
-              changed=false
-              pinned=$(sed -nE 's#.*/releases/download/(v[0-9][^/]*)/.*#\1#p' Artifacts.toml | head -1)
-              echo "deferring the repin until $cur registers" | tee -a "$GITHUB_STEP_SUMMARY"
+              echo "holding the version at $cur until it registers; the repin to $pinned ships with it" \
+                | tee -a "$GITHUB_STEP_SUMMARY"
             fi
             new="$cur"
           elif [ -n "$pvok" ] && newer "$pvok" "$cur"; then
