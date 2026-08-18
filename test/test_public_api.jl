@@ -199,6 +199,66 @@ end
     @test parse_bytes(BalancedNetwork, read(path), "matpower") isa BalancedNetwork
 end
 
+@testset "PowerWorld byte paths" begin
+    # PowerWorld binary has no text form, so parse_bytes with "pwb" is the only
+    # in-memory route to it, and neither PowerWorld path was covered here. The
+    # fixtures are 1.5 MB against 528 KB of test/data, so read them out of the
+    # powerio checkout the C library was built from instead of vendoring them:
+    # POWERIO_CAPI points at <root>/target/release/libpowerio_capi.<ext>.
+    capi = get(ENV, "POWERIO_CAPI", "")
+    root = isempty(capi) ? "" : dirname(dirname(dirname(capi)))
+    dir = isempty(root) ? "" : joinpath(root, "tests", "data", "powerworld")
+    pwb_path = joinpath(dir, "ACTIVSg200.pwb")
+    aux_path = joinpath(dir, "ACTIVSg200.aux")
+    mat_path = joinpath(dir, "case_ACTIVSg200.m")
+    found = !isempty(dir) && all(isfile, (pwb_path, aux_path, mat_path))
+    # CI builds the library inside a powerio checkout, so a miss there is lost
+    # coverage rather than a missing sibling checkout. Assert it rather than skip.
+    isempty(capi) || @test found
+
+    if !(found && PowerIO.library_available())
+        @info "PowerWorld fixtures not found next to POWERIO_CAPI; skipping the byte path tests"
+        @test_skip "PowerWorld fixtures unavailable"
+    else
+        pwb = parse_bytes(read(pwb_path), "pwb")
+        aux = parse_bytes(read(aux_path), "aux")
+        mat = parse_file(mat_path)
+
+        # Each path reaches its own reader rather than a text fallback.
+        @test PowerIO.source_format(pwb) == "PowerWorldBinary"
+        @test PowerIO.source_format(aux) == "PowerWorld"
+
+        # The .aux and .pwb are one same day export of one case, so they agree
+        # element for element.
+        for field in (:buses, :branches, :generators, :loads, :shunts)
+            @test length(getproperty(pwb.data, field)) == length(getproperty(aux.data, field))
+        end
+        @test PowerIO.n_buses(pwb) == PowerIO.n_buses(aux) == 200
+        @test PowerIO.n_branches(pwb) == PowerIO.n_branches(aux) == 246
+        @test PowerIO.base_mva(pwb) == PowerIO.base_mva(aux) == 100.0
+
+        # The MATPOWER sibling is an earlier revision of the same case: same bus
+        # table and same generators, one line short. Pin that one line so a
+        # reader regression cannot pass as a revision difference.
+        @test Set(b.id for b in pwb.data.buses) == Set(b.id for b in mat.data.buses)
+        @test length(pwb.data.generators) == length(mat.data.generators) == 49
+        # Sorted: the two exports carry the same lines in a different record order.
+        endpoints(net) = sort([(br.from, br.to) for br in net.data.branches])
+        @test endpoints(aux) == endpoints(pwb)
+        @test setdiff(endpoints(pwb), endpoints(mat)) == [(82, 64)]
+        @test isempty(setdiff(endpoints(mat), endpoints(pwb)))
+
+        # Truncated bytes raise instead of returning a partial network. The
+        # binary reader validates its table chain, so a cut past the last case
+        # table reads as a complete case; both cuts below land inside the chain.
+        raw = read(pwb_path)
+        @test_throws ErrorException parse_bytes(raw[1:16], "pwb")
+        @test_throws ErrorException parse_bytes(raw[1:65536], "pwb")
+        text = read(aux_path)
+        @test_throws ErrorException parse_bytes(text[1:(length(text) ÷ 2)], "aux")
+    end
+end
+
 @testset "conversion warnings are not truncated" begin
     # ABI 5 hands the warning list back as an owned string through an out
     # pointer. The 64 KiB guess this binding used to make, and the "may be
