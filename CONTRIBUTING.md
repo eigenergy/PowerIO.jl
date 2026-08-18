@@ -30,7 +30,7 @@ two changes back to back. The ABI history is in powerio's
 ## Memory safety conventions
 
 Every pointer from the C ABI is owned by a finalizer-backed handle
-(`NetworkHandle`) or copied out before the producer is released. `to_arrow`
+(`BalancedNetworkHandle`, `MulticonductorNetworkHandle`) or copied out before the producer is released. `to_arrow`
 returns owned columns by default; the zero-copy path (`copy=false`) is opt-in
 and documented on `ArrowTable`. Keep new ccall sites inside this pattern:
 no `unsafe_wrap` of foreign memory escapes without an owner.

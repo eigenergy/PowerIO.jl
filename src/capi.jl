@@ -306,7 +306,6 @@ mutable struct BalancedNetworkHandle
     end
 end
 
-Base.@deprecate_binding NetworkHandle BalancedNetworkHandle
 
 # Directed error for when the ccall itself fails to dispatch — a missing library or
 # undefined symbol — instead of a raw ccall fault far from the resolution site.

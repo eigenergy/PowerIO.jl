@@ -158,7 +158,6 @@ function Base.propertynames(::MulticonductorNetwork, private::Bool=false)
     return private ? (public..., :handle, :summary) : public
 end
 
-Base.@deprecate_binding DistNetwork MulticonductorNetwork
 
 """
     dist_available() -> Bool

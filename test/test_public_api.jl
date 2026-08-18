@@ -26,8 +26,9 @@
                 :dist_capabilities, :to_graph)
         @test isdefined(PowerIO, sym)
     end
-    @test isdefined(PowerIO, :Network) # deprecated compatibility binding
-    @test isdefined(PowerIO, :DistNetwork) # deprecated compatibility binding
+    # The 0.3.0 compatibility bindings are gone in 0.9.0.
+    @test !isdefined(PowerIO, :Network)
+    @test !isdefined(PowerIO, :DistNetwork)
     @test !isdefined(PowerIO, :dist_graph)
     # The accessor API the ecosystem bridges read is unexported but must exist.
     for sym in (:n_buses, :n_branches, :n_gens, :n_switches, :base_mva, :network_name,
@@ -66,7 +67,7 @@
         @test isbitstype(RT)
         @test eltype(RT[]) === RT
     end
-    @test isdefined(PowerIO, :NetworkHandle)  # deprecated alias of BalancedNetworkHandle
+    @test !isdefined(PowerIO, :NetworkHandle)
     @test PowerIO._lib() isa AbstractString
     @test PowerIO.PIO_ABI_VERSION isa Unsigned
     @test PowerIO.PIO_DIST_ABI_VERSION isa Unsigned
