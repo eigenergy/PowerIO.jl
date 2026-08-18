@@ -77,5 +77,37 @@ end
         @test sf.pd ≈ s.pd
         @test sf.qd ≈ s.qd
         @test_throws ArgumentError PowerIO.read_load_series(net, joinpath(dir, "nope.Pd"), qdf)
+
+        # A series aligns to `parse_ac_power_data`'s bus rows. The alignment now
+        # comes off the normalized view directly instead of a second
+        # `to_powerdata` build, so pin the two against each other on a case with
+        # an isolated bus, which normalization drops.
+        drops = """
+        function mpc = drops
+        mpc.baseMVA = 100;
+        mpc.bus = [
+            1 3 10 4 0 0 1 1 0 138 1 1.1 0.9;
+            2 1 20 8 0 0 1 1 0 138 1 1.1 0.9;
+            3 4 30 9 0 0 1 1 0 138 1 1.1 0.9;
+        ];
+        mpc.gen = [
+            1 50 0 50 -50 1 100 1 100 0;
+        ];
+        mpc.branch = [
+            1 2 0.01 0.1 0 100 100 100 0 0 1 -30 30;
+        ];
+        mpc.gencost = [
+            2 0 0 3 0.01 20 0;
+        ];
+        """
+        dnet = parse_str(drops, "matpower")
+        dref = to_powerdata(dnet)
+        dbase, dids, dpd, dqd = PowerIO._load_alignment(dnet, Float64)
+        @test dids == Int[b.bus_i for b in dref.bus]
+        @test dids == [1, 2]
+        @test dpd ≈ Float64[b.pd for b in dref.bus]
+        @test dqd ≈ Float64[b.qd for b in dref.bus]
+        @test dbase == dref.baseMVA
+        @test PowerIO.LoadSeries(dnet, [1.0]).bus_ids == dids
     end
 end

@@ -61,9 +61,10 @@ import SparseArrays
 # Parsing and the parsed models
 export BalancedNetwork, MulticonductorNetwork, parse_file, parse_str, parse_bytes, from_json
 
-# Conversion and serialization
+# Conversion and serialization. `Diagnostic` is the element type of the fidelity
+# findings the conversion verbs return.
 export convert_file, convert_str, to_format, to_normalized, to_normalized_with_options,
-       to_json, to_matpower, write_pypsa_csv_folder
+       to_json, to_matpower, write_pypsa_csv_folder, Diagnostic
 
 # Materialized numeric views
 export to_dense, to_arrow, ArrowTable, release_c_data, arrow_catalog

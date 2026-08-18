@@ -434,7 +434,7 @@ untyped(net::MulticonductorNetwork) = _mc_table(net, :untyped)
 
 The system frequency in Hz.
 """
-base_frequency(net::MulticonductorNetwork) = Float64(_summary(net).base_frequency)
+base_frequency(net::MulticonductorNetwork) = _json_float(_summary(net).base_frequency)
 
 """
     network_name(net::MulticonductorNetwork) -> Union{String,Nothing}

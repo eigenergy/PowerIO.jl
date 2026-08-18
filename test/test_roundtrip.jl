@@ -336,6 +336,29 @@
         @test bad_err isa ArgumentError
         @test occursin("PowerIO.to_powerdata: branch 1", sprint(showerror, bad_err))
 
+        # An unlimited reactive bound is a bound, not a missing value. Model JSON
+        # has no Inf literal and spells it "Infinity"; stock case9241pegase.m
+        # carries it on seven generators.
+        inf_q = replace(pv_noref, "1 50 0 50 -50 1 100 1 100 0;" =>
+                                  "1 50 0 Inf -Inf 1 100 1 100 0;")
+        inf_net = parse_str(inf_q, "matpower")
+        @test PowerIO.generators(inf_net)[1].qmax == "Infinity"
+        @test PowerIO.generators(inf_net)[1].qmin == "-Infinity"
+        inf_ac = parse_ac_power_data(inf_net)
+        @test inf_ac.qmax[1] == Inf
+        @test inf_ac.qmin[1] == -Inf
+        @test to_powerdata(inf_net; filtered=false).gen[1].qmax == Inf
+        @test PowerIO._json_float(Float64, "Infinity") === Inf
+        @test PowerIO._json_float(Float64, "-Infinity") === -Inf
+        @test isnan(PowerIO._json_float(Float64, "NaN"))
+        @test PowerIO._json_float(Float32, "Infinity") === Float32(Inf)
+        @test PowerIO._json_float(Float64, 2) === 2.0
+        @test_throws ArgumentError PowerIO._json_float(Float64, "inf")
+        # An absent field is still an error, and so is a NaN.
+        @test_throws ArgumentError PowerIO._powerdata_real(nothing, Float64, "gen 1", :qmax)
+        @test_throws ArgumentError PowerIO._powerdata_real("NaN", Float64, "gen 1", :qmax)
+        @test PowerIO._powerdata_real("Infinity", Float64, "gen 1", :qmax) === Inf
+
         storage_text = """
         function mpc = storage_case
         mpc.baseMVA = 100;

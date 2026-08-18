@@ -440,6 +440,38 @@ function _with_matrix_metadata(cols::NamedTuple, table::Symbol,
             row_count, col_count)
 end
 
+# Metadata values the binding hands back as numbers. `powerio.base_mva` is the
+# network MVA base the generator cost tables are per unit on, so a consumer
+# converts a cost to currency per MWh off the same call that returned the rows.
+const _ARROW_METADATA_NUMERIC = Dict(:base_mva => Float64)
+
+_arrow_metadata_value(name::Symbol, value::AbstractString) =
+    haskey(_ARROW_METADATA_NUMERIC, name) ?
+    parse(_ARROW_METADATA_NUMERIC[name], value) : value
+
+# Every table's schema metadata rides back as extra fields, named by the metadata
+# key with the `powerio.` prefix dropped (`powerio.version` reads
+# `powerio_version`, the name the rest of the binding uses). Keys are sorted, so
+# the field order is the same on every call. The matrix tables keep their own
+# merge, which fills defaults and types the dimensions.
+function _with_schema_metadata(cols::NamedTuple, table::Symbol,
+                               metadata::Dict{String,String})
+    isempty(metadata) && return cols
+    names = Symbol[]
+    values = Any[]
+    for key in sort!(collect(keys(metadata)))
+        startswith(key, "powerio.") || continue
+        name = key == "powerio.version" ? :powerio_version : Symbol(chop(key; head=8, tail=0))
+        haskey(cols, name) && error(
+            "PowerIO.to_arrow: table $table carries both a column and schema " *
+            "metadata named $name; rebuild powerio-capi from a matching commit.")
+        push!(names, name)
+        push!(values, _arrow_metadata_value(name, metadata[key]))
+    end
+    isempty(names) && return cols
+    return merge(cols, NamedTuple{Tuple(names)}(Tuple(values)))
+end
+
 function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArrowSchema};
                        copy::Bool, table::Symbol)
     a, s = arr[], sch[]
@@ -461,8 +493,9 @@ function _decode_arrow(arr::Base.RefValue{CArrowArray}, sch::Base.RefValue{CArro
         cols[i] = _column(T, child_arr, nrows, names[i], arr, copy)
     end
     decoded = NamedTuple{Tuple(names)}(Tuple(cols))
-    table in _MATRIX_ARROW_TABLES || return decoded
-    return _with_matrix_metadata(decoded, table, _schema_metadata(s))
+    metadata = _schema_metadata(s)
+    table in _MATRIX_ARROW_TABLES && return _with_matrix_metadata(decoded, table, metadata)
+    return _with_schema_metadata(decoded, table, metadata)
 end
 
 # Export one table off a live handle over the Arrow C Data Interface, shared by the
@@ -605,7 +638,13 @@ columns use dense 0-based row ids and per unit/radian values. Matrix selectors
 are `:ybus`, `:incidence`, `:bprime`, and `:bdoubleprime`; they return COO
 columns plus schema metadata. Matrix axis selectors are `:matrix_bus` and
 `:matrix_branch`; they map dense matrix rows and incidence columns back to source
-bus and branch rows. Takes
+bus and branch rows. Generator cost selectors are `:solver_gen_cost` and
+`:solver_gen_cost_coeff`.
+
+Whatever schema metadata a table carries rides back as extra fields named by the
+metadata key without its `powerio.` prefix. The cost tables carry `base_mva`, the
+network MVA base their per unit values sit on, so a cost converts to currency per
+MWh without a second call. Takes
 a parsed [`BalancedNetwork`](@ref) (via its live handle) or a `path` to parse
 first. Needs powerio-capi built `--features arrow`; matrix selectors also need
 `--features matrix`; see [`arrow_available`](@ref) and [`matrix_available`](@ref).

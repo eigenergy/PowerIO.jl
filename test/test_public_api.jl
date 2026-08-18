@@ -6,7 +6,7 @@
                 :to_json, :to_dense, :to_matpower, :to_arrow, :calc_admittance_matrix,
                 :calc_susceptance_matrix, :calc_incidence_matrix, :calc_bprime_matrix,
                 :calc_bdoubleprime_matrix, :ArrowTable,
-                :write_pypsa_csv_folder,
+                :write_pypsa_csv_folder, :Diagnostic,
                 :to_powermodels, :from_powermodels, :to_powerdata,
                 :parse_ac_power_data, :LoadSeries, :read_load_series, :n_periods,
                 :demands_mw, :read_gridfm, :read_gridfm_scenarios,
@@ -272,13 +272,42 @@ end
     # empty string, and the C side signals that with a NULL out pointer.
     net = PowerIO.parse_file(joinpath(@__DIR__, "data", "case9.m"))
     _, clean = PowerIO.to_format(net, "matpower")
-    @test clean isa Vector{String}
+    @test clean isa Vector{Diagnostic}
+    @test isempty(clean)
 
     # Every warning survives regardless of how many there are. A lossy target
     # produces one per element, which is what used to overrun the guess.
     _, lossy = PowerIO.to_format(net, "psse")
-    @test lossy isa Vector{String}
+    @test lossy isa Vector{Diagnostic}
     @test all(w -> !occursin("may be truncated", w), lossy)
+end
+
+@testset "conversion findings carry their record" begin
+    # The conversion entry points return the diagnostic document, not rendered
+    # lines, so a consumer branches on `code` without splitting a string.
+    net = PowerIO.parse_file(joinpath(@__DIR__, "data", "case9.m"))
+    _, lossy = PowerIO.to_format(net, "psse")
+    @test !isempty(lossy)
+    d = first(lossy)
+    @test d isa Diagnostic
+    @test d isa AbstractString
+    @test !isempty(String(d.code))
+    @test !isempty(String(d.severity))
+    @test !isempty(String(d.message))
+    @test d.record isa JSON3.Object
+    @test :code in propertynames(d)
+
+    # It reads as the `CODE: message` line it always did.
+    @test String(d) == string(d.code, ": ", d.message)
+    @test d == string(d.code, ": ", d.message)
+    @test startswith(d, String(d.code))
+    @test split(d, ": "; limit = 2)[1] == String(d.code)
+    @test occursin(String(d.message), join(lossy, "\n"))
+
+    # Every finding of a real conversion round trips through the same fields.
+    _, from_file = PowerIO.convert_file(joinpath(@__DIR__, "data", "case9.m"), "psse")
+    @test from_file isa Vector{Diagnostic}
+    @test Set(String.(from_file)) == Set(String.(lossy))
 end
 
 @testset "schema version contract" begin

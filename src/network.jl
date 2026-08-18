@@ -49,7 +49,7 @@ function Base.getproperty(net::BalancedNetwork, name::Symbol)
     name === :source_format && return source_format(net)
     name === :warnings && return warnings(net)
     name === :base_mva && return base_mva(net)
-    name === :base_frequency && return Float64(_summary(net).base_frequency)
+    name === :base_frequency && return base_frequency(net)
     name === :buses && return buses(net)
     name === :branches && return branches(net)
     name === :generators && return generators(net)
@@ -397,7 +397,7 @@ function _format_from_handle(h::BalancedNetworkHandle, to::AbstractString, what:
                              h.ptr, String(to), C_NULL, diagarg, err, length(err))
     s == C_NULL && error("PowerIO.to_format: " * _cstr(err) * " ($what)")
     text = _take_string(lib, s)
-    return (text, want_warnings ? _take_warnings(lib, diagref) : String[])
+    return (text, want_warnings ? _take_warnings(lib, diagref) : Diagnostic[])
 end
 
 # `matpower` flows through the one string-keyed writer like every other format
@@ -418,8 +418,10 @@ to_matpower(net::BalancedNetwork) =
     to_format(net::MulticonductorNetwork, to) -> (text, warnings)
 
 Serialize a parsed network to format `to` without reparsing the input file.
-Returns the target text and any fidelity warnings. Dispatches on the handle type,
-so a [`MulticonductorNetwork`](@ref) writes the distribution formats.
+Returns the target text and any fidelity warnings, a `Vector{`[`Diagnostic`](@ref)`}`
+whose elements read as `CODE: message` lines and carry the record's fields.
+Dispatches on the handle type, so a [`MulticonductorNetwork`](@ref) writes the
+distribution formats.
 """
 to_format(net::BalancedNetwork, to::AbstractString) =
     _format_from_handle(_live_handle(net, "to_format"), to, repr(network_name(net)))
@@ -434,7 +436,8 @@ could not represent or had to assume. Empty for a handle-less [`BalancedNetwork`
 Each line reads `CODE: message`. Split at the first `": "`: the left side is a
 stable dotted code (`READ.DSS.INCLUDE_REFUSED`) whose first segment names the
 stage, and the right side is prose under no stability promise. Branch on the
-code, never on the message.
+code, never on the message. `pio_warnings` carries lines alone; the conversion
+verbs return [`Diagnostic`](@ref)s, which reach the same code as a field.
 """
 function warnings(net::BalancedNetwork)
     h = net.handle

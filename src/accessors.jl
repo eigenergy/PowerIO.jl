@@ -79,10 +79,10 @@ function n_branches(net::BalancedNetwork)
 end
 
 function base_mva(net::BalancedNetwork)
-    return Float64(_summary(net).base_mva)
+    return _json_float(_summary(net).base_mva)
 end
 
-base_frequency(net::BalancedNetwork) = Float64(_summary(net).base_frequency)
+base_frequency(net::BalancedNetwork) = _json_float(_summary(net).base_frequency)
 
 """
     network_name(net) -> String
@@ -94,19 +94,19 @@ function network_name(net::BalancedNetwork)
 end
 
 "Buses, in source order (1-based ids preserved). See the accessor API note."
-buses(net::BalancedNetwork) = net.data.buses
+buses(net::BalancedNetwork) = net.data.buses::JSON3.Array
 "Generators, one per machine (`bus` repeats when a bus has several)."
-generators(net::BalancedNetwork) = net.data.generators
+generators(net::BalancedNetwork) = net.data.generators::JSON3.Array
 "Branches (lines and transformers), in source order."
-branches(net::BalancedNetwork) = net.data.branches
+branches(net::BalancedNetwork) = net.data.branches::JSON3.Array
 "First-class loads (PSS/E and PowerModels keep several per bus; MATPOWER splits its bus row)."
-loads(net::BalancedNetwork) = net.data.loads
+loads(net::BalancedNetwork) = net.data.loads::JSON3.Array
 "First-class bus shunts."
-shunts(net::BalancedNetwork) = net.data.shunts
+shunts(net::BalancedNetwork) = net.data.shunts::JSON3.Array
 "First-class storage units; empty unless the source carries them (PowerModels, egret)."
-storage(net::BalancedNetwork) = net.data.storage
+storage(net::BalancedNetwork) = net.data.storage::JSON3.Array
 "Two-terminal HVDC lines (MATPOWER `dcline`); empty unless the source carries them."
-hvdc(net::BalancedNetwork) = net.data.hvdc
+hvdc(net::BalancedNetwork) = net.data.hvdc::JSON3.Array
 
 """
     n_gens(net) -> Int
