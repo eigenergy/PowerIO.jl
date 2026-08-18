@@ -252,3 +252,91 @@ end
         end
     end
 end
+
+@testset "build_info agrees with the single answer probes" begin
+    # One report where the rest of this file asks one question at a time. It is
+    # only useful if it says the same things, so check it against them.
+    if !PowerIO.library_available()
+        @test_skip "library unavailable"
+    elseif !PowerIO._exports_symbol(:pio_build_info)
+        @test_skip "library predates pio_build_info"
+    else
+        info = PowerIO.build_info()
+        @test info !== nothing
+        @test info.abi == PowerIO.PIO_ABI_VERSION
+        @test info.abi == PowerIO.abi_version()
+        @test info.powerio_version == PowerIO.library_version()
+        @test info.powerio_version == schema_versions().powerio_version
+
+        # `features` is what the library was compiled with, which is the same
+        # question `pio_has_feature` answers one name at a time. The C feature
+        # name is `pkg`; the Julia field name is `package`.
+        feats = info.features
+        for name in (:arrow, :matrix, :gridfm, :dist, :pkg, :prob)
+            @test haskey(feats, name)
+            @test feats[name] isa Bool
+            @test feats[name] == PowerIO.has_feature(String(name))
+        end
+
+        # The Julia predicates report "usable from Julia": symbol present and,
+        # for dist, the feature handshake passed. Matrix tables also need arrow,
+        # which is why that one is a conjunction.
+        f = PowerIO.features()
+        @test f.arrow == feats.arrow
+        @test f.gridfm == feats.gridfm
+        @test f.dist == feats.dist
+        @test f.package == feats.pkg
+        @test f.prob == feats.prob
+        @test f.matrix == (feats.arrow && feats.matrix)
+
+        # Foreign schema versions belong to whoever owns the schema, so they
+        # travel here rather than in the ABI integer, and both entry points
+        # must report the same vintage.
+        @test haskey(info, :foreign_schemas)
+        @test get(info.foreign_schemas, :bmopf, nothing) == schema_versions().bmopf_schema
+        if PowerIO.dist_available()
+            @test info.foreign_schemas.bmopf == PowerIO.dist_capabilities().bmopf_schema_version
+        end
+
+        # The tokens that prefix an errbuf message, for a caller that branches
+        # on the kind of failure instead of matching prose. The set may grow, so
+        # assert the five documented ones are present rather than pinning it.
+        cats = info.error_categories
+        @test cats isa AbstractVector
+        @test all(c -> c isa AbstractString && !isempty(c), cats)
+        for token in ("io", "unknown_format", "parse", "data", "output")
+            @test token in cats
+        end
+        @test allunique(cats)
+    end
+end
+
+@testset "JSON family classification" begin
+    if !PowerIO.library_available()
+        @test_skip "library unavailable"
+    elseif !PowerIO._exports_symbol(:pio_classify_str)
+        @test_skip "library predates pio_classify_str"
+    else
+        # The five outcomes the header documents. The binding keeps the domain
+        # and drops the format after the colon.
+        @test PowerIO._classify_family("""{"baseMVA":100.0,"branch":{}}""") === :transmission
+        @test PowerIO._classify_family("""{"data_model":"ENGINEERING"}""") === :distribution
+        @test PowerIO._classify_family("""{"model_kind":"balanced","model":{}}""") === :package
+        # Strong markers from both domains at once.
+        @test PowerIO._classify_family("""{"baseMVA":100.0,"line":{}}""") === :ambiguous
+        @test PowerIO._classify_family("""{"unrelated":1}""") === :unknown
+        # Not a JSON object, and not JSON at all.
+        @test PowerIO._classify_family("[1, 2]") === :unknown
+        @test PowerIO._classify_family("not json") === :unknown
+        @test PowerIO._classify_family("") === :unknown
+
+        # Size then fill: `pio_classify_str` returns the full length against a
+        # NULL buffer, which is what the binding sizes its allocation from. No
+        # enumerated token exceeds the 64 bytes the old fixed buffer held, so
+        # this is the only place the size query is observable.
+        lib = PowerIO._lib()
+        n = ccall(PowerIO._library_symbol(lib, :pio_classify_str), Csize_t,
+                  (Cstring, Ptr{UInt8}, Csize_t), """{"baseMVA":100.0}""", C_NULL, Csize_t(0))
+        @test n == ncodeunits("transmission:powermodels-json")
+    end
+end
