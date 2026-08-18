@@ -16,8 +16,6 @@ struct NetworkPackage
     data::JSON3.Object
 end
 
-const CompilerPackage = NetworkPackage
-
 NetworkPackage(text::AbstractString) = NetworkPackage(JSON3.read(text))
 NetworkPackage(data::AbstractDict) = NetworkPackage(JSON3.read(JSON3.write(data)))
 NetworkPackage(data::NamedTuple) = NetworkPackage(JSON3.read(JSON3.write(data)))
@@ -208,7 +206,11 @@ end
 """
     validate_package(pkg::NetworkPackage) -> NetworkPackage
 
-Run Rust's package semantic validation profile and return the validated package.
+Run Rust's package semantic validation profile and return the validated package,
+whose envelope carries the resulting summary. This is the verb that validates;
+[`package_validation`](@ref) reads the summary already on a package without
+running the profile. The two names are close enough to confuse, so reach for this
+one when the package has not been validated yet.
 """
 function validate_package(pkg::NetworkPackage)
     h = _package_validation_handle(pkg, "validate_package")
@@ -218,7 +220,10 @@ end
 """
     package_validation(pkg::NetworkPackage)
 
-Return the package validation summary as a JSON3 object.
+Return the package's cached validation summary as a JSON3 object. This reads what
+is already on the package; [`validate_package`](@ref) is the verb that runs the
+validation profile and produces it. The two names are close enough to confuse, so
+run that one first when the summary is missing or stale.
 """
 function package_validation(pkg::NetworkPackage)
     h = _package_parse_str_handle(to_json(pkg), "package_validation")

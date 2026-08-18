@@ -122,6 +122,7 @@ d.branch.from, d.branch.x
 d.gen.bus, d.gen.pg
 d.demand.pd, d.shunt.bs
 d.reference_bus, d.n_components, d.is_radial
+d.bus_ids[d.reference_bus]     # reference_bus is a 1-based index into bus_ids
 ```
 
 ## Arrow export

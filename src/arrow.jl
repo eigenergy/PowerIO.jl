@@ -240,6 +240,20 @@ columns(t::ArrowTable) = getfield(t, :columns)
 Base.getproperty(t::ArrowTable, name::Symbol) = getfield(getfield(t, :columns), name)
 Base.propertynames(t::ArrowTable) = propertynames(getfield(t, :columns))
 
+# Row count comes off the columns, so a released table says so instead of
+# throwing from inside `show`. Metadata fields ride alongside the columns and are
+# scalars, so only the vectors count as columns.
+function Base.show(io::IO, t::ArrowTable)
+    cols = getfield(t, :columns)
+    vectors = filter(v -> v isa AbstractVector, collect(cols))
+    print(io, "ArrowTable(", length(vectors), " columns, ")
+    if getfield(getfield(t, :_buffers), :closed)
+        print(io, "released)")
+    else
+        print(io, isempty(vectors) ? 0 : length(first(vectors)), " rows)")
+    end
+end
+
 """
     close(t::ArrowTable)
 

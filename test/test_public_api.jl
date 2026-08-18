@@ -2,7 +2,7 @@
     # The module must load with no C library present (the binding is lazy),
     # and its public API must exist.
     for sym in (:BalancedNetwork, :parse_file, :parse_str, :parse_bytes, :from_json, :convert_file,
-                :convert_str, :to_format, :to_normalized, :to_normalized_with_options,
+                :convert_str, :to_format, :to_normalized, :set_library!, :clear_library!,
                 :to_json, :to_dense, :to_matpower, :to_arrow, :calc_admittance_matrix,
                 :calc_susceptance_matrix, :calc_incidence_matrix, :calc_bprime_matrix,
                 :calc_bdoubleprime_matrix, :ArrowTable,
@@ -13,7 +13,7 @@
                 :parse_goc3_json, :goc3_scopf_data, :ScopfInstance,
                 :goc3_status_flags, :goc3_add_status_flags!, :goc3_interval_bounds,
                 :parse_scopf, :scopf_available,
-                :NetworkPackage, :CompilerPackage, :to_package, :from_package, :read_package,
+                :NetworkPackage, :to_package, :from_package, :read_package,
                 :write_package, :package_model_kind, :package_available,
                 :validate_package, :package_validation, :package_diagnostics,
                 :package_operating_points, :package_study, :set_operating_points,
@@ -30,7 +30,9 @@
     @test !isdefined(PowerIO, :Network)
     @test !isdefined(PowerIO, :DistNetwork)
     @test !isdefined(PowerIO, :dist_graph)
-    # The accessor API the ecosystem bridges read is unexported but must exist.
+    # The accessor API the ecosystem bridges read must exist. Most of it stays
+    # unexported because the names collide with the packages a consumer loads
+    # beside this one; `n_buses` and `warnings` are the exported two.
     for sym in (:n_buses, :n_branches, :n_gens, :n_switches, :base_mva, :network_name,
                 :source_format, :reference_bus_id, :reference_bus_indices,
                 :n_components, :is_radial, :bus_type_code, :warnings,
@@ -43,6 +45,14 @@
     end
     @test isdefined(PowerIO, :AdmittanceMatrix)
     @test :AdmittanceMatrix ∉ names(PowerIO)
+    # The docs and the show methods name these unqualified, so they are exported.
+    for sym in (:set_library!, :clear_library!, :warnings, :n_buses, :Diagnostic)
+        @test sym ∈ names(PowerIO)
+    end
+    # 0.9.0 removed the last of the 0.3.0 compatibility aliases and the
+    # normalize spelling whose only reason to exist was the retired C dispatch key.
+    @test !isdefined(PowerIO, :CompilerPackage)
+    @test !isdefined(PowerIO, :to_normalized_with_options)
     # LoadSeries is the exported ExaModelsPower multiperiod-load bridge; the general
     # OperatingPointSeries name is reserved for the coming format-neutral series.
     @test :LoadSeries ∈ names(PowerIO)

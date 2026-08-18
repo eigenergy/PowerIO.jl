@@ -28,7 +28,7 @@
 end
 
 function _bmopf_doc_from_dss(text)
-    bmopf, warnings = convert_str(MulticonductorNetwork, text, "bmopf", "dss")
+    bmopf, warnings = convert_str(MulticonductorNetwork, text, "bmopf"; from="dss")
     return PowerIO._json_plain(JSON3.read(bmopf)), collect(String, warnings)
 end
 
@@ -185,7 +185,7 @@ end
 
         if package_available()
             multi_pkg = to_package(net)
-            @test multi_pkg isa CompilerPackage
+            @test multi_pkg isa NetworkPackage
             @test package_model_kind(multi_pkg) == :multiconductor
 
             z3 = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
@@ -194,7 +194,7 @@ end
             # Stamp the package schema the loaded library speaks, so the
             # fixture survives version skew in both directions; the binding
             # constant covers a library that predates the report.
-            ready_pkg = CompilerPackage(JSON3.write((
+            ready_pkg = NetworkPackage(JSON3.write((
                 powerio_version = something(schema_versions().powerio_version,),
                 producer = (tool = "PowerIO.jl test", version = "0"),
                 model_kind = "multiconductor",
@@ -273,7 +273,7 @@ end
         bmopf_hinted, _ = convert_file(MulticonductorNetwork, dss, "bmopf"; from="dss")
         @test bmopf_hinted == bmopf
         # convert_str matches convert_file for the same conversion.
-        cs, _ = convert_str(MulticonductorNetwork, read(dss, String), "pmd", "dss")
+        cs, _ = convert_str(MulticonductorNetwork, read(dss, String), "pmd"; from="dss")
         @test cs == pmd
 
         gen_dss = joinpath(@__DIR__, "data", "dist", "generator.dss")
@@ -312,7 +312,7 @@ end
         New Capacitor.capd bus1=b2.1.2.3 phases=3 conn=delta kvar=900 kv=4.16
         New Reactor.rxd bus1=b3.1.2.3 phases=3 conn=delta kvar=600 kv=4.16
         """
-        delta_bmopf, delta_w = convert_str(MulticonductorNetwork, delta, "bmopf", "dss")
+        delta_bmopf, delta_w = convert_str(MulticonductorNetwork, delta, "bmopf"; from="dss")
         @test !any(w -> occursin("untyped", lowercase(w)) ||
                          occursin("not referenced", lowercase(w)), delta_w)
         delta_doc = PowerIO._json_plain(JSON3.read(delta_bmopf))

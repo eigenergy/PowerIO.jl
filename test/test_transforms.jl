@@ -23,6 +23,9 @@
         @test refs isa Vector{Int}
         @test length(refs) == 1
         @test PowerIO.to_dense(net).bus_ids[refs[1] + 1] == PowerIO.reference_bus_id(net)
+        # `reference_bus` is the same bus as a 1-based index into `bus_ids`.
+        @test PowerIO.to_dense(net).bus_ids[PowerIO.to_dense(net).reference_bus] ==
+              PowerIO.reference_bus_id(net)
 
         # n_components / is_radial read the C ABI connectivity scalars directly;
         # they must match the dense tables (case14 is one connected, looped component).
@@ -138,7 +141,7 @@ end
         # The clamp rides `PioNormalizeOptions` on `pio_normalize`; the symbol is
         # not feature gated, so a compatible library always has it.
         angle_net = parse_file(joinpath(data, "angle_bounds_clamp.m"))
-        clamped = to_normalized_with_options(angle_net; clamp_angle_bounds=true)
+        clamped = to_normalized(angle_net; clamp_angle_bounds=true)
         @test PowerIO.branches(clamped)[1].angmin ≈ -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
         @test PowerIO.branches(clamped)[1].angmax ≈ PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
         @test PowerIO.branches(clamped)[2].angmin ≈ -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
@@ -165,7 +168,7 @@ end
         @test (d.n, d.m, d.ng) == (14, 20, 5)
         @test d.base_mva == 100.0
         @test d.bus_ids == collect(1:14)                # case14 buses are 1..14
-        @test d.reference_bus == 0                      # dense 0-based index of the REF bus
+        @test d.reference_bus == 1                      # 1-based index into bus_ids
         # Absence is `nothing`, not the C ABI's -1. Two slack buses means no
         # unique reference, and `bus_ids[ref + 1]` has to fail there rather
         # than quietly reach for index 0.
@@ -189,7 +192,9 @@ end
         """
         multi = to_dense(parse_str(two_slacks, "matpower"))
         @test multi.reference_bus === nothing
-        @test_throws MethodError multi.bus_ids[multi.reference_bus + 1]
+        # Absence is `nothing`, so indexing with it fails loudly rather than
+        # silently reading a bus.
+        @test_throws ArgumentError multi.bus_ids[multi.reference_bus]
         @test d.n_components == 1
         @test d.is_radial == false                      # case14 has loops
         @test length(d.branch.from) == 20 && length(d.branch.x) == 20
@@ -272,7 +277,7 @@ end
         # The star branches ground the two secondary buses through the reference
         # bus; without the lowering they would be ungrounded islands.
         @test d.n_components == 1
-        @test d.reference_bus == 0
+        @test d.reference_bus == 1
         # The load rows still land on their file buses, and the star point
         # carries no demand of its own.
         net = parse_file(fixture)

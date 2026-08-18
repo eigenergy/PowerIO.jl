@@ -90,7 +90,7 @@ validation and provenance, over the native `pio_package_*` C ABI API
 (needs the default `pkg` feature; [`package_available`](@ref) reports it).
 
 ```julia
-pkg = to_package(net)                    # ::CompilerPackage, model_kind = :balanced
+pkg = to_package(net)                    # ::NetworkPackage, model_kind = :balanced
 json = to_json(pkg)                      # the .pio.json envelope
 net = from_package(json)                 # back to a live BalancedNetwork
 write_package("case14.pio.json", pkg)

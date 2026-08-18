@@ -106,8 +106,9 @@ function _bus_shunt(h::BalancedNetworkHandle, n::Int)
 end
 
 # The C ABI reports "no unique reference bus" as -1, having no option type.
-# Julia has one, and `reference_bus_id` already uses it.
-_optional_index(raw::Int64) = raw < 0 ? nothing : Int(raw)
+# Julia has one, and `reference_bus_id` already uses it. The index itself shifts
+# to 1 based here: it indexes `bus_ids`, and this is Julia.
+_optional_index(raw::Int64) = raw < 0 ? nothing : Int(raw) + 1
 
 # Dense numeric extraction off a live handle, shared by the BalancedNetwork and path
 # methods. The whole body runs under GC.@preserve h: a dozen ccalls with Julia
@@ -178,10 +179,13 @@ builds the JSON payload). Fields:
 - `gen` — NamedTuple of `bus` (1-based id, one row per machine), `pg, pmax, pmin`
   (MW), `in_service`.
 - `demand`, `shunt` — NamedTuples of per-bus `(pd, qd)` and `(gs, bs)` in dense order.
-- `reference_bus::Union{Int,Nothing}` — dense 0-based index *into `bus_ids`* of
-  the single reference bus (not a 1-based id), or `nothing` when there is no
-  unique reference (none, or several). The C ABI spells that case `-1`; this
-  binding maps it, matching `reference_bus_id` and the Python `to_dense`.
+- `reference_bus::Union{Int,Nothing}` — index *into `bus_ids`* of the single
+  reference bus, so `bus_ids[reference_bus]` is its id, or `nothing` when there
+  is no unique reference (none, or several). The C ABI spells absence `-1` and
+  counts its indices from zero; both are translated here, so this is a 1-based
+  Julia index and indexes `bus_ids` directly. The Python binding's `to_dense`
+  stays 0 based, as does [`reference_bus_indices`](@ref), which reports the C
+  index space verbatim.
 - `n_components::Int`, `is_radial::Bool` — connectivity of the in-service topology.
 - `ns`, `switch` (the last two fields, powerio v0.7 library) — switch count and
   the switch table: `from, to` (1-based bus ids), `closed::Vector{UInt8}`,

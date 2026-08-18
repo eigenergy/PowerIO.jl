@@ -21,15 +21,14 @@ Y = ybus.matrix
 sm = calc_susceptance_matrix(net)     # NOTE: PowerModels sign convention
 B = sm.matrix
 
-A = calc_incidence_matrix(net)        # SparseMatrixCSC{Float64,Int}
+A = calc_incidence_matrix(net).matrix # rows are buses, columns are branches
 Bp = calc_bprime_matrix(net).matrix   # Rust B' positive Laplacian
 Bpp = calc_bdoubleprime_matrix(net).matrix
 ```
 
 ## Structure
 
-`calc_admittance_matrix`, `calc_susceptance_matrix`, `calc_bprime_matrix`, and
-`calc_bdoubleprime_matrix` return `PowerIO.AdmittanceMatrix`, which carries:
+All five `calc_*` functions return `PowerIO.AdmittanceMatrix`, which carries:
 
 - `idx_to_bus`: row index to external bus id.
 - `bus_to_idx`: external bus id to row index.
@@ -38,6 +37,11 @@ Bpp = calc_bdoubleprime_matrix(net).matrix
 The row and column index space is the dense matrix row index chosen by Rust.
 Use `idx_to_bus` and `bus_to_idx` when you need to translate between matrix
 rows and external bus ids.
+
+`calc_incidence_matrix` is the one whose columns are branches rather than buses,
+so only its rows go through the bus maps. It returns the same wrapper as the
+other four so the maps travel with the matrix; the type name reads oddly for a
+bus-by-branch matrix, and renaming it is a 1.0 question.
 
 ## Sign Convention
 

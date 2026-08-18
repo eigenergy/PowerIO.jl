@@ -90,10 +90,15 @@ using SparseArrays
         @test incidence_coo.col_axis in ("matrix_branch", "solver_branch")
         incidence_expected = sparse_from_coo(incidence_coo, incidence_coo.value)
         incidence = calc_incidence_matrix(m)
-        @test incidence isa SparseMatrixCSC{Float64,Int}
-        @test size(incidence) == (incidence_coo.row_count, incidence_coo.col_count)
-        @test incidence == incidence_expected
-        @test calc_incidence_matrix(net) == incidence
+        # Wrapped like its four siblings, so the bus id maps travel with it. The
+        # columns are branches, which the wrapper does not name.
+        @test incidence isa PowerIO.AdmittanceMatrix{Float64}
+        @test incidence.matrix isa SparseMatrixCSC{Float64,Int}
+        @test size(incidence.matrix) == (incidence_coo.row_count, incidence_coo.col_count)
+        @test incidence.matrix == incidence_expected
+        @test incidence.idx_to_bus == collect(1:14)
+        @test incidence.bus_to_idx[7] == 7
+        @test calc_incidence_matrix(net).matrix == incidence.matrix
         @test getfield(net, :data) === nothing
     end
 end

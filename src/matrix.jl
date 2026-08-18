@@ -197,13 +197,21 @@ calc_susceptance_matrix(path::AbstractString; from=nothing) =
     calc_incidence_matrix(path; from=nothing)
 
 Return the Rust computed signed incidence matrix as a
-`SparseMatrixCSC{Float64,Int}`. Rows use the `matrix_bus` axis and columns use
-the `matrix_branch` axis selected by Rust.
+`PowerIO.AdmittanceMatrix{Float64}`, the wrapper the four other `calc_*` matrices
+return, so the bus id maps travel with the matrix rather than the caller
+rebuilding them. Rows use the `matrix_bus` axis and `idx_to_bus` / `bus_to_idx`
+map them to external bus ids; columns use the `matrix_branch` axis, which the
+wrapper does not name.
+
+`AdmittanceMatrix` reads oddly for a rectangular bus-by-branch matrix. Returning
+what its siblings return is worth more than the name today; renaming the wrapper
+is a 1.0 question.
 """
 function calc_incidence_matrix(net::BalancedNetwork)
     h = _live_handle(net, "calc_incidence_matrix")
     coo = _matrix_arrow_from_handle(h, :incidence)
-    return _sparse_from_owned_coo!(coo, coo.value)
+    idx_to_bus, bus_to_idx = _matrix_bus_maps(h, coo.row_count)
+    return AdmittanceMatrix(idx_to_bus, bus_to_idx, _sparse_from_owned_coo!(coo, coo.value))
 end
 
 calc_incidence_matrix(path::AbstractString; from=nothing) =

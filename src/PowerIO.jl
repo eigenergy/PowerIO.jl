@@ -63,8 +63,17 @@ export BalancedNetwork, MulticonductorNetwork, parse_file, parse_str, parse_byte
 
 # Conversion and serialization. `Diagnostic` is the element type of the fidelity
 # findings the conversion verbs return.
-export convert_file, convert_str, to_format, to_normalized, to_normalized_with_options,
+export convert_file, convert_str, to_format, to_normalized,
        to_json, to_matpower, write_pypsa_csv_folder, Diagnostic
+
+# Reading a parsed network. The rest of the element and scalar accessors stay
+# unexported: their names collide with the ecosystem packages a consumer loads
+# beside this one. These two do not, and the docs name them unqualified.
+export warnings, n_buses
+
+# C library resolution, named unqualified by the module docstring and the errors
+# that tell a caller how to point at a local build.
+export set_library!, clear_library!
 
 # Materialized numeric views
 export to_dense, to_arrow, ArrowTable, release_c_data, arrow_catalog
@@ -89,7 +98,7 @@ export parse_goc3_json, goc3_scopf_data, ScopfInstance,
        parse_scopf, scopf_available
 
 # .pio.json network packages (Rust pkg feature)
-export NetworkPackage, CompilerPackage, to_package, from_package, read_package, write_package,
+export NetworkPackage, to_package, from_package, read_package, write_package,
        package_model_kind, package_available, validate_package, package_validation,
        package_diagnostics, package_operating_points, package_study,
        set_operating_points, materialize_operating_point, materialize_study_commit

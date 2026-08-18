@@ -355,17 +355,6 @@ function to_normalized(net::BalancedNetwork; clamp_angle_bounds::Bool=false,
 end
 
 """
-    to_normalized_with_options(net::BalancedNetwork; clamp_angle_bounds=false, angle_bound_pad=nothing)
-
-Compatibility spelling for [`to_normalized`](@ref) with explicit normalize
-options.
-"""
-to_normalized_with_options(net::BalancedNetwork; clamp_angle_bounds::Bool=false,
-                           angle_bound_pad::Union{Nothing,Real}=nothing) =
-    to_normalized(net; clamp_angle_bounds=clamp_angle_bounds,
-                  angle_bound_pad=angle_bound_pad)
-
-"""
     to_json(net::BalancedNetwork) -> String
 
 Serialize `net` to the C ABI's JSON transport, the same text [`from_json`](@ref)
@@ -497,7 +486,7 @@ convert_file(::Type{BalancedNetwork}, path::AbstractString, to::AbstractString; 
 
 """
     convert_str(text, to; from) -> (text, warnings)
-    convert_str(MulticonductorNetwork, text, to, from) -> (text, warnings)
+    convert_str(MulticonductorNetwork, text, to; from) -> (text, warnings)
 
 Convert in-memory case `text` to format `to` — the string sibling of
 [`convert_file`](@ref) (`pio_convert_str`). `from` is required for a transmission
@@ -507,7 +496,7 @@ case (there is no path to infer from): the source format token. Pass
 function convert_str(text::AbstractString, to::AbstractString; from::AbstractString)
     dist_to = _is_dist_format(to)
     dist_from = _is_dist_format(from)
-    dist_to && dist_from && return convert_str(MulticonductorNetwork, text, to, from)
+    dist_to && dist_from && return convert_str(MulticonductorNetwork, text, to; from=from)
     (dist_to || dist_from) && _cross_model_error("convert_str")
     lib = _lib()
     _ensure_compatible(lib)

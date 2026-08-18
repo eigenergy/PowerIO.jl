@@ -189,7 +189,7 @@
         else
             pkg = to_package(net)
             @test pkg isa NetworkPackage
-            @test pkg isa CompilerPackage
+            @test pkg isa NetworkPackage
             @test package_model_kind(pkg) == :balanced
             @test package_operating_points(pkg) === nothing
             @test package_study(pkg) === nothing

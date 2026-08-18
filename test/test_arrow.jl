@@ -353,6 +353,9 @@ end
         # it survives the table being collected (the old footgun).
         z = to_arrow(m, :bus; copy=false)
         @test z isa ArrowTable
+        # `show` reports the shape without touching the buffers, and says so
+        # once they are released rather than throwing from inside `show`.
+        @test sprint(show, z) == "ArrowTable(9 columns, 14 rows)"
         @test z.id == collect(1:14)
         @test z.id isa PowerIO.ArrowColumn{Int64}
         @test PowerIO.columns(z) isa NamedTuple
@@ -387,6 +390,7 @@ end
         release_c_data(z2b)
         @test_throws ErrorException z2b_col[1]
         @test_nowarn release_c_data(z2b)
+        @test sprint(show, z2b) == "ArrowTable(9 columns, released)"
 
         z3 = to_arrow(m, :bus; copy=false)
         z3_col = z3.id
