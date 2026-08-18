@@ -359,6 +359,30 @@
         @test_throws ArgumentError PowerIO._powerdata_real("NaN", Float64, "gen 1", :qmax)
         @test PowerIO._powerdata_real("Infinity", Float64, "gen 1", :qmax) === Inf
 
+        # The bridge normalizes internally and keeps only the tables, so it
+        # re-emits what normalize found. A case with no cost data builds rows
+        # whose cost objective is identically zero, which the caller building
+        # that objective is the one who needs to know.
+        costless = replace(read(joinpath(data, "case9.m"), String),
+                           r"(?s)mpc\.gencost.*?\];" => "")
+        costless_net = parse_str(costless, "matpower")
+        @test occursin("GEN_COST_ABSENT",
+                       join(PowerIO.warnings(to_normalized(costless_net)), "\n"))
+        @test_logs (:warn, r"CANONICALIZE\.NORMALIZE\.GEN_COST_ABSENT") match_mode = :any parse_ac_power_data(costless_net)
+        @test_logs (:warn, r"CANONICALIZE\.NORMALIZE\.GEN_COST_ABSENT") match_mode = :any to_powerdata(costless_net)
+        @test_logs (:warn, r"CANONICALIZE\.NORMALIZE\.GEN_COST_ABSENT") match_mode = :any PowerIO.LoadSeries(costless_net, [1.0])
+        # A costed case has nothing to report.
+        costed_net = parse_file(joinpath(data, "case9.m"))
+        @test_logs min_level = Logging.Warn parse_ac_power_data(costed_net)
+        @test_logs min_level = Logging.Warn to_powerdata(costed_net)
+        # Each call reports for itself: separate cases deserve separate warnings,
+        # so the dedupe is within a call rather than capped across the session.
+        @test_logs (:warn, r"GEN_COST_ABSENT") match_mode = :any parse_ac_power_data(costless_net)
+        # The unfiltered path runs no normalize pass, so it reports nothing.
+        @test_logs min_level = Logging.Warn to_powerdata(costless_net; filtered=false)
+        # An already normalized network is passed straight through.
+        @test_logs min_level = Logging.Warn to_powerdata(to_normalized(costed_net))
+
         storage_text = """
         function mpc = storage_case
         mpc.baseMVA = 100;

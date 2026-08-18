@@ -3,6 +3,7 @@ using Test
 using JSON3
 using Aqua
 using Libdl
+using Logging
 
 @testset "PowerIO" begin
     include("test_release.jl")    # Project.toml and changelog release guard

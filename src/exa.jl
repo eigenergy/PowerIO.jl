@@ -206,6 +206,23 @@ _powerdata_arc_row_type(::Type{T}) where {T<:Real} = @NamedTuple{
     rate_a::T,
 }
 
+# The bridge normalizes internally and keeps only the tables, so the findings
+# normalize retains on the handle it returns would be dropped unseen — including
+# the one saying a cost objective built from this case is identically zero, whose
+# reader is exactly the caller here. Re-emit each distinct code once per call.
+function _normalized_for_bridge(net::BalancedNetwork)
+    source_format(net) == "Normalized" && return net
+    norm = to_normalized(net)
+    seen = Set{SubString{String}}()
+    for line in warnings(norm)
+        code = first(split(line, ": "; limit=2))
+        code in seen && continue
+        push!(seen, code)
+        @warn line
+    end
+    return norm
+end
+
 function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Real}
     base = _powerdata_real(base_mva(net), T, "network", :base_mva)
     raw_buses = collect(buses(net))
@@ -376,6 +393,12 @@ reads. With the default `filtered=true`, values are derived from
 branch angle fields are radians, and branch/generator bus references are indices
 into the bus vector.
 
+With `filtered=true` the normalize pass runs inside this call, so its findings are
+re-emitted as `@warn`, one per distinct diagnostic code. A case with no generator
+cost data warns `CANONICALIZE.NORMALIZE.GEN_COST_ABSENT`: the rows build, and any
+cost objective built from them is identically zero. Read them off the network
+itself with [`warnings`](@ref)`(`[`to_normalized`](@ref)`(net))`.
+
 This is an ExaModels-facing bridge (a Julia sibling of [`to_powermodels`](@ref)):
 the returned row schema is the field set ExaModelsPower's model builders read. It is
 not a general PowerIO representation and does not port to the Rust core / C ABI; for
@@ -386,8 +409,7 @@ to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}=Float64)
 
 function to_powerdata(net::BalancedNetwork, ::Type{T}; filtered::Bool=true) where {T<:Real}
     if filtered
-        norm = source_format(net) == "Normalized" ? net : to_normalized(net)
-        return _to_powerdata_normalized(norm, T)
+        return _to_powerdata_normalized(_normalized_for_bridge(net), T)
     end
 
     base = _json_float(T, base_mva(net))
@@ -596,6 +618,7 @@ to_powerdata(path::AbstractString, ::Type{T}; from=nothing,
 
 Return the NamedTuple layout consumed by ExaModelsPower's `build_polar_opf`,
 `build_rect_opf`, and `build_dcopf`. `input` may be a [`BalancedNetwork`](@ref) or a path.
+Emits the normalize findings as `@warn` the way [`to_powerdata`](@ref) does.
 """
 parse_ac_power_data(input; from=nothing, filtered::Bool=true,
                     T::Type{<:Real}=Float64) =
@@ -700,7 +723,7 @@ end
 # positional guessing. This walks the same normalized view `to_powerdata` walks
 # but builds only the four values a series needs, not the whole row schema.
 function _load_alignment(net::BalancedNetwork, ::Type{T}) where {T<:Real}
-    norm = source_format(net) == "Normalized" ? net : to_normalized(net)
+    norm = _normalized_for_bridge(net)
     base = _powerdata_real(base_mva(norm), T, "network", :base_mva)
     bus_ids = Int[Int(b.id) for b in buses(norm)]
     id_to_idx = Dict(id => i for (i, id) in enumerate(bus_ids))
