@@ -71,11 +71,28 @@
         @test PowerIO.n_buses(net_from_json) == 14
         @test PowerIO.source_format(net_from_json) == "Matpower"
 
-        # powerio-json is a first-class format token under v4: parse_str reads
-        # the snapshot to_json writes, and a clean MATPOWER parse keeps no
-        # handle warnings (the v4 pio_warnings accessor).
-        @test PowerIO.n_buses(parse_str(to_json(net), "powerio-json")) == 14
+        # Model JSON is not a case format, so parse_str refuses it and names
+        # from_json. A clean MATPOWER parse keeps no handle warnings.
+        @test_throws ErrorException parse_str(to_json(net), "model-json")
         @test isempty(PowerIO.warnings(net))
+
+        # The core classifies it as its own family, and a bare .json holding
+        # one routes through from_json rather than a case reader.
+        @test PowerIO._classify_family(to_json(net)) === PowerIO.MODEL_JSON_FAMILY
+        let dir = mktempdir()
+            mjson = joinpath(dir, "case14.json")
+            write(mjson, to_json(net))
+            @test PowerIO.n_buses(parse_file(mjson)) == 14
+        end
+
+        # One vocabulary: the families this binding knows are the ones the
+        # library reports, so a router here can never meet a token it has no
+        # arm for.
+        info = PowerIO.build_info()
+        classes = info === nothing ? nothing : get(info, :json_classes, nothing)
+        if classes !== nothing
+            @test Symbol.(classes) == collect(PowerIO.JSON_FAMILIES)
+        end
 
         # EGRET and PowerModels both use .json (fixtures produced by convert_file).
         # The positive cases confirm each fixture parses under its own format; the

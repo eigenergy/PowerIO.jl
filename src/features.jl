@@ -161,7 +161,8 @@ end
     build_info() -> Union{NamedTuple,Nothing}
 
 Everything the loaded library reports about itself in one call: `powerio_version`,
-`abi`, a `features` table, `foreign_schemas`, and `error_categories`.
+`abi`, a `features` table, `foreign_schemas`, `error_categories`,
+`diagnostic_namespaces`, and `json_classes`.
 
 `curl_version_info` is the shape it follows, and the reason to prefer it over
 [`schema_versions`](@ref), [`dist_capabilities`](@ref) and
@@ -170,6 +171,8 @@ to answer a new one, while this grows by adding a key. `error_categories` is the
 closed set of coarse tokens a failure projects onto, for a caller that wants to
 branch on the kind of failure rather than match on prose; the finer identity is
 the dotted code every warning line and every error message leads with.
+`json_classes` is the closed set of families [`parse_file`](@ref) routes a bare
+`.json` on, matching `PowerIO.JSON_FAMILIES`.
 
 Returns `nothing` when the library predates the entry point.
 """

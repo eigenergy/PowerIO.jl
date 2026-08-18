@@ -191,9 +191,11 @@ package into whichever model its envelope declares.
 
 From a file `path` the format is inferred: by extension (`.m`, `.raw`, `.aux`,
 `.dss`, `.pio.json`), and for a bare `.json` by the same top level markers the
-core parsers use (`pio_classify_str`), unless `from` is given. From an `io`
-stream the `format` is required (there is no extension); parse in-memory text
-by wrapping it, `parse_file(IOBuffer(text), "matpower")`.
+core parsers use (`pio_classify_str`), unless `from` is given. A bare `.json`
+holding model JSON is read with [`from_json`](@ref); model JSON is not a case
+format and has no format token. From an `io` stream the `format` is required
+(there is no extension); parse in-memory text by wrapping it,
+`parse_file(IOBuffer(text), "matpower")`.
 
 Accepted format tokens (case-insensitive): `"matpower"`/`"m"`,
 `"powermodels-json"`/`"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`,
@@ -214,9 +216,13 @@ function parse_file(path::AbstractString; from=nothing)
         _is_package_path(path) && return from_package(read_package(path))
         _is_dss_path(path) && return parse_file(MulticonductorNetwork, path)
         if lowercase(splitext(String(path))[2]) == ".json" && isfile(path)
-            fam = _classify_family(read(path, String))
+            text = read(path, String)
+            fam = _classify_family(text)
             fam === :distribution && return parse_file(MulticonductorNetwork, path)
             fam === :package && return from_package(read_package(path))
+            # Model JSON is not a case format, so the core's parser refuses it.
+            # Routing it here is the same convenience a package path gets.
+            fam === MODEL_JSON_FAMILY && return from_json(text)
         end
     end
     h = _parse_handle(path; from=from)

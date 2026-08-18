@@ -221,10 +221,17 @@ function _exports_symbol(sym::Symbol, lib::AbstractString=_lib())
     end
 end
 
+# The classification families the core answers with, in its own spelling
+# (`pio_classify_str`, and `json_classes` in `pio_build_info`). The set is
+# closed and additive: a spelling is permanent and a new family appends.
+const MODEL_JSON_FAMILY = Symbol("model-json")
+const JSON_FAMILIES = (:transmission, :distribution, :package, MODEL_JSON_FAMILY,
+                       :ambiguous, :unknown)
+
 # Classify in-memory JSON by the core's cross-domain markers
-# (`pio_classify_str`): :transmission, :distribution, :package, :ambiguous, or
-# :unknown. Older libraries lack the symbol; :unavailable keeps the caller on
-# its pre-classify behavior (balanced inference and its errors).
+# (`pio_classify_str`): one of `JSON_FAMILIES`. Older libraries lack the
+# symbol; :unavailable keeps the caller on its pre-classify behavior (balanced
+# inference and its errors).
 function _classify_family(text::AbstractString)
     lib = _lib()
     _exports_symbol(:pio_classify_str, lib) || return :unavailable
