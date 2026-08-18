@@ -388,9 +388,11 @@ function _format_from_handle(h::BalancedNetworkHandle, to::AbstractString, what:
     diagref = _diagref()
     diagarg = want_warnings ? diagref : Ptr{Ptr{UInt8}}(C_NULL)
     err = zeros(UInt8, _ERRLEN)
+    # `opts` is the write-time options struct; C_NULL is every default, which
+    # is what every Julia surface wants until one exposes the cost policies.
     s = GC.@preserve h ccall(_library_symbol(lib, :pio_to_format), Cstring,
-                             (Ptr{Cvoid}, Cstring, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
-                             h.ptr, String(to), diagarg, err, length(err))
+                             (Ptr{Cvoid}, Cstring, Ptr{Cvoid}, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
+                             h.ptr, String(to), C_NULL, diagarg, err, length(err))
     s == C_NULL && error("PowerIO.to_format: " * _cstr(err) * " ($what)")
     text = _take_string(lib, s)
     return (text, want_warnings ? _take_warnings(lib, diagref) : String[])
@@ -478,8 +480,8 @@ function convert_file(path::AbstractString, to::AbstractString; from=nothing)
     # v4 argument order is (path, from, to), matching pio_to_format / pio_parse_str.
     fromc = from === nothing ? C_NULL : String(from)
     s = ccall(_library_symbol(lib, :pio_convert_file), Cstring,
-              (Cstring, Cstring, Cstring, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
-              path, fromc, to, diagref, err, length(err))
+              (Cstring, Cstring, Cstring, Ptr{Cvoid}, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
+              path, fromc, to, C_NULL, diagref, err, length(err))
     s == C_NULL && error("PowerIO.convert_file: " * _cstr(err))
     text = _take_string(lib, s)
     return (text, _take_warnings(lib, diagref))
@@ -508,8 +510,8 @@ function convert_str(text::AbstractString, to::AbstractString; from::AbstractStr
     err = zeros(UInt8, _ERRLEN)
     # v4 argument order is (text, from, to), matching pio_convert_file.
     s = ccall(_library_symbol(lib, :pio_convert_str), Cstring,
-              (Cstring, Cstring, Cstring, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
-              String(text), String(from), to, diagref, err, length(err))
+              (Cstring, Cstring, Cstring, Ptr{Cvoid}, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
+              String(text), String(from), to, C_NULL, diagref, err, length(err))
     s == C_NULL && error("PowerIO.convert_str: " * _cstr(err))
     out = _take_string(lib, s)
     return (out, _take_warnings(lib, diagref))
@@ -534,8 +536,8 @@ function write_pypsa_csv_folder(net::BalancedNetwork, out_dir::AbstractString)
     # format today. Fallible `int` return (0 = success), the diagnostics/errbuf
     # convention of `pio_to_format`; the handle is preserved across the ccall.
     rc = GC.@preserve h ccall(_library_symbol(lib, :pio_write_dir), Int32,
-                              (Ptr{Cvoid}, Cstring, Cstring, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
-                              h.ptr, "pypsa-csv", String(out_dir), diagref, err, length(err))
+                              (Ptr{Cvoid}, Cstring, Cstring, Ptr{Cvoid}, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
+                              h.ptr, "pypsa-csv", String(out_dir), C_NULL, diagref, err, length(err))
     rc == 0 || error("PowerIO.write_pypsa_csv_folder: " * _cstr(err))
     return (String(out_dir), _take_warnings(lib, diagref))
 end
