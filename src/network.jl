@@ -300,30 +300,31 @@ end
 # pointer carries the same guard.
 const POWER_MODELS_ANGLE_BOUND_PAD = 1.0472
 
-function _normalize_handle(h::BalancedNetworkHandle)
-    lib = getfield(h, :lib)
-    _network_free_fn(lib)
-    err = zeros(UInt8, _ERRLEN)
-    ptr = GC.@preserve h ccall(_library_symbol(lib, :pio_normalize), Ptr{Cvoid},
-                               (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
-    ptr == C_NULL && error("PowerIO.to_normalized: " * _cstr(err))
-    return BalancedNetworkHandle(ptr, lib)
+# `PioNormalizeOptions`, the extensible options struct `pio_normalize` reads.
+# `struct_size` first, appended fields only, and a zero filled struct is every
+# default: a zero `angle_bound_pad` is not a legal pad, so it means the default.
+struct PioNormalizeOptions
+    struct_size::Csize_t
+    clamp_angle_bounds::Cint
+    reserved::Cint
+    angle_bound_pad::Cdouble
 end
 
-function _normalize_handle_with_options(h::BalancedNetworkHandle,
-                                        clamp_angle_bounds::Bool,
-                                        angle_bound_pad::Real)
+@assert sizeof(PioNormalizeOptions) == 2 * sizeof(Csize_t) + sizeof(Cdouble) "PioNormalizeOptions size mismatch"
+
+function _normalize_handle(h::BalancedNetworkHandle;
+                           clamp_angle_bounds::Bool=false,
+                           angle_bound_pad::Union{Nothing,Real}=nothing)
     lib = getfield(h, :lib)
-    _exports_symbol(:pio_normalize_with_options, lib) || error(
-        "PowerIO.to_normalized_with_options: the C ABI at \"$lib\" does not export " *
-        "pio_normalize_with_options. Rebuild powerio-capi from the matching PowerIO branch.")
     _network_free_fn(lib)
+    opts = PioNormalizeOptions(sizeof(PioNormalizeOptions),
+                               clamp_angle_bounds ? Cint(1) : Cint(0), Cint(0),
+                               angle_bound_pad === nothing ? 0.0 : Cdouble(angle_bound_pad))
     err = zeros(UInt8, _ERRLEN)
-    ptr = GC.@preserve h ccall(_library_symbol(lib, :pio_normalize_with_options), Ptr{Cvoid},
-                               (Ptr{Cvoid}, Cint, Cdouble, Ptr{UInt8}, Csize_t),
-                               h.ptr, clamp_angle_bounds ? Cint(1) : Cint(0),
-                               Cdouble(angle_bound_pad), err, length(err))
-    ptr == C_NULL && error("PowerIO.to_normalized_with_options: " * _cstr(err))
+    ptr = GC.@preserve h ccall(_library_symbol(lib, :pio_normalize), Ptr{Cvoid},
+                               (Ptr{Cvoid}, Ref{PioNormalizeOptions}, Ptr{UInt8}, Csize_t),
+                               h.ptr, opts, err, length(err))
+    ptr == C_NULL && error("PowerIO.to_normalized: " * _cstr(err))
     return BalancedNetworkHandle(ptr, lib)
 end
 
@@ -343,12 +344,8 @@ also applies the PowerModels angle difference repair in the Rust normalize pass.
 function to_normalized(net::BalancedNetwork; clamp_angle_bounds::Bool=false,
                        angle_bound_pad::Union{Nothing,Real}=nothing)
     h = _live_handle(net, "to_normalized")
-    hn = if clamp_angle_bounds || angle_bound_pad !== nothing
-        pad = angle_bound_pad === nothing ? POWER_MODELS_ANGLE_BOUND_PAD : angle_bound_pad
-        _normalize_handle_with_options(h, clamp_angle_bounds, pad)
-    else
-        _normalize_handle(h)
-    end
+    hn = _normalize_handle(h; clamp_angle_bounds=clamp_angle_bounds,
+                           angle_bound_pad=angle_bound_pad)
     return BalancedNetwork(hn)
 end
 
