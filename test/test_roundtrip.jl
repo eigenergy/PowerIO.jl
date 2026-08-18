@@ -113,6 +113,17 @@
                    "EMIT", "BIND", "PARTNER", "REQUEST")
         end
 
+        # An error message carries the same identity a warning line does, so a
+        # test can name the failure mode without matching prose.
+        failure = try
+            convert_file(joinpath(data, "case14.m"), "no-such-format")
+            nothing
+        catch e
+            sprint(showerror, e)
+        end
+        @test failure !== nothing
+        @test occursin("REQUEST.FORMAT.UNKNOWN: ", failure)
+
         # convert_str is the in-memory sibling of convert_file (v4 pio_convert_str);
         # matpower -> psse matches the file conversion byte for byte.
         cs_text, cs_warnings = convert_str(read(joinpath(data, "case14.m"), String), "psse"; from = "matpower")

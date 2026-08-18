@@ -379,21 +379,21 @@ function to_json(net::BalancedNetwork)
     return (h === nothing || h.ptr == C_NULL) ? JSON3.write(net.data) : _to_json(h)
 end
 
-# `want_warnings=false` skips the warn channel by passing NULL, which is how the
-# C side is told to discard it. Passing a live ref and dropping it unread leaks
-# the string the writer allocated into it.
+# `want_warnings=false` skips the diagnostics channel by passing NULL, which is
+# how the C side is told to discard it. Passing a live ref and dropping it
+# unread leaks the document the writer allocated into it.
 function _format_from_handle(h::BalancedNetworkHandle, to::AbstractString, what::AbstractString;
                              want_warnings::Bool=true)
     lib = getfield(h, :lib)
-    warnref = _warnref()
-    warnarg = want_warnings ? warnref : Ptr{Ptr{UInt8}}(C_NULL)
+    diagref = _diagref()
+    diagarg = want_warnings ? diagref : Ptr{Ptr{UInt8}}(C_NULL)
     err = zeros(UInt8, _ERRLEN)
     s = GC.@preserve h ccall(_library_symbol(lib, :pio_to_format), Cstring,
                              (Ptr{Cvoid}, Cstring, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
-                             h.ptr, String(to), warnarg, err, length(err))
+                             h.ptr, String(to), diagarg, err, length(err))
     s == C_NULL && error("PowerIO.to_format: " * _cstr(err) * " ($what)")
     text = _take_string(lib, s)
-    return (text, want_warnings ? _take_warnings(lib, warnref) : String[])
+    return (text, want_warnings ? _take_warnings(lib, diagref) : String[])
 end
 
 # `matpower` flows through the one string-keyed writer like every other format
@@ -472,17 +472,17 @@ function convert_file(path::AbstractString, to::AbstractString; from=nothing)
     dist_src && _cross_model_error("convert_file")
     lib = _lib()
     _ensure_compatible(lib)
-    warnref = _warnref()
+    diagref = _diagref()
     err = zeros(UInt8, _ERRLEN)
     # Pass the format hint as a `String` (ccall roots it) or `C_NULL` for inference.
     # v4 argument order is (path, from, to), matching pio_to_format / pio_parse_str.
     fromc = from === nothing ? C_NULL : String(from)
     s = ccall(_library_symbol(lib, :pio_convert_file), Cstring,
               (Cstring, Cstring, Cstring, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
-              path, fromc, to, warnref, err, length(err))
+              path, fromc, to, diagref, err, length(err))
     s == C_NULL && error("PowerIO.convert_file: " * _cstr(err))
     text = _take_string(lib, s)
-    return (text, _take_warnings(lib, warnref))
+    return (text, _take_warnings(lib, diagref))
 end
 # Explicit transmission marker, symmetric with `convert_file(MulticonductorNetwork, ...)`.
 convert_file(::Type{BalancedNetwork}, path::AbstractString, to::AbstractString; from=nothing) =
@@ -504,15 +504,15 @@ function convert_str(text::AbstractString, to::AbstractString; from::AbstractStr
     (dist_to || dist_from) && _cross_model_error("convert_str")
     lib = _lib()
     _ensure_compatible(lib)
-    warnref = _warnref()
+    diagref = _diagref()
     err = zeros(UInt8, _ERRLEN)
     # v4 argument order is (text, from, to), matching pio_convert_file.
     s = ccall(_library_symbol(lib, :pio_convert_str), Cstring,
               (Cstring, Cstring, Cstring, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
-              String(text), String(from), to, warnref, err, length(err))
+              String(text), String(from), to, diagref, err, length(err))
     s == C_NULL && error("PowerIO.convert_str: " * _cstr(err))
     out = _take_string(lib, s)
-    return (out, _take_warnings(lib, warnref))
+    return (out, _take_warnings(lib, diagref))
 end
 
 """
@@ -528,14 +528,14 @@ PyPSA static-network CSV schema can't carry. Needs `net`'s live Rust handle
 function write_pypsa_csv_folder(net::BalancedNetwork, out_dir::AbstractString)
     h = _live_handle(net, "write_pypsa_csv_folder")
     lib = getfield(h, :lib)
-    warnref = _warnref()
+    diagref = _diagref()
     err = zeros(UInt8, _ERRLEN)
     # `pio_write_dir` is the generic directory writer; `pypsa-csv` is the one such
-    # format today. Fallible `int` return (0 = success), the warnbuf/errbuf
+    # format today. Fallible `int` return (0 = success), the diagnostics/errbuf
     # convention of `pio_to_format`; the handle is preserved across the ccall.
     rc = GC.@preserve h ccall(_library_symbol(lib, :pio_write_dir), Int32,
                               (Ptr{Cvoid}, Cstring, Cstring, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
-                              h.ptr, "pypsa-csv", String(out_dir), warnref, err, length(err))
+                              h.ptr, "pypsa-csv", String(out_dir), diagref, err, length(err))
     rc == 0 || error("PowerIO.write_pypsa_csv_folder: " * _cstr(err))
-    return (String(out_dir), _take_warnings(lib, warnref))
+    return (String(out_dir), _take_warnings(lib, diagref))
 end
