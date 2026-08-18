@@ -867,7 +867,13 @@ Fields:
   rows carry the reactive capability block: the mutually exclusive `q_bound_cap` and
   `q_linear_cap` flags, and the `beta_ub`/`beta_lb`/`q_0_ub`/`q_0_lb` or `beta`/`q_p0`
   parameters of whichever is set. A device may set neither, in which case every
-  parameter is `NaN`; read the flags before the parameters.
+  parameter is `NaN`; read the flags before the parameters. Those rows also carry the
+  commitment ramp limits and the initial operating point under short names: `p_ru` and
+  `p_rd` are the document's `p_ramp_up_ub` and `p_ramp_down_ub`, `p_ru_su` and `p_rd_sd`
+  its `p_startup_ramp_ub` and `p_shutdown_ramp_ub`, `p_0` and `q_0` its `initial_status`
+  `p` and `q`, and `p_max`/`p_min`/`q_max`/`q_min` the per-period `p_ub`/`p_lb`/`q_ub`/
+  `q_lb` series. A client building startup and shutdown power trajectories reads these
+  rows instead of `sdd_lookup` and `sdd_ts_lookup`.
 - `lengths`: the per-class set sizes, including the contingency count `K`.
 - `energy_windows`: producer/consumer min and max energy windows and period memberships.
 - `price_blocks`: `(producer, consumer)`, one row per (device, period, cost block).

@@ -25,6 +25,7 @@ Breaking: four returned NamedTuples grow. Positional destructuring and `property
   a new name because the row already uses `q_0` for `initial_status.q`.
   Breaking: `SddRow` grows from 34 to 42 fields. `NaN` also makes `==` report
   two identical row sets as unequal, so use `isequal`.
+- The producer and consumer row fields a startup or shutdown power trajectory needs are now documented against the GOC3 keys behind them, and tested against those keys device by device: `p_ru_su` and `p_rd_sd` are `p_startup_ramp_ub` and `p_shutdown_ramp_ub`, `p_0` and `q_0` are `initial_status` `p` and `q`, and `p_min` and `p_max` are the per-period `p_lb` and `p_ub` series. The rows already carried all of it under short names that nothing mapped back, so a client reading the rows still went to `sdd_lookup` and `sdd_ts_lookup` for the same numbers.
 - `ScopfInstance` gains `violation_cost`: the four prices as `(p_bus, q_bus, s,
   e)`. Each price can be absent and then reads `NaN`. GOCompetition's own
   14-bus validation case omits `e_vio_cost`.
