@@ -244,3 +244,46 @@ end
         end
     end
 end
+
+@testset "star-lowered bus space" begin
+    # An in-service three winding transformer becomes a synthetic star bus plus
+    # three branches. Since C ABI 5 every per-bus extractor reports that lowered
+    # space, so a caller sizing a per-bus buffer off the bus count no longer
+    # reads short by one entry per such transformer.
+    fixture = joinpath(@__DIR__, "data", "psse", "case3_3w_v33.raw")
+    if !PowerIO.library_available()
+        @test_skip to_dense(fixture)
+    else
+        d = to_dense(fixture)
+        @test length(d.bus_ids) == d.n
+        @test d.n == 4                                  # three file buses plus the star point
+        @test allunique(d.bus_ids)                      # the star point takes a fresh id
+        @test length(d.demand.pd) == d.n && length(d.demand.qd) == d.n
+        @test length(d.shunt.gs) == d.n && length(d.shunt.bs) == d.n
+
+        # Endpoints are 1-based bus ids, so closure means every one of them
+        # resolves to a dense row rather than falling outside the table.
+        rows = Dict(id => k for (k, id) in enumerate(d.bus_ids))
+        @test d.m == 3
+        @test all(haskey(rows, id) for id in d.branch.from)
+        @test all(haskey(rows, id) for id in d.branch.to)
+        @test all(1 .<= [rows[id] for id in vcat(d.branch.from, d.branch.to)] .<= d.n)
+
+        # The star branches ground the two secondary buses through the reference
+        # bus; without the lowering they would be ungrounded islands.
+        @test d.n_components == 1
+        @test d.reference_bus == 0
+        # The load rows still land on their file buses, and the star point
+        # carries no demand of its own.
+        net = parse_file(fixture)
+        @test d.demand.pd[rows[2]] ≈ 45.0 && d.demand.qd[rows[3]] ≈ 5.0
+        @test sum(d.demand.pd) ≈ 65.0
+
+        # The element accessors keep reporting the source tables: three buses and
+        # no branches, because the three winding record is one transformer. The
+        # two counts name different spaces and neither substitutes for the other.
+        @test PowerIO.n_buses(net) == 3
+        @test PowerIO.n_branches(net) == 0
+        @test length(PowerIO.buses(net)) == 3
+    end
+end
