@@ -135,23 +135,25 @@ end
                 "mpc.gen = [\n];\nmpc.branch = [\n1 2 0.01 0.1 0 100 100 100 0 0 1 -30 30;\n];\n"
         @test_throws ErrorException to_normalized(parse_file(IOBuffer(noref), "matpower"))
 
-        if PowerIO._exports_symbol(:pio_normalize_with_options)
-            angle_net = parse_file(joinpath(data, "angle_bounds_clamp.m"))
-            clamped = to_normalized_with_options(angle_net; clamp_angle_bounds=true)
-            @test PowerIO.branches(clamped)[1].angmin ≈ -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
-            @test PowerIO.branches(clamped)[1].angmax ≈ PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
-            @test PowerIO.branches(clamped)[2].angmin ≈ -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
-            @test PowerIO.branches(clamped)[2].angmax ≈ PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
-            @test PowerIO.branches(clamped)[3].angmin ≈ -pi / 6
-            @test any(w -> occursin("angle difference bounds clamped", w),
-                      PowerIO.warnings(clamped))
-            custom = to_normalized(angle_net; clamp_angle_bounds=true, angle_bound_pad=0.5)
-            @test PowerIO.branches(custom)[1].angmin ≈ -0.5
-            @test_throws ErrorException to_normalized(angle_net; clamp_angle_bounds=true,
-                                                      angle_bound_pad=pi / 2)
-        else
-            @test_skip to_normalized_with_options(net; clamp_angle_bounds=true)
-        end
+        # The clamp rides `PioNormalizeOptions` on `pio_normalize`; the symbol is
+        # not feature gated, so a compatible library always has it.
+        angle_net = parse_file(joinpath(data, "angle_bounds_clamp.m"))
+        clamped = to_normalized_with_options(angle_net; clamp_angle_bounds=true)
+        @test PowerIO.branches(clamped)[1].angmin ≈ -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
+        @test PowerIO.branches(clamped)[1].angmax ≈ PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
+        @test PowerIO.branches(clamped)[2].angmin ≈ -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
+        @test PowerIO.branches(clamped)[2].angmax ≈ PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
+        @test PowerIO.branches(clamped)[3].angmin ≈ -pi / 6
+        @test any(w -> occursin("angle difference bounds clamped", w),
+                  PowerIO.warnings(clamped))
+        custom = to_normalized(angle_net; clamp_angle_bounds=true, angle_bound_pad=0.5)
+        @test PowerIO.branches(custom)[1].angmin ≈ -0.5
+        @test_throws ErrorException to_normalized(angle_net; clamp_angle_bounds=true,
+                                                  angle_bound_pad=pi / 2)
+        # A zero pad is the default pad, which is what makes a zero filled
+        # options struct the defaults.
+        zeroed = to_normalized(angle_net; clamp_angle_bounds=true, angle_bound_pad=0.0)
+        @test PowerIO.branches(zeroed)[1].angmin ≈ -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
     end
 end
 

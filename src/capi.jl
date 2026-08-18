@@ -221,10 +221,17 @@ function _exports_symbol(sym::Symbol, lib::AbstractString=_lib())
     end
 end
 
+# The classification families the core answers with, in its own spelling
+# (`pio_classify_str`, and `json_classes` in `pio_build_info`). The set is
+# closed and additive: a spelling is permanent and a new family appends.
+const MODEL_JSON_FAMILY = Symbol("model-json")
+const JSON_FAMILIES = (:transmission, :distribution, :package, MODEL_JSON_FAMILY,
+                       :ambiguous, :unknown)
+
 # Classify in-memory JSON by the core's cross-domain markers
-# (`pio_classify_str`): :transmission, :distribution, :package, :ambiguous, or
-# :unknown. Older libraries lack the symbol; :unavailable keeps the caller on
-# its pre-classify behavior (balanced inference and its errors).
+# (`pio_classify_str`): one of `JSON_FAMILIES`. Older libraries lack the
+# symbol; :unavailable keeps the caller on its pre-classify behavior (balanced
+# inference and its errors).
 function _classify_family(text::AbstractString)
     lib = _lib()
     _exports_symbol(:pio_classify_str, lib) || return :unavailable
@@ -238,19 +245,24 @@ end
 
 const _ERRLEN = 512
 
-# ABI 5 hands conversion warnings back through an out pointer as one owned
-# string, so there is nothing to size and nothing to truncate. Before that this
-# binding guessed 64 KiB and appended a "may be truncated" marker when the fill
-# came near the cap, which is the wrong shape for an unbounded list: warnings
-# come one per lossy element, so a large case always beat the guess.
-_warnref() = Ref{Ptr{UInt8}}(C_NULL)
+# ABI 5 hands the conversion's findings back through an out pointer as one
+# owned JSON array of diagnostic records, so there is nothing to size and
+# nothing to truncate. Before that this binding guessed 64 KiB and appended a
+# "may be truncated" marker when the fill came near the cap, which is the wrong
+# shape for an unbounded list: findings come one per lossy element, so a large
+# case always beat the guess.
+_diagref() = Ref{Ptr{UInt8}}(C_NULL)
 
-# Take ownership of an out-param warning string: split it into lines and free
-# it. A NULL out pointer means the conversion lost nothing.
+# Take ownership of the out-param diagnostics document and render each record
+# as the `CODE: message` line the handle accessors return, so a conversion and
+# a read report the same way. A NULL out pointer means the conversion lost
+# nothing.
 function _take_warnings(lib::AbstractString, ref::Ref{Ptr{UInt8}})
     p = ref[]
     p == C_NULL && return String[]
-    return _nonempty_lines(_take_string(lib, Cstring(p)))
+    document = _take_string(lib, Cstring(p))
+    isempty(document) && return String[]
+    return [string(record.code, ": ", record.message) for record in JSON3.read(document)]
 end
 
 # --- handle layer -------------------------------------------------------
@@ -409,10 +421,6 @@ _cstr(buf::Vector{UInt8}) = GC.@preserve buf unsafe_string(pointer(buf))
 # buffer-sized parent).
 _nonempty_lines(s::AbstractString) = String.(filter(!isempty, split(s, '\n')))
 
-# Split a `\n`-joined warn buffer into owned Strings. `capped`: this fixed-size
-# per-call channel truncates silently on a UTF-8 boundary at the cap, so a fill
-# within 4 bytes of it is the truncation signature — report it rather than
-
 # One string over the cap/count convention (`pio_network_name`,
 # `pio_source_format`, and the joined text behind `_warnings_from`): the query
 # returns the byte length excluding the NUL, so size with a null buffer,
@@ -437,8 +445,9 @@ function _take_string(lib::AbstractString, s::Cstring)
 end
 
 # Fidelity warnings retained on a handle (`pio_warnings` / `pio_dist_warnings`):
-# the readers that return a handle and no per-call warnbuf (`pio_read_dir`, the
-# dist parsers) park their warnings here. `_string_from` owns the size then fill
+# the readers that return a handle and no per-call diagnostics channel
+# (`pio_read_dir`, the dist parsers) park their findings here, already rendered
+# as `CODE: message` lines. `_string_from` owns the size then fill
 # protocol, so the joined text always fits by construction — no cap marker.
 _warnings_from(query) = _nonempty_lines(_string_from(query))
 

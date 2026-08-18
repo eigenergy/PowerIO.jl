@@ -130,6 +130,8 @@ const _ARROW_TABLE_IDS = (
     bdoubleprime = Cint(18),
     matrix_bus = Cint(19),
     matrix_branch = Cint(20),
+    solver_gen_cost = Cint(21),
+    solver_gen_cost_coeff = Cint(22),
 )
 
 const _MATRIX_ARROW_TABLES = Set((:ybus, :incidence, :bprime, :bdoubleprime))
