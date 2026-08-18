@@ -193,8 +193,29 @@ end
             @test solver_arc.branch_index[1:2] == [0, 0]
             @test solver_arc.terminal[1:2] == [0, 1]
 
+            # solver_bus grew area and zone at the end of its column list.
+            @test solver_bus.area == fill(1, 14)
+            @test solver_bus.zone == fill(1, 14)
+
             solver_gen = to_arrow(m, :solver_gen)
             @test solver_gen.bus_index == [0, 1, 2, 5, 7]
+
+            # One cost header row per generator, slicing the coefficient table.
+            cost = to_arrow(m, :solver_gen_cost)
+            coeff = to_arrow(m, :solver_gen_cost_coeff)
+            @test cost.index == solver_gen.index
+            @test all(==(2), cost.model)
+            @test cost.ncost == fill(3, 5)
+            @test cost.coeff_count == fill(3, 5)
+            @test cost.coeff_offset == collect(0:3:12)
+            @test length(coeff.value) == sum(cost.coeff_count)
+            @test coeff.gen_index[1:3] == fill(0, 3)
+            @test coeff.position[1:3] == collect(0:2)
+            # Position i of a k term polynomial scales by base^(k-1-i).
+            @test coeff.value[1] ≈ 0.0430292599 * 100.0^2
+            @test coeff.value[2] ≈ 20.0 * 100.0
+            @test coeff.value[3] ≈ 0.0
+
             @test isempty(to_arrow(m, :solver_storage).index)
             @test isempty(to_arrow(m, :solver_hvdc).index)
             @test isempty(to_arrow(m, :solver_switch).index)
