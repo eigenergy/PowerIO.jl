@@ -251,9 +251,9 @@ function parse_file(path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)
     return BalancedNetwork(h)
 end
-function parse_file(io::IO, format::AbstractString)
-    _is_dist_format(format) && return parse_str(MulticonductorNetwork, read(io, String), format)
-    h = _parse_handle_str(read(io, String), format)
+function parse_file(io::IO, from::AbstractString)
+    _is_dist_format(from) && return parse_str(MulticonductorNetwork, read(io, String), from)
+    h = _parse_handle_str(read(io, String), from)
     return BalancedNetwork(h)
 end
 # Explicit transmission marker, symmetric with `parse_file(MulticonductorNetwork, ...)`:
@@ -265,36 +265,37 @@ function parse_file(::Type{BalancedNetwork}, path::AbstractString; from=nothing)
 end
 
 """
-    parse_str(text, format="matpower") -> BalancedNetwork | MulticonductorNetwork
-    parse_str(MulticonductorNetwork, text, format) -> MulticonductorNetwork
+    parse_str(text, from) -> BalancedNetwork | MulticonductorNetwork
+    parse_str(MulticonductorNetwork, text, from) -> MulticonductorNetwork
 
-Parse in-memory case text — the string sibling of `parse_file(io, format)`,
-matching the Rust, Python, and C interfaces. A distribution `format` token
-routes to the multiconductor parser, like the bare [`parse_file`](@ref).
+Parse in-memory case text — the string sibling of `parse_file(io, from)`,
+matching the Rust, Python, and C interfaces. `from` is required: a string
+carries no extension to infer from. A distribution `from` token routes to the
+multiconductor parser, like the bare [`parse_file`](@ref).
 """
-parse_str(text::AbstractString, format::AbstractString="matpower") =
-    parse_file(IOBuffer(String(text)), format)
+parse_str(text::AbstractString, from::AbstractString) =
+    parse_file(IOBuffer(String(text)), from)
 # Explicit transmission marker: bypasses the format routing, so it reaches the
 # balanced parser no matter the token (symmetric with parse_file(BalancedNetwork, ...)).
-function parse_str(::Type{BalancedNetwork}, text::AbstractString, format::AbstractString="matpower")
-    h = _parse_handle_str(String(text), format)
+function parse_str(::Type{BalancedNetwork}, text::AbstractString, from::AbstractString)
+    h = _parse_handle_str(String(text), from)
     return BalancedNetwork(h)
 end
 
 """
-    parse_bytes(bytes, format) -> BalancedNetwork
+    parse_bytes(bytes, from) -> BalancedNetwork
 
-Parse in-memory case bytes under an explicit `format`. Accepts every
+Parse in-memory case bytes under an explicit `from`. Accepts every
 [`parse_str`](@ref) token plus `"pwb"`: PowerWorld binary has no text form, so
 this is the only way to read one without a file on disk. Text formats must be
 UTF-8.
 """
-function parse_bytes(bytes::AbstractVector{UInt8}, format::AbstractString)
-    h = _parse_handle_bytes(bytes, format)
+function parse_bytes(bytes::AbstractVector{UInt8}, from::AbstractString)
+    h = _parse_handle_bytes(bytes, from)
     return BalancedNetwork(h)
 end
-parse_bytes(::Type{BalancedNetwork}, bytes::AbstractVector{UInt8}, format::AbstractString) =
-    parse_bytes(bytes, format)
+parse_bytes(::Type{BalancedNetwork}, bytes::AbstractVector{UInt8}, from::AbstractString) =
+    parse_bytes(bytes, from)
 
 """
     from_json(text) -> BalancedNetwork

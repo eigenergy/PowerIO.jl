@@ -358,15 +358,15 @@ function parse_file(::Type{MulticonductorNetwork}, path::AbstractString; from=no
 end
 
 """
-    parse_str(MulticonductorNetwork, text, format) -> MulticonductorNetwork
+    parse_str(MulticonductorNetwork, text, from) -> MulticonductorNetwork
 
-Parse in-memory distribution case `text` of the named `format` (`"dss"`,
+Parse in-memory distribution case `text` of the named `from` format (`"dss"`,
 `"pmd"`, or `"bmopf"`; required, there is no path to infer from) — the explicit
-form of the format-routed [`parse_str`](@ref)`(text, format)`. An OpenDSS
+form of the format-routed [`parse_str`](@ref)`(text, from)`. An OpenDSS
 `Redirect`/`Compile` resolves against the current working directory.
 """
-function parse_str(::Type{MulticonductorNetwork}, text::AbstractString, format::AbstractString)
-    h = _dist_parse_handle_str(text, format)
+function parse_str(::Type{MulticonductorNetwork}, text::AbstractString, from::AbstractString)
+    h = _dist_parse_handle_str(text, from)
     return MulticonductorNetwork(h)
 end
 
