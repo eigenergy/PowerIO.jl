@@ -19,7 +19,7 @@
         @test PowerIO.n_branches(r.network) == 20
         @test PowerIO.n_gens(r.network) == 5
         @test PowerIO.base_mva(r.network) == 100.0
-        @test PowerIO.source_format(r.network) == "Gridfm"
+        @test PowerIO.source_format(r.network) == "gridfm"
 
         # The recovered case carries a live handle: it serializes and re-parses.
         text = to_matpower(r.network)

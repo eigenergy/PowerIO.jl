@@ -104,7 +104,7 @@ function _balanced_summary_json(h::BalancedNetworkHandle)
     return JSON3.read(JSON3.write((;
         powerio_version = something(schema_versions().powerio_version, ""),
         name = _payload_value(data, :name, ""),
-        source_format = _payload_value(data, :source_format, "InMemory"),
+        source_format = _source_format_token(_payload_value(data, :source_format, "in-memory")),
         base_mva = _payload_value(data, :base_mva, 0.0),
         base_frequency = _payload_value(data, :base_frequency, 60.0),
         counts,
@@ -119,6 +119,30 @@ end
 
 _payload_value(data::JSON3.Object, key::Symbol, default) =
     haskey(data, key) ? getproperty(data, key) : default
+
+# Model JSON written before powerio 0.9 spells `source_format` as the bare Rust
+# variant name; 0.9 writes the same lowercase token every `from` accepts. Read
+# both, report the token.
+const _LEGACY_SOURCE_FORMATS = Dict(
+    "Matpower" => "matpower",
+    "PowerModelsJson" => "powermodels-json",
+    "EgretJson" => "egret-json",
+    "Psse" => "psse",
+    "PowerWorld" => "powerworld",
+    "PandapowerJson" => "pandapower-json",
+    "Pslf" => "pslf",
+    "PowerWorldBinary" => "powerworld-pwb",
+    "InMemory" => "in-memory",
+    "Normalized" => "normalized",
+    "Gridfm" => "gridfm",
+    "PypsaCsv" => "pypsa-csv",
+    "Goc3Json" => "goc3-json",
+    "SurgeJson" => "surge-json",
+    "DeepMindOpfDataJson" => "opfdata-json",
+)
+
+_source_format_token(value) =
+    value isa AbstractString ? get(_LEGACY_SOURCE_FORMATS, String(value), String(value)) : value
 
 # A missing key and an explicit JSON `null` both count as zero, so a summary
 # never throws on a document an accessor tolerates.
@@ -148,7 +172,7 @@ function _summary_from_data(data::JSON3.Object, ::Type{BalancedNetwork})
     return JSON3.read(JSON3.write((;
         powerio_version = something(schema_versions().powerio_version, ""),
         name = _payload_value(data, :name, ""),
-        source_format = _payload_value(data, :source_format, "InMemory"),
+        source_format = _source_format_token(_payload_value(data, :source_format, "in-memory")),
         base_mva = _payload_value(data, :base_mva, 0.0),
         base_frequency = _payload_value(data, :base_frequency, 60.0),
         counts,
@@ -227,9 +251,9 @@ function parse_file(path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)
     return BalancedNetwork(h)
 end
-function parse_file(io::IO, format::AbstractString)
-    _is_dist_format(format) && return parse_str(MulticonductorNetwork, read(io, String), format)
-    h = _parse_handle_str(read(io, String), format)
+function parse_file(io::IO, from::AbstractString)
+    _is_dist_format(from) && return parse_str(MulticonductorNetwork, read(io, String), from)
+    h = _parse_handle_str(read(io, String), from)
     return BalancedNetwork(h)
 end
 # Explicit transmission marker, symmetric with `parse_file(MulticonductorNetwork, ...)`:
@@ -241,36 +265,37 @@ function parse_file(::Type{BalancedNetwork}, path::AbstractString; from=nothing)
 end
 
 """
-    parse_str(text, format="matpower") -> BalancedNetwork | MulticonductorNetwork
-    parse_str(MulticonductorNetwork, text, format) -> MulticonductorNetwork
+    parse_str(text, from) -> BalancedNetwork | MulticonductorNetwork
+    parse_str(MulticonductorNetwork, text, from) -> MulticonductorNetwork
 
-Parse in-memory case text — the string sibling of `parse_file(io, format)`,
-matching the Rust, Python, and C interfaces. A distribution `format` token
-routes to the multiconductor parser, like the bare [`parse_file`](@ref).
+Parse in-memory case text — the string sibling of `parse_file(io, from)`,
+matching the Rust, Python, and C interfaces. `from` is required: a string
+carries no extension to infer from. A distribution `from` token routes to the
+multiconductor parser, like the bare [`parse_file`](@ref).
 """
-parse_str(text::AbstractString, format::AbstractString="matpower") =
-    parse_file(IOBuffer(String(text)), format)
+parse_str(text::AbstractString, from::AbstractString) =
+    parse_file(IOBuffer(String(text)), from)
 # Explicit transmission marker: bypasses the format routing, so it reaches the
 # balanced parser no matter the token (symmetric with parse_file(BalancedNetwork, ...)).
-function parse_str(::Type{BalancedNetwork}, text::AbstractString, format::AbstractString="matpower")
-    h = _parse_handle_str(String(text), format)
+function parse_str(::Type{BalancedNetwork}, text::AbstractString, from::AbstractString)
+    h = _parse_handle_str(String(text), from)
     return BalancedNetwork(h)
 end
 
 """
-    parse_bytes(bytes, format) -> BalancedNetwork
+    parse_bytes(bytes, from) -> BalancedNetwork
 
-Parse in-memory case bytes under an explicit `format`. Accepts every
+Parse in-memory case bytes under an explicit `from`. Accepts every
 [`parse_str`](@ref) token plus `"pwb"`: PowerWorld binary has no text form, so
 this is the only way to read one without a file on disk. Text formats must be
 UTF-8.
 """
-function parse_bytes(bytes::AbstractVector{UInt8}, format::AbstractString)
-    h = _parse_handle_bytes(bytes, format)
+function parse_bytes(bytes::AbstractVector{UInt8}, from::AbstractString)
+    h = _parse_handle_bytes(bytes, from)
     return BalancedNetwork(h)
 end
-parse_bytes(::Type{BalancedNetwork}, bytes::AbstractVector{UInt8}, format::AbstractString) =
-    parse_bytes(bytes, format)
+parse_bytes(::Type{BalancedNetwork}, bytes::AbstractVector{UInt8}, from::AbstractString) =
+    parse_bytes(bytes, from)
 
 """
     from_json(text) -> BalancedNetwork
@@ -340,7 +365,7 @@ A computation-ready copy of `net`: per unit (powers ÷ `base_mva`), angles in
 radians, transformer tap `0 → 1`, out-of-service and isolated elements dropped,
 source bus ids preserved, and bus types inferred (a bus with a surviving generator
 keeps `REF` if the source marked it so, else becomes `PV`; a generator-less bus
-becomes `PQ`). `source_format` of the result is `"Normalized"`.
+becomes `PQ`). `source_format` of the result is `"normalized"`.
 
 Needs `net`'s live Rust handle (from [`parse_file`](@ref)). Errors if `base_mva` is
 not positive or no reference bus can be established. `clamp_angle_bounds=true`

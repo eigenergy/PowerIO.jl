@@ -211,7 +211,7 @@ _powerdata_arc_row_type(::Type{T}) where {T<:Real} = @NamedTuple{
 # the one saying a cost objective built from this case is identically zero, whose
 # reader is exactly the caller here. Re-emit each distinct code once per call.
 function _normalized_for_bridge(net::BalancedNetwork)
-    source_format(net) == "Normalized" && return net
+    source_format(net) == "normalized" && return net
     norm = to_normalized(net)
     seen = Set{SubString{String}}()
     for line in warnings(norm)

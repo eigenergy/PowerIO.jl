@@ -120,9 +120,9 @@ end
     @test PowerIO.reference_bus_id(one_ref) == 7
     @test :warnings in propertynames(one_ref)
     @test one_ref.warnings == String[]
-    @test sprint(show, one_ref) == "BalancedNetwork{InMemory}: 3 buses, 0 branches, 0 gens"
+    @test sprint(show, one_ref) == "BalancedNetwork{in-memory}: 3 buses, 0 branches, 0 gens"
     balanced_display = sprint(show, MIME"text/plain"(), one_ref)
-    @test occursin("BalancedNetwork{InMemory}", balanced_display)
+    @test occursin("BalancedNetwork{in-memory}", balanced_display)
     @test occursin("  buses: 3", balanced_display)
     @test occursin("  reference_bus_ids: [7]", balanced_display)
     @test occursin("  data: materialized", balanced_display)
@@ -235,8 +235,8 @@ end
         mat = parse_file(mat_path)
 
         # Each path reaches its own reader rather than a text fallback.
-        @test PowerIO.source_format(pwb) == "PowerWorldBinary"
-        @test PowerIO.source_format(aux) == "PowerWorld"
+        @test PowerIO.source_format(pwb) == "powerworld-pwb"
+        @test PowerIO.source_format(aux) == "powerworld"
 
         # The .aux and .pwb are one same day export of one case, so they agree
         # element for element.
