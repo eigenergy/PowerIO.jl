@@ -3,13 +3,15 @@ function _powerdata_real(x, ::Type{T}, element::AbstractString,
     x === nothing &&
         throw(ArgumentError("PowerIO.to_powerdata: $element has missing field `$field`"))
     y = try
-        T(x)
+        _json_float(T, x)
     catch err
         msg = sprint(showerror, err)
         throw(ArgumentError("PowerIO.to_powerdata: $element has invalid field `$field`: $msg"))
     end
-    isfinite(y) ||
-        throw(ArgumentError("PowerIO.to_powerdata: $element has non-finite field `$field`"))
+    # An infinite limit is how MATPOWER, PowerModels, pandapower and PyPSA spell
+    # "no bound", so it passes through. A NaN carries no such reading.
+    isnan(y) &&
+        throw(ArgumentError("PowerIO.to_powerdata: $element has NaN field `$field`"))
     return y
 end
 
@@ -39,8 +41,7 @@ end
 function _cost_tuple(g, ::Type{T}, base::T; normalized::Bool=false) where {T<:Real}
     cost = _get(g, :cost, nothing)
     cost === nothing && return (false, zero(T), zero(T), 0, (zero(T), zero(T), zero(T)))
-    coeffs = [_powerdata_real(c, T, "generator cost", :coeffs)
-              for c in collect(cost.coeffs)]
+    coeffs = T[_powerdata_real(c, T, "generator cost", :coeffs) for c in cost.coeffs]
     model = Int(cost.model)
     n = Int(cost.ncost)
     if model == 2
@@ -204,6 +205,23 @@ _powerdata_arc_row_type(::Type{T}) where {T<:Real} = @NamedTuple{
     bus::Int,
     rate_a::T,
 }
+
+# The bridge normalizes internally and keeps only the tables, so the findings
+# normalize retains on the handle it returns would be dropped unseen — including
+# the one saying a cost objective built from this case is identically zero, whose
+# reader is exactly the caller here. Re-emit each distinct code once per call.
+function _normalized_for_bridge(net::BalancedNetwork)
+    source_format(net) == "Normalized" && return net
+    norm = to_normalized(net)
+    seen = Set{SubString{String}}()
+    for line in warnings(norm)
+        code = first(split(line, ": "; limit=2))
+        code in seen && continue
+        push!(seen, code)
+        @warn line
+    end
+    return norm
+end
 
 function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Real}
     base = _powerdata_real(base_mva(net), T, "network", :base_mva)
@@ -375,18 +393,26 @@ reads. With the default `filtered=true`, values are derived from
 branch angle fields are radians, and branch/generator bus references are indices
 into the bus vector.
 
+With `filtered=true` the normalize pass runs inside this call, so its findings are
+re-emitted as `@warn`, one per distinct diagnostic code. A case with no generator
+cost data warns `CANONICALIZE.NORMALIZE.GEN_COST_ABSENT`: the rows build, and any
+cost objective built from them is identically zero. Read them off the network
+itself with [`warnings`](@ref)`(`[`to_normalized`](@ref)`(net))`.
+
 This is an ExaModels-facing bridge (a Julia sibling of [`to_powermodels`](@ref)):
 the returned row schema is the field set ExaModelsPower's model builders read. It is
 not a general PowerIO representation and does not port to the Rust core / C ABI; for
 general numeric access use [`to_dense`](@ref) or [`to_arrow`](@ref).
 """
-function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}=Float64)
+to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}=Float64) =
+    to_powerdata(net, T; filtered=filtered)
+
+function to_powerdata(net::BalancedNetwork, ::Type{T}; filtered::Bool=true) where {T<:Real}
     if filtered
-        norm = source_format(net) == "Normalized" ? net : to_normalized(net)
-        return _to_powerdata_normalized(norm, T)
+        return _to_powerdata_normalized(_normalized_for_bridge(net), T)
     end
 
-    base = T(base_mva(net))
+    base = _json_float(T, base_mva(net))
     raw_buses = collect(buses(net))
     keep_bus = Dict{Int,Bool}()
     for b in raw_buses
@@ -401,8 +427,8 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
         idx = get(id_to_idx, Int(l.bus), 0)
         idx == 0 && continue
         if !filtered || Bool(_get(l, :in_service, true))
-            pd[idx] += T(l.p) / base
-            qd[idx] += T(l.q) / base
+            pd[idx] += _json_float(T, l.p) / base
+            qd[idx] += _json_float(T, l.q) / base
         end
     end
     gs = zeros(T, length(kept_ids))
@@ -411,8 +437,8 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
         idx = get(id_to_idx, Int(s.bus), 0)
         idx == 0 && continue
         if !filtered || Bool(_get(s, :in_service, true))
-            gs[idx] += T(s.g) / base
-            bs[idx] += T(s.b) / base
+            gs[idx] += _json_float(T, s.g) / base
+            bs[idx] += _json_float(T, s.b) / base
         end
     end
 
@@ -428,12 +454,12 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
                 gs = gs[i],
                 bs = bs[i],
                 area = Int(b.area),
-                vm = T(b.vm),
-                va = T(b.va),
-                baseKV = T(b.base_kv),
+                vm = _json_float(T, b.vm),
+                va = _json_float(T, b.va),
+                baseKV = _json_float(T, b.base_kv),
                 zone = Int(b.zone),
-                vmax = T(b.vmax),
-                vmin = T(b.vmin),
+                vmax = _json_float(T, b.vmax),
+                vmin = _json_float(T, b.vmin),
             ))
         end
         for b in raw_buses if keep_bus[Int(b.id)]
@@ -447,15 +473,15 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
             GenRow((;
                 i,
                 bus = id_to_idx[Int(g.bus)],
-                pg = T(g.pg) / base,
-                qg = T(g.qg) / base,
-                qmax = T(g.qmax) / base,
-                qmin = T(g.qmin) / base,
-                vg = T(g.vg),
-                mbase = T(g.mbase),
+                pg = _json_float(T, g.pg) / base,
+                qg = _json_float(T, g.qg) / base,
+                qmax = _json_float(T, g.qmax) / base,
+                qmin = _json_float(T, g.qmin) / base,
+                vg = _json_float(T, g.vg),
+                mbase = _json_float(T, g.mbase),
                 status = Int(Bool(g.in_service)),
-                pmax = T(g.pmax) / base,
-                pmin = T(g.pmin) / base,
+                pmax = _json_float(T, g.pmax) / base,
+                pmin = _json_float(T, g.pmin) / base,
                 model_poly,
                 startup,
                 shutdown,
@@ -474,7 +500,7 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
         Bool(g.in_service) || continue
         idx = id_to_idx[Int(g.bus)]
         has_gen[idx] = true
-        pmax = T(g.pmax) / base
+        pmax = _json_float(T, g.pmax) / base
         if pmax > biggest_gen_pmax
             biggest_gen_pmax = pmax
             biggest_gen_bus = idx
@@ -550,21 +576,21 @@ function to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}
     storage_rows = StorageRow[StorageRow((;
         i = row,
         storage_bus = Int(st.bus),
-        Pexts = T(st.ps),
-        Qexts = T(st.qs),
-        energy = T(st.energy) / base,
-        energy_rating = T(st.energy_rating) / base,
-        charge_rating = T(st.charge_rating) / base,
-        discharge_rating = T(st.discharge_rating) / base,
-        charge_efficiency = T(st.charge_efficiency),
-        discharge_efficiency = T(st.discharge_efficiency),
-        thermal_rating = T(st.thermal_rating) / base,
-        qmin = T(st.qmin) / base,
-        qmax = T(st.qmax) / base,
-        Zr = T(st.r),
-        Zim = T(st.x),
-        p_loss = T(st.p_loss),
-        q_loss = T(st.q_loss),
+        Pexts = _json_float(T, st.ps),
+        Qexts = _json_float(T, st.qs),
+        energy = _json_float(T, st.energy) / base,
+        energy_rating = _json_float(T, st.energy_rating) / base,
+        charge_rating = _json_float(T, st.charge_rating) / base,
+        discharge_rating = _json_float(T, st.discharge_rating) / base,
+        charge_efficiency = _json_float(T, st.charge_efficiency),
+        discharge_efficiency = _json_float(T, st.discharge_efficiency),
+        thermal_rating = _json_float(T, st.thermal_rating) / base,
+        qmin = _json_float(T, st.qmin) / base,
+        qmax = _json_float(T, st.qmax) / base,
+        Zr = _json_float(T, st.r),
+        Zim = _json_float(T, st.x),
+        p_loss = _json_float(T, st.p_loss),
+        q_loss = _json_float(T, st.q_loss),
         status = Int(Bool(st.in_service)),
     )) for (row, st) in enumerate(storage(net))]
 
@@ -581,18 +607,27 @@ end
 
 to_powerdata(path::AbstractString; from=nothing, filtered::Bool=true,
              T::Type{<:Real}=Float64) =
-    to_powerdata(parse_file(path; from=from); filtered=filtered, T=T)
+    to_powerdata(path, T; from=from, filtered=filtered)
+
+to_powerdata(path::AbstractString, ::Type{T}; from=nothing,
+             filtered::Bool=true) where {T<:Real} =
+    to_powerdata(parse_file(path; from=from), T; filtered=filtered)
 
 """
     parse_ac_power_data(input; from=nothing, filtered=true, T=Float64) -> NamedTuple
 
 Return the NamedTuple layout consumed by ExaModelsPower's `build_polar_opf`,
 `build_rect_opf`, and `build_dcopf`. `input` may be a [`BalancedNetwork`](@ref) or a path.
+Emits the normalize findings as `@warn` the way [`to_powerdata`](@ref) does.
 """
-function parse_ac_power_data(input; from=nothing, filtered::Bool=true,
-                             T::Type{<:Real}=Float64)
-    pd = input isa BalancedNetwork ? to_powerdata(input; filtered=filtered, T=T) :
-         to_powerdata(String(input); from=from, filtered=filtered, T=T)
+parse_ac_power_data(input; from=nothing, filtered::Bool=true,
+                    T::Type{<:Real}=Float64) =
+    parse_ac_power_data(input, T; from=from, filtered=filtered)
+
+function parse_ac_power_data(input, ::Type{T}; from=nothing,
+                             filtered::Bool=true) where {T<:Real}
+    pd = input isa BalancedNetwork ? to_powerdata(input, T; filtered=filtered) :
+         to_powerdata(String(input), T; from=from, filtered=filtered)
     return (;
         baseMVA = [pd.baseMVA],
         bus = pd.bus,
@@ -685,13 +720,22 @@ end
 
 # Base loads (per unit), bus ids, and base MVA in the exact bus order
 # parse_ac_power_data / mpopf use, so a series aligns to `data.bus` with no
-# positional guessing.
+# positional guessing. This walks the same normalized view `to_powerdata` walks
+# but builds only the four values a series needs, not the whole row schema.
 function _load_alignment(net::BalancedNetwork, ::Type{T}) where {T<:Real}
-    pd = to_powerdata(net; T=T)
-    bus_ids = Int[Int(b.bus_i) for b in pd.bus]
-    base_pd = T[b.pd for b in pd.bus]
-    base_qd = T[b.qd for b in pd.bus]
-    return T(pd.baseMVA), bus_ids, base_pd, base_qd
+    norm = _normalized_for_bridge(net)
+    base = _powerdata_real(base_mva(norm), T, "network", :base_mva)
+    bus_ids = Int[Int(b.id) for b in buses(norm)]
+    id_to_idx = Dict(id => i for (i, id) in enumerate(bus_ids))
+    base_pd = zeros(T, length(bus_ids))
+    base_qd = zeros(T, length(bus_ids))
+    for (row, l) in enumerate(loads(norm))
+        idx = get(id_to_idx, Int(l.bus), 0)
+        idx == 0 && continue
+        base_pd[idx] += _powerdata_real(l.p, T, "load $row", :p)
+        base_qd[idx] += _powerdata_real(l.q, T, "load $row", :q)
+    end
+    return base, bus_ids, base_pd, base_qd
 end
 
 function _check_load_matrix(pd_mw::AbstractMatrix, qd_mw::AbstractMatrix, nbus::Int)

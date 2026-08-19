@@ -256,16 +256,52 @@ const _ERRLEN = 512
 # case always beat the guess.
 _diagref() = Ref{Ptr{UInt8}}(C_NULL)
 
-# Take ownership of the out-param diagnostics document and render each record
-# as the `CODE: message` line the handle accessors return, so a conversion and
-# a read report the same way. A NULL out pointer means the conversion lost
-# nothing.
+"""
+    Diagnostic <: AbstractString
+
+One finding from a conversion. `code`, `severity`, and `message` are always
+present; `stage`, `element_path`, `details`, `suggested_action`, and
+`safe_to_ignore` appear when the finding carries them, and `record` is the whole
+parsed record.
+
+A `Diagnostic` renders, compares, and hashes as the `CODE: message` line the
+conversion verbs return, so `occursin`, `split`, `join`, and `==` against a
+`String` all read it as that line. Branch on `d.code` rather than splitting it.
+Read them off [`to_format`](@ref), [`convert_file`](@ref), [`convert_str`](@ref),
+and [`write_pypsa_csv_folder`](@ref); [`warnings`](@ref) reports a handle's
+retained findings, which the C ABI carries as lines alone.
+"""
+struct Diagnostic <: AbstractString
+    line::String
+    record::JSON3.Object
+end
+
+Base.ncodeunits(d::Diagnostic) = ncodeunits(getfield(d, :line))
+Base.codeunit(::Diagnostic) = UInt8
+Base.codeunit(d::Diagnostic, i::Integer) = codeunit(getfield(d, :line), i)
+Base.isvalid(d::Diagnostic, i::Integer) = isvalid(getfield(d, :line), i)
+Base.iterate(d::Diagnostic) = iterate(getfield(d, :line))
+Base.iterate(d::Diagnostic, i::Integer) = iterate(getfield(d, :line), i)
+Base.String(d::Diagnostic) = getfield(d, :line)
+
+function Base.getproperty(d::Diagnostic, name::Symbol)
+    name === :line && return getfield(d, :line)
+    name === :record && return getfield(d, :record)
+    return getproperty(getfield(d, :record), name)
+end
+
+Base.propertynames(d::Diagnostic) = (:line, :record, propertynames(getfield(d, :record))...)
+
+# Take ownership of the out-param diagnostics document and keep each record
+# behind the `CODE: message` line the handle accessors return, so a conversion
+# and a read report the same way and a caller can still reach the fields. A NULL
+# out pointer means the conversion lost nothing.
 function _take_warnings(lib::AbstractString, ref::Ref{Ptr{UInt8}})
     p = ref[]
-    p == C_NULL && return String[]
+    p == C_NULL && return Diagnostic[]
     document = _take_string(lib, Cstring(p))
-    isempty(document) && return String[]
-    return [string(record.code, ": ", record.message) for record in JSON3.read(document)]
+    isempty(document) && return Diagnostic[]
+    return [Diagnostic(string(r.code, ": ", r.message), r) for r in JSON3.read(document)]
 end
 
 # --- handle layer -------------------------------------------------------
@@ -436,6 +472,20 @@ function _string_from(query)
     query(buf, Csize_t(length(buf)))
     return _cstr(buf)
 end
+
+# JSON has no `Inf`/`NaN` literal, so a nonfinite float in the model document is
+# spelled `"Infinity"`, `"-Infinity"`, or `"NaN"`. Every float read off a parsed
+# payload goes through this, so an absent reactive limit arrives as `Inf`.
+_json_float(::Type{T}, x) where {T<:Real} = T(x)
+function _json_float(::Type{T}, x::AbstractString) where {T<:Real}
+    x == "Infinity" && return T(Inf)
+    x == "-Infinity" && return T(-Inf)
+    x == "NaN" && return T(NaN)
+    throw(ArgumentError(
+        "PowerIO: $(repr(x)) is neither a number nor a nonfinite spelling " *
+        "(\"Infinity\", \"-Infinity\", \"NaN\")"))
+end
+_json_float(x) = _json_float(Float64, x)
 
 # Take ownership of a Rust-allocated C string: copy it to a Julia String and
 # free the original with `pio_string_free`. The caller has already checked the

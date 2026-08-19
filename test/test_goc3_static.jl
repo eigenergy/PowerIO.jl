@@ -312,6 +312,14 @@
     # --- goc3_scopf_data: one exported call == the internal builders -------
     scd = PowerIO.goc3_scopf_data(data)
     @test scd isa PowerIO.ScopfInstance
+    # Seven type parameters make the default show unreadable; report the sizes.
+    scd_shown = sprint(show, scd)
+    @test startswith(scd_shown, "ScopfInstance(")
+    @test occursin("$(scd.lengths.I) buses", scd_shown)
+    @test occursin("$(scd.lengths.L_T) periods", scd_shown)
+    @test occursin("$(scd.lengths.K) contingencies", scd_shown)
+    @test occursin("$(scd.lengths.L_J_pr) producers", scd_shown)
+    @test !occursin("ScopfInstance{", scd_shown)
     # `isequal`, not `==`: the reactive capability parameters of the mode a device
     # did not declare are NaN, and `NaN == NaN` is false, so `==` reports two
     # identical instances as unequal. Anything diffing these rows wants `isequal`.

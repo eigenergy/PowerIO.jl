@@ -216,6 +216,17 @@ end
             @test coeff.value[2] ≈ 20.0 * 100.0
             @test coeff.value[3] ≈ 0.0
 
+            # The cost tables carry the MVA base their per unit values sit on, so
+            # a consumer converts to currency per MWh off this call alone.
+            @test cost.base_mva === 100.0
+            @test coeff.base_mva === 100.0
+            @test cost.table == "solver_gen_cost"
+            @test coeff.group_column == "gen_index"
+            @test cost.powerio_version == schema_versions().powerio_version
+            # A table the producer attaches no metadata to decodes to columns alone.
+            @test propertynames(to_arrow(m, :solver_gen)) == propertynames(solver_gen)
+            @test !hasproperty(to_arrow(m, :bus), :base_mva)
+
             @test isempty(to_arrow(m, :solver_storage).index)
             @test isempty(to_arrow(m, :solver_hvdc).index)
             @test isempty(to_arrow(m, :solver_switch).index)
@@ -279,14 +290,34 @@ end
         meta_root_sch = PowerIO.CArrowSchema(C_NULL, C_NULL, Ptr{Cchar}(pointer(bad_metadata)),
                                              0, 1, pointer(meta_sch_children), C_NULL,
                                              C_NULL, C_NULL)
+        # Every table reads its metadata, so a corrupt block is refused whatever
+        # the selector. It used to be read for the matrix selectors alone, which
+        # dropped `powerio.base_mva` off the generator cost tables.
         GC.@preserve meta_values meta_buffers meta_child_arr meta_child_sch begin
             GC.@preserve meta_arr_children meta_sch_children meta_format meta_name bad_metadata begin
-                decoded = PowerIO._decode_arrow(Ref(meta_root_arr), Ref(meta_root_sch);
-                                                copy=true, table=:bus)
-                @test decoded.id == [7]
+                @test_throws ErrorException PowerIO._decode_arrow(Ref(meta_root_arr),
+                                                                  Ref(meta_root_sch);
+                                                                  copy=true, table=:bus)
                 @test_throws ErrorException PowerIO._decode_arrow(Ref(meta_root_arr),
                                                                   Ref(meta_root_sch);
                                                                   copy=true, table=:bprime)
+            end
+        end
+        good_metadata = UInt8[]
+        for part in ("powerio.base_mva", "100")
+            append!(good_metadata, reinterpret(UInt8, [Int32(ncodeunits(part))]))
+            append!(good_metadata, codeunits(part))
+        end
+        prepend!(good_metadata, reinterpret(UInt8, [Int32(1)]))
+        good_root_sch = PowerIO.CArrowSchema(C_NULL, C_NULL, Ptr{Cchar}(pointer(good_metadata)),
+                                             0, 1, pointer(meta_sch_children), C_NULL,
+                                             C_NULL, C_NULL)
+        GC.@preserve meta_values meta_buffers meta_child_arr meta_child_sch begin
+            GC.@preserve meta_arr_children meta_sch_children meta_format meta_name good_metadata begin
+                decoded = PowerIO._decode_arrow(Ref(meta_root_arr), Ref(good_root_sch);
+                                                copy=true, table=:bus)
+                @test decoded.id == [7]
+                @test decoded.base_mva === 100.0
             end
         end
         @test_throws ErrorException PowerIO._require_release_callbacks!(
@@ -322,6 +353,9 @@ end
         # it survives the table being collected (the old footgun).
         z = to_arrow(m, :bus; copy=false)
         @test z isa ArrowTable
+        # `show` reports the shape without touching the buffers, and says so
+        # once they are released rather than throwing from inside `show`.
+        @test sprint(show, z) == "ArrowTable(9 columns, 14 rows)"
         @test z.id == collect(1:14)
         @test z.id isa PowerIO.ArrowColumn{Int64}
         @test PowerIO.columns(z) isa NamedTuple
@@ -356,6 +390,7 @@ end
         release_c_data(z2b)
         @test_throws ErrorException z2b_col[1]
         @test_nowarn release_c_data(z2b)
+        @test sprint(show, z2b) == "ArrowTable(9 columns, released)"
 
         z3 = to_arrow(m, :bus; copy=false)
         z3_col = z3.id

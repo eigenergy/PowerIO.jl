@@ -895,6 +895,15 @@ struct ScopfInstance{S,L,E,P,A,D,V}
     producers_first::Bool
 end
 
+# The seven type parameters make the default show unreadable. Report the case
+# sizes a reader actually wants off `lengths`.
+function Base.show(io::IO, s::ScopfInstance)
+    n = s.lengths
+    print(io, "ScopfInstance(", n.I, " buses, ", n.L_T, " periods, ", n.K,
+          " contingencies, ", n.L_J_pr, " producers, ", n.L_J_cs, " consumers, ",
+          n.L_J_ac, " ac branches, ", n.L_J_dc, " dc lines, ", n.L_J_sh, " shunts)")
+end
+
 """
     goc3_scopf_data(data) -> ScopfInstance
 

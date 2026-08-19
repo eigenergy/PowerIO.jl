@@ -434,7 +434,7 @@ untyped(net::MulticonductorNetwork) = _mc_table(net, :untyped)
 
 The system frequency in Hz.
 """
-base_frequency(net::MulticonductorNetwork) = Float64(_summary(net).base_frequency)
+base_frequency(net::MulticonductorNetwork) = _json_float(_summary(net).base_frequency)
 
 """
     network_name(net::MulticonductorNetwork) -> Union{String,Nothing}
@@ -534,13 +534,14 @@ function convert_file(::Type{MulticonductorNetwork}, path::AbstractString, to::A
 end
 
 """
-    convert_str(MulticonductorNetwork, text, to, from) -> (text, warnings)
+    convert_str(MulticonductorNetwork, text, to; from) -> (text, warnings)
 
 Convert in-memory distribution case `text` of format `from` to format `to`
 (both required; `"dss"`, `"pmd"`, `"bmopf"`). The string sibling of
-`convert_file(MulticonductorNetwork, ...)`.
+`convert_file(MulticonductorNetwork, ...)`, taking `from` as a keyword the way
+[`convert_str`](@ref)`(text, to; from)` does.
 """
-function convert_str(::Type{MulticonductorNetwork}, text::AbstractString, to::AbstractString,
+function convert_str(::Type{MulticonductorNetwork}, text::AbstractString, to::AbstractString;
                      from::AbstractString)
     lib = _lib()
     _ensure_dist_compatible(lib)

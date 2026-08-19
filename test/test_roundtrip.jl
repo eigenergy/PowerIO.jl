@@ -189,7 +189,7 @@
         else
             pkg = to_package(net)
             @test pkg isa NetworkPackage
-            @test pkg isa CompilerPackage
+            @test pkg isa NetworkPackage
             @test package_model_kind(pkg) == :balanced
             @test package_operating_points(pkg) === nothing
             @test package_study(pkg) === nothing
@@ -335,6 +335,53 @@
         end
         @test bad_err isa ArgumentError
         @test occursin("PowerIO.to_powerdata: branch 1", sprint(showerror, bad_err))
+
+        # An unlimited reactive bound is a bound, not a missing value. Model JSON
+        # has no Inf literal and spells it "Infinity"; stock case9241pegase.m
+        # carries it on seven generators.
+        inf_q = replace(pv_noref, "1 50 0 50 -50 1 100 1 100 0;" =>
+                                  "1 50 0 Inf -Inf 1 100 1 100 0;")
+        inf_net = parse_str(inf_q, "matpower")
+        @test PowerIO.generators(inf_net)[1].qmax == "Infinity"
+        @test PowerIO.generators(inf_net)[1].qmin == "-Infinity"
+        inf_ac = parse_ac_power_data(inf_net)
+        @test inf_ac.qmax[1] == Inf
+        @test inf_ac.qmin[1] == -Inf
+        @test to_powerdata(inf_net; filtered=false).gen[1].qmax == Inf
+        @test PowerIO._json_float(Float64, "Infinity") === Inf
+        @test PowerIO._json_float(Float64, "-Infinity") === -Inf
+        @test isnan(PowerIO._json_float(Float64, "NaN"))
+        @test PowerIO._json_float(Float32, "Infinity") === Float32(Inf)
+        @test PowerIO._json_float(Float64, 2) === 2.0
+        @test_throws ArgumentError PowerIO._json_float(Float64, "inf")
+        # An absent field is still an error, and so is a NaN.
+        @test_throws ArgumentError PowerIO._powerdata_real(nothing, Float64, "gen 1", :qmax)
+        @test_throws ArgumentError PowerIO._powerdata_real("NaN", Float64, "gen 1", :qmax)
+        @test PowerIO._powerdata_real("Infinity", Float64, "gen 1", :qmax) === Inf
+
+        # The bridge normalizes internally and keeps only the tables, so it
+        # re-emits what normalize found. A case with no cost data builds rows
+        # whose cost objective is identically zero, which the caller building
+        # that objective is the one who needs to know.
+        costless = replace(read(joinpath(data, "case9.m"), String),
+                           r"(?s)mpc\.gencost.*?\];" => "")
+        costless_net = parse_str(costless, "matpower")
+        @test occursin("GEN_COST_ABSENT",
+                       join(PowerIO.warnings(to_normalized(costless_net)), "\n"))
+        @test_logs (:warn, r"CANONICALIZE\.NORMALIZE\.GEN_COST_ABSENT") match_mode = :any parse_ac_power_data(costless_net)
+        @test_logs (:warn, r"CANONICALIZE\.NORMALIZE\.GEN_COST_ABSENT") match_mode = :any to_powerdata(costless_net)
+        @test_logs (:warn, r"CANONICALIZE\.NORMALIZE\.GEN_COST_ABSENT") match_mode = :any PowerIO.LoadSeries(costless_net, [1.0])
+        # A costed case has nothing to report.
+        costed_net = parse_file(joinpath(data, "case9.m"))
+        @test_logs min_level = Logging.Warn parse_ac_power_data(costed_net)
+        @test_logs min_level = Logging.Warn to_powerdata(costed_net)
+        # Each call reports for itself: separate cases deserve separate warnings,
+        # so the dedupe is within a call rather than capped across the session.
+        @test_logs (:warn, r"GEN_COST_ABSENT") match_mode = :any parse_ac_power_data(costless_net)
+        # The unfiltered path runs no normalize pass, so it reports nothing.
+        @test_logs min_level = Logging.Warn to_powerdata(costless_net; filtered=false)
+        # An already normalized network is passed straight through.
+        @test_logs min_level = Logging.Warn to_powerdata(to_normalized(costed_net))
 
         storage_text = """
         function mpc = storage_case
