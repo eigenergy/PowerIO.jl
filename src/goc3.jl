@@ -851,6 +851,146 @@ function _goc3_producers_first(data)
     return first(pr) < first(cs)
 end
 
+# ---------------------------------------------------------------------------
+# Typed rows over the Rust instance document (`parse_scopf` /
+# `pio_scopf_to_json`). One GOC3 SCOPF implementation builds the index sets —
+# the Rust core's, with document-order enumeration behind every ordinal — and
+# this section only types its rows.
+# ---------------------------------------------------------------------------
+
+# `nothing` at a Float64 position is NaN: the parameters of an undeclared
+# reactive capability mode and the absent violation prices, exactly the NaN
+# convention the rows document.
+_scopf_field(::Type{Float64}, v) = v === nothing ? NaN : Float64(v)
+_scopf_field(::Type{Int}, v) = Int(v)
+_scopf_field(::Type{String}, v) = String(v)
+_scopf_field(::Type{Vector{Float64}}, v) = Float64[_scopf_field(Float64, x) for x in v]
+_scopf_field(::Type{Vector{Vector{Float64}}}, v) =
+    Vector{Float64}[_scopf_field(Vector{Float64}, x) for x in v]
+
+# One typed row off a document object, by declared field name. `Val` unrolls
+# the tuple so every `fieldtype` resolves at compile time and the row stays
+# concrete (the same reason the row types are declared at all).
+@inline function _scopf_row(::Type{NT}, obj) where {NT<:NamedTuple}
+    names = fieldnames(NT)
+    return NT(ntuple(
+        i -> _scopf_field(fieldtype(NT, i), getproperty(obj, names[i])),
+        Val(length(names)),
+    ))
+end
+_scopf_rows(::Type{NT}, objs) where {NT<:NamedTuple} = NT[_scopf_row(NT, o) for o in objs]
+_scopf_nested(::Type{NT}, groups) where {NT<:NamedTuple} =
+    Vector{NT}[_scopf_rows(NT, g) for g in groups]
+
+# The row layouts, matching the document (and the Rust structs behind it)
+# field for field. `j_dev` is the device's position within its own class,
+# `j_sdd` its position in the canonical stacking (producers then consumers),
+# both document order; `u_0` is the document's `initial_status.on_status`.
+const _ScopfBusRow = @NamedTuple{i::Int, uid::String, v_min::Float64, v_max::Float64}
+const _ScopfShuntRow = @NamedTuple{j_sh::Int, uid::String, bus::Int, g_sh::Float64, b_sh::Float64}
+const _ScopfAclRow = @NamedTuple{j_ln::Int, uid::String, to_bus::Int, fr_bus::Int, c_su::Float64, c_sd::Float64, u_0::Int, s_max::Float64, g_sr::Float64, b_sr::Float64, b_ch::Float64, g_fr::Float64, g_to::Float64, b_fr::Float64, b_to::Float64}
+const _ScopfAcxRow = @NamedTuple{j_xf::Int, uid::String, to_bus::Int, fr_bus::Int, c_su::Float64, c_sd::Float64, u_0::Int, s_max::Float64, g_sr::Float64, b_sr::Float64, b_ch::Float64, g_fr::Float64, g_to::Float64, b_fr::Float64, b_to::Float64}
+const _ScopfDcRow = @NamedTuple{j_dc::Int, uid::String, pdc_max::Float64, qdc_fr_min::Float64, qdc_to_min::Float64, qdc_fr_max::Float64, qdc_to_max::Float64, to_bus::Int, fr_bus::Int}
+const _ScopfVpdRow = @NamedTuple{j_xf::Int, phi_min::Float64, phi_max::Float64}
+const _ScopfFpdRow = @NamedTuple{j_xf::Int, phi_o::Float64}
+const _ScopfVwrRow = @NamedTuple{j_xf::Int, tau_min::Float64, tau_max::Float64}
+const _ScopfFwrRow = @NamedTuple{j_xf::Int, tau_o::Float64}
+const _ScopfSddRow = @NamedTuple{bus::Int, uid::String, j_dev::Int, j_sdd::Int, c_on::Float64, c_su::Float64, c_sd::Float64, p_ru::Float64, p_rd::Float64, p_ru_su::Float64, p_rd_sd::Float64, c_rgu::Vector{Float64}, c_rgd::Vector{Float64}, c_scr::Vector{Float64}, c_nsc::Vector{Float64}, c_rru_on::Vector{Float64}, c_rru_off::Vector{Float64}, c_rrd_on::Vector{Float64}, c_rrd_off::Vector{Float64}, c_qru::Vector{Float64}, c_qrd::Vector{Float64}, p_rgu_max::Float64, p_rgd_max::Float64, p_scr_max::Float64, p_nsc_max::Float64, p_rru_on_max::Float64, p_rru_off_max::Float64, p_rrd_on_max::Float64, p_rrd_off_max::Float64, p_0::Float64, q_0::Float64, u_0::Int, p_max::Vector{Float64}, p_min::Vector{Float64}, q_max::Vector{Float64}, q_min::Vector{Float64}, sus::Vector{Vector{Float64}}, q_bound_cap::Int, q_linear_cap::Int, beta_ub::Float64, beta_lb::Float64, q_0_ub::Float64, q_0_lb::Float64, beta::Float64, q_p0::Float64}
+const _ScopfActiveReserveRow = @NamedTuple{n_p::Int, uid::String, c_rgu::Float64, c_rgd::Float64, c_scr::Float64, c_nsc::Float64, c_rru::Float64, c_rrd::Float64, σ_rgu::Float64, σ_rgd::Float64, σ_scr::Float64, σ_nsc::Float64, p_rru_min::Vector{Float64}, p_rrd_min::Vector{Float64}}
+const _ScopfReactiveReserveRow = @NamedTuple{n_q::Int, uid::String, c_qru::Float64, c_qrd::Float64, q_qru_min::Vector{Float64}, q_qrd_min::Vector{Float64}}
+const _ScopfActiveReserveSetRow = @NamedTuple{i::Int, n_p::Int, uid::String, j_dev::Int, j_sdd::Int}
+const _ScopfReactiveReserveSetRow = @NamedTuple{i::Int, n_q::Int, uid::String, j_dev::Int, j_sdd::Int}
+const _ScopfLengths = @NamedTuple{L_J_xf::Int, L_J_ln::Int, L_J_ac::Int, L_J_dc::Int, L_J_br::Int, L_J_cs::Int, L_J_pr::Int, L_J_cspr::Int, L_J_sh::Int, I::Int, L_T::Int, L_N_p::Int, L_N_q::Int, K::Int}
+const _ScopfPriceBlockRow = @NamedTuple{flat_k::Int, uid::String, t::Int, m::Int, c_en::Float64, p_max::Float64}
+const _ScopfLnSurvivorRow = @NamedTuple{ctg::Int, j_ln::Int, uid::String, to_bus::Int, fr_bus::Int, b_sr::Float64, s_max_ctg::Float64}
+const _ScopfXfSurvivorRow = @NamedTuple{ctg::Int, j_xf::Int, uid::String, to_bus::Int, fr_bus::Int, b_sr::Float64, s_max_ctg::Float64}
+const _ScopfDcFlowRow = @NamedTuple{flat_jtk_dc::Int, ctg::Int, j_dc::Int, to_bus::Int, fr_bus::Int, t::Int, dt::Float64}
+const _ScopfWinMaxPrRow = @NamedTuple{w_en_max_pr_ind::Int, uid::String, a_en_max_start::Float64, a_en_max_end::Float64, e_max::Float64}
+const _ScopfWinMaxCsRow = @NamedTuple{w_en_max_cs_ind::Int, uid::String, a_en_max_start::Float64, a_en_max_end::Float64, e_max::Float64}
+const _ScopfWinMinPrRow = @NamedTuple{w_en_min_pr_ind::Int, uid::String, a_en_min_start::Float64, a_en_min_end::Float64, e_min::Float64}
+const _ScopfWinMinCsRow = @NamedTuple{w_en_min_cs_ind::Int, uid::String, a_en_min_start::Float64, a_en_min_end::Float64, e_min::Float64}
+const _ScopfWinTMaxPrRow = @NamedTuple{w_en_max_pr_ind::Int, uid::String, t::Int, dt::Float64}
+const _ScopfWinTMaxCsRow = @NamedTuple{w_en_max_cs_ind::Int, uid::String, t::Int, dt::Float64}
+const _ScopfWinTMinPrRow = @NamedTuple{w_en_min_pr_ind::Int, uid::String, t::Int, dt::Float64}
+const _ScopfWinTMinCsRow = @NamedTuple{w_en_min_cs_ind::Int, uid::String, t::Int, dt::Float64}
+
+"""
+    DeviceClassLayout
+
+How the two device classes sit in the document's
+`simple_dispatchable_device` section: `kind` is `:contiguous` (each class one
+unbroken run; `producers_first` says which starts first) or `:interleaved`
+(`producers_first` is `nothing` — no per-class offset scheme holds). The
+ordinals on the rows (`j_dev`, `j_sdd`) are sound either way; this type only
+reports the document's shape.
+"""
+struct DeviceClassLayout
+    kind::Symbol
+    producers_first::Union{Bool,Nothing}
+end
+
+function _scopf_layout(obj)
+    kind = Symbol(obj.kind)
+    return DeviceClassLayout(
+        kind,
+        kind === :contiguous ? Bool(obj.producers_first) : nothing,
+    )
+end
+
+function _scopf_instance_tables(doc)
+    inst = doc.instance
+    static = inst.static
+    return (
+        static = (
+            bus = _scopf_rows(_ScopfBusRow, static.bus),
+            shunt = _scopf_rows(_ScopfShuntRow, static.shunt),
+            acl_branch = _scopf_rows(_ScopfAclRow, static.acl_branch),
+            acx_branch = _scopf_rows(_ScopfAcxRow, static.acx_branch),
+            vpd = _scopf_rows(_ScopfVpdRow, static.vpd),
+            fpd = _scopf_rows(_ScopfFpdRow, static.fpd),
+            vwr = _scopf_rows(_ScopfVwrRow, static.vwr),
+            fwr = _scopf_rows(_ScopfFwrRow, static.fwr),
+            dc_branch = _scopf_rows(_ScopfDcRow, static.dc_branch),
+            prod = _scopf_rows(_ScopfSddRow, static.prod),
+            cons = _scopf_rows(_ScopfSddRow, static.cons),
+            active_reserve = _scopf_rows(_ScopfActiveReserveRow, static.active_reserve),
+            reactive_reserve = _scopf_rows(_ScopfReactiveReserveRow, static.reactive_reserve),
+            active_reserve_set_pr = _scopf_rows(_ScopfActiveReserveSetRow, static.active_reserve_set_pr),
+            active_reserve_set_cs = _scopf_rows(_ScopfActiveReserveSetRow, static.active_reserve_set_cs),
+            reactive_reserve_set_pr = _scopf_rows(_ScopfReactiveReserveSetRow, static.reactive_reserve_set_pr),
+            reactive_reserve_set_cs = _scopf_rows(_ScopfReactiveReserveSetRow, static.reactive_reserve_set_cs),
+        ),
+        lengths = _scopf_row(_ScopfLengths, inst.lengths),
+        energy_windows = (
+            W_en_max_pr = _scopf_rows(_ScopfWinMaxPrRow, inst.energy_windows.W_en_max_pr),
+            W_en_max_cs = _scopf_rows(_ScopfWinMaxCsRow, inst.energy_windows.W_en_max_cs),
+            W_en_min_pr = _scopf_rows(_ScopfWinMinPrRow, inst.energy_windows.W_en_min_pr),
+            W_en_min_cs = _scopf_rows(_ScopfWinMinCsRow, inst.energy_windows.W_en_min_cs),
+            T_w_en_max_pr = _scopf_rows(_ScopfWinTMaxPrRow, inst.energy_windows.T_w_en_max_pr),
+            T_w_en_max_cs = _scopf_rows(_ScopfWinTMaxCsRow, inst.energy_windows.T_w_en_max_cs),
+            T_w_en_min_pr = _scopf_rows(_ScopfWinTMinPrRow, inst.energy_windows.T_w_en_min_pr),
+            T_w_en_min_cs = _scopf_rows(_ScopfWinTMinCsRow, inst.energy_windows.T_w_en_min_cs),
+        ),
+        price_blocks = (
+            producer = _scopf_rows(_ScopfPriceBlockRow, inst.price_blocks.producer),
+            consumer = _scopf_rows(_ScopfPriceBlockRow, inst.price_blocks.consumer),
+        ),
+        ac_contingency_survivors = (
+            ln = _scopf_nested(_ScopfLnSurvivorRow, inst.ac_contingency_survivors.ln),
+            xf = _scopf_nested(_ScopfXfSurvivorRow, inst.ac_contingency_survivors.xf),
+        ),
+        dc_contingency_flows = _scopf_rows(_ScopfDcFlowRow, inst.dc_contingency_flows),
+        violation_cost = (
+            p_bus = _scopf_field(Float64, inst.violation_cost.p_bus),
+            q_bus = _scopf_field(Float64, inst.violation_cost.q_bus),
+            s = _scopf_field(Float64, inst.violation_cost.s),
+            e = _scopf_field(Float64, inst.violation_cost.e),
+        ),
+        device_class_layout = _scopf_layout(inst.device_class_layout),
+        dt = _scopf_field(Vector{Float64}, inst.dt),
+    )
+end
+
 """
     ScopfInstance
 

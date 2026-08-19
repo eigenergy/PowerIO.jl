@@ -11,6 +11,7 @@ using Logging
     include("test_goc3.jl")       # GO Challenge 3 JSON helpers
     include("test_goc3_static.jl") # GO Challenge 3 SCOPF static index sets
     include("test_scopf.jl")      # native SCOPF instance JSON (feature prob)
+    include("test_scopf_parity.jl") # migration gate: Rust-backed rows vs the Julia projection
     include("test_roundtrip.jl")  # C ABI round trip, adapters, packages
     include("test_powermodels_ref.jl") # PowerModels reference utilities
     include("test_transforms.jl") # PyPSA writer, parse dispatch, to_normalized, to_dense
