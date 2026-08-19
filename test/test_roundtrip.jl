@@ -14,9 +14,9 @@
         @test getfield(net, :data) === nothing
         has_scalar_helpers = PowerIO._exports_symbol(:pio_source_format) &&
                              PowerIO._exports_symbol(:pio_network_name)
-        @test PowerIO.source_format(net) == "Matpower"
+        @test PowerIO.source_format(net) == "matpower"
         @test net.name == "case14"
-        @test net.source_format == "Matpower"
+        @test net.source_format == "matpower"
         @test net.base_mva == 100.0
         @test net.base_frequency == 60.0
         @test getfield(net, :data) === nothing
@@ -29,9 +29,9 @@
             @test PowerIO.network_name(net) == "case14"
             @test net.warnings == String[]
             @test getfield(net, :data) === nothing
-            @test sprint(show, net) == "BalancedNetwork{Matpower}: 14 buses, 20 branches, 5 gens"
+            @test sprint(show, net) == "BalancedNetwork{matpower}: 14 buses, 20 branches, 5 gens"
             display = sprint(show, MIME"text/plain"(), net)
-            @test occursin("BalancedNetwork{Matpower}", display)
+            @test occursin("BalancedNetwork{matpower}", display)
             @test occursin("  name: case14", display)
             @test occursin("  base_mva: 100.0", display)
             @test occursin("  buses: 14", display)
@@ -65,11 +65,11 @@
         text_in = read(joinpath(data, "case14.m"), String)
         net_from_text = parse_str(text_in, "matpower")
         @test PowerIO.n_buses(net_from_text) == 14
-        @test PowerIO.source_format(net_from_text) == "Matpower"
+        @test PowerIO.source_format(net_from_text) == "matpower"
 
         net_from_json = from_json(to_json(net))
         @test PowerIO.n_buses(net_from_json) == 14
-        @test PowerIO.source_format(net_from_json) == "Matpower"
+        @test PowerIO.source_format(net_from_json) == "matpower"
 
         # Model JSON is not a case format, so parse_str refuses it and names
         # from_json. A clean MATPOWER parse keeps no handle warnings.
@@ -100,10 +100,10 @@
         # reader on a well-formed file fails.
         egret = parse_file(joinpath(data, "case14.egret.json"); from = "egret")
         @test PowerIO.n_buses(egret) == 14
-        @test PowerIO.source_format(egret) == "EgretJson"
+        @test PowerIO.source_format(egret) == "egret-json"
         pm = parse_file(joinpath(data, "case14.pm.json"); from = "powermodels")
         @test PowerIO.n_buses(pm) == 14
-        @test PowerIO.source_format(pm) == "PowerModelsJson"
+        @test PowerIO.source_format(pm) == "powermodels-json"
         @test_throws ErrorException parse_file(joinpath(data, "case14.pm.json"); from = "egret")
         @test_throws ErrorException parse_file(joinpath(data, "case14.egret.json"); from = "powermodels")
 

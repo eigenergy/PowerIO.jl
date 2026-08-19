@@ -300,7 +300,7 @@ function _summary_from_data(data::JSON3.Object, ::Type{MulticonductorNetwork})
     return JSON3.read(JSON3.write((;
         powerio_version = something(schema_versions().powerio_version, ""),
         name = _payload_value(data, :name, ""),
-        source_format = _payload_value(data, :source_format, "InMemory"),
+        source_format = _payload_value(data, :source_format, "in-memory"),
         base_frequency = _payload_value(data, :base_frequency, 60.0),
         counts,
     )))
@@ -450,9 +450,9 @@ end
 """
     source_format(net::MulticonductorNetwork) -> Union{String,Nothing}
 
-The format the case was read from, as the payload spells it — note the
-casing differs from the balanced accessor's PascalCase `SourceFormat` names —
-or `nothing` for an in-memory model.
+The format the case was read from, as the payload spells it (the same
+lowercase token convention as the balanced accessor since powerio 0.9), or
+`nothing` for an in-memory model.
 """
 function source_format(net::MulticonductorNetwork)
     source = _summary(net).source_format

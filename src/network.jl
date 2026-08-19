@@ -104,7 +104,7 @@ function _balanced_summary_json(h::BalancedNetworkHandle)
     return JSON3.read(JSON3.write((;
         powerio_version = something(schema_versions().powerio_version, ""),
         name = _payload_value(data, :name, ""),
-        source_format = _payload_value(data, :source_format, "InMemory"),
+        source_format = _source_format_token(_payload_value(data, :source_format, "in-memory")),
         base_mva = _payload_value(data, :base_mva, 0.0),
         base_frequency = _payload_value(data, :base_frequency, 60.0),
         counts,
@@ -119,6 +119,30 @@ end
 
 _payload_value(data::JSON3.Object, key::Symbol, default) =
     haskey(data, key) ? getproperty(data, key) : default
+
+# Model JSON written before powerio 0.9 spells `source_format` as the bare Rust
+# variant name; 0.9 writes the same lowercase token every `from` accepts. Read
+# both, report the token.
+const _LEGACY_SOURCE_FORMATS = Dict(
+    "Matpower" => "matpower",
+    "PowerModelsJson" => "powermodels-json",
+    "EgretJson" => "egret-json",
+    "Psse" => "psse",
+    "PowerWorld" => "powerworld",
+    "PandapowerJson" => "pandapower-json",
+    "Pslf" => "pslf",
+    "PowerWorldBinary" => "powerworld-pwb",
+    "InMemory" => "in-memory",
+    "Normalized" => "normalized",
+    "Gridfm" => "gridfm",
+    "PypsaCsv" => "pypsa-csv",
+    "Goc3Json" => "goc3-json",
+    "SurgeJson" => "surge-json",
+    "DeepMindOpfDataJson" => "opfdata-json",
+)
+
+_source_format_token(value) =
+    value isa AbstractString ? get(_LEGACY_SOURCE_FORMATS, String(value), String(value)) : value
 
 # A missing key and an explicit JSON `null` both count as zero, so a summary
 # never throws on a document an accessor tolerates.
@@ -148,7 +172,7 @@ function _summary_from_data(data::JSON3.Object, ::Type{BalancedNetwork})
     return JSON3.read(JSON3.write((;
         powerio_version = something(schema_versions().powerio_version, ""),
         name = _payload_value(data, :name, ""),
-        source_format = _payload_value(data, :source_format, "InMemory"),
+        source_format = _source_format_token(_payload_value(data, :source_format, "in-memory")),
         base_mva = _payload_value(data, :base_mva, 0.0),
         base_frequency = _payload_value(data, :base_frequency, 60.0),
         counts,
@@ -340,7 +364,7 @@ A computation-ready copy of `net`: per unit (powers ÷ `base_mva`), angles in
 radians, transformer tap `0 → 1`, out-of-service and isolated elements dropped,
 source bus ids preserved, and bus types inferred (a bus with a surviving generator
 keeps `REF` if the source marked it so, else becomes `PV`; a generator-less bus
-becomes `PQ`). `source_format` of the result is `"Normalized"`.
+becomes `PQ`). `source_format` of the result is `"normalized"`.
 
 Needs `net`'s live Rust handle (from [`parse_file`](@ref)). Errors if `base_mva` is
 not positive or no reference bus can be established. `clamp_angle_bounds=true`

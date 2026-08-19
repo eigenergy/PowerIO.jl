@@ -55,7 +55,7 @@ end
         # ("case14"), an in-memory parse has no path so the core defaults it.
         net = parse_file(joinpath(data, "case14.m"))
         nets = parse_file(IOBuffer(mtext), "matpower")
-        @test PowerIO.source_format(nets) == "Matpower"
+        @test PowerIO.source_format(nets) == "matpower"
         @test PowerIO.n_buses(nets) == PowerIO.n_buses(net)
         for k in keys(net.data)
             k == :name && continue
@@ -85,7 +85,7 @@ end
         # case14 buses are already 1..14; norm_tiny below exercises filtering
         # while preserving non-contiguous source ids.
         norm = to_normalized(net)
-        @test PowerIO.source_format(norm) == "Normalized"
+        @test PowerIO.source_format(norm) == "normalized"
         @test PowerIO.n_buses(norm) == 14
         @test [Int(b.id) for b in PowerIO.buses(norm)] == collect(1:14)
         @test first(PowerIO.generators(norm)).pg ≈ 232.4 / 100    # bus 1 raw pg, MW -> pu

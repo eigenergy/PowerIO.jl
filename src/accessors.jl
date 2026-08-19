@@ -133,11 +133,12 @@ end
 """
     source_format(net) -> String
 
-The format the case was read from, verbatim from the Rust `SourceFormat` enum.
-Examples include `"Matpower"`, `"PowerModelsJson"`, `"EgretJson"`, `"Psse"`,
-`"PowerWorld"`, `"PandapowerJson"`, `"Pslf"`, `"PypsaCsv"`, `"Gridfm"`,
-`"SurgeJson"`, `"InMemory"`, and `"Normalized"` (the last is the output of
-[`to_normalized`](@ref)).
+The format the case was read from, as the lowercase token every `from`
+argument accepts, so `to_format(net, source_format(other))` works for every
+writable format. Examples include `"matpower"`, `"powermodels-json"`,
+`"egret-json"`, `"psse"`, `"powerworld"`, `"pandapower-json"`, `"pslf"`,
+`"pypsa-csv"`, `"gridfm"`, `"surge-json"`, `"in-memory"`, and `"normalized"`
+(the last is the output of [`to_normalized`](@ref)).
 """
 function source_format(net::BalancedNetwork)
     return String(_summary(net).source_format)
