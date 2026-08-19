@@ -28,7 +28,7 @@ No format is anointed in the core.
 | Instance | Class | Where | Status |
 |---|---|---|---|
 | `OpfInstance` | DC-OPF | `powerio-matrix` (Rust), `matrix/opf.rs` | shipped |
-| `ScopfInstance` | SCOPF | PowerIO.jl [`goc3_scopf_data`](@ref) | shipped as a Julia projection |
+| `ScopfInstance` | SCOPF | Rust `powerio-prob`, typed by [`goc3_scopf_data`](@ref) | shipped |
 | `AcOpfInstance` | AC-OPF | none yet | planned |
 
 The DC-OPF instance lives in `powerio-matrix` because it is built from the incidence and

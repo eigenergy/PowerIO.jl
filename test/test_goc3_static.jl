@@ -1,3 +1,12 @@
+# The instance is the Rust core's projection, so this whole file needs the
+# native library with the prob feature (on in every released binary since
+# powerio v0.7.0). `parse_goc3_json`'s own coverage lives in test_goc3.jl.
+if !(PowerIO.library_available() && PowerIO.scopf_available())
+    @testset "GO Challenge 3 static index sets" begin
+        @info "pio_scopf_* not exported (needs powerio-capi --features prob); skipping"
+        @test_skip PowerIO.goc3_scopf_data("{}")
+    end
+else
 @testset "GO Challenge 3 static index sets" begin
     # Minimal synthetic GOC3 document: 2 buses, 2 AC lines, 1 transformer,
     # 1 DC line, one producer + one consumer, one active and one reactive
@@ -55,15 +64,17 @@
             shunt = [(uid = "sh_00", bus = "bus_00", gs = 0.0, bs = 3.0)],
             ac_line = [
                 (; uid = "acl_00", to_bus = "bus_01", fr_bus = "bus_00",
-                   r = 0.0, x = 2.0, mva_ub_em = 7.0, acx_common...),
+                   r = 0.0, x = 2.0, mva_ub_em = 7.0,
+                   initial_status = (on_status = 1,), acx_common...),
                 (; uid = "acl_01", to_bus = "bus_01", fr_bus = "bus_00",
-                   r = 0.0, x = 1.0, mva_ub_em = 8.0, acx_common...),
+                   r = 0.0, x = 1.0, mva_ub_em = 8.0,
+                   initial_status = (on_status = 0,), acx_common...),
             ],
             two_winding_transformer = [
                 (; uid = "xf_00", to_bus = "bus_01", fr_bus = "bus_00",
                    r = 0.0, x = 4.0, mva_ub_em = 6.0,
                    ta_lb = 0.0, ta_ub = 0.0, tm_lb = 1.0, tm_ub = 1.0,
-                   initial_status = (ta = 0.0, tm = 1.0), acx_common...),
+                   initial_status = (ta = 0.0, tm = 1.0, on_status = 1), acx_common...),
             ],
             dc_line = [(uid = "dc_00", to_bus = "bus_01", fr_bus = "bus_00",
                         pdc_ub = 1.0, qdc_fr_lb = -1.0, qdc_to_lb = -1.0,
@@ -116,15 +127,16 @@
     # --- interval helper ---------------------------------------------------
     @test PowerIO.goc3_interval_bounds([1.0, 1.0], 2) == (1.0, 1.5, 2.0)
 
-    # --- static data -------------------------------------------------------
-    sc_data, lengths, cost_pr, cost_cs = PowerIO._goc3_static_data(data)
+    # --- the instance, typed off the Rust projection -----------------------
+    scd = PowerIO.goc3_scopf_data(JSON3.write(doc))
+    sc_data = scd.static
+    lengths = scd.lengths
     for rows in (
         sc_data.bus, sc_data.shunt, sc_data.acl_branch, sc_data.acx_branch,
         sc_data.vpd, sc_data.fpd, sc_data.vwr, sc_data.fwr, sc_data.dc_branch,
         sc_data.prod, sc_data.cons, sc_data.active_reserve, sc_data.reactive_reserve,
         sc_data.active_reserve_set_pr, sc_data.active_reserve_set_cs,
         sc_data.reactive_reserve_set_pr, sc_data.reactive_reserve_set_cs,
-        cost_pr, cost_cs,
     )
         @test isconcretetype(eltype(rows))
         @test eltype(rows) !== Any
@@ -136,8 +148,8 @@
     @test length(sc_data.shunt) == 1 && sc_data.shunt[1].uid == "sh_00"
     @test fieldtype(eltype(sc_data.shunt), :g_sh) === Float64
     @test fieldtype(eltype(sc_data.shunt), :b_sh) === Float64
-    # Per-class shunt index, same uid-suffix rule and leading position as the
-    # branch classes, so a client stops re-deriving it from the uid string.
+    # Per-class shunt index, document-order enumeration like the branch
+    # classes, so a client stops re-deriving anything from the uid string.
     @test sc_data.shunt[1].j_sh == 1
     @test propertynames(sc_data.shunt[1])[1] === :j_sh
     @test fieldtype(eltype(sc_data.shunt), :j_sh) === Int
@@ -215,7 +227,7 @@
             dev["q_bound_cap"] = 0
             dev["q_linear_cap"] = 0
         end
-        nscd = PowerIO.goc3_scopf_data(PowerIO.parse_goc3_json(neither))
+        nscd = PowerIO.goc3_scopf_data(JSON3.write(neither))
         for r in vcat(nscd.static.prod, nscd.static.cons)
             @test (r.q_bound_cap, r.q_linear_cap) == (0, 0)
             @test all(isnan, (r.beta_ub, r.beta_lb, r.q_0_ub, r.q_0_lb, r.beta, r.q_p0))
@@ -232,7 +244,7 @@
     # power unconstrained, which is a malformed case rather than a default.
     let bad = deepcopy(JSON3.read(JSON3.write(doc), Dict{String,Any}))
         delete!(bad["network"]["simple_dispatchable_device"][1], "q_bound_cap")
-        @test_throws ErrorException PowerIO.goc3_scopf_data(PowerIO.parse_goc3_json(bad))
+        @test_throws ErrorException PowerIO.goc3_scopf_data(JSON3.write(bad))
     end
     @test sc_data.acl_branch[1].j_ln == 1 && sc_data.acl_branch[2].j_ln == 2
     @test sc_data.acx_branch[1].j_xf == 1   # per-class only; client adds j_ac = j_xf + L_J_ln
@@ -243,7 +255,6 @@
     @test length(sc_data.fpd) == 1 && length(sc_data.fwr) == 1
     @test sc_data.fpd[1].j_xf == 1 && !hasproperty(sc_data.fpd[1], :j_ac)
     @test sc_data.fwr[1].j_xf == 1 && !hasproperty(sc_data.fwr[1], :j_ac)
-    @test cost_pr[1].uid == "sd_00" && cost_cs[1].uid == "sd_01"
     @test sc_data.active_reserve[1].n_p == 1 && !hasproperty(sc_data.active_reserve[1], :n)
     @test sc_data.reactive_reserve[1].n_q == 1 && !hasproperty(sc_data.reactive_reserve[1], :n)
     @test sc_data.active_reserve_set_pr[1].n_p == 1 && !hasproperty(sc_data.active_reserve_set_pr[1], :n)
@@ -252,7 +263,7 @@
     @test sc_data.reactive_reserve_set_cs[1].n_q == 1 && !hasproperty(sc_data.reactive_reserve_set_cs[1], :n)
 
     # --- energy windows ----------------------------------------------------
-    ew = PowerIO._goc3_energy_windows(data)
+    ew = scd.energy_windows
     for rows in (
         ew.W_en_max_pr, ew.W_en_max_cs, ew.W_en_min_pr, ew.W_en_min_cs,
         ew.T_w_en_max_pr, ew.T_w_en_max_cs, ew.T_w_en_min_pr, ew.T_w_en_min_cs,
@@ -272,7 +283,8 @@
     @test length(ew.T_w_en_min_pr) == 2
 
     # --- price blocks ------------------------------------------------------
-    pjtm_pr, pjtm_cs = PowerIO._goc3_price_blocks(cost_pr, cost_cs)
+    pjtm_pr = scd.price_blocks.producer
+    pjtm_cs = scd.price_blocks.consumer
     @test length(pjtm_pr) == 2               # 2 periods x 1 block
     @test [r.flat_k for r in pjtm_pr] == [1, 2]
     @test [r.t for r in pjtm_pr] == [1, 2]
@@ -282,7 +294,7 @@
     @test length(pjtm_cs) == 2 && pjtm_cs[1].uid == "sd_01"
 
     # --- AC contingency survivors -----------------------------------------
-    surv = PowerIO._goc3_ac_contingency_survivors(data, lengths)
+    surv = scd.ac_contingency_survivors
     @test all(isconcretetype(eltype(rows)) && eltype(rows) !== Any for rows in surv.ln)
     @test all(isconcretetype(eltype(rows)) && eltype(rows) !== Any for rows in surv.xf)
     @test length(surv.ln) == 3               # one group per contingency
@@ -300,7 +312,7 @@
     @test isempty(surv.xf[3])                # ctg_02 also outages xf_00
 
     # --- DC contingency flows ---------------------------------------------
-    jtk_dc = PowerIO._goc3_dc_contingency_flows(data)
+    jtk_dc = scd.dc_contingency_flows
     @test isconcretetype(eltype(jtk_dc))
     @test eltype(jtk_dc) !== Any
     # ctg_00 and ctg_02: dc_00 survives x 2 periods; ctg_01 outages dc_00.
@@ -309,8 +321,7 @@
     @test [r.t for r in jtk_dc] == [1, 2, 1, 2]
     @test jtk_dc[1].ctg == 1 && jtk_dc[1].j_dc == 1
 
-    # --- goc3_scopf_data: one exported call == the internal builders -------
-    scd = PowerIO.goc3_scopf_data(data)
+    # --- the instance object ------------------------------------------------
     @test scd isa PowerIO.ScopfInstance
     # Seven type parameters make the default show unreadable; report the sizes.
     scd_shown = sprint(show, scd)
@@ -320,23 +331,31 @@
     @test occursin("$(scd.lengths.K) contingencies", scd_shown)
     @test occursin("$(scd.lengths.L_J_pr) producers", scd_shown)
     @test !occursin("ScopfInstance{", scd_shown)
-    # `isequal`, not `==`: the reactive capability parameters of the mode a device
-    # did not declare are NaN, and `NaN == NaN` is false, so `==` reports two
-    # identical instances as unequal. Anything diffing these rows wants `isequal`.
-    @test isequal(scd.static, sc_data)
-    @test scd.lengths == lengths
-    @test scd.energy_windows == ew
-    @test scd.price_blocks.producer == pjtm_pr
-    @test scd.price_blocks.consumer == pjtm_cs
-    @test scd.ac_contingency_survivors == surv
-    @test scd.dc_contingency_flows == jtk_dc
     @test scd.violation_cost == (p_bus = 1.0, q_bus = 1.0, s = 1.0, e = 1.0)
-    @test scd.producers_first          # sd_00 producer, sd_01 consumer
+    @test scd.device_class_layout == PowerIO.DeviceClassLayout(:contiguous, true)
+    @test scd.dt == [1.0, 1.0]
 
-    # The stacked per-class offset a model derives from a uid number is only a
-    # bijection when each class owns one contiguous uid block. Interleaving them
-    # warns; it does not throw, because every other per-class uid-suffix index on a
-    # such a document is unsound in the same way and still parses.
+    # --- the ordinals and initial status the rows carry ---------------------
+    @test (sc_data.prod[1].j_dev, sc_data.prod[1].j_sdd) == (1, 1)
+    @test (sc_data.cons[1].j_dev, sc_data.cons[1].j_sdd) == (1, 2)
+    @test (sc_data.prod[1].u_0, sc_data.cons[1].u_0) == (1, 1)
+    @test [b.u_0 for b in sc_data.acl_branch] == [1, 0]
+    @test sc_data.acx_branch[1].u_0 == 1
+    @test (sc_data.active_reserve_set_pr[1].j_dev, sc_data.active_reserve_set_pr[1].j_sdd) == (1, 1)
+    @test (sc_data.reactive_reserve_set_cs[1].j_dev, sc_data.reactive_reserve_set_cs[1].j_sdd) == (1, 2)
+
+    # --- the typed status-flags method ---------------------------------------
+    let uc = [Dict{String,Any}("uid" => "sd_00", "on_status" => [0, 1]),
+              Dict{String,Any}("uid" => "sd_01", "on_status" => [1, 0])]
+        PowerIO.goc3_add_status_flags!(uc, vcat(sc_data.prod, sc_data.cons))
+        @test uc[1]["su_status"] == [0, 1]   # u_0 = 1, drops to 0 then starts
+        @test uc[1]["sd_status"] == [1, 0]
+        @test uc[2]["su_status"] == [0, 0]   # u_0 = 1, stays on then shuts down
+        @test uc[2]["sd_status"] == [0, 1]
+    end
+
+    # Interleaved device classes are data, never a warning: the ordinals come
+    # from enumeration, and the layout reports that no offset scheme holds.
     let mixed = deepcopy(JSON3.read(JSON3.write(doc), Dict{String,Any}))
         devs = mixed["network"]["simple_dispatchable_device"]
         push!(devs, merge(deepcopy(devs[1]), Dict("uid" => "sd_02")))
@@ -344,9 +363,12 @@
         ts = mixed["time_series_input"]["simple_dispatchable_device"]
         push!(ts, merge(deepcopy(ts[1]), Dict("uid" => "sd_02")))
         push!(ts, merge(deepcopy(ts[2]), Dict("uid" => "sd_03")))
-        # producers {0, 2}, consumers {1, 3}: neither block is contiguous.
-        mixed_data = PowerIO.parse_goc3_json(mixed)
-        @test_logs (:warn,) match_mode = :any PowerIO.goc3_scopf_data(mixed_data)
+        # document order producer, consumer, producer, consumer: three-plus runs.
+        mixed_scd = @test_logs PowerIO.goc3_scopf_data(JSON3.write(mixed))
+        @test mixed_scd.device_class_layout == PowerIO.DeviceClassLayout(:interleaved, nothing)
+        @test [r.j_dev for r in mixed_scd.static.prod] == [1, 2]
+        @test [r.j_sdd for r in mixed_scd.static.prod] == [1, 2]
+        @test [r.j_sdd for r in mixed_scd.static.cons] == [3, 4]
     end
 end
 
@@ -380,7 +402,9 @@ const GOC3_REAL_CASE_URL =
         @test length(data.bus_ids) == 14
         @test data.periods == 1:24
 
-        sc_data, lengths, cost_pr, cost_cs = PowerIO._goc3_static_data(data)
+        scd = PowerIO.goc3_scopf_data(read(path, String))
+        sc_data = scd.static
+        lengths = scd.lengths
         # Counts pinned to this specific scenario (14 buses, 17 AC lines, 3 transformers,
         # no DC lines, 6 producers, 11 consumers, 24 periods).
         @test lengths.I == 14
@@ -389,18 +413,16 @@ const GOC3_REAL_CASE_URL =
         @test length(sc_data.prod) == 6 && length(sc_data.cons) == 11
         @test [b.i for b in sc_data.bus] == collect(1:14)
         @test lengths.K == length(data.raw["reliability"]["contingency"])
-        # `j_sh` is the uid-suffix rule, the same one `j_ln` / `j_xf` / `j_dc` use,
-        # so it agrees with what a client would derive from the uid itself. It is
-        # NOT a contiguous 1:L_J_sh ordinal: this case names its single shunt
-        # "Shunt Bus 6", so `j_sh == 7` with `L_J_sh == 1`. That is the documented
-        # divergence between the uid-suffix builders and document-order numbering
-        # (see `parse_scopf`); the two agree on official Challenge 3 scenario files,
-        # whose uids are `<prefix>_<0-based index>`. A client sizing an array by
-        # `L_J_sh` and indexing it by `j_sh` is only safe on those files.
-        @test [s.j_sh for s in sc_data.shunt] ==
-              [PowerIO._uidnum(s.uid) + 1 for s in sc_data.shunt]
-        @test [s.j_ln for s in sc_data.acl_branch] ==
-              [PowerIO._uidnum(s.uid) + 1 for s in sc_data.acl_branch]
+        # Every per-class index is document-order enumeration, so this case's
+        # named uids ("Shunt Bus 6", "Line 0") change nothing: `j_sh == 1` with
+        # `L_J_sh == 1`, and an array sized by a length is always indexable by
+        # its class's ordinals. The uid-suffix builders that once made this
+        # file's indices unsound are retired.
+        @test [s.j_sh for s in sc_data.shunt] == collect(1:lengths.L_J_sh)
+        @test [s.j_ln for s in sc_data.acl_branch] == collect(1:lengths.L_J_ln)
+        @test [r.j_dev for r in sc_data.prod] == collect(1:lengths.L_J_pr)
+        @test [r.j_sdd for r in sc_data.cons] ==
+              collect(lengths.L_J_pr .+ (1:lengths.L_J_cs))
         # The two reactive capability modes are mutually exclusive; a device may set
         # neither (every device on the official C3E4N00073D1 scenario does, though
         # every device on this one sets exactly one). Whichever mode is set has
@@ -433,37 +455,38 @@ const GOC3_REAL_CASE_URL =
             @test length(r.p_min) == lengths.L_T
         end
 
-        # This case names its devices ("Gen Bus 1 #1"), so the uid-suffix rule reads
-        # bus numbers and the two device classes overlap. That is the documented
-        # warning, not a parse failure.
-        scd = @test_logs (:warn,) match_mode = :any PowerIO.goc3_scopf_data(data)
         @test propertynames(scd.violation_cost) == (:p_bus, :q_bus, :s, :e)
         # This case omits `e_vio_cost`, which is why the four prices are optional.
         @test all(isfinite, (scd.violation_cost.p_bus, scd.violation_cost.q_bus,
                              scd.violation_cost.s))
         @test isnan(scd.violation_cost.e)
         @test !haskey(data.violation_cost, "e_vio_cost")
-        @test scd.producers_first isa Bool
+        # The document lists its six producers before its eleven consumers.
+        @test scd.device_class_layout == PowerIO.DeviceClassLayout(:contiguous, true)
+        @test length(scd.dt) == lengths.L_T
         for rows in (sc_data.bus, sc_data.acl_branch, sc_data.acx_branch, sc_data.dc_branch,
-                     sc_data.prod, sc_data.cons, cost_pr, cost_cs)
+                     sc_data.prod, sc_data.cons)
             @test isconcretetype(eltype(rows)) && eltype(rows) !== Any
         end
 
-        ew = PowerIO._goc3_energy_windows(data)
+        ew = scd.energy_windows
         for rows in (ew.W_en_max_pr, ew.W_en_max_cs, ew.W_en_min_pr, ew.W_en_min_cs)
             @test isconcretetype(eltype(rows)) && eltype(rows) !== Any
         end
 
-        pjtm_pr, pjtm_cs = PowerIO._goc3_price_blocks(cost_pr, cost_cs)
+        pjtm_pr = scd.price_blocks.producer
+        pjtm_cs = scd.price_blocks.consumer
         # Total (device, period, cost-block) rows, pinned to this scenario's cost curves.
         @test length(pjtm_pr) == 720 && length(pjtm_cs) == 1056
 
-        surv = PowerIO._goc3_ac_contingency_survivors(data, lengths)
+        surv = scd.ac_contingency_survivors
         @test length(surv.ln) == 19 && length(surv.xf) == 19      # one group per contingency
         @test all(isconcretetype(eltype(r)) && eltype(r) !== Any for r in surv.ln)
         @test all(isconcretetype(eltype(r)) && eltype(r) !== Any for r in surv.xf)
 
-        jtk_dc = PowerIO._goc3_dc_contingency_flows(data)
+        jtk_dc = scd.dc_contingency_flows
         @test isempty(jtk_dc)                                     # no DC lines in this case
     end
 end
+
+end # library gate

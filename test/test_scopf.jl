@@ -6,21 +6,24 @@
         goc3_path = joinpath(@__DIR__, "data", "goc3_14bus_20220707.json")
         text = read(goc3_path, String)
         doc = PowerIO.parse_scopf(text)
-        @test String(doc.schema) == "powerio.scopf.julia"
+        @test String(doc.schema) == "powerio.scopf"
         @test haskey(doc, :powerio_version)
         @test Int(doc.index_base) == 1
         @test haskey(doc, :instance)
 
-        # The serialized instance carries the same per-class set sizes the pure
-        # Julia builders derive (the two parsers agree on official GOC3 files;
-        # pio_scopf_to_json numbers zones and branches from document order,
-        # powerio#252).
-        inst = goc3_scopf_data(parse_goc3_json(goc3_path))
+        # The instance's per-class set sizes match the document sections
+        # parse_goc3_json reads, so the two remaining readers of the raw file
+        # agree on what it contains.
+        data = parse_goc3_json(goc3_path)
         lengths = doc.instance.lengths
-        for k in (:L_J_xf, :L_J_ln, :L_J_ac, :L_J_dc, :L_J_br, :L_J_cs, :L_J_pr,
-                  :L_J_cspr, :L_J_sh, :I, :L_T, :L_N_p, :L_N_q)
-            @test Int(getproperty(lengths, k)) == Int(getproperty(inst.lengths, k))
-        end
+        @test Int(lengths.L_J_ln) == length(data.ac_line_lookup)
+        @test Int(lengths.L_J_xf) == length(data.twt_lookup)
+        @test Int(lengths.L_J_dc) == length(data.dc_line_lookup)
+        @test Int(lengths.L_J_pr) == length(data.sdd_ids_producer)
+        @test Int(lengths.L_J_cs) == length(data.sdd_ids_consumer)
+        @test Int(lengths.L_J_sh) == length(data.shunt_lookup)
+        @test Int(lengths.I) == length(data.bus_lookup)
+        @test Int(lengths.L_T) == length(data.dt)
 
         # Errors carry the function name and the core's message.
         try
