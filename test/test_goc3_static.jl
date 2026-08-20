@@ -372,32 +372,20 @@ else
     end
 end
 
-# A real ARPA-E GO Competition Challenge 3 case, parsed from a JSON file, exercises
-# the file-read branch of parse_goc3_json (the in-memory doc above covers the
-# IOBuffer/Dict paths) and runs the five SCOPF builders at real scale. The case is
-# `14bus_20220707.json` from GOCompetition's own C3DataUtilities validation repo
-# (pinned commit), a 14-bus 24-period scenario. At ~340 KB it is too large to vendor,
-# so it is git-ignored (see .gitignore) and fetched on demand: in CI, and locally the
-# first time this runs. If it is absent and cannot be downloaded (offline), the test
-# skips, mirroring how the C-ABI tests skip when the native library is missing.
-const GOC3_REAL_CASE_URL =
-    "https://raw.githubusercontent.com/GOCompetition/C3DataUtilities/" *
-    "bb5df337553b21ab8be89ae5f9106958541730d4/test_data/14bus_20220707.json"
+# Optional external validation accepts a user supplied checkout path. The case
+# is not redistributable, so it is never downloaded or stored by this package.
+const GOC3_REAL_CASE_SHA256 =
+    "ad16973416243f38b5286efcf770f5e4b4493e89fdf7ffa6de678d3974b87e49"
 
 @testset "GOC3 static index sets from a real Challenge 3 case" begin
-    path = joinpath(@__DIR__, "data", "goc3_14bus_20220707.json")
-    if !isfile(path)
-        try
-            Base.download(GOC3_REAL_CASE_URL, path)
-        catch err
-            isfile(path) && rm(path; force = true)  # drop a partial download
-            @info "GOC3 real-case fixture unavailable (offline?); skipping real-case parse" exception = err
-        end
-    end
-
-    if !isfile(path)
+    path = get(ENV, "POWERIO_GOC3_VALIDATION_CASE", "")
+    if isempty(path)
         @test_skip PowerIO.parse_goc3_json(path)
     else
+        isfile(path) || error("POWERIO_GOC3_VALIDATION_CASE is not a file: $path")
+        digest = bytes2hex(sha256(read(path)))
+        digest == GOC3_REAL_CASE_SHA256 ||
+            error("POWERIO_GOC3_VALIDATION_CASE has sha256 $digest; expected $GOC3_REAL_CASE_SHA256")
         data = PowerIO.parse_goc3_json(path)
         @test length(data.bus_ids) == 14
         @test data.periods == 1:24

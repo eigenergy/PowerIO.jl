@@ -6,10 +6,8 @@
 # exposes nothing but that serialization today, so the binding is one shot:
 # parse, serialize, free — no Julia-visible handle type until the C surface
 # grows per-field accessors.
-#
-# This is the native sibling of the pure Julia GOC3 surface in `goc3.jl`
-# ([`goc3_scopf_data`](@ref)); see the `parse_scopf` docstring for how the two
-# relate and where their index conventions differ.
+# `goc3_scopf_data` types this same document; there is one projection and one
+# index convention.
 
 # The three symbols ship together with the prob feature; requiring all of them
 # keeps scopf_available and parse_scopf in agreement on a partial library,
