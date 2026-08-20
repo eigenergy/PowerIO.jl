@@ -65,6 +65,23 @@ end
         s32 = PowerIO.LoadSeries(net, pd_by_id, qd_by_id; T=Float32)
         @test s32 isa PowerIO.LoadSeries{Float32}
         @test s32.pd isa Matrix{Float32}
+        @test PowerIO.LoadSeries(net, pd_mw, qd_mw, Float32) isa
+              PowerIO.LoadSeries{Float32}
+        @test PowerIO.LoadSeries(net, mult, Float32) isa PowerIO.LoadSeries{Float32}
+        @test PowerIO.LoadSeries(net, pd_by_id, qd_by_id, Float32) isa
+              PowerIO.LoadSeries{Float32}
+        @test Core.Compiler.return_type(
+            PowerIO.LoadSeries,
+            Tuple{typeof(net),typeof(pd_mw),typeof(qd_mw),Type{Float32}},
+        ) == PowerIO.LoadSeries{Float32}
+        @test Core.Compiler.return_type(
+            PowerIO.LoadSeries,
+            Tuple{typeof(net),typeof(mult),Type{Float32}},
+        ) == PowerIO.LoadSeries{Float32}
+        @test Core.Compiler.return_type(
+            PowerIO.LoadSeries,
+            Tuple{typeof(net),typeof(pd_by_id),typeof(qd_by_id),Type{Float32}},
+        ) == PowerIO.LoadSeries{Float32}
         # an empty bus set gives a clear error, not a bare "invalid Array dimensions"
         @test_throws ArgumentError PowerIO._matrix_from_id_table(
             Dict{Int,Vector{Float64}}(), Int[], :Pd, Float64)
@@ -76,6 +93,12 @@ end
         sf = PowerIO.read_load_series(net, pdf, qdf)
         @test sf.pd ≈ s.pd
         @test sf.qd ≈ s.qd
+        @test PowerIO.read_load_series(net, pdf, qdf, Float32) isa
+              PowerIO.LoadSeries{Float32}
+        @test Core.Compiler.return_type(
+            PowerIO.read_load_series,
+            Tuple{typeof(net),typeof(pdf),typeof(qdf),Type{Float32}},
+        ) == PowerIO.LoadSeries{Float32}
         @test_throws ArgumentError PowerIO.read_load_series(net, joinpath(dir, "nope.Pd"), qdf)
 
         # A series aligns to `parse_ac_power_data`'s bus rows. The alignment now
