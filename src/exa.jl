@@ -761,6 +761,7 @@ function _perunit(x_mw::AbstractMatrix, base::T) where {T<:Real}
 end
 
 """
+    LoadSeries(net::BalancedNetwork, pd_mw, qd_mw, ::Type{T})
     LoadSeries(net::BalancedNetwork, pd_mw, qd_mw; T=Float64)
 
 Build a series from active/reactive load matrices in MW, `n_buses` by `n_periods`, whose
@@ -768,19 +769,24 @@ rows are the buses in `net`'s order. Values are converted to per unit on the net
 base MVA.
 """
 function LoadSeries(net::BalancedNetwork, pd_mw::AbstractMatrix,
-                    qd_mw::AbstractMatrix; T::Type{<:Real}=Float64)
+                    qd_mw::AbstractMatrix, ::Type{T}) where {T<:Real}
     base, bus_ids, _, _ = _load_alignment(net, T)
     _check_load_matrix(pd_mw, qd_mw, length(bus_ids))
     LoadSeries{T}(_perunit(pd_mw, base), _perunit(qd_mw, base), bus_ids, base)
 end
 
+LoadSeries(net::BalancedNetwork, pd_mw::AbstractMatrix, qd_mw::AbstractMatrix;
+           T::Type{<:Real}=Float64) = LoadSeries(net, pd_mw, qd_mw, T)
+
 """
+    LoadSeries(net::BalancedNetwork, curve::AbstractVector, ::Type{T})
     LoadSeries(net::BalancedNetwork, curve::AbstractVector; T=Float64)
 
 Build a series by scaling the base-case bus loads by `curve[t]` in each period `t`. Only
 the loads are scaled; fixed bus shunts stay at their base value.
 """
-function LoadSeries(net::BalancedNetwork, curve::AbstractVector; T::Type{<:Real}=Float64)
+function LoadSeries(net::BalancedNetwork, curve::AbstractVector,
+                    ::Type{T}) where {T<:Real}
     isempty(curve) &&
         throw(ArgumentError("LoadSeries: curve must have at least one period"))
     base, bus_ids, base_pd, base_qd = _load_alignment(net, T)
@@ -792,7 +798,12 @@ function LoadSeries(net::BalancedNetwork, curve::AbstractVector; T::Type{<:Real}
     LoadSeries{T}(pd, qd, bus_ids, base)
 end
 
+LoadSeries(net::BalancedNetwork, curve::AbstractVector;
+           T::Type{<:Real}=Float64) = LoadSeries(net, curve, T)
+
 """
+    LoadSeries(net::BalancedNetwork, pd_by_id::AbstractDict, qd_by_id::AbstractDict,
+               ::Type{T})
     LoadSeries(net::BalancedNetwork, pd_by_id::AbstractDict, qd_by_id::AbstractDict; T=Float64)
 
 Build a series from id-keyed load tables: each dict maps a source bus id to its per-period
@@ -800,13 +811,16 @@ MW vector. Every bus in `net` must have an entry and all vectors must share the 
 length. This removes the positional row assumption of the matrix form.
 """
 function LoadSeries(net::BalancedNetwork, pd_by_id::AbstractDict,
-                    qd_by_id::AbstractDict; T::Type{<:Real}=Float64)
+                    qd_by_id::AbstractDict, ::Type{T}) where {T<:Real}
     base, bus_ids, _, _ = _load_alignment(net, T)
     pd = _matrix_from_id_table(pd_by_id, bus_ids, :Pd, T)
     qd = _matrix_from_id_table(qd_by_id, bus_ids, :Qd, T)
     _check_load_matrix(pd, qd, length(bus_ids))
     LoadSeries{T}(_perunit(pd, base), _perunit(qd, base), bus_ids, base)
 end
+
+LoadSeries(net::BalancedNetwork, pd_by_id::AbstractDict, qd_by_id::AbstractDict;
+           T::Type{<:Real}=Float64) = LoadSeries(net, pd_by_id, qd_by_id, T)
 
 # Build the load matrix at the caller's precision `T` directly, so the GPU-facing
 # `T=Float32` path does not allocate a Float64 matrix here only for `_perunit` to
@@ -834,6 +848,7 @@ function _matrix_from_id_table(by_id::AbstractDict, bus_ids::Vector{Int}, which:
 end
 
 """
+    read_load_series(net::BalancedNetwork, pd_path, qd_path, ::Type{T})
     read_load_series(net::BalancedNetwork, pd_path, qd_path; T=Float64)
 
 Read two whitespace-delimited MW load matrices (rows = buses in `net`'s order, columns =
@@ -852,11 +867,15 @@ periods) and build a [`LoadSeries`](@ref). Reads the same `.Pd` / `.Qd` files a 
     ```
 """
 function read_load_series(net::BalancedNetwork, pd_path::AbstractString,
-                          qd_path::AbstractString; T::Type{<:Real}=Float64)
+                          qd_path::AbstractString, ::Type{T}) where {T<:Real}
     pd_mw = _read_load_file(pd_path)
     qd_mw = _read_load_file(qd_path)
-    LoadSeries(net, pd_mw, qd_mw; T=T)
+    LoadSeries(net, pd_mw, qd_mw, T)
 end
+
+read_load_series(net::BalancedNetwork, pd_path::AbstractString,
+                 qd_path::AbstractString; T::Type{<:Real}=Float64) =
+    read_load_series(net, pd_path, qd_path, T)
 
 function _read_load_file(path::AbstractString)
     isfile(path) ||

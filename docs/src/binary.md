@@ -8,7 +8,7 @@ per-platform binary; users never compile it.
 1. A version tag on [eigenergy/powerio](https://github.com/eigenergy/powerio)
    triggers its `release-binaries` workflow, which builds
    `libpowerio_capi.<triplet>.tar.gz` with the `arrow`, `matrix`, `gridfm`,
-   `dist`, and `pkg` features for Linux glibc (`x86_64`, `aarch64`), macOS
+   `dist`, `pkg`, and `prob` features for Linux glibc (`x86_64`, `aarch64`), macOS
    (`x86_64`, `arm64`), and Windows (`x86_64`), and attaches the five tarballs
    to the GitHub release. Each tarball
    holds the cdylib under `lib/` (`bin/` on Windows), the C header under
