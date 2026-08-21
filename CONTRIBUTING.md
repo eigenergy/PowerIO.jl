@@ -8,7 +8,7 @@ sibling checkout; the library resolves automatically from
 
 ```
 git clone https://github.com/eigenergy/powerio ../powerio
-cargo build -p powerio-capi --release --features arrow,matrix,gridfm,dist,pkg   # in ../powerio
+cargo build -p powerio-capi --release --features arrow,matrix,gridfm,dist,pkg,prob   # in ../powerio
 julia --project=. -e 'using Pkg; Pkg.test()'
 ```
 
@@ -18,7 +18,7 @@ override the resolution; without a dev build, the bundled lazy artifact is used.
 ## ABI lockstep
 
 The binding targets exactly one core C ABI version (`PIO_ABI_VERSION` in
-`src/PowerIO.jl`); a mismatched library is refused at first use with an error
+`src/capi.jl`); a mismatched library is refused at first use with an error
 stating both versions. The distribution surface has its own
 `PIO_DIST_ABI_VERSION` in `src/dist.jl`. The package surface is additive and
 feature probed through `pio_package_*`; no third ABI integer is used. When

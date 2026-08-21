@@ -54,6 +54,9 @@ Breaking: four returned NamedTuples grow. Positional destructuring and `property
 - Shunt rows gain the per-class index `j_sh`. Like every SCOPF ordinal, it is
   assigned by document order. Breaking: `ShuntRow` grows from 4 to 5 fields
   and `j_sh` leads the row.
+- `LoadSeries` and `read_load_series` gain positional `::Type{T}` methods, with
+  their keyword forms forwarding to them. A compiler can now infer exactly
+  `LoadSeries{T}` through every constructor used by an ahead of time consumer.
 - `update-artifacts.yml` no longer releases without an explicit instruction.
   Only a `workflow_dispatch` run with `release=true` commits to main and
   registers. The daily schedule and the powerio release dispatch now open a

@@ -7,7 +7,7 @@ unbalanced and per phase, so the two models never merge: string bus ids,
 ordered terminal names, explicit grounding, SI units, and radians stay on the
 multiconductor side, while the verbs are shared and route on the format.
 
-The distribution API is experimental while the BMOPF schema is v0.0.1, and needs the
+The distribution API is experimental while the IEEE BMOPF schema is a draft, and needs the
 library built with `--features dist` (the element tables also need `pkg`; both
 are on by default in the released binaries). [`dist_available`](@ref) reports
 whether the resolved library has it. The v0.6.1 release added the distribution
