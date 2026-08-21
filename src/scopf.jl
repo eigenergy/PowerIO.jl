@@ -6,10 +6,8 @@
 # exposes nothing but that serialization today, so the binding is one shot:
 # parse, serialize, free — no Julia-visible handle type until the C surface
 # grows per-field accessors.
-#
-# This is the native sibling of the pure Julia GOC3 surface in `goc3.jl`
-# ([`goc3_scopf_data`](@ref)); see the `parse_scopf` docstring for how the two
-# relate and where their index conventions differ.
+# `goc3_scopf_data` types this same document; there is one projection and one
+# index convention.
 
 # The three symbols ship together with the prob feature; requiring all of them
 # keeps scopf_available and parse_scopf in agreement on a partial library,
@@ -31,16 +29,11 @@ Parse SCOPF source `text` into the Rust core's native problem instance and
 return the versioned JSON `pio_scopf_to_json` produces for it. `from` names the
 source format; `"goc3-json"` (a full ARPA-E GO Challenge 3 input document) is
 the one accepted today. The returned object carries `schema`
-(`"powerio.scopf.julia"`), `schema_version`, `index_base` (1), and `instance` —
-static data, per-class lengths, energy windows, price blocks, and contingency
-survivor sets, the same fields as [`ScopfInstance`](@ref).
-
-This is the Rust-parsed sibling of the pure Julia
-[`goc3_scopf_data`](@ref)`(parse_goc3_json(text))`. One convention differs:
-`pio_scopf_to_json` numbers reserve zones and branches from document order,
-while the Julia builders derive them from uid numeric suffixes; the two agree
-on official GOC3 files (powerio v0.7.1 hardened the renumbering structurally,
-eigenergy/powerio#252).
+(`"powerio.scopf"`), `powerio_version`, `index_base` (1), and `instance` —
+static data, per-class lengths, energy windows, price blocks, contingency
+survivor sets, the device class layout, and the interval durations: the
+document behind [`goc3_scopf_data`](@ref), which types these rows. Every
+index in the document comes from document-order enumeration.
 """
 function parse_scopf(text::AbstractString; from::AbstractString="goc3-json")
     lib = _lib()

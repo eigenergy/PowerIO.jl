@@ -4,6 +4,7 @@ using JSON3
 using Aqua
 using Libdl
 using Logging
+using SHA
 
 @testset "PowerIO" begin
     include("test_release.jl")    # Project.toml and changelog release guard
