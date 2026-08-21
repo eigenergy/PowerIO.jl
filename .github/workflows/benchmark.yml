@@ -24,14 +24,14 @@ jobs:
         run: echo "TANDEM_REPO_TOKEN is not set — skipping benchmarks (the parse benchmarks need powerio's C ABI, and powerio is private). Add the secret to enable."
       - name: Check out powerio for the C ABI
         if: env.TANDEM_TOKEN != ''
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           repository: eigenergy/powerio
           path: powerio
           token: ${{ secrets.TANDEM_REPO_TOKEN }}
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         if: env.TANDEM_TOKEN != ''
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         if: env.TANDEM_TOKEN != ''
         with:
           workspaces: powerio
@@ -41,7 +41,7 @@ jobs:
           cargo build -p powerio-capi --release --manifest-path powerio/Cargo.toml
           cp powerio/target/release/libpowerio_capi.so "$RUNNER_TEMP/libpowerio_capi.so"
           echo "POWERIO_CAPI=$RUNNER_TEMP/libpowerio_capi.so" >> "$GITHUB_ENV"
-      - uses: MilesCranmer/AirspeedVelocity.jl@action-v1
+      - uses: MilesCranmer/AirspeedVelocity.jl@f39cf180e62b34e52ed4d12ccf982d70b118a143 # action-v1.3.0
         if: env.TANDEM_TOKEN != ''
         with:
           julia-version: '1'
