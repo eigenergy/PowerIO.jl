@@ -58,12 +58,13 @@
     @test :LoadSeries ∈ names(PowerIO)
     @test :goc3_scopf_data ∈ names(PowerIO)
     @test :ScopfInstance ∈ names(PowerIO)
-    # The individual GOC3 index-set builders behind goc3_scopf_data are internal:
-    # defined but unexported (consumers call goc3_scopf_data).
+    @test :DeviceClassLayout ∈ names(PowerIO)
+    # The Julia GOC3 projection is retired: the Rust core projects the instance
+    # and goc3_scopf_data types its rows. Nothing internal survives to leak.
     for sym in (:_goc3_static_data, :_goc3_energy_windows, :_goc3_price_blocks,
-                :_goc3_ac_contingency_survivors, :_goc3_dc_contingency_flows)
-        @test isdefined(PowerIO, sym)
-        @test sym ∉ names(PowerIO)
+                :_goc3_ac_contingency_survivors, :_goc3_dc_contingency_flows,
+                :_uidnum)
+        @test !isdefined(PowerIO, sym)
     end
     # ExaModels PowerData row containers must be concrete isbits so an empty
     # gen/branch/arc/storage section still moves to the GPU (guards the empty->Any
