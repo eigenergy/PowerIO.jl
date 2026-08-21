@@ -1,0 +1,12 @@
+# This is intentionally inert until the final PowerIO.jl v0.9 source tree,
+# including the paired SCOPF change, is on main. From a clean final main run:
+#
+#   julia --project=. gen/release_state.jl prepare-intent
+#
+# Review and merge that one file change last. The release workflow refuses a
+# draft intent and refuses a ready intent whose source digest is stale.
+schema = 1
+state = "draft"
+julia_version = "0.9.0"
+powerio_tag = "v0.9.0"
+source_digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"

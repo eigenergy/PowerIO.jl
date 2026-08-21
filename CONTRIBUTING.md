@@ -37,58 +37,65 @@ no `unsafe_wrap` of foreign memory escapes without an owner.
 
 ## Releasing
 
-Binary-driven releases are hands-off. When powerio publishes a release (its
-Notify PowerIO.jl workflow fires a repository dispatch; a daily scheduled run
-is the backstop), the "Update artifacts" workflow:
+The release is approved before powerio publishes. Put the intended PowerIO
+version in `Project.toml`, write the matching top `CHANGELOG.md` section, and
+merge every Julia source, documentation, and workflow change. Leave
+`.github/powerio-release.toml` in `state = "draft"` while that work is moving.
+From a clean final `main`, run:
 
-1. Regenerates Artifacts.toml from the release tarballs. The updater checks
-   both `PIO_ABI_VERSION` and `PIO_DIST_ABI_VERSION` before rewriting
-   `Artifacts.toml`, and checks the arrow, matrix, gridfm, dist, and package
-   surfaces; an ABI-bumping release parks untouched until the lockstep
-   binding PR merges (see "ABI lockstep" above), and the next scheduled run
-   picks it up. The automatic path never downgrades the pin: reverting to an
-   older tag (or pinning a prerelease) requires the `open_pr` input.
-2. Decides the version, prepends the CHANGELOG.md section, and sets
-   Project.toml — the version is the powerio version it wraps when that
-   number is ahead of Project.toml, otherwise the next patch; the ABI checks
-   decide whether a binary is usable, not the version number.
-3. Runs the full test suite against that exact tree (including the
-   `test_release.jl` changelog/version consistency check), then commits the
-   repin, changelog, and version bump to main as one atomic commit.
-4. Dispatches "Register Package", which posts the `@JuliaRegistrator
-   register` comment with a `Release notes:` block (the top CHANGELOG.md
-   section). The General registry PR AutoMerges in about 15 minutes for new
-   versions; TagBot then tags `vX.Y.Z` here and creates the GitHub release.
+```
+julia --project=. gen/release_state.jl prepare-intent
+```
 
-The pipeline self-heals by checking General's Versions.toml: a scheduled run
-that finds Project.toml's version unregistered re-dispatches registration,
-and one that finds the pinned powerio tag or top CHANGELOG.md section ahead
-of Project.toml rebuilds and commits the missing release state — so a lost
-dispatch, a failed register run, or a repin merged without registration all
-resolve by the next scheduled run.
+Review and merge that one file intent change last. It records the exact Julia
+version, exact powerio tag, and a SHA-256 digest of every tracked path, mode,
+object type, and object id except `Artifacts.toml` and the intent itself. Any
+later source, documentation, or workflow commit makes the digest stale and
+parks the release until a new intent is reviewed.
 
-For a binding-only release (no new binary), bump Project.toml and add the
-matching top CHANGELOG.md section in the same PR (the release metadata test
-enforces that they agree), and merge it. The nightly run notices the version
-is not in General and registers it; dispatch "Register Package" with that
-version to register immediately. Every pre-1.0 minor bump (`0.x.0`) is a
-*breaking* release, and General's AutoMerge holds a breaking version whose
-trigger has no change description: the notes must mention "breaking" or
-"changelog" (even just "no breaking changes"); the generated CHANGELOG
-entries already do, and the workflows fail fast when a human-written section
-does not.
+Publishing the intended powerio release triggers "Update artifacts"; the daily
+schedule and a no input manual dispatch retry the same intent. The workflow:
 
-To review a repin instead of auto-releasing it, dispatch "Update artifacts"
-with `open_pr`: the same repin + changelog + version bump opens as a PR (a
-tag that is not plain vX.Y.Z always takes the PR path), and the automatic
-release path stands down while an `artifacts/*` PR is open. Note CI does not
-run on pushes or PRs made with the workflow token; the test suite runs
-inside the workflow before anything lands.
+1. Requires the exact published powerio release, which must not be a
+   prerelease, and all five platform assets. A missing or draft release waits
+   without changing the tree;
+   a dispatch for another tag is ignored.
+2. Runs `gen/update_artifacts.jl` in memory, then checks core ABI 5,
+   distribution ABI 1, the schema and build reports, and the `arrow`, `matrix`,
+   `gridfm`, `dist`, `pkg`, and `prob` features and representative symbols.
+   Semantic mismatches report a stable `parked` reason and leave
+   `Artifacts.toml` byte identical. Download, registry, archive, or parse
+   errors fail the run.
+3. Resolves the generated artifact, checks every public feature probe, and
+   runs the full test suite. It commits only `Artifacts.toml`, and pushes only
+   if `origin/main` still equals the commit the run tested. A race fails; the
+   schedule retries from the new main without rebasing a bot commit.
+4. Dispatches "Register Package" with the exact tested SHA. Registration
+checks that the SHA is still `origin/main`, revalidates the intent, artifact,
+release, General transition, feature reports, and tests, then posts the
+`@JuliaRegistrator register` comment on that SHA. It never edits or commits,
+and queued retries suppress a duplicate bot comment for six hours.
 
-Manual registration fallback: comment `@JuliaRegistrator register` — with the
-`Release notes:` block — on any commit. If Registrator has not replied on the
-commit thread within ~15 minutes, the bot-authored comment was dropped; post
-the same comment from a human account.
+The intended version must be the next patch, minor, or major release after the
+maximum PowerIO version in General. A breaking transition needs "breaking" in
+its top changelog section. If the version is already in General,
+the updater neither repins nor registers; it dispatches TagBot only when the
+Julia GitHub release is missing.
+
+For local generator diagnostics, supply a status path explicitly:
+
+```
+julia --project=. gen/update_artifacts.jl vX.Y.Z --status-file update-status.toml
+```
+
+The status is `ready` or `parked`; only `ready` can modify `Artifacts.toml`.
+Manual workflow dispatch is a retry, not a release authority override. An open
+`artifacts/*` PR makes the automatic run wait rather than release around it.
+
+If Registrator has not replied on the exact release commit within about 15
+minutes, rerun "Register Package" with the version and that full SHA. The last
+resort is a human `@JuliaRegistrator register` comment with the top changelog
+section as its `Release notes:` block.
 
 TagBot uses `TAGBOT_TOKEN` when present, falling back to `GITHUB_TOKEN` for
 normal releases. Issue #44 is a manual `v0.0.1` backfill because the tagged

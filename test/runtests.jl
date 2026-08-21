@@ -7,6 +7,7 @@ using Logging
 
 @testset "PowerIO" begin
     include("test_release.jl")    # Project.toml and changelog release guard
+    include("test_release_automation.jl") # reviewed intent and artifact state machine
     include("test_public_api.jl") # module API and pure-Julia accessors
     include("test_goc3.jl")       # GO Challenge 3 JSON helpers
     include("test_goc3_static.jl") # GO Challenge 3 SCOPF static index sets

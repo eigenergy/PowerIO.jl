@@ -30,13 +30,16 @@ cd $WORKSPACE/srcdir/powerio
 # --features arrow ships pio_to_arrow; --features matrix ships the matrix COO
 # Arrow tables when the pinned source supports them; --features gridfm ships
 # pio_read_dir / pio_scenario_ids; --features dist ships pio_dist_*;
-# --features pkg ships pio_package_*.
+# --features pkg ships pio_package_*; --features prob ships pio_scopf_*.
 features=arrow,gridfm,dist
 if grep -q '^matrix = ' powerio-capi/Cargo.toml; then
     features="${features},matrix"
 fi
 if grep -q '^pkg = ' powerio-capi/Cargo.toml; then
     features="${features},pkg"
+fi
+if grep -q '^prob = ' powerio-capi/Cargo.toml; then
+    features="${features},prob"
 fi
 cargo build --release -p powerio-capi --target ${rust_target} --features "${features}"
 out=target/${rust_target}/release

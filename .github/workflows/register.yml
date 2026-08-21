@@ -1,55 +1,22 @@
 name: Register Package
 
-# Sets the version in Project.toml, commits it to main, and posts the
-# `@JuliaRegistrator register` comment on that commit *with a release-notes
-# block*. Normally dispatched automatically by the Update artifacts workflow,
-# which has already committed the version bump, changelog section, and repin
-# to main as one atomic commit — the version-set here is then a no-op and
-# this workflow only validates and posts the Registrator comment. Manual
-# dispatch is the immediate path for a release whose version + changelog
-# already merged to main (the nightly Update artifacts run would otherwise
-# notice the version missing from General and dispatch this itself). Either way
-# the run resolves Artifacts.toml first and fails if the pinned binaries do not
-# load, so a direct dispatch cannot register a version against a stale pin.
-# The notes matter: a pre-1.0 minor bump is a breaking release, and
-# General's AutoMerge holds a breaking version whose trigger carries no change
-# description (it must mention "breaking" or "changelog"). The General PR
-# AutoMerges (~15 minutes for a new version); TagBot then tags here via the
-# TAGBOT_SSH deploy key (the default token cannot tag a commit once any
-# workflow file changed after it). A green run
-# only means the comment was posted: registration errors (duplicate version,
-# compat problems) surface as Registrator replies on the commit thread and the
-# General PR. Manual fallback — comment on any commit:
-#
-#     @JuliaRegistrator register
-#
-#     Release notes:
-#
-#     ## Breaking changes
-#     ...
-#
-# If Registrator has not replied on the commit thread within ~15 minutes, the
-# bot-authored comment was dropped; post the same comment from a human
-# account (that recovery worked for v0.7.0).
+# Register only a tested immutable main commit. Update artifacts supplies both
+# inputs; manual dispatch retries that same reviewed intent. This workflow does
+# not edit, commit, rebase, or push.
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version to register (no leading v), or the component to bump (major/minor/patch)
+        description: Exact reviewed PowerIO version, without v
         required: true
-      release_notes:
-        description: >-
-          Release notes for the General PR. A breaking (pre-1.0 minor) bump must
-          mention "breaking" or "changelog". CHANGELOG.md must already have a
-          top section for the target version; leave this blank to use that
-          section as the release notes.
-        required: false
+      expected_sha:
+        description: Exact 40-character main commit tested by Update artifacts
+        required: true
 
 permissions:
   contents: write
+  pull-requests: read
 
-# Duplicate dispatches (a rerun racing the nightly backstop) must not race on
-# the version commit or double-post the Registrator comment mid-flight.
 concurrency:
   group: register-package
   cancel-in-progress: false
@@ -58,114 +25,128 @@ jobs:
   register:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: main
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: julia-actions/setup-julia@v3
+          ref: ${{ inputs.expected_sha }}
+          fetch-depth: 0
+      - uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3
         with:
           version: "1"
+      - name: Instantiate the release tools
+        run: julia --project=. -e 'using Pkg; Pkg.instantiate()'
 
-      - name: Check the pinned artifact
-        # A direct dispatch skips the release-state test Update artifacts runs,
-        # so resolve Artifacts.toml here: registering a version whose pinned
-        # binaries this binding cannot speak to ships a package that cannot load.
-        run: |
-          julia --project=. -e 'using Pkg; Pkg.instantiate()'
-          julia --project=. -e 'using PowerIO; PowerIO.library_available() || error("the pinned artifact did not resolve or failed the core ABI check")'
-
-      - name: Set the version in Project.toml
-        id: ver
+      - name: Revalidate the immutable release state
+        id: gate
         env:
-          INPUT: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
         run: |
-          cur=$(grep -E '^version *= *"' Project.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-          if [[ "$INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            new="$INPUT"
-          else
-            IFS=. read -r MA MI PA <<< "$cur"
-            case "$INPUT" in
-              major) new="$((MA + 1)).0.0" ;;
-              minor) new="${MA}.$((MI + 1)).0" ;;
-              patch) new="${MA}.${MI}.$((PA + 1))" ;;
-              *) echo "::error::version must be X.Y.Z or major/minor/patch (got '$INPUT')"; exit 1 ;;
-            esac
-          fi
-          sed -i -E "0,/^version *= *\".*\"/s//version = \"$new\"/" Project.toml
-          echo "version=$new" >> "$GITHUB_OUTPUT"
-          echo "previous=$cur" >> "$GITHUB_OUTPUT"
-          echo "Set version to $new (was $cur)"
+          [[ "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::version must be X.Y.Z"; exit 1;
+          }
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::expected_sha must be a full lowercase commit SHA"; exit 1;
+          }
+          [ "$(git rev-parse HEAD)" = "$EXPECTED_SHA" ] || {
+            echo "::error::checkout does not match expected_sha"; exit 1;
+          }
+          git fetch origin main
+          julia --project=. gen/release_state.jl check-exact-sha "$EXPECTED_SHA"
 
-      - name: Validate changelog entry
+          julia --project=. gen/release_state.jl initial \
+            workflow_dispatch "" "$RUNNER_TEMP/intent-status.toml"
+          julia --project=. gen/release_state.jl github-output \
+            "$RUNNER_TEMP/intent-status.toml" "$RUNNER_TEMP/intent-output"
+          intent_status=$(sed -n 's/^status=//p' "$RUNNER_TEMP/intent-output")
+          intent_version=$(sed -n 's/^version=//p' "$RUNNER_TEMP/intent-output")
+          tag=$(sed -n 's/^tag=//p' "$RUNNER_TEMP/intent-output")
+          [ "$intent_status" = ready ] || {
+            echo "::error::release intent is not ready"; exit 1;
+          }
+          [ "$intent_version" = "$INPUT_VERSION" ] || {
+            echo "::error::input version does not match reviewed intent"; exit 1;
+          }
+          julia --project=. gen/release_state.jl check
+
+          release="$RUNNER_TEMP/powerio-release.json"
+          code=$(curl --silent --show-error --location \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --output "$release" --write-out '%{http_code}' \
+            "https://api.github.com/repos/eigenergy/powerio/releases/tags/$tag")
+          [ "$code" = 200 ] || {
+            echo "::error::exact powerio release lookup returned HTTP $code"; exit 1;
+          }
+          open_prs=$(gh pr list --state open --json headRefName \
+            --jq '[.[] | select(.headRefName | startswith("artifacts/"))] | length')
+          general="$RUNNER_TEMP/Versions.toml"
+          code=$(curl --silent --show-error --location \
+            --output "$general" --write-out '%{http_code}' \
+            https://raw.githubusercontent.com/JuliaRegistries/General/master/P/PowerIO/Versions.toml)
+          julia --project=. gen/release_state.jl check-registry-http "$code"
+          julia --project=. gen/release_state.jl release \
+            "$release" "$open_prs" "$general" "$RUNNER_TEMP/release-status.toml"
+          julia --project=. gen/release_state.jl github-output \
+            "$RUNNER_TEMP/release-status.toml" "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/release-status.toml" >> "$GITHUB_STEP_SUMMARY"
+
+          state=$(julia --project=. -e \
+            'using TOML; print(TOML.parsefile(ARGS[1])["status"])' \
+            "$RUNNER_TEMP/release-status.toml")
+          [ "$state" = ready ] || [ "$state" = registered ] || {
+            echo "::error::registration gate returned $state"; exit 1;
+          }
+
+      - name: Test the exact registration tree
+        if: steps.gate.outputs.status == 'ready'
         env:
-          VERSION: ${{ steps.ver.outputs.version }}
+          VERSION: ${{ inputs.version }}
         run: |
-          top=$(awk '/^## / { sub(/^##[[:space:]]+/, ""); sub(/[[:space:]]+$/, ""); print; exit }' CHANGELOG.md)
-          if [ "$top" != "$VERSION" ]; then
-            echo "::error::top CHANGELOG.md section must be ## $VERSION, found ## ${top:-<none>}"
-            exit 1
-          fi
-          body=$(awk 'BEGIN { seen = 0 } /^## / { if (seen) exit; seen = 1; next } seen { print }' CHANGELOG.md)
-          if ! printf '%s\n' "$body" | grep -q '[^[:space:]]'; then
-            echo "::error::CHANGELOG.md section $VERSION is empty"
-            exit 1
-          fi
-          if ! printf '%s\n' "$body" | grep -q '^- '; then
-            echo "::error::CHANGELOG.md section $VERSION must include at least one bullet"
-            exit 1
-          fi
+          # The interpolation below belongs to Julia.
+          # shellcheck disable=SC2016
+          julia --project=. -e '
+            using PowerIO
+            version = ENV["VERSION"]
+            PowerIO.library_available() || error("artifact failed the core ABI handshake")
+            f = PowerIO.features()
+            all(values(f)) || error("artifact is missing a usable feature: $f")
+            for name in ("arrow", "matrix", "gridfm", "dist", "pkg", "prob")
+                PowerIO.has_feature(name) || error("artifact does not report feature $name")
+            end
+            PowerIO.schema_versions().powerio_version == version ||
+                error("schema report does not identify powerio $version")
+            info = PowerIO.build_info()
+            info === nothing && error("artifact has no build information")
+            String(info.powerio_version) == version || error("build report version mismatch")
+          '
+          julia --project=. -e 'using Pkg; Pkg.test()'
+          git diff --quiet || {
+            echo "::error::registration validation changed the source tree"; exit 1;
+          }
 
-      - name: Collect release notes
-        id: notes
+      - name: Post the exact SHA Registrator request
+        if: steps.gate.outputs.status == 'ready'
         env:
-          INPUT_NOTES: ${{ inputs.release_notes }}
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
         run: |
-          if [ -n "$INPUT_NOTES" ]; then
-            notes="$INPUT_NOTES"
-          else
-            # The top CHANGELOG section: first `## ` heading up to the next one.
-            notes=$(awk '/^## /{n++; if (n == 2) exit} n >= 1' CHANGELOG.md)
+          git fetch origin main
+          julia --project=. gen/release_state.jl check-exact-sha "$EXPECTED_SHA"
+          comments="$RUNNER_TEMP/commit-comments.json"
+          gh api --paginate --slurp \
+            "repos/${GITHUB_REPOSITORY}/commits/${EXPECTED_SHA}/comments?per_page=100" \
+            > "$comments"
+          cutoff=$(date -u --date='6 hours ago' '+%Y-%m-%dT%H:%M:%SZ')
+          action=$(julia --project=. gen/release_state.jl \
+            registration-comment-action "$comments" "$cutoff")
+          if [ "$action" = wait ]; then
+            echo "A registration request for $EXPECTED_SHA was posted in the last six hours." \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
-          {
-            echo "notes<<RELEASE_NOTES_EOF"
-            echo "$notes"
-            echo "RELEASE_NOTES_EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Require a breaking mention for a breaking bump
-        env:
-          PREVIOUS: ${{ steps.ver.outputs.previous }}
-          VERSION: ${{ steps.ver.outputs.version }}
-          NOTES: ${{ steps.notes.outputs.notes }}
-        # General's AutoMerge holds a breaking version whose release notes
-        # mention neither "breaking" nor "changelog". Fail here, before the
-        # version commit, instead of an hour later on the General PR.
-        run: |
-          IFS=. read -r pma pmi _ <<< "$PREVIOUS"
-          IFS=. read -r nma nmi _ <<< "$VERSION"
-          breaking=false
-          if [ "$nma" -gt "$pma" ]; then breaking=true; fi
-          if [ "$nma" -eq 0 ] && [ "$pma" -eq 0 ] && [ "$nmi" -gt "$pmi" ]; then breaking=true; fi
-          if [ "$breaking" = true ] && ! printf '%s' "$NOTES" | grep -qiE 'breaking|changelog'; then
-            echo "::error::$PREVIOUS -> $VERSION is a breaking bump, and the release notes mention neither \"breaking\" nor \"changelog\". Add the mention (\"no breaking changes\" counts) to the CHANGELOG section or the release_notes input."
-            exit 1
-          fi
-
-      - name: Commit the version bump
-        id: commit
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -am "Set version to ${{ steps.ver.outputs.version }}" \
-            || echo "version already ${{ steps.ver.outputs.version }}; nothing to commit"
-          git push origin main
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Trigger JuliaRegistrator with release notes
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHA: ${{ steps.commit.outputs.sha }}
-          NOTES: ${{ steps.notes.outputs.notes }}
-        run: |
-          body=$(printf '@JuliaRegistrator register\n\nRelease notes:\n\n%s\n' "$NOTES")
-          gh api "repos/${GITHUB_REPOSITORY}/commits/${SHA}/comments" -f body="$body"
+          notes=$(awk '/^## /{n++; if (n == 2) exit} n >= 1' CHANGELOG.md)
+          body=$(printf '@JuliaRegistrator register\n\nRelease notes:\n\n%s\n' "$notes")
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${EXPECTED_SHA}/comments" -f body="$body"
+          echo "Posted the Registrator request on $EXPECTED_SHA." \
+            | tee -a "$GITHUB_STEP_SUMMARY"

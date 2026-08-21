@@ -1,29 +1,26 @@
 #!/usr/bin/env julia
-# Fill Artifacts.toml from a powerio release's binary tarballs.
-#
-#   julia gen/update_artifacts.jl v0.0.1
-#
-# The release-binaries workflow in eigenergy/powerio builds
-# libpowerio_capi.<triplet>.tar.gz for the five supported platforms and attaches
-# them to the GitHub release for the given tag. This script downloads each one,
-# computes the tarball sha256 and the unpacked tree's git-tree-sha1, and rewrites
-# Artifacts.toml. Commit the result (the Update artifacts workflow runs this
-# and opens the PR).
-#
-# The assets must be downloadable: either eigenergy/powerio is public, or `gh`
-# is installed and authenticated (used automatically when available).
+
+module PowerIOArtifactUpdater
 
 using Downloads
 using SHA
+using TOML
+import JSON3
 import Libdl
 import Pkg.GitTools
 
-include(joinpath(@__DIR__, "..", "src", "schema_lineage.jl"))
+include(joinpath(@__DIR__, "release_state.jl"))
+using .PowerIOReleaseState: write_status_atomic
 
+export CandidateReport, ParkedGate, PLATFORMS, REQUIRED_FEATURES,
+       REPRESENTATIVE_SYMBOLS, install_ready!, main, run_update,
+       validate_candidate
+
+const ROOT = normpath(joinpath(@__DIR__, ".."))
 const REPO = "eigenergy/powerio"
+const ARTIFACT_PATH = joinpath(ROOT, "Artifacts.toml")
 
-# (Julia platform triplet, Artifacts.toml platform keys); must stay in sync with
-# the matrix in powerio's .github/workflows/release-binaries.yml.
+# Must stay in sync with powerio's release-binaries workflow.
 const PLATFORMS = [
     ("x86_64-linux-gnu", ["arch = \"x86_64\"", "os = \"linux\"", "libc = \"glibc\""]),
     ("aarch64-linux-gnu", ["arch = \"aarch64\"", "os = \"linux\"", "libc = \"glibc\""]),
@@ -32,19 +29,165 @@ const PLATFORMS = [
     ("x86_64-w64-mingw32", ["arch = \"x86_64\"", "os = \"windows\""]),
 ]
 
-function fetch(tag::String, name::String, dest::String)
-    if Sys.which("gh") !== nothing
-        run(`gh release download $tag --repo $REPO --pattern $name --output $dest --clobber`)
-    else
-        Downloads.download("https://github.com/$REPO/releases/download/$tag/$name", dest)
+const REQUIRED_FEATURES = ("arrow", "matrix", "gridfm", "dist", "pkg", "prob")
+const CORE_SYMBOLS = Set((
+    :pio_abi_version,
+    :pio_has_feature,
+    :pio_schema_versions_json,
+    :pio_build_info,
+    :pio_string_free,
+))
+const REPRESENTATIVE_SYMBOLS = Dict(
+    "arrow" => (:pio_to_arrow, :pio_arrow_catalog_json),
+    "matrix" => (:pio_matrix_available,),
+    "gridfm" => (:pio_read_dir, :pio_scenario_ids),
+    "dist" => (:pio_dist_parse_str, :pio_dist_to_json),
+    "pkg" => (:pio_package_parse_str, :pio_package_to_json),
+    "prob" => (:pio_scopf_parse_str, :pio_scopf_to_json, :pio_scopf_instance_free),
+)
+const KNOWN_SYMBOLS = union(
+    CORE_SYMBOLS,
+    Set((:pio_dist_abi_version,)),
+    Set(Iterators.flatten(values(REPRESENTATIVE_SYMBOLS))),
+)
+
+struct ParkedGate <: Exception
+    reason::String
+    detail::String
+end
+
+Base.showerror(io::IO, err::ParkedGate) =
+    print(io, "artifact update parked (", err.reason, "): ", err.detail)
+
+_park(reason::AbstractString, detail::AbstractString) =
+    throw(ParkedGate(String(reason), String(detail)))
+
+struct CandidateReport
+    abi::UInt32
+    dist_abi::Union{Nothing,UInt32}
+    features::Dict{String,Bool}
+    symbols::Set{Symbol}
+    matrix_available::Bool
+    schema
+    build
+end
+
+function _binding_const(name::AbstractString, files)
+    re = Regex("\\b$(name)\\s*=\\s*UInt32\\((\\d+)\\)")
+    for file in files
+        path = joinpath(ROOT, "src", file)
+        isfile(path) || continue
+        m = match(re, read(path, String))
+        m === nothing || return parse(UInt32, m.captures[1])
+    end
+    error("$name not found in binding sources")
+end
+
+_binding_abi() = _binding_const("PIO_ABI_VERSION", ("capi.jl", "PowerIO.jl"))
+_binding_dist_abi() = _binding_const("PIO_DIST_ABI_VERSION", ("dist.jl", "PowerIO.jl"))
+
+function _lookup(obj, key::Symbol, default=nothing)
+    obj === nothing && return default
+    try
+        return get(obj, key, default)
+    catch
+        try
+            return get(obj, String(key), default)
+        catch
+            return default
+        end
     end
 end
 
-isempty(ARGS) && error("usage: julia gen/update_artifacts.jl <powerio tag, e.g. v0.0.1>")
-tag = ARGS[1]
+function _object_like(obj)
+    obj === nothing && return false
+    try
+        keys(obj)
+        return true
+    catch
+        return false
+    end
+end
 
-# The Julia platform triplet of the machine running this script, in the naming
-# of PLATFORMS; "" on a platform the release does not cover.
+function _nonempty_collection(value)
+    value === nothing && return false
+    try
+        return !isempty(value)
+    catch
+        return false
+    end
+end
+
+function validate_candidate(report::CandidateReport, tag::AbstractString;
+                            binding_abi::UInt32=_binding_abi(),
+                            binding_dist_abi::UInt32=_binding_dist_abi())
+    missing_core = sort!(collect(setdiff(CORE_SYMBOLS, report.symbols)); by=string)
+    isempty(missing_core) || _park(
+        "required_symbol_missing", "missing core symbol $(first(missing_core))")
+    report.abi == binding_abi || _park(
+        "core_abi_mismatch", "binary ABI $(report.abi), binding ABI $binding_abi")
+
+    for feature in REQUIRED_FEATURES
+        get(report.features, feature, false) || _park(
+            "required_feature_missing", "binary does not report feature $feature")
+    end
+    :pio_dist_abi_version in report.symbols || _park(
+        "dist_abi_missing", "binary does not expose pio_dist_abi_version")
+    report.dist_abi === nothing && _park(
+        "dist_abi_missing", "binary did not report a distribution ABI")
+    report.dist_abi == binding_dist_abi || _park(
+        "dist_abi_mismatch",
+        "binary distribution ABI $(report.dist_abi), binding ABI $binding_dist_abi")
+
+    for feature in REQUIRED_FEATURES, symbol in REPRESENTATIVE_SYMBOLS[feature]
+        symbol in report.symbols || _park(
+            "required_symbol_missing", "feature $feature is missing symbol $symbol")
+    end
+    report.matrix_available || _park(
+        "required_feature_missing", "pio_matrix_available reports false")
+
+    _object_like(report.schema) || _park(
+        "schema_report_invalid", "pio_schema_versions_json is not an object")
+    _object_like(report.build) || _park(
+        "schema_report_invalid", "pio_build_info is not an object")
+    version = startswith(tag, "v") ? tag[nextind(tag, firstindex(tag)):end] : String(tag)
+    schema_version = _lookup(report.schema, :powerio_version)
+    build_version = _lookup(report.build, :powerio_version)
+    schema_version isa AbstractString || _park(
+        "schema_report_invalid", "schema report has no powerio_version string")
+    build_version isa AbstractString || _park(
+        "schema_report_invalid", "build report has no powerio_version string")
+    String(schema_version) == version || _park(
+        "schema_version_mismatch", "schema report is $schema_version, requested $version")
+    String(build_version) == version || _park(
+        "schema_version_mismatch", "build report is $build_version, requested $version")
+    _lookup(report.schema, :abi) == Int(binding_abi) || _park(
+        "core_abi_mismatch", "schema report ABI does not match binding ABI $binding_abi")
+    _lookup(report.build, :abi) == Int(binding_abi) || _park(
+        "core_abi_mismatch", "build report ABI does not match binding ABI $binding_abi")
+
+    build_features = _lookup(report.build, :features)
+    _object_like(build_features) || _park(
+        "schema_report_invalid", "build report has no features object")
+    for feature in REQUIRED_FEATURES
+        _lookup(build_features, Symbol(feature), false) === true || _park(
+            "required_feature_missing", "build report does not enable feature $feature")
+    end
+    bmopf = _lookup(report.schema, :bmopf_schema)
+    bmopf isa AbstractString && !isempty(bmopf) || _park(
+        "schema_report_invalid", "schema report has no BMOPF schema version")
+    foreign = _lookup(report.build, :foreign_schemas)
+    _object_like(foreign) || _park(
+        "schema_report_invalid", "build report has no foreign_schemas object")
+    _lookup(foreign, :bmopf) == bmopf || _park(
+        "schema_report_invalid", "schema and build reports disagree on BMOPF")
+    for key in (:error_categories, :diagnostic_namespaces, :json_classes)
+        _nonempty_collection(_lookup(report.build, key)) || _park(
+            "schema_report_invalid", "build report has no nonempty $key list")
+    end
+    return report
+end
+
 function _host_triplet()
     arch = Sys.ARCH in (:x86_64, :aarch64) ? String(Sys.ARCH) : return ""
     Sys.islinux() && return "$arch-linux-gnu"
@@ -53,221 +196,180 @@ function _host_triplet()
     return ""
 end
 
-# Parse an ABI constant from the source files that may own it after the module
-# split. Keep this textual so the release updater can run before package
-# instantiation.
-_binding_uint32_const(name::AbstractString, files) =
-    _binding_const(name, files; value_re = "UInt32\\((\\d+)\\)",
-                   convert = c -> parse(UInt32, c))
-
-# Find `name` in the src files. `value_re` captures the value; `convert`
-# makes the return type. `nothing` means the constant is absent.
-function _binding_const(name::AbstractString, files; value_re::AbstractString, convert)
-    re = Regex("\\b$(name)\\s*=\\s*$(value_re)")
-    for file in files
-        path = joinpath(@__DIR__, "..", "src", file)
-        isfile(path) || continue
-        m = match(re, read(path, String))
-        m === nothing || return convert(m.captures[1])
-    end
-    return nothing
-end
-
-# The ABI version this binding targets, parsed from the source of truth.
-function _binding_abi()
-    value = _binding_uint32_const("PIO_ABI_VERSION", ("capi.jl", "PowerIO.jl"))
-    value === nothing && error("PIO_ABI_VERSION not found in src/capi.jl or src/PowerIO.jl")
-    return value
-end
-
-# The distribution ABI version this binding targets, parsed from the source of
-# truth. Missing means this binding predates the separate dist ABI.
-function _binding_dist_abi()
-    return _binding_uint32_const("PIO_DIST_ABI_VERSION", ("dist.jl", "PowerIO.jl"))
-end
-
-# Warn and write the step summary, but do not stop the release. Use for a
-# check that could not run.
-function _gate_note(msg::String)
-    @warn msg
-    summary = get(ENV, "GITHUB_STEP_SUMMARY", "")
-    isempty(summary) || open(io -> println(io, msg), summary, "a")
-end
-
-_skip_release(msg::String) = (_gate_note(msg); exit(0))
-
-# The ABI integers do not cover document formats. Compare the schema
-# versions the library reports with the constants this binding targets
-# (schema_lineage.jl, included above, defines both). The ABI gate alone
-# governs a library without `pio_schema_versions_json`. Every path that
-# cannot verify a version parks the release; a bad pin ships silently
-# otherwise.
-function _check_schema_versions(handle, tag::String)
-    schema_sym = Libdl.dlsym(handle, :pio_schema_versions_json; throw_error=false)
-    schema_sym === nothing && return
-    free = Libdl.dlsym(handle, :pio_string_free; throw_error=false)
-    ptr = ccall(schema_sym, Cstring, ())
-    ptr == C_NULL && _skip_release(
-        "skipping $tag: pio_schema_versions_json returned null, so the schema " *
-        "checks cannot run; Artifacts.toml left untouched"
-    )
+function _owned_json(handle, symbol::Symbol)
+    ptr = ccall(Libdl.dlsym(handle, symbol), Cstring, ())
+    ptr == C_NULL && return nothing
     text = unsafe_string(ptr)
-    # `pio_string_free` ships together with `pio_schema_versions_json`, so the
-    # guard's leak path is unreachable in practice; it keeps a hypothetical
-    # report-only build from crashing the gate.
-    free === nothing || ccall(free, Cvoid, (Cstring,), ptr)
-    # Textual parse: this script runs before package instantiation, so it
-    # cannot use JSON3. The report is a flat object, so a first-match regex
-    # cannot land on a nested key.
-    want = lstrip(tag, 'v')
-    for key in (POWERIO_VERSION_KEY,)
-        m = match(Regex("\"$(key)\"\\s*:\\s*\"([^\"]+)\""), text)
-        m === nothing && _skip_release(
-            "skipping $tag: pio_schema_versions_json reports no \"$key\" string " *
-            "(key reshaped), so the version check cannot " *
-            "run; Artifacts.toml left untouched"
-        )
-        got = String(m.captures[1])
-        _same_schema_lineage(got, want) || _skip_release(
-            "skipping $tag: its binaries are powerio $got, this binding " *
-            "targets $want; Artifacts.toml left untouched (repin after the " *
-            "lockstep binding PR merges)"
-        )
+    ccall(Libdl.dlsym(handle, :pio_string_free), Cvoid, (Cstring,), ptr)
+    return _parse_report_json(text, symbol)
+end
+
+function _parse_report_json(text::AbstractString, symbol::Symbol)
+    try
+        return JSON3.read(text)
+    catch err
+        error("$symbol returned invalid JSON: $(sprint(showerror, err))")
     end
 end
 
-# Refuse to pin binaries this binding cannot speak to: dlopen the unpacked
-# host-platform library and compare its pio_abi_version with PIO_ABI_VERSION,
-# when present in the binding pio_dist_abi_version with PIO_DIST_ABI_VERSION,
-# and the additive matrix/package features through pio_has_feature.
-# Exit 0 without touching Artifacts.toml on a mismatch, so the scheduled
-# tracking run is a clean no-op until the lockstep binding PR merges. A summary
-# line lands in $GITHUB_STEP_SUMMARY when running under Actions.
-function _check_abi(unpack::String, triplet::String, tag::String)
+function _inspect_library(unpack::AbstractString, triplet::AbstractString,
+                          tag::AbstractString)
     libsubdir = endswith(triplet, "mingw32") ? "bin" : "lib"
     lib = joinpath(unpack, libsubdir, "libpowerio_capi.$(Libdl.dlext)")
-    isfile(lib) || error("no $lib in the $triplet tarball")
+    isfile(lib) || error("release archive has no $lib")
     handle = Libdl.dlopen(lib)
     try
-        got = ccall(Libdl.dlsym(handle, :pio_abi_version), UInt32, ())
-        want = _binding_abi()
-        got == want || _skip_release(
-            "skipping $tag: its binaries report ABI $got, this binding targets ABI $want; " *
-            "Artifacts.toml left untouched (repin after the lockstep binding PR merges)"
-        )
-
-        dist_want = _binding_dist_abi()
-        if dist_want !== nothing
-            dist_got = try
-                ccall(Libdl.dlsym(handle, :pio_dist_abi_version), UInt32, ())
-            catch e
-                _skip_release(
-                    "skipping $tag: its binaries do not expose pio_dist_abi_version, " *
-                    "this binding targets dist ABI $dist_want; Artifacts.toml left untouched. " *
-                    "Underlying: $e"
-                )
-            end
-            dist_got == dist_want || _skip_release(
-                "skipping $tag: its binaries report dist ABI $dist_got, this binding targets " *
-                "dist ABI $dist_want; Artifacts.toml left untouched"
-            )
-        end
-
-        has_feature = try
-            Libdl.dlsym(handle, :pio_has_feature)
-        catch e
-            _skip_release(
-                "skipping $tag: its binaries do not expose pio_has_feature for the feature " *
-                "surface checks; Artifacts.toml left untouched. Underlying: $e"
-            )
-        end
-
-        matrix_feature = ccall(has_feature, Cint, (Cstring,), "matrix")
-        matrix_feature == 1 || _skip_release(
-            "skipping $tag: its binaries do not report the matrix feature; " *
-            "Artifacts.toml left untouched"
-        )
-        matrix_available = try
-            ccall(Libdl.dlsym(handle, :pio_matrix_available), Cint, ())
-        catch e
-            _skip_release(
-                "skipping $tag: its binaries do not expose pio_matrix_available; " *
-                "Artifacts.toml left untouched. Underlying: $e"
-            )
-        end
-        matrix_available == 1 || _skip_release(
-            "skipping $tag: its binaries do not enable matrix Arrow tables; " *
-            "Artifacts.toml left untouched"
-        )
-
-        pkg_feature = try
-            ccall(has_feature, Cint, (Cstring,), "pkg")
-        catch e
-            _skip_release(
-                "skipping $tag: its binaries could not report the package feature; " *
-                "Artifacts.toml left untouched. Underlying: $e"
-            )
-        end
-        pkg_feature == 1 || _skip_release(
-            "skipping $tag: its binaries do not report the pkg feature; " *
-            "Artifacts.toml left untouched"
-        )
-        Libdl.dlsym(handle, :pio_package_parse_str; throw_error=false) !== nothing || _skip_release(
-            "skipping $tag: its binaries report pkg but do not expose pio_package_parse_str; " *
-            "Artifacts.toml left untouched"
-        )
-
-        _check_schema_versions(handle, tag)
+        symbols = Set(sym for sym in KNOWN_SYMBOLS
+                      if Libdl.dlsym(handle, sym; throw_error=false) !== nothing)
+        missing_core = setdiff(CORE_SYMBOLS, symbols)
+        isempty(missing_core) || _park(
+            "required_symbol_missing", "missing core symbol $(first(missing_core))")
+        abi = ccall(Libdl.dlsym(handle, :pio_abi_version), UInt32, ())
+        features = Dict(feature =>
+            ccall(Libdl.dlsym(handle, :pio_has_feature), Cint,
+                  (Cstring,), feature) == 1 for feature in REQUIRED_FEATURES)
+        dist_abi = :pio_dist_abi_version in symbols ?
+            ccall(Libdl.dlsym(handle, :pio_dist_abi_version), UInt32, ()) : nothing
+        matrix_available = :pio_matrix_available in symbols &&
+            ccall(Libdl.dlsym(handle, :pio_matrix_available), Cint, ()) == 1
+        schema = _owned_json(handle, :pio_schema_versions_json)
+        build = _owned_json(handle, :pio_build_info)
+        report = CandidateReport(
+            abi, dist_abi, features, symbols, matrix_available, schema, build)
+        return validate_candidate(report, tag)
     finally
         Libdl.dlclose(handle)
     end
 end
 
-stanzas = String[]
-mktempdir() do tmp
-    host = _host_triplet()
-    for (triplet, keys) in PLATFORMS
-        name = "libpowerio_capi.$triplet.tar.gz"
-        tarball = joinpath(tmp, name)
-        @info "fetching" name
-        fetch(tag, name, tarball)
-        sha = bytes2hex(open(sha256, tarball))
-        unpack = joinpath(tmp, triplet)
-        mkpath(unpack)
-        run(`tar -xzf $tarball -C $unpack`)
-        triplet == host && _check_abi(unpack, triplet, tag)
-        tree = bytes2hex(GitTools.tree_hash(unpack))
-        url = "https://github.com/$REPO/releases/download/$tag/$name"
-        push!(
-            stanzas,
-            """
-            [[powerio_capi]]
-            $(join(keys, '\n'))
-            git-tree-sha1 = "$tree"
-            lazy = true
+function fetch_asset(tag::AbstractString, name::AbstractString, dest::AbstractString)
+    if Sys.which("gh") !== nothing
+        run(`gh release download $tag --repo $REPO --pattern $name --output $dest --clobber`)
+    else
+        Downloads.download("https://github.com/$REPO/releases/download/$tag/$name", dest)
+    end
+    return dest
+end
 
-                [[powerio_capi.download]]
-                sha256 = "$sha"
-                url = "$url"
-            """,
-        )
+function _render_artifacts(tag::AbstractString; fetcher=fetch_asset,
+                           inspector=_inspect_library)
+    stanzas = String[]
+    host = _host_triplet()
+    isempty(host) && error("artifact generation cannot validate binaries on this host")
+    host in first.(PLATFORMS) || error("release matrix does not contain host $host")
+    mktempdir() do tmp
+        for (triplet, keys) in PLATFORMS
+            name = "libpowerio_capi.$triplet.tar.gz"
+            tarball = joinpath(tmp, name)
+            @info "fetching release asset" name
+            fetcher(tag, name, tarball)
+            isfile(tarball) || error("asset fetch did not create $name")
+            sha = bytes2hex(open(sha256, tarball))
+            unpack = joinpath(tmp, triplet)
+            mkpath(unpack)
+            run(`tar -xzf $tarball -C $unpack`)
+            triplet == host && inspector(unpack, triplet, tag)
+            tree = bytes2hex(GitTools.tree_hash(unpack))
+            url = "https://github.com/$REPO/releases/download/$tag/$name"
+            push!(stanzas, """
+                [[powerio_capi]]
+                $(join(keys, '\n'))
+                git-tree-sha1 = "$tree"
+                lazy = true
+
+                    [[powerio_capi.download]]
+                    sha256 = "$sha"
+                    url = "$url"
+                """)
+        end
+    end
+    header = """
+    # Generated by gen/update_artifacts.jl from the $tag release of $REPO.
+    # Regenerate after each reviewed release intent becomes available:
+    #   julia --project=. gen/update_artifacts.jl $tag --status-file update-status.toml
+    #
+    # `lazy = true`: nothing downloads at `Pkg.add`; the current platform's
+    # tarball is fetched on the first call that needs the binary.
+    """
+    return header * "\n" * join(stanzas, "\n")
+end
+
+function _atomic_write(path::AbstractString, content::AbstractString)
+    dir = dirname(abspath(path))
+    isdir(dir) || mkpath(dir)
+    tmp, io = mktemp(dir)
+    try
+        write(io, content)
+        flush(io)
+        close(io)
+        mv(tmp, path; force=true)
+    catch
+        isopen(io) && close(io)
+        ispath(tmp) && rm(tmp; force=true)
+        rethrow()
+    end
+    return path
+end
+
+function install_ready!(artifact_path::AbstractString, status_path::AbstractString,
+                        content::AbstractString, tag::AbstractString)
+    abspath(artifact_path) == abspath(status_path) &&
+        error("status file must not be Artifacts.toml")
+    existed = isfile(artifact_path)
+    original = existed ? read(artifact_path, String) : ""
+    changed = !existed || original != content
+    try
+        changed && _atomic_write(artifact_path, content)
+        write_status_atomic(status_path, Dict(
+            "status" => "ready",
+            "tag" => String(tag),
+            "changed" => changed,
+        ))
+    catch
+        if changed
+            existed ? _atomic_write(artifact_path, original) : rm(artifact_path; force=true)
+        end
+        rethrow()
+    end
+    return changed
+end
+
+function run_update(tag::AbstractString, status_path::AbstractString;
+                    artifact_path::AbstractString=ARTIFACT_PATH,
+                    fetcher=fetch_asset, inspector=_inspect_library)
+    occursin(r"^v[0-9]+\.[0-9]+\.[0-9]+$", tag) ||
+        error("powerio tag must be vX.Y.Z")
+    try
+        content = _render_artifacts(tag; fetcher, inspector)
+        changed = install_ready!(artifact_path, status_path, content, tag)
+        @info "artifact update ready" tag changed
+        return (; status="ready", tag=String(tag), changed)
+    catch err
+        if err isa ParkedGate
+            write_status_atomic(status_path, Dict(
+                "status" => "parked",
+                "tag" => String(tag),
+                "changed" => false,
+                "reason" => err.reason,
+                "detail" => err.detail,
+            ))
+            @warn "artifact update parked" tag reason=err.reason detail=err.detail
+            return (; status="parked", tag=String(tag), changed=false,
+                    reason=err.reason, detail=err.detail)
+        end
+        rethrow()
     end
 end
 
-header = """
-# Generated by gen/update_artifacts.jl from the $tag release of $REPO.
-# Regenerate (do not hand-edit) after each powerio binary release:
-#   julia gen/update_artifacts.jl <tag>
-#
-# `lazy = true`: nothing downloads at `Pkg.add`; the tarball for the current
-# platform is fetched on the first use that needs the binary. On an unsupported
-# platform the lookup fails and `_artifact_lib()` falls back to a sibling
-# checkout, then a plain `libpowerio_capi` on the loader path.
-#
-# Windows note: the .dll ships under bin/, not lib/; `_artifact_lib()` already
-# resolves the bin/ subdir on Windows.
-"""
+function main(args=ARGS)
+    length(args) == 3 && args[2] == "--status-file" || error(
+        "usage: julia --project=. gen/update_artifacts.jl vX.Y.Z --status-file PATH")
+    run_update(args[1], args[3])
+    return nothing
+end
 
-path = joinpath(@__DIR__, "..", "Artifacts.toml")
-write(path, header * "\n" * join(stanzas, "\n"))
-@info "wrote" path
+end # module
+
+if abspath(PROGRAM_FILE) == @__FILE__
+    PowerIOArtifactUpdater.main()
+end
