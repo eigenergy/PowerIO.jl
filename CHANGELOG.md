@@ -59,11 +59,12 @@ Breaking: seven returned NamedTuple row or length shapes grow: shunt, AC line, t
 - `LoadSeries` and `read_load_series` gain positional `::Type{T}` methods, with
   their keyword forms forwarding to them. A compiler can now infer exactly
   `LoadSeries{T}` through every constructor used by an ahead of time consumer.
-- `update-artifacts.yml` no longer releases without an explicit instruction.
-  Only a `workflow_dispatch` run with `release=true` commits to main and
-  registers. The daily schedule and the powerio release dispatch now open a
-  reviewed PR. Neither can know whether unreleased Julia changes on main are
-  breaking, and the changelog entry the automation writes claims they are not.
+- Releases use a reviewed intent that fixes the Julia version, powerio tag, and
+  source digest before powerio is published. The release updater changes only
+  `Artifacts.toml`, parks semantic mismatches without touching it, pushes only
+  when `main` has not moved, and registers the exact tested SHA. Scheduled,
+  repository, and manual runs all obey the same intent; there is no authority
+  bypass that selects a version or writes changelog claims.
 - `demands_mw` and `read_load_series` no longer say that
   `ExaModelsPower.mpopf_model` divides its `pd` and `qd` keywords by `baseMVA`.
   That interface gives MW matrices to `LoadSeries`, which converts them.

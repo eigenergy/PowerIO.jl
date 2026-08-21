@@ -1,26 +1,27 @@
 # Binary distribution
 
-PowerIO.jl wraps the Rust `powerio-capi` cdylib, shipped as a prebuilt
-per-platform binary; users never compile it.
+PowerIO.jl wraps the Rust `powerio-capi` cdylib, shipped as a prebuilt binary
+for each platform; users never compile it.
 
 ## Pipeline
 
 1. A version tag on [eigenergy/powerio](https://github.com/eigenergy/powerio)
    triggers its `release-binaries` workflow, which builds
    `libpowerio_capi.<triplet>.tar.gz` with the `arrow`, `matrix`, `gridfm`,
-   `dist`, `pkg`, and `prob` features for Linux glibc (`x86_64`, `aarch64`), macOS
-   (`x86_64`, `arm64`), and Windows (`x86_64`), and attaches the five tarballs
-   to the GitHub release. Each tarball
-   holds the cdylib under `lib/` (`bin/` on Windows), the C header under
-   `include/`, and the licenses.
-2. In this repository, `julia gen/update_artifacts.jl <tag>` downloads the five
-   tarballs, computes each one's sha256 and unpacked git-tree-sha1, and rewrites
-   `Artifacts.toml`. The script verifies the core ABI, distribution ABI, and
-   required feature entry points before writing, and compares the library's
-   `pio_schema_versions_json` report (see [`schema_versions`](@ref)) with the
-   package and Arrow schema lineages this binding targets. The "Update
-   artifacts" workflow runs this and opens the PR; the release ceremony around
-   it is in CONTRIBUTING.md.
+   `dist`, `pkg`, and `prob` features for Linux glibc (`x86_64`, `aarch64`),
+   macOS (`x86_64`, `arm64`), and Windows (`x86_64`), and attaches the five
+   tarballs to the GitHub release. Each tarball holds the cdylib under `lib/`
+   (`bin/` on Windows), the C header under `include/`, and the licenses.
+2. A reviewed `.github/powerio-release.toml` names the exact tag and binds it to
+   the final Julia source digest. "Update artifacts" downloads the five
+   tarballs, computes each one's SHA-256 and unpacked git-tree-sha1, and asks
+   `gen/update_artifacts.jl` to build `Artifacts.toml`. Before writing, the
+   generator verifies the core and distribution ABIs, all six features and
+   representative symbols, and both `pio_schema_versions_json` and
+   `pio_build_info`. A semantic mismatch parks with `Artifacts.toml` untouched.
+   The workflow tests the exact result, commits only `Artifacts.toml`, pushes
+   only when `main` has not moved, and dispatches registration for that exact
+   SHA. See CONTRIBUTING.md for the state machine and recovery commands.
 3. `Artifacts.toml` is lazy: nothing downloads at `Pkg.add`; the tarball for the
    current platform is fetched on the first call that needs the library.
 
