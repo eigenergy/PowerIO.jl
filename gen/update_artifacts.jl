@@ -44,7 +44,12 @@ const REPRESENTATIVE_SYMBOLS = Dict(
     "gridfm" => (:pio_read_dir, :pio_scenario_ids),
     "dist" => (:pio_dist_parse_str, :pio_dist_to_json),
     "pkg" => (:pio_package_parse_str, :pio_package_to_json),
-    "prob" => (:pio_scopf_parse_str, :pio_scopf_to_json, :pio_scopf_instance_free),
+    "prob" => (
+        :pio_scopf_parse_str,
+        :pio_scopf_to_json,
+        :pio_scopf_to_json_with_index_base,
+        :pio_scopf_instance_free,
+    ),
 )
 const KNOWN_SYMBOLS = union(
     CORE_SYMBOLS,

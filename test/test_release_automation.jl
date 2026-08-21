@@ -290,7 +290,10 @@ end
     @test _parked_reason(_candidate(symbols=no_dist_abi, dist_abi=nothing)) ==
           "dist_abi_missing"
     @test _parked_reason(_candidate(dist_abi=UInt32(2))) == "dist_abi_mismatch"
-    no_prob = setdiff(copy(ArtifactUpdater.KNOWN_SYMBOLS), Set((:pio_scopf_to_json,)))
+    no_prob = setdiff(
+        copy(ArtifactUpdater.KNOWN_SYMBOLS),
+        Set((:pio_scopf_to_json_with_index_base,)),
+    )
     @test _parked_reason(_candidate(symbols=no_prob)) == "required_symbol_missing"
     @test _parked_reason(_candidate(schema=nothing)) == "schema_report_invalid"
     @test _parked_reason(_candidate(schema=Dict(

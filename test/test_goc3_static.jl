@@ -1,6 +1,6 @@
 # The instance is the Rust core's projection, so this whole file needs the
-# native library with the prob feature (on in every released binary since
-# powerio v0.7.0). `parse_goc3_json`'s own coverage lives in test_goc3.jl.
+# native library with the prob feature and selectable index serializer (powerio
+# v0.9.0). `parse_goc3_json`'s own coverage lives in test_goc3.jl.
 if !(PowerIO.library_available() && PowerIO.scopf_available())
     @testset "GO Challenge 3 static index sets" begin
         @info "pio_scopf_* not exported (needs powerio-capi --features prob); skipping"

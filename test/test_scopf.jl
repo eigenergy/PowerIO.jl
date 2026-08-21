@@ -1,6 +1,9 @@
 @testset "native SCOPF instance JSON (feature prob)" begin
+    @test_throws ArgumentError PowerIO.parse_scopf("{}"; index_base=-1)
+    @test_throws ArgumentError PowerIO.parse_scopf("{}"; index_base=2)
+
     if !PowerIO.library_available() || !PowerIO.scopf_available()
-        @info "pio_scopf_* not exported (needs powerio-capi v0.7 --features prob); skipping"
+        @info "pio_scopf_* not exported (needs powerio-capi v0.9 --features prob); skipping"
         @test_skip PowerIO.parse_scopf("{}")
     else
         goc3_path = joinpath(@__DIR__, "data", "goc3_small.json")
@@ -10,6 +13,34 @@
         @test haskey(doc, :powerio_version)
         @test Int(doc.index_base) == 1
         @test haskey(doc, :instance)
+
+        zero_based = PowerIO.parse_scopf(text; index_base=0)
+        @test Int(zero_based.index_base) == 0
+        @test Int(zero_based.instance.static.bus[1].i) ==
+              Int(doc.instance.static.bus[1].i)
+        @test Int(zero_based.instance.static.acl_branch[1].j_ln) == 0
+        @test Int(doc.instance.static.acl_branch[1].j_ln) == 1
+        @test Int(zero_based.instance.static.acl_branch[1].u_0) ==
+              Int(doc.instance.static.acl_branch[1].u_0)
+        @test Int(zero_based.instance.lengths.L_J_ln) ==
+              Int(doc.instance.lengths.L_J_ln)
+
+        # The typed API requests base 1 explicitly. Its document-order
+        # ordinals can index the corresponding Julia vectors without shifts.
+        typed = PowerIO.goc3_scopf_data(text)
+        lines = typed.static.acl_branch
+        producers = typed.static.prod
+        consumers = typed.static.cons
+        producer_members = typed.static.active_reserve_set_pr
+        consumer_members = typed.static.active_reserve_set_cs
+        devices = vcat(producers, consumers)
+        @test all(row -> lines[row.j_ln].uid == row.uid, lines)
+        @test all(row -> producers[row.j_dev].uid == row.uid, producer_members)
+        @test all(row -> consumers[row.j_dev].uid == row.uid, consumer_members)
+        @test all(
+            row -> devices[row.j_sdd].uid == row.uid,
+            vcat(producer_members, consumer_members),
+        )
 
         # The instance's per-class set sizes match the document sections
         # parse_goc3_json reads, so the two remaining readers of the raw file
