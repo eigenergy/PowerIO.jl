@@ -31,6 +31,7 @@ const PLATFORMS = [
 
 const REQUIRED_FEATURES = ("arrow", "matrix", "gridfm", "dist", "pkg", "prob")
 const CORE_SYMBOLS = Set((
+    :pio_version,
     :pio_abi_version,
     :pio_has_feature,
     :pio_schema_versions_json,
@@ -63,6 +64,7 @@ _park(reason::AbstractString, detail::AbstractString) =
     throw(ParkedGate(String(reason), String(detail)))
 
 struct CandidateReport
+    version::String
     abi::UInt32
     dist_abi::Union{Nothing,UInt32}
     features::Dict{String,Bool}
@@ -127,6 +129,11 @@ function validate_candidate(report::CandidateReport, tag::AbstractString;
     report.abi == binding_abi || _park(
         "core_abi_mismatch", "binary ABI $(report.abi), binding ABI $binding_abi")
 
+    version = startswith(tag, "v") ? tag[nextind(tag, firstindex(tag)):end] : String(tag)
+    report.version == version || _park(
+        "schema_version_mismatch",
+        "pio_version reports $(report.version), requested $version")
+
     for feature in REQUIRED_FEATURES
         get(report.features, feature, false) || _park(
             "required_feature_missing", "binary does not report feature $feature")
@@ -150,7 +157,6 @@ function validate_candidate(report::CandidateReport, tag::AbstractString;
         "schema_report_invalid", "pio_schema_versions_json is not an object")
     _object_like(report.build) || _park(
         "schema_report_invalid", "pio_build_info is not an object")
-    version = startswith(tag, "v") ? tag[nextind(tag, firstindex(tag)):end] : String(tag)
     schema_version = _lookup(report.schema, :powerio_version)
     build_version = _lookup(report.build, :powerio_version)
     schema_version isa AbstractString || _park(
@@ -205,6 +211,8 @@ function _owned_json(handle, symbol::Symbol)
 end
 
 function _parse_report_json(text::AbstractString, symbol::Symbol)
+    # Malformed report bytes are a runtime parse failure, not a semantic schema
+    # disagreement. They stay hard failures and never create a parked status.
     try
         return JSON3.read(text)
     catch err
@@ -224,6 +232,10 @@ function _inspect_library(unpack::AbstractString, triplet::AbstractString,
         missing_core = setdiff(CORE_SYMBOLS, symbols)
         isempty(missing_core) || _park(
             "required_symbol_missing", "missing core symbol $(first(missing_core))")
+        version_ptr = ccall(Libdl.dlsym(handle, :pio_version), Cstring, ())
+        version_ptr == C_NULL && _park(
+            "schema_report_invalid", "pio_version returned null")
+        version = unsafe_string(version_ptr)
         abi = ccall(Libdl.dlsym(handle, :pio_abi_version), UInt32, ())
         features = Dict(feature =>
             ccall(Libdl.dlsym(handle, :pio_has_feature), Cint,
@@ -235,7 +247,7 @@ function _inspect_library(unpack::AbstractString, triplet::AbstractString,
         schema = _owned_json(handle, :pio_schema_versions_json)
         build = _owned_json(handle, :pio_build_info)
         report = CandidateReport(
-            abi, dist_abi, features, symbols, matrix_available, schema, build)
+            version, abi, dist_abi, features, symbols, matrix_available, schema, build)
         return validate_candidate(report, tag)
     finally
         Libdl.dlclose(handle)

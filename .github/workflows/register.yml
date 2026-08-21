@@ -78,7 +78,7 @@ jobs:
           [ "$code" = 200 ] || {
             echo "::error::exact powerio release lookup returned HTTP $code"; exit 1;
           }
-          open_prs=$(gh pr list --state open --json headRefName \
+          open_prs=$(gh pr list --state open --limit 100 --json headRefName \
             --jq '[.[] | select(.headRefName | startswith("artifacts/"))] | length')
           general="$RUNNER_TEMP/Versions.toml"
           code=$(curl --silent --show-error --location \

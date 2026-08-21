@@ -79,7 +79,7 @@ function _parked_reason(report)
     end
 end
 
-function _candidate(; abi=UInt32(5), dist_abi=UInt32(1),
+function _candidate(; version="0.9.0", abi=UInt32(5), dist_abi=UInt32(1),
                     features=Dict(name => true for name in ArtifactUpdater.REQUIRED_FEATURES),
                     symbols=copy(ArtifactUpdater.KNOWN_SYMBOLS), matrix_available=true,
                     schema=Dict(:powerio_version => "0.9.0", :abi => 5,
@@ -95,7 +95,7 @@ function _candidate(; abi=UInt32(5), dist_abi=UInt32(1),
                         :json_classes => ["model-json"],
                     ))
     ArtifactUpdater.CandidateReport(
-        abi, dist_abi, features, symbols, matrix_available, schema, build)
+        version, abi, dist_abi, features, symbols, matrix_available, schema, build)
 end
 
 @testset "invalid release intent" begin
@@ -170,6 +170,11 @@ end
         @test_throws ErrorException ReleaseState.evaluate_release_state(
             _release_json(joinpath(dir, "missing.json"); assets=String[]), 0, general;
             intent, root=dir)
+        @test_throws ErrorException ReleaseState.evaluate_release_state(
+            _release_json(
+                joinpath(dir, "extra.json");
+                assets=vcat(collect(ReleaseState.REQUIRED_ASSETS), ["checksums.txt"]),
+            ), 0, general; intent, root=dir)
 
         registered = _versions(joinpath(dir, "Registered.toml"), ["0.8.4", "0.9.0"])
         @test ReleaseState.evaluate_release_state(
@@ -181,6 +186,14 @@ end
         _git_at(dir, "add", "source.jl")
         _git_at(dir, "commit", "-qm", "stale the intent")
         @test_throws ErrorException ReleaseState.validate_ready_intent(intent, dir)
+        @test_throws ErrorException ReleaseState.evaluate_release_state(
+            nothing, 0, general; intent, root=dir)
+        # General containing the target makes the reviewed intent terminal, so
+        # normal post-release development does not break the nightly repair job.
+        @test ReleaseState.evaluate_initial_state(
+            "schedule"; intent, root=dir).status == "ready"
+        @test ReleaseState.evaluate_release_state(
+            nothing, 0, registered; intent, root=dir).status == "registered"
     end
 
 
@@ -266,6 +279,10 @@ end
         _candidate(), "v0.9.0"; binding_abi=UInt32(5), binding_dist_abi=UInt32(1)) isa
           ArtifactUpdater.CandidateReport
     @test _parked_reason(_candidate(abi=UInt32(4))) == "core_abi_mismatch"
+    @test _parked_reason(_candidate(version="0.8.3")) == "schema_version_mismatch"
+
+    no_version = setdiff(copy(ArtifactUpdater.KNOWN_SYMBOLS), Set((:pio_version,)))
+    @test _parked_reason(_candidate(symbols=no_version)) == "required_symbol_missing"
 
     no_feature = Dict(name => name != "prob" for name in ArtifactUpdater.REQUIRED_FEATURES)
     @test _parked_reason(_candidate(features=no_feature)) == "required_feature_missing"

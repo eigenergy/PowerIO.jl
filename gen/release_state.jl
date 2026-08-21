@@ -145,9 +145,8 @@ function evaluate_initial_state(event_name::AbstractString,
         return ReleaseDecision("waiting_intent", intent.julia_version, intent.powerio_tag,
                                "release intent is $(intent.state)")
     end
-    validate_ready_intent(intent, root; rev)
     return ReleaseDecision("ready", intent.julia_version, intent.powerio_tag,
-                           "reviewed release intent is valid")
+                           "release intent is ready for registry evaluation")
 end
 
 function is_next_release(previous::VersionNumber, target::VersionNumber)
@@ -201,6 +200,11 @@ function evaluate_release_state(release_json::Union{Nothing,AbstractString},
             "registered", intent.julia_version, intent.powerio_tag,
             "PowerIO $(intent.julia_version) is already in General")
     end
+    # Registration makes an intent terminal. Once General contains the target,
+    # later development must not be held hostage by the old source digest; the
+    # branch above also keeps TagBot repair available. Before registration,
+    # every source and release mutation still requires the reviewed exact tree.
+    validate_ready_intent(intent, root)
     release_json === nothing && return ReleaseDecision(
         "waiting_for_binary", intent.julia_version, intent.powerio_tag,
         "the intended powerio release does not exist")
@@ -216,9 +220,14 @@ function evaluate_release_state(release_json::Union{Nothing,AbstractString},
         "the intended powerio release is still a draft")
     _json_bool(release, :prerelease) && error("the intended powerio release is a prerelease")
     haskey(release, :assets) || error("release response is missing assets")
-    names = Set(String(get(asset, :name, "")) for asset in release.assets)
+    asset_names = [String(get(asset, :name, "")) for asset in release.assets]
+    names = Set(asset_names)
     missing = sort!(collect(setdiff(REQUIRED_ASSETS, names)))
     isempty(missing) || error("powerio release is missing assets: $(join(missing, ", "))")
+    extra = sort!(collect(setdiff(names, REQUIRED_ASSETS)))
+    isempty(extra) || error("powerio release has unexpected assets: $(join(extra, ", "))")
+    length(asset_names) == length(REQUIRED_ASSETS) ||
+        error("powerio release must contain exactly $(length(REQUIRED_ASSETS)) assets")
     open_artifact_prs >= 0 || error("open artifact PR count cannot be negative")
     open_artifact_prs > 0 && return ReleaseDecision(
         "waiting_review", intent.julia_version, intent.powerio_tag,

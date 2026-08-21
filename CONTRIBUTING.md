@@ -80,7 +80,9 @@ The intended version must be the next patch, minor, or major release after the
 maximum PowerIO version in General. A breaking transition needs "breaking" in
 its top changelog section. If the version is already in General,
 the updater neither repins nor registers; it dispatches TagBot only when the
-Julia GitHub release is missing.
+Julia GitHub release is missing. Registration also makes that intent terminal:
+later development can change the source digest without breaking the scheduled
+job or the TagBot repair path.
 
 For local generator diagnostics, supply a status path explicitly:
 
