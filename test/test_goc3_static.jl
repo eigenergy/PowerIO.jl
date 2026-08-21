@@ -240,8 +240,7 @@ else
         end
     end
 
-    # Both mode flags are required: a device declaring neither leaves its reactive
-    # power unconstrained, which is a malformed case rather than a default.
+    # Both mode keys are required, though setting both values to zero is valid.
     let bad = deepcopy(JSON3.read(JSON3.write(doc), Dict{String,Any}))
         delete!(bad["network"]["simple_dispatchable_device"][1], "q_bound_cap")
         @test_throws ErrorException PowerIO.goc3_scopf_data(JSON3.write(bad))
@@ -372,12 +371,11 @@ else
     end
 end
 
-# Optional external validation accepts a user supplied checkout path. The case
-# is not redistributable, so it is never downloaded or stored by this package.
+# Optional external validation accepts a checksum-pinned user supplied case.
 const GOC3_REAL_CASE_SHA256 =
     "ad16973416243f38b5286efcf770f5e4b4493e89fdf7ffa6de678d3974b87e49"
 
-@testset "GOC3 static index sets from a real Challenge 3 case" begin
+@testset "GOC3 static index sets from a checksum-pinned case" begin
     path = get(ENV, "POWERIO_GOC3_VALIDATION_CASE", "")
     if isempty(path)
         @test_skip PowerIO.parse_goc3_json(path)
@@ -401,11 +399,10 @@ const GOC3_REAL_CASE_SHA256 =
         @test length(sc_data.prod) == 6 && length(sc_data.cons) == 11
         @test [b.i for b in sc_data.bus] == collect(1:14)
         @test lengths.K == length(data.raw["reliability"]["contingency"])
-        # Every per-class index is document-order enumeration, so this case's
-        # named uids ("Shunt Bus 6", "Line 0") change nothing: `j_sh == 1` with
-        # `L_J_sh == 1`, and an array sized by a length is always indexable by
-        # its class's ordinals. The uid-suffix builders that once made this
-        # file's indices unsound are retired.
+        # Every per-class index follows document order. Named uids such as
+        # "Shunt Bus 6" and "Line 0" do not affect the ordinals: `j_sh == 1`
+        # with `L_J_sh == 1`, and an array sized by a length is indexable by its
+        # class's ordinals.
         @test [s.j_sh for s in sc_data.shunt] == collect(1:lengths.L_J_sh)
         @test [s.j_ln for s in sc_data.acl_branch] == collect(1:lengths.L_J_ln)
         @test [r.j_dev for r in sc_data.prod] == collect(1:lengths.L_J_pr)

@@ -208,16 +208,12 @@ function _add_status_flags!(uc_data, initial_for)
 end
 
 # ---------------------------------------------------------------------------
-# GO Challenge 3 static index-set construction (SCOPF)
+# GO Challenge 3 indexing helpers
 #
-# The functions below build the general topology and time-series index sets
-# consumed by security-constrained OPF clients. Rows are keyed by `uid` and by
-# per-class GOC3 orderings (position within the AC-line, transformer, DC-line,
-# shunt, and reserve-zone lists). The stacked global variable numbering a
-# specific optimization model lays on top of these (the `j`/`j_pr`/`j_cs`/
-# `j_prcs`/`j_sh` offsets into one variable vector) is model-specific and is
-# threaded on by the client, not here. Nothing below depends on a unit
-# commitment solution or on model state.
+# These helpers expose document-order bus and interval calculations used by
+# security-constrained OPF clients. The typed SCOPF rows below come from the
+# Rust instance document. A client adds any model-specific stacked variable
+# numbering; nothing here depends on a unit commitment solution or model state.
 # ---------------------------------------------------------------------------
 
 """
@@ -461,11 +457,9 @@ device ordinals `j_dev`/`j_sdd` and the layout report make every index a field r
 filesystem. Read the file and pass its contents, or use `IOBuffer`/`read` at the
 call site.
 
-The pure Julia projection this function used to run is retired: two implementations
-of one format meant two index conventions, and the Julia one derived per-class
-indices from uid numeric suffixes, which GOCompetition's own validation case breaks.
-The Rust projection enumerates document order everywhere. Extending the general IR
-to carry SCOPF inputs stays tracked in eigenergy/powerio#235.
+The Rust projection is the sole implementation and enumerates document order
+everywhere. Extending the general IR to carry SCOPF inputs stays tracked in
+eigenergy/powerio#235.
 """
 function goc3_scopf_data(text::AbstractString)
     tables = _scopf_instance_tables(parse_scopf(text))
