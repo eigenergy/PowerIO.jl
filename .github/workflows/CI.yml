@@ -16,11 +16,11 @@ jobs:
       # secrets can't be read in `if:` directly; expose it as an env var to gate on.
       POWERIO_TOKEN: ${{ secrets.POWERIO_REPO_TOKEN }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: julia-actions/setup-julia@v3
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
         with:
           version: ${{ matrix.julia-version }}
-      - uses: julia-actions/cache@v3
+      - uses: julia-actions/cache@a45e8fa8be21c18a06b7177052533149e61e9b38 # v3.1.0
       # Build the C ABI from a sibling powerio checkout so the ccall tests run for
       # real. The probe checks out eigenergy/powerio anonymously when it is public;
       # while it is private, add a token with read access to it as the
@@ -57,16 +57,16 @@ jobs:
           fi
       - name: Check out powerio
         if: steps.powerio.outputs.available == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           repository: eigenergy/powerio
           path: powerio
           ref: ${{ steps.powerio-ref.outputs.ref }}
           # Falls back to the workflow token, which suffices once the repo is public.
           token: ${{ secrets.POWERIO_REPO_TOKEN || github.token }}
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         if: steps.powerio.outputs.available == 'true'
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         if: steps.powerio.outputs.available == 'true'
         with:
           workspaces: powerio
@@ -84,8 +84,8 @@ jobs:
             features="$features,prob"
           fi
           cargo build -p powerio-capi --release --features "$features" --manifest-path powerio/Cargo.toml
-      - uses: julia-actions/julia-buildpkg@v1
-      - uses: julia-actions/julia-runtest@v1
+      - uses: julia-actions/julia-buildpkg@e3eb439fad4f9aba7da2667e7510e4a46ebc46e1 # v1.7.0
+      - uses: julia-actions/julia-runtest@6e050c8013b833b1195105ff2fce9cd802f53271 # v1.12.0
         env:
           POWERIO_CAPI: ${{ steps.powerio.outputs.available == 'true' && format('{0}/powerio/target/release/libpowerio_capi.so', github.workspace) || '' }}
 
@@ -96,11 +96,11 @@ jobs:
       contents: write
       statuses: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: julia-actions/setup-julia@v3
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
         with:
           version: '1'
-      - uses: julia-actions/cache@v3
+      - uses: julia-actions/cache@a45e8fa8be21c18a06b7177052533149e61e9b38 # v3.1.0
       # The module loads without the C library (resolution is lazy and
       # doctest=false), so the docs build needs no Rust toolchain.
       - name: Instantiate docs environment
