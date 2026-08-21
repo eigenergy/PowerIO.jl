@@ -58,12 +58,13 @@
     @test :LoadSeries ∈ names(PowerIO)
     @test :goc3_scopf_data ∈ names(PowerIO)
     @test :ScopfInstance ∈ names(PowerIO)
-    # The individual GOC3 index-set builders behind goc3_scopf_data are internal:
-    # defined but unexported (consumers call goc3_scopf_data).
+    @test :DeviceClassLayout ∈ names(PowerIO)
+    # The Julia GOC3 projection is retired: the Rust core projects the instance
+    # and goc3_scopf_data types its rows. Nothing internal survives to leak.
     for sym in (:_goc3_static_data, :_goc3_energy_windows, :_goc3_price_blocks,
-                :_goc3_ac_contingency_survivors, :_goc3_dc_contingency_flows)
-        @test isdefined(PowerIO, sym)
-        @test sym ∉ names(PowerIO)
+                :_goc3_ac_contingency_survivors, :_goc3_dc_contingency_flows,
+                :_uidnum)
+        @test !isdefined(PowerIO, sym)
     end
     # ExaModels PowerData row containers must be concrete isbits so an empty
     # gen/branch/arc/storage section still moves to the GPU (guards the empty->Any
@@ -106,6 +107,84 @@
     @test PowerIO._lib() == lib
     PowerIO.clear_library!()
     @test PowerIO._lib() isa AbstractString
+
+    # Persistent overrides update both Preferences.jl and the current session;
+    # a normal clear removes only the session override. Point Base's active
+    # project at a temporary file so this test never edits the checkout.
+    old_active_project = Base.ACTIVE_PROJECT[]
+    old_session_library = PowerIO._SESSION_LIBRARY[]
+    old_preferred_library = PowerIO._PREFERRED_LIBRARY[]
+    mktempdir() do dir
+        project = joinpath(dir, "Project.toml")
+        write(project, "")
+        try
+            Base.ACTIVE_PROJECT[] = project
+            persisted = joinpath(dir, "libpowerio_capi.test")
+            PowerIO.set_library!(persisted; persist=true)
+            @test PowerIO._SESSION_LIBRARY[] == persisted
+            @test PowerIO._PREFERRED_LIBRARY[] == persisted
+            @test occursin("library = $(repr(persisted))",
+                           read(joinpath(dir, "LocalPreferences.toml"), String))
+
+            PowerIO.set_library!("session-only")
+            PowerIO.clear_library!()
+            @test isempty(PowerIO._SESSION_LIBRARY[])
+            @test PowerIO._PREFERRED_LIBRARY[] == persisted
+
+            PowerIO.clear_library!(persist=true)
+            @test isempty(PowerIO._PREFERRED_LIBRARY[])
+            @test !occursin("library =",
+                            read(joinpath(dir, "LocalPreferences.toml"), String))
+        finally
+            Base.ACTIVE_PROJECT[] = old_active_project
+            PowerIO._SESSION_LIBRARY[] = old_session_library
+            PowerIO._PREFERRED_LIBRARY[] = old_preferred_library
+        end
+    end
+
+    # Clearing an override in the active environment reveals any preference
+    # inherited from the next environment on LOAD_PATH. Reflect that effective
+    # value in the current session as well as after a process restart.
+    mktempdir() do dir
+        inner = joinpath(dir, "inner")
+        outer = joinpath(dir, "outer")
+        mkpath(inner)
+        mkpath(outer)
+        uuid = Base.PkgId(PowerIO).uuid
+        project_text = "[deps]\nPowerIO = \"$uuid\"\n"
+        inner_project = joinpath(inner, "Project.toml")
+        outer_project = joinpath(outer, "Project.toml")
+        write(inner_project, project_text)
+        write(outer_project, project_text)
+        inherited = joinpath(outer, "libpowerio_capi.inherited")
+        PowerIO.set_preferences!((uuid, "PowerIO"), "library" => inherited;
+                                 project_toml=outer_project, force=true)
+
+        old_active_project = Base.ACTIVE_PROJECT[]
+        old_load_path = copy(LOAD_PATH)
+        old_session_library = PowerIO._SESSION_LIBRARY[]
+        old_preferred_library = PowerIO._PREFERRED_LIBRARY[]
+        try
+            Base.ACTIVE_PROJECT[] = inner_project
+            empty!(LOAD_PATH)
+            append!(LOAD_PATH, (inner, outer, "@stdlib"))
+            effective_preference() = get(Base.get_preferences(uuid), "library", "")
+            @test effective_preference() == inherited
+            PowerIO._PREFERRED_LIBRARY[] = String(effective_preference())
+
+            PowerIO.set_library!("inner"; persist=true)
+            @test effective_preference() == "inner"
+            PowerIO.clear_library!(persist=true)
+            @test effective_preference() == inherited
+            @test PowerIO._PREFERRED_LIBRARY[] == inherited
+        finally
+            Base.ACTIVE_PROJECT[] = old_active_project
+            empty!(LOAD_PATH)
+            append!(LOAD_PATH, old_load_path)
+            PowerIO._SESSION_LIBRARY[] = old_session_library
+            PowerIO._PREFERRED_LIBRARY[] = old_preferred_library
+        end
+    end
 end
 
 @testset "pure-Julia accessors (no binary)" begin

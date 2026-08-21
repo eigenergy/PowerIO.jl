@@ -54,7 +54,7 @@ module PowerIO
 
 using JSON3
 using LazyArtifacts
-using Preferences: load_preference, set_preferences!
+using Preferences: @load_preference, load_preference, set_preferences!
 import Libdl
 import SparseArrays
 
@@ -90,10 +90,10 @@ export to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
        read_gridfm, read_gridfm_scenarios
 
 # GO Challenge 3 (general, format-neutral SCOPF input data). `goc3_scopf_data` is the
-# single entry point: it returns a `ScopfInstance` of per-class index sets in one call.
-# The individual `_goc3_*` builders behind it are internal. `parse_scopf` is the
-# Rust-parsed sibling: the native problem instance's versioned JSON (feature prob).
-export parse_goc3_json, goc3_scopf_data, ScopfInstance,
+# single entry point: the Rust core projects the instance and it types the rows.
+# `parse_scopf` returns the same projection as its versioned JSON document;
+# `parse_goc3_json` stays for raw-document and unit-commitment utilities.
+export parse_goc3_json, goc3_scopf_data, ScopfInstance, DeviceClassLayout,
        goc3_status_flags, goc3_add_status_flags!, goc3_interval_bounds,
        parse_scopf, scopf_available
 

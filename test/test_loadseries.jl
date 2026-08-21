@@ -13,7 +13,18 @@ end
     else
         m = joinpath(@__DIR__, "data", "case14.m")
         net = parse_file(m)
+        live = Val(:live)
         data = parse_ac_power_data(net)
+        path_data = parse_ac_power_data(m, Float32)
+        @test parse_ac_power_data(m, Float32, live) == path_data
+        @test Core.Compiler.return_type(
+            PowerIO.parse_ac_power_data,
+            Tuple{String,Type{Float32}},
+        ) === typeof(path_data)
+        @test Core.Compiler.return_type(
+            PowerIO.parse_ac_power_data,
+            Tuple{String,Type{Float32},typeof(live)},
+        ) === typeof(path_data)
         base = data.baseMVA[]
         base_pd = [b.pd for b in data.bus]      # per unit
         base_qd = [b.qd for b in data.bus]
@@ -70,6 +81,10 @@ end
         @test PowerIO.LoadSeries(net, mult, Float32) isa PowerIO.LoadSeries{Float32}
         @test PowerIO.LoadSeries(net, pd_by_id, qd_by_id, Float32) isa
               PowerIO.LoadSeries{Float32}
+        @test PowerIO.LoadSeries(net, pd_mw, qd_mw, Float32, live).pd ≈ s32.pd
+        @test PowerIO.LoadSeries(net, mult, Float32, live).pd ≈
+              PowerIO.LoadSeries(net, mult, Float32).pd
+        @test PowerIO.LoadSeries(net, pd_by_id, qd_by_id, Float32, live).pd ≈ s32.pd
         @test Core.Compiler.return_type(
             PowerIO.LoadSeries,
             Tuple{typeof(net),typeof(pd_mw),typeof(qd_mw),Type{Float32}},
@@ -81,6 +96,18 @@ end
         @test Core.Compiler.return_type(
             PowerIO.LoadSeries,
             Tuple{typeof(net),typeof(pd_by_id),typeof(qd_by_id),Type{Float32}},
+        ) == PowerIO.LoadSeries{Float32}
+        @test Core.Compiler.return_type(
+            PowerIO.LoadSeries,
+            Tuple{typeof(net),typeof(pd_mw),typeof(qd_mw),Type{Float32},typeof(live)},
+        ) == PowerIO.LoadSeries{Float32}
+        @test Core.Compiler.return_type(
+            PowerIO.LoadSeries,
+            Tuple{typeof(net),typeof(mult),Type{Float32},typeof(live)},
+        ) == PowerIO.LoadSeries{Float32}
+        @test Core.Compiler.return_type(
+            PowerIO.LoadSeries,
+            Tuple{typeof(net),typeof(pd_by_id),typeof(qd_by_id),Type{Float32},typeof(live)},
         ) == PowerIO.LoadSeries{Float32}
         # an empty bus set gives a clear error, not a bare "invalid Array dimensions"
         @test_throws ArgumentError PowerIO._matrix_from_id_table(
@@ -95,9 +122,15 @@ end
         @test sf.qd ≈ s.qd
         @test PowerIO.read_load_series(net, pdf, qdf, Float32) isa
               PowerIO.LoadSeries{Float32}
+        @test PowerIO.read_load_series(net, pdf, qdf, Float32, live).pd ≈
+              PowerIO.read_load_series(net, pdf, qdf, Float32).pd
         @test Core.Compiler.return_type(
             PowerIO.read_load_series,
             Tuple{typeof(net),typeof(pdf),typeof(qdf),Type{Float32}},
+        ) == PowerIO.LoadSeries{Float32}
+        @test Core.Compiler.return_type(
+            PowerIO.read_load_series,
+            Tuple{typeof(net),typeof(pdf),typeof(qdf),Type{Float32},typeof(live)},
         ) == PowerIO.LoadSeries{Float32}
         @test_throws ArgumentError PowerIO.read_load_series(net, joinpath(dir, "nope.Pd"), qdf)
 
@@ -125,6 +158,8 @@ end
         """
         dnet = parse_str(drops, "matpower")
         dref = to_powerdata(dnet)
+        @test dref == to_powerdata(dnet; filtered=true)
+        @test length(to_powerdata(dnet; filtered=false).bus) == 3
         dbase, dids, dpd, dqd = PowerIO._load_alignment(dnet, Float64)
         @test dids == Int[b.bus_i for b in dref.bus]
         @test dids == [1, 2]

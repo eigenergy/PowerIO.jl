@@ -15,6 +15,32 @@ function _powerdata_real(x, ::Type{T}, element::AbstractString,
     return y
 end
 
+function _powerdata_real(x::Union{Float64,Int64}, ::Type{T},
+                         element::AbstractString, field::Symbol) where {T<:Real}
+    y = T(x)
+    isnan(y) &&
+        throw(ArgumentError("PowerIO.to_powerdata: $element has NaN field `$field`"))
+    return y
+end
+
+function _powerdata_real(x::String, ::Type{T}, element::AbstractString,
+                         field::Symbol) where {T<:Real}
+    y = if x == "Infinity"
+        T(Inf)
+    elseif x == "-Infinity"
+        T(-Inf)
+    elseif x == "NaN"
+        T(NaN)
+    else
+        throw(ArgumentError(
+            "PowerIO.to_powerdata: $element has invalid field `$field`: " *
+            "$(repr(x)) is neither a number nor a nonfinite spelling"))
+    end
+    isnan(y) &&
+        throw(ArgumentError("PowerIO.to_powerdata: $element has NaN field `$field`"))
+    return y
+end
+
 function _quadratic_cost_coeffs(coeffs::Vector{T}, base::T,
                                 normalized::Bool) where {T<:Real}
     scaled = copy(coeffs)
@@ -39,7 +65,7 @@ function _quadratic_cost_coeffs(coeffs::Vector{T}, base::T,
 end
 
 function _cost_tuple(g, ::Type{T}, base::T; normalized::Bool=false) where {T<:Real}
-    cost = _get(g, :cost, nothing)
+    cost = g.cost
     cost === nothing && return (false, zero(T), zero(T), 0, (zero(T), zero(T), zero(T)))
     coeffs = T[_powerdata_real(c, T, "generator cost", :coeffs) for c in cost.coeffs]
     model = Int(cost.model)
@@ -206,32 +232,420 @@ _powerdata_arc_row_type(::Type{T}) where {T<:Real} = @NamedTuple{
     rate_a::T,
 }
 
-# The bridge normalizes internally and keeps only the tables, so the findings
-# normalize retains on the handle it returns would be dropped unseen — including
-# the one saying a cost objective built from this case is identically zero, whose
-# reader is exactly the caller here. Re-emit each distinct code once per call.
-function _normalized_for_bridge(net::BalancedNetwork)
-    source_format(net) == "normalized" && return net
+# JSON3's schema-free `Array` accessor intentionally erases its element type.
+# That is useful for the public rich payload, but it leaves every row as `Any`
+# in an ahead of time call graph. Decode only the fields this bridge reads into
+# a closed schema before building its concrete output rows.
+const _PowerdataNumber = Union{Float64,Int64,String}
+abstract type _PowerdataInputRecord end
+
+struct _PowerdataCostInput <: _PowerdataInputRecord
+    model::Int64
+    startup::_PowerdataNumber
+    shutdown::_PowerdataNumber
+    ncost::Int64
+    coeffs::Vector{_PowerdataNumber}
+end
+
+struct _PowerdataBusInput <: _PowerdataInputRecord
+    id::Int64
+    kind::String
+    vm::_PowerdataNumber
+    va::_PowerdataNumber
+    base_kv::_PowerdataNumber
+    vmax::_PowerdataNumber
+    vmin::_PowerdataNumber
+    area::Int64
+    zone::Int64
+end
+
+struct _PowerdataLoadInput <: _PowerdataInputRecord
+    bus::Int64
+    p::_PowerdataNumber
+    q::_PowerdataNumber
+    in_service::Bool
+end
+
+struct _PowerdataShuntInput <: _PowerdataInputRecord
+    bus::Int64
+    g::_PowerdataNumber
+    b::_PowerdataNumber
+    in_service::Bool
+end
+
+struct _PowerdataGeneratorInput <: _PowerdataInputRecord
+    bus::Int64
+    pg::_PowerdataNumber
+    qg::_PowerdataNumber
+    pmax::_PowerdataNumber
+    pmin::_PowerdataNumber
+    qmax::_PowerdataNumber
+    qmin::_PowerdataNumber
+    vg::_PowerdataNumber
+    mbase::_PowerdataNumber
+    in_service::Bool
+    cost::Union{Nothing,_PowerdataCostInput}
+end
+
+struct _PowerdataBranchInput <: _PowerdataInputRecord
+    from::Int64
+    to::Int64
+    r::_PowerdataNumber
+    x::_PowerdataNumber
+    b::_PowerdataNumber
+    rate_a::_PowerdataNumber
+    rate_b::_PowerdataNumber
+    rate_c::_PowerdataNumber
+    tap::_PowerdataNumber
+    shift::_PowerdataNumber
+    in_service::Bool
+    angmin::_PowerdataNumber
+    angmax::_PowerdataNumber
+end
+
+struct _PowerdataStorageInput <: _PowerdataInputRecord
+    bus::Int64
+    ps::_PowerdataNumber
+    qs::_PowerdataNumber
+    energy::_PowerdataNumber
+    energy_rating::_PowerdataNumber
+    charge_rating::_PowerdataNumber
+    discharge_rating::_PowerdataNumber
+    charge_efficiency::_PowerdataNumber
+    discharge_efficiency::_PowerdataNumber
+    thermal_rating::_PowerdataNumber
+    qmin::_PowerdataNumber
+    qmax::_PowerdataNumber
+    r::_PowerdataNumber
+    x::_PowerdataNumber
+    p_loss::_PowerdataNumber
+    q_loss::_PowerdataNumber
+    in_service::Bool
+end
+
+struct _PowerdataInput <: _PowerdataInputRecord
+    base_mva::_PowerdataNumber
+    source_format::String
+    buses::Vector{_PowerdataBusInput}
+    loads::Vector{_PowerdataLoadInput}
+    shunts::Vector{_PowerdataShuntInput}
+    generators::Vector{_PowerdataGeneratorInput}
+    branches::Vector{_PowerdataBranchInput}
+    storage::Vector{_PowerdataStorageInput}
+end
+
+JSON3.StructTypes.StructType(::Type{T}) where {T<:_PowerdataInputRecord} =
+    JSON3.StructTypes.Struct()
+
+function _powerdata_skip_json(buf::AbstractVector{UInt8}, pos::Int,
+                              len::Int, b::UInt8)
+    if b == UInt8('"')
+        pos += 1
+        while pos <= len
+            byte = @inbounds buf[pos]
+            if byte == UInt8('\\')
+                pos += 2
+            elseif byte == UInt8('"')
+                return pos + 1
+            else
+                pos += 1
+            end
+        end
+    elseif b == UInt8('{') || b == UInt8('[')
+        depth = 1
+        in_string = false
+        pos += 1
+        while pos <= len
+            byte = @inbounds buf[pos]
+            if in_string
+                if byte == UInt8('\\')
+                    pos += 2
+                    continue
+                elseif byte == UInt8('"')
+                    in_string = false
+                end
+            elseif byte == UInt8('"')
+                in_string = true
+            elseif byte == UInt8('{') || byte == UInt8('[')
+                depth += 1
+            elseif byte == UInt8('}') || byte == UInt8(']')
+                depth -= 1
+                depth == 0 && return pos + 1
+            end
+            pos += 1
+        end
+    else
+        while pos <= len
+            byte = @inbounds buf[pos]
+            (byte == UInt8(',') || byte == UInt8('}') || byte == UInt8(']') ||
+             byte == UInt8(' ') || byte == UInt8('\t') || byte == UInt8('\n') ||
+             byte == UInt8('\r')) && return pos
+            pos += 1
+        end
+        return pos
+    end
+    throw(ArgumentError(
+        "PowerIO.to_powerdata: unterminated additive field in model JSON"))
+end
+
+function _powerdata_read_bool(buf::AbstractVector{UInt8}, pos::Int,
+                              len::Int, b::UInt8)
+    if b == UInt8('t') && pos + 3 <= len &&
+       @inbounds(buf[pos + 1] == UInt8('r') &&
+                 buf[pos + 2] == UInt8('u') &&
+                 buf[pos + 3] == UInt8('e'))
+        return pos + 4, true
+    elseif b == UInt8('f') && pos + 4 <= len &&
+           @inbounds(buf[pos + 1] == UInt8('a') &&
+                     buf[pos + 2] == UInt8('l') &&
+                     buf[pos + 3] == UInt8('s') &&
+                     buf[pos + 4] == UInt8('e'))
+        return pos + 5, false
+    end
+    throw(ArgumentError(
+        "PowerIO.to_powerdata: invalid Boolean in model JSON at byte position $pos"))
+end
+
+function _powerdata_skip_whitespace(buf::AbstractVector{UInt8}, pos::Int,
+                                    len::Int)
+    while pos <= len
+        byte = @inbounds buf[pos]
+        (byte == UInt8(' ') || byte == UInt8('\t') || byte == UInt8('\n') ||
+         byte == UInt8('\r')) || break
+        pos += 1
+    end
+    return pos
+end
+
+function _powerdata_read_string(buf::AbstractVector{UInt8}, pos::Int,
+                                len::Int, b::UInt8)
+    b == UInt8('"') || throw(ArgumentError(
+        "PowerIO.to_powerdata: expected a string in model JSON at byte position $pos"))
+    first_byte = pos + 1
+    pos = first_byte
+    while pos <= len
+        byte = @inbounds buf[pos]
+        byte == UInt8('\\') && throw(ArgumentError(
+            "PowerIO.to_powerdata: escaped bridge string in model JSON at byte position $pos"))
+        if byte == UInt8('"')
+            return pos + 1, String(buf[first_byte:(pos - 1)])
+        end
+        pos += 1
+    end
+    throw(ArgumentError(
+        "PowerIO.to_powerdata: unterminated string in model JSON"))
+end
+
+function _powerdata_number_end(buf::AbstractVector{UInt8}, pos::Int, len::Int)
+    while pos <= len
+        byte = @inbounds buf[pos]
+        (byte == UInt8(',') || byte == UInt8('}') || byte == UInt8(']') ||
+         byte == UInt8(' ') || byte == UInt8('\t') || byte == UInt8('\n') ||
+         byte == UInt8('\r')) && return pos
+        pos += 1
+    end
+    return pos
+end
+
+function _powerdata_read_number(buf::AbstractVector{UInt8}, pos::Int,
+                                len::Int, b::UInt8)
+    b == UInt8('"') && return _powerdata_read_string(buf, pos, len, b)
+    stop = _powerdata_number_end(buf, pos, len)
+    value = tryparse(Float64, String(buf[pos:(stop - 1)]))
+    value === nothing && throw(ArgumentError(
+        "PowerIO.to_powerdata: invalid number in model JSON at byte position $pos"))
+    return stop, value
+end
+
+function _powerdata_read_int(buf::AbstractVector{UInt8}, pos::Int,
+                             len::Int, ::UInt8)
+    stop = _powerdata_number_end(buf, pos, len)
+    value = tryparse(Int64, String(buf[pos:(stop - 1)]))
+    value === nothing && throw(ArgumentError(
+        "PowerIO.to_powerdata: invalid integer in model JSON at byte position $pos"))
+    return stop, value
+end
+
+function _powerdata_read_numbers(buf::AbstractVector{UInt8}, pos::Int,
+                                 len::Int, b::UInt8)
+    b == UInt8('[') || throw(ArgumentError(
+        "PowerIO.to_powerdata: expected a numeric array in model JSON at byte position $pos"))
+    values = Vector{_PowerdataNumber}()
+    pos = _powerdata_skip_whitespace(buf, pos + 1, len)
+    pos <= len || throw(ArgumentError(
+        "PowerIO.to_powerdata: unterminated numeric array in model JSON"))
+    @inbounds(buf[pos]) == UInt8(']') && return pos + 1, values
+    while true
+        pos, value = _powerdata_read_number(buf, pos, len, @inbounds(buf[pos]))
+        push!(values, value)
+        pos = _powerdata_skip_whitespace(buf, pos, len)
+        pos <= len || throw(ArgumentError(
+            "PowerIO.to_powerdata: unterminated numeric array in model JSON"))
+        byte = @inbounds buf[pos]
+        byte == UInt8(']') && return pos + 1, values
+        byte == UInt8(',') || throw(ArgumentError(
+            "PowerIO.to_powerdata: expected a comma in numeric JSON array at byte position $pos"))
+        pos = _powerdata_skip_whitespace(buf, pos + 1, len)
+        pos <= len || throw(ArgumentError(
+            "PowerIO.to_powerdata: unterminated numeric array in model JSON"))
+    end
+end
+
+function _powerdata_read_cost(buf::AbstractVector{UInt8}, pos::Int,
+                              len::Int, b::UInt8)
+    if b == UInt8('n') && pos + 3 <= len &&
+       @inbounds(buf[pos + 1] == UInt8('u') &&
+                 buf[pos + 2] == UInt8('l') &&
+                 buf[pos + 3] == UInt8('l'))
+        return pos + 4, nothing
+    end
+    return JSON3.read(JSON3.StructType(_PowerdataCostInput), buf, pos, len, b,
+                      _PowerdataCostInput)
+end
+
+# JSON3's unordered-struct reader delegates each key to
+# `StructTypes.applyfield(f, T, key)`. The generic implementation discovers a
+# field type in a run time loop, which leaves the reader closure's `TT`
+# argument abstract under trim verification even though this schema is closed.
+# Generate the key dispatch and concrete reader call for these private records.
+# Unknown and newly added model fields are scanned past without decoding, so
+# the bridge remains additive without pulling JSON3's schema-free `Any` reader
+# into the ahead of time call graph.
+macro _define_powerdata_reader(record)
+    return esc(quote
+        @generated function JSON3.StructTypes.applyfield(
+                f, ::Type{$record}, nm::Symbol)
+            reads = map(1:fieldcount($record)) do i
+                name = QuoteNode(fieldname($record, i))
+                concrete_type = fieldtype($record, i)
+                field_type = QuoteNode(concrete_type)
+                read_value = if concrete_type === Bool
+                    :(_powerdata_read_bool(f.buf, f.pos, f.len, f.b))
+                elseif concrete_type === String
+                    :(_powerdata_read_string(f.buf, f.pos, f.len, f.b))
+                elseif concrete_type === Int64
+                    :(_powerdata_read_int(f.buf, f.pos, f.len, f.b))
+                elseif concrete_type === _PowerdataNumber
+                    :(_powerdata_read_number(f.buf, f.pos, f.len, f.b))
+                elseif concrete_type === Vector{_PowerdataNumber}
+                    :(_powerdata_read_numbers(f.buf, f.pos, f.len, f.b))
+                elseif concrete_type === Union{Nothing,_PowerdataCostInput}
+                    :(_powerdata_read_cost(f.buf, f.pos, f.len, f.b))
+                else
+                    :(JSON3.read(JSON3.StructType($field_type), f.buf, f.pos,
+                                 f.len, f.b, $field_type))
+                end
+                quote
+                    if nm === $name
+                        pos_i, value_i = $read_value
+                        f.pos = pos_i
+                        f.values[$i] = value_i
+                        return true
+                    end
+                end
+            end
+            return quote
+                $(reads...)
+                f.pos = _powerdata_skip_json(f.buf, f.pos, f.len, f.b)
+                return true
+            end
+        end
+    end)
+end
+
+@_define_powerdata_reader _PowerdataCostInput
+@_define_powerdata_reader _PowerdataBusInput
+@_define_powerdata_reader _PowerdataLoadInput
+@_define_powerdata_reader _PowerdataShuntInput
+@_define_powerdata_reader _PowerdataGeneratorInput
+@_define_powerdata_reader _PowerdataBranchInput
+@_define_powerdata_reader _PowerdataStorageInput
+@_define_powerdata_reader _PowerdataInput
+
+# JSON3's generic invalid-input renderer prints an abstract `Type` value. Keep
+# the bridge's parse failure directed without adding that open show dispatch to
+# a trimmed call graph.
+@noinline JSON3.invalid(::JSON3.Error, ::AbstractVector{UInt8}, pos::Int,
+                        ::Type{T}) where {T<:_PowerdataInputRecord} =
+    throw(ArgumentError(
+        "PowerIO.to_powerdata: invalid model JSON at byte position $pos"))
+@noinline JSON3.invalid(::JSON3.Error, ::AbstractVector{UInt8}, pos::Int,
+                        ::Type{Vector{T}}) where {T<:_PowerdataInputRecord} =
+    throw(ArgumentError(
+        "PowerIO.to_powerdata: invalid model JSON array at byte position $pos"))
+
+# StructTypes' generic constructor keeps parsed fields in `Vector{Any}` and
+# then recovers their types with a run time loop. Unroll that last step for the
+# closed bridge schema so trim verification sees every constructor target.
+@generated function JSON3.StructTypes.construct(values::Vector{Any},
+                                                 ::Type{T}) where {T<:_PowerdataInputRecord}
+    checks = map(1:fieldcount(T)) do i
+        field = fieldname(T, i)
+        message = "PowerIO.to_powerdata: model JSON is missing required field `$(field)`"
+        :(isassigned(values, $i) || throw(ArgumentError($message)))
+    end
+    args = [:(values[$i]::$(fieldtype(T, i))) for i in 1:fieldcount(T)]
+    return quote
+        $(checks...)
+        T($(args...))
+    end
+end
+
+_powerdata_input(net::BalancedNetwork) = JSON3.parse(to_json(net), _PowerdataInput)
+_powerdata_input(h::BalancedNetworkHandle) = JSON3.parse(_to_json(h), _PowerdataInput)
+
+# The live-only path is a separate call graph for ahead of time consumers. A
+# `BalancedNetwork` is mutable and does not encode handle state in its type, so
+# mixing the data fallback into this function makes both branches reachable to
+# Julia's trim verifier even when the caller has just parsed a live network.
+function _normalized_powerdata_input_live(net::BalancedNetwork)
+    h = _live_handle(net, "to_powerdata")
+    format = _handle_string(net, :pio_source_format)
+    if format === nothing
+        # ABI-compatible development builds can predate this additive scalar
+        # accessor. Keep their behavior without making every current call parse
+        # the full source document just to inspect one string.
+        input = _powerdata_input(h)
+        _source_format_token(input.source_format) == "normalized" && return input
+    elseif format == "normalized"
+        return _powerdata_input(h)
+    end
     norm = to_normalized(net)
+    normalized_handle = _live_handle(norm, "to_powerdata")
     seen = Set{SubString{String}}()
-    for line in warnings(norm)
+    for line in _handle_warnings(normalized_handle)
         code = first(split(line, ": "; limit=2))
         code in seen && continue
         push!(seen, code)
         @warn line
     end
-    return norm
+    return _powerdata_input(normalized_handle)
 end
 
-function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Real}
-    base = _powerdata_real(base_mva(net), T, "network", :base_mva)
-    raw_buses = collect(buses(net))
+function _normalized_powerdata_input(net::BalancedNetwork)
+    if _maybe_live_handle(net) === nothing
+        input = _powerdata_input(net)
+        _source_format_token(input.source_format) == "normalized" && return input
+    end
+    return _normalized_powerdata_input_live(net)
+end
+
+_to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Real} =
+    _to_powerdata_normalized_input(_normalized_powerdata_input(net), T)
+
+_to_powerdata_normalized_live(net::BalancedNetwork, ::Type{T}) where {T<:Real} =
+    _to_powerdata_normalized_input(_normalized_powerdata_input_live(net), T)
+
+function _to_powerdata_normalized_input(input::_PowerdataInput,
+                                        ::Type{T}) where {T<:Real}
+    base = _powerdata_real(input.base_mva, T, "network", :base_mva)
+    raw_buses = input.buses
     kept_ids = [Int(b.id) for b in raw_buses]
     id_to_idx = Dict(id => i for (i, id) in enumerate(kept_ids))
 
     pd = zeros(T, length(kept_ids))
     qd = zeros(T, length(kept_ids))
-    for (row, l) in enumerate(loads(net))
+    for (row, l) in enumerate(input.loads)
         idx = get(id_to_idx, Int(l.bus), 0)
         idx == 0 && continue
         pd[idx] += _powerdata_real(l.p, T, "load $row", :p)
@@ -239,7 +653,7 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
     end
     gs = zeros(T, length(kept_ids))
     bs = zeros(T, length(kept_ids))
-    for (row, s) in enumerate(shunts(net))
+    for (row, s) in enumerate(input.shunts)
         idx = get(id_to_idx, Int(s.bus), 0)
         idx == 0 && continue
         gs[idx] += _powerdata_real(s.g, T, "shunt $row", :g)
@@ -269,7 +683,7 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
         for (i, b) in enumerate(raw_buses)
     ]
 
-    kept_gens = [g for g in generators(net) if get(id_to_idx, Int(g.bus), 0) != 0]
+    kept_gens = [g for g in input.generators if get(id_to_idx, Int(g.bus), 0) != 0]
     GenRow = _powerdata_gen_row_type(T)
     gen_rows = GenRow[
         let (model_poly, startup, shutdown, ncost, c) =
@@ -283,7 +697,7 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
                 qmin = _powerdata_real(g.qmin, T, "generator $i", :qmin),
                 vg = _powerdata_real(g.vg, T, "generator $i", :vg),
                 mbase = _powerdata_real(g.mbase, T, "generator $i", :mbase),
-                status = Int(Bool(_get(g, :in_service, true))),
+                status = Int(g.in_service),
                 pmax = _powerdata_real(g.pmax, T, "generator $i", :pmax),
                 pmin = _powerdata_real(g.pmin, T, "generator $i", :pmin),
                 model_poly,
@@ -296,7 +710,7 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
         for (i, g) in enumerate(kept_gens)
     ]
 
-    kept_branches = [br for br in branches(net)
+    kept_branches = [br for br in input.branches
                      if get(id_to_idx, Int(br.from), 0) != 0 &&
                         get(id_to_idx, Int(br.to), 0) != 0]
     m = length(kept_branches)
@@ -333,7 +747,7 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
                 rate_c = _powerdata_real(br.rate_c, T, label, :rate_c),
                 tap,
                 shift,
-                status = Int(Bool(_get(br, :in_service, true))),
+                status = Int(br.in_service),
                 angmin = _powerdata_real(br.angmin, T, label, :angmin),
                 angmax = _powerdata_real(br.angmax, T, label, :angmax),
                 f_idx = i,
@@ -368,8 +782,8 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
         Zim = _powerdata_real(st.x, T, "storage $row", :x),
         p_loss = _powerdata_real(st.p_loss, T, "storage $row", :p_loss),
         q_loss = _powerdata_real(st.q_loss, T, "storage $row", :q_loss),
-        status = Int(Bool(_get(st, :in_service, true))),
-    )) for (row, st) in enumerate(storage(net))]
+        status = Int(st.in_service),
+    )) for (row, st) in enumerate(input.storage)]
 
     return (;
         version = "2",
@@ -381,6 +795,12 @@ function _to_powerdata_normalized(net::BalancedNetwork, ::Type{T}) where {T<:Rea
         storage = storage_rows,
     )
 end
+
+struct _DefaultPowerdataFilter end
+const _DEFAULT_POWERDATA_FILTER = _DefaultPowerdataFilter()
+
+_powerdata_filter(::Type{T}, ::_DefaultPowerdataFilter) where {T<:Real} = Val(true)
+_powerdata_filter(::Type{T}, filtered::Bool) where {T<:Real} = Val(filtered)
 
 """
     to_powerdata(net; filtered=true, T=Float64) -> NamedTuple
@@ -403,43 +823,50 @@ This is an ExaModels-facing bridge (a Julia sibling of [`to_powermodels`](@ref))
 the returned row schema is the field set ExaModelsPower's model builders read. It is
 not a general PowerIO representation and does not port to the Rust core / C ABI; for
 general numeric access use [`to_dense`](@ref) or [`to_arrow`](@ref).
+
+An ahead of time caller that has just parsed `net` can pass a final
+`Val(:live)` argument. That method requires a live Rust handle and keeps the
+handle-only call graph separate from the data-backed compatibility path.
 """
-to_powerdata(net::BalancedNetwork; filtered::Bool=true, T::Type{<:Real}=Float64) =
+to_powerdata(net::BalancedNetwork;
+             filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER,
+             T::Type{<:Real}=Float64) =
     to_powerdata(net, T; filtered=filtered)
 
-function to_powerdata(net::BalancedNetwork, ::Type{T}; filtered::Bool=true) where {T<:Real}
-    if filtered
-        return _to_powerdata_normalized(_normalized_for_bridge(net), T)
-    end
+_to_powerdata(net::BalancedNetwork, ::Type{T}, ::Val{true}) where {T<:Real} =
+    _to_powerdata_normalized(net, T)
 
-    base = _json_float(T, base_mva(net))
-    raw_buses = collect(buses(net))
-    keep_bus = Dict{Int,Bool}()
-    for b in raw_buses
-        keep_bus[Int(b.id)] = !filtered || String(b.kind) != "ISOLATED"
-    end
-    kept_ids = [Int(b.id) for b in raw_buses if keep_bus[Int(b.id)]]
+_to_powerdata(net::BalancedNetwork, ::Type{T}, ::Val{false}) where {T<:Real} =
+    _to_powerdata_raw_input(_powerdata_input(net), T)
+
+_to_powerdata_live(net::BalancedNetwork, ::Type{T}, ::Val{true}) where {T<:Real} =
+    _to_powerdata_normalized_live(net, T)
+
+_to_powerdata_live(net::BalancedNetwork, ::Type{T}, ::Val{false}) where {T<:Real} =
+    _to_powerdata_raw_input(_powerdata_input(_live_handle(net, "to_powerdata")), T)
+
+function _to_powerdata_raw_input(input::_PowerdataInput,
+                                 ::Type{T}) where {T<:Real}
+    base = _json_float(T, input.base_mva)
+    raw_buses = input.buses
+    kept_ids = [Int(b.id) for b in raw_buses]
     id_to_idx = Dict(id => i for (i, id) in enumerate(kept_ids))
 
     pd = zeros(T, length(kept_ids))
     qd = zeros(T, length(kept_ids))
-    for l in loads(net)
+    for l in input.loads
         idx = get(id_to_idx, Int(l.bus), 0)
         idx == 0 && continue
-        if !filtered || Bool(_get(l, :in_service, true))
-            pd[idx] += _json_float(T, l.p) / base
-            qd[idx] += _json_float(T, l.q) / base
-        end
+        pd[idx] += _json_float(T, l.p) / base
+        qd[idx] += _json_float(T, l.q) / base
     end
     gs = zeros(T, length(kept_ids))
     bs = zeros(T, length(kept_ids))
-    for s in shunts(net)
+    for s in input.shunts
         idx = get(id_to_idx, Int(s.bus), 0)
         idx == 0 && continue
-        if !filtered || Bool(_get(s, :in_service, true))
-            gs[idx] += _json_float(T, s.g) / base
-            bs[idx] += _json_float(T, s.b) / base
-        end
+        gs[idx] += _json_float(T, s.g) / base
+        bs[idx] += _json_float(T, s.b) / base
     end
 
     BusRow = _powerdata_bus_row_type(T)
@@ -462,10 +889,10 @@ function to_powerdata(net::BalancedNetwork, ::Type{T}; filtered::Bool=true) wher
                 vmin = _json_float(T, b.vmin),
             ))
         end
-        for b in raw_buses if keep_bus[Int(b.id)]
+        for b in raw_buses
     ]
 
-    kept_gens = [g for g in generators(net) if get(id_to_idx, Int(g.bus), 0) != 0]
+    kept_gens = [g for g in input.generators if get(id_to_idx, Int(g.bus), 0) != 0]
     GenRow = _powerdata_gen_row_type(T)
     gen_rows = GenRow[
         let (model_poly, startup, shutdown, ncost, c) =
@@ -519,7 +946,7 @@ function to_powerdata(net::BalancedNetwork, ::Type{T}; filtered::Bool=true) wher
         bus_rows[biggest_gen_bus] = merge(bus_rows[biggest_gen_bus], (; type = 3))
     end
 
-    kept_branches = [br for br in branches(net)
+    kept_branches = [br for br in input.branches
                      if get(id_to_idx, Int(br.from), 0) != 0 &&
                         get(id_to_idx, Int(br.to), 0) != 0]
     m = length(kept_branches)
@@ -592,7 +1019,7 @@ function to_powerdata(net::BalancedNetwork, ::Type{T}; filtered::Bool=true) wher
         p_loss = _json_float(T, st.p_loss),
         q_loss = _json_float(T, st.q_loss),
         status = Int(Bool(st.in_service)),
-    )) for (row, st) in enumerate(storage(net))]
+    )) for (row, st) in enumerate(input.storage)]
 
     return (;
         version = "2",
@@ -605,13 +1032,27 @@ function to_powerdata(net::BalancedNetwork, ::Type{T}; filtered::Bool=true) wher
     )
 end
 
-to_powerdata(path::AbstractString; from=nothing, filtered::Bool=true,
+to_powerdata(net::BalancedNetwork, ::Type{T};
+             filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real} =
+    _to_powerdata(net, T, _powerdata_filter(T, filtered))
+
+to_powerdata(net::BalancedNetwork, ::Type{T}, ::Val{:live};
+             filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real} =
+    _to_powerdata_live(net, T, _powerdata_filter(T, filtered))
+
+to_powerdata(path::AbstractString; from=nothing,
+             filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER,
              T::Type{<:Real}=Float64) =
     to_powerdata(path, T; from=from, filtered=filtered)
 
 to_powerdata(path::AbstractString, ::Type{T}; from=nothing,
-             filtered::Bool=true) where {T<:Real} =
+             filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real} =
     to_powerdata(parse_file(path; from=from), T; filtered=filtered)
+
+to_powerdata(path::AbstractString, ::Type{T}, live::Val{:live}; from=nothing,
+             filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real} =
+    to_powerdata(parse_file(BalancedNetwork, path; from=from), T, live;
+                 filtered=filtered)
 
 """
     parse_ac_power_data(input; from=nothing, filtered=true, T=Float64) -> NamedTuple
@@ -619,15 +1060,36 @@ to_powerdata(path::AbstractString, ::Type{T}; from=nothing,
 Return the NamedTuple layout consumed by ExaModelsPower's `build_polar_opf`,
 `build_rect_opf`, and `build_dcopf`. `input` may be a [`BalancedNetwork`](@ref) or a path.
 Emits the normalize findings as `@warn` the way [`to_powerdata`](@ref) does.
+The final `Val(:live)` form is the handle-only spelling for ahead of time
+callers; it requires either a live network or a path that parses as one.
 """
-parse_ac_power_data(input; from=nothing, filtered::Bool=true,
+parse_ac_power_data(input; from=nothing,
+                    filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER,
                     T::Type{<:Real}=Float64) =
     parse_ac_power_data(input, T; from=from, filtered=filtered)
 
 function parse_ac_power_data(input, ::Type{T}; from=nothing,
-                             filtered::Bool=true) where {T<:Real}
+                             filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real}
     pd = input isa BalancedNetwork ? to_powerdata(input, T; filtered=filtered) :
          to_powerdata(String(input), T; from=from, filtered=filtered)
+    return _parse_ac_power_data_output(pd, T)
+end
+
+function parse_ac_power_data(net::BalancedNetwork, ::Type{T}, live::Val{:live};
+                             from=nothing,
+                             filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real}
+    pd = to_powerdata(net, T, live; filtered=filtered)
+    return _parse_ac_power_data_output(pd, T)
+end
+
+function parse_ac_power_data(path::AbstractString, ::Type{T}, live::Val{:live};
+                             from=nothing,
+                             filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real}
+    net = parse_file(BalancedNetwork, path; from=from)
+    return parse_ac_power_data(net, T, live; filtered=filtered)
+end
+
+function _parse_ac_power_data_output(pd, ::Type{T}) where {T<:Real}
     return (;
         baseMVA = [pd.baseMVA],
         bus = pd.bus,
@@ -687,6 +1149,10 @@ PowerIO.LoadSeries(net, curve)                 # scale the base-case loads per p
 PowerIO.LoadSeries(net, pd_by_id, qd_by_id)    # Dict(bus_id => per-period MW vector)
 PowerIO.read_load_series(net, pd_path, qd_path) # same layout as the matrix form, from files
 ```
+
+Ahead of time callers with a freshly parsed live network can append
+`Val(:live)` after the positional element type. The ordinary methods retain
+the data-backed compatibility path.
 """
 struct LoadSeries{T}
     pd::Matrix{T}
@@ -723,13 +1189,21 @@ end
 # positional guessing. This walks the same normalized view `to_powerdata` walks
 # but builds only the four values a series needs, not the whole row schema.
 function _load_alignment(net::BalancedNetwork, ::Type{T}) where {T<:Real}
-    norm = _normalized_for_bridge(net)
-    base = _powerdata_real(base_mva(norm), T, "network", :base_mva)
-    bus_ids = Int[Int(b.id) for b in buses(norm)]
+    return _load_alignment_input(_normalized_powerdata_input(net), T)
+end
+
+function _load_alignment_live(net::BalancedNetwork, ::Type{T}) where {T<:Real}
+    return _load_alignment_input(_normalized_powerdata_input_live(net), T)
+end
+
+function _load_alignment_input(input::_PowerdataInput,
+                               ::Type{T}) where {T<:Real}
+    base = _powerdata_real(input.base_mva, T, "network", :base_mva)
+    bus_ids = Int[Int(b.id) for b in input.buses]
     id_to_idx = Dict(id => i for (i, id) in enumerate(bus_ids))
     base_pd = zeros(T, length(bus_ids))
     base_qd = zeros(T, length(bus_ids))
-    for (row, l) in enumerate(loads(norm))
+    for (row, l) in enumerate(input.loads)
         idx = get(id_to_idx, Int(l.bus), 0)
         idx == 0 && continue
         base_pd[idx] += _powerdata_real(l.p, T, "load $row", :p)
@@ -770,7 +1244,19 @@ base MVA.
 """
 function LoadSeries(net::BalancedNetwork, pd_mw::AbstractMatrix,
                     qd_mw::AbstractMatrix, ::Type{T}) where {T<:Real}
-    base, bus_ids, _, _ = _load_alignment(net, T)
+    return _load_series_matrices(_load_alignment(net, T), pd_mw, qd_mw, T)
+end
+
+function LoadSeries(net::BalancedNetwork, pd_mw::AbstractMatrix,
+                    qd_mw::AbstractMatrix, ::Type{T},
+                    ::Val{:live}) where {T<:Real}
+    return _load_series_matrices(_load_alignment_live(net, T), pd_mw, qd_mw, T)
+end
+
+function _load_series_matrices(alignment, pd_mw::AbstractMatrix,
+                               qd_mw::AbstractMatrix,
+                               ::Type{T}) where {T<:Real}
+    base, bus_ids, _, _ = alignment
     _check_load_matrix(pd_mw, qd_mw, length(bus_ids))
     LoadSeries{T}(_perunit(pd_mw, base), _perunit(qd_mw, base), bus_ids, base)
 end
@@ -787,9 +1273,19 @@ the loads are scaled; fixed bus shunts stay at their base value.
 """
 function LoadSeries(net::BalancedNetwork, curve::AbstractVector,
                     ::Type{T}) where {T<:Real}
+    return _load_series_curve(_load_alignment(net, T), curve, T)
+end
+
+function LoadSeries(net::BalancedNetwork, curve::AbstractVector,
+                    ::Type{T}, ::Val{:live}) where {T<:Real}
+    return _load_series_curve(_load_alignment_live(net, T), curve, T)
+end
+
+function _load_series_curve(alignment, curve::AbstractVector,
+                            ::Type{T}) where {T<:Real}
     isempty(curve) &&
         throw(ArgumentError("LoadSeries: curve must have at least one period"))
-    base, bus_ids, base_pd, base_qd = _load_alignment(net, T)
+    base, bus_ids, base_pd, base_qd = alignment
     c = T[T(x) for x in curve]
     all(isfinite, c) ||
         throw(ArgumentError("LoadSeries: curve has a non-finite multiplier"))
@@ -812,7 +1308,20 @@ length. This removes the positional row assumption of the matrix form.
 """
 function LoadSeries(net::BalancedNetwork, pd_by_id::AbstractDict,
                     qd_by_id::AbstractDict, ::Type{T}) where {T<:Real}
-    base, bus_ids, _, _ = _load_alignment(net, T)
+    return _load_series_id_tables(_load_alignment(net, T), pd_by_id, qd_by_id, T)
+end
+
+function LoadSeries(net::BalancedNetwork, pd_by_id::AbstractDict,
+                    qd_by_id::AbstractDict, ::Type{T},
+                    ::Val{:live}) where {T<:Real}
+    return _load_series_id_tables(_load_alignment_live(net, T),
+                                  pd_by_id, qd_by_id, T)
+end
+
+function _load_series_id_tables(alignment, pd_by_id::AbstractDict,
+                                qd_by_id::AbstractDict,
+                                ::Type{T}) where {T<:Real}
+    base, bus_ids, _, _ = alignment
     pd = _matrix_from_id_table(pd_by_id, bus_ids, :Pd, T)
     qd = _matrix_from_id_table(qd_by_id, bus_ids, :Qd, T)
     _check_load_matrix(pd, qd, length(bus_ids))
@@ -871,6 +1380,14 @@ function read_load_series(net::BalancedNetwork, pd_path::AbstractString,
     pd_mw = _read_load_file(pd_path)
     qd_mw = _read_load_file(qd_path)
     LoadSeries(net, pd_mw, qd_mw, T)
+end
+
+function read_load_series(net::BalancedNetwork, pd_path::AbstractString,
+                          qd_path::AbstractString, ::Type{T},
+                          live::Val{:live}) where {T<:Real}
+    pd_mw = _read_load_file(pd_path)
+    qd_mw = _read_load_file(qd_path)
+    LoadSeries(net, pd_mw, qd_mw, T, live)
 end
 
 read_load_series(net::BalancedNetwork, pd_path::AbstractString,
