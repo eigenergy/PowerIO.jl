@@ -240,7 +240,8 @@ end
 
 # ---------------------------------------------------------------------------
 # Typed rows over the Rust instance document (`parse_scopf` /
-# `pio_scopf_to_json`). One GOC3 SCOPF implementation builds the index sets —
+# `pio_scopf_to_json_with_index_base`). One GOC3 SCOPF implementation builds
+# the index sets —
 # the Rust core's, with document-order enumeration behind every ordinal — and
 # this section only types its rows.
 # ---------------------------------------------------------------------------
@@ -447,7 +448,7 @@ end
 Build the security-constrained OPF instance from GOC3 document `text` in one call.
 The Rust core parses and projects the instance (`pio_scopf_parse_str`, the same
 projection [`parse_scopf`](@ref) serializes; needs the `prob` feature, on in every
-released binary since powerio v0.7.0) and this function types its rows. Pure
+powerio v0.9.0 release binary) and this function types its rows. Pure
 function of the text: no unit commitment solution and no model-specific variable
 numbering. A client reads the [`ScopfInstance`](@ref) fields and attaches its own
 stacked variable indices and UC status (see [`goc3_add_status_flags!`](@ref)); the
@@ -458,11 +459,14 @@ filesystem. Read the file and pass its contents, or use `IOBuffer`/`read` at the
 call site.
 
 The Rust projection is the sole implementation and enumerates document order
-everywhere. Extending the general IR to carry SCOPF inputs stays tracked in
-eigenergy/powerio#235.
+everywhere. This Julia view requests index base 1, so each ordinal indexes its
+corresponding Julia vector directly. Extending the general IR to carry SCOPF
+inputs stays tracked in eigenergy/powerio#235.
 """
 function goc3_scopf_data(text::AbstractString)
-    tables = _scopf_instance_tables(parse_scopf(text))
+    # Request Julia-native ordinals from the core. Do not mirror the core's
+    # exhaustive ordinal-field registry or shift fields in this binding.
+    tables = _scopf_instance_tables(parse_scopf(text; index_base=1))
     return ScopfInstance(
         tables.static,
         tables.lengths,

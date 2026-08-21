@@ -13,10 +13,12 @@ stacking or solver. A consumer builds a model or program from that instance.
 | `ScopfInstance` | SCOPF | `powerio-prob` | [`goc3_scopf_data`](@ref) |
 
 The native SCOPF path has one projection. `pio_scopf_parse_str` builds the Rust
-`ScopfInstance`, `pio_scopf_to_json` serializes the language neutral
+`ScopfInstance`, `pio_scopf_to_json_with_index_base` serializes the language neutral
 `powerio.scopf` document, and `goc3_scopf_data` types the same rows as Julia
-NamedTuples. The JSON indices are 1-based. Every ordinal comes from source
-document order; no uid spelling participates in indexing.
+NamedTuples. [`parse_scopf`](@ref) accepts index base 0 or 1 and defaults to 1;
+`goc3_scopf_data` requests 1 so every ordinal indexes a Julia array directly.
+Every ordinal comes from source document order; no uid spelling participates
+in indexing.
 
 [`ScopfInstance`](@ref) carries buses, shunts, AC and DC branches, transformer
 control sets, producers, consumers, zonal reserves, contingency survivor sets,
