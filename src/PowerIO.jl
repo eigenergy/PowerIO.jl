@@ -54,7 +54,7 @@ module PowerIO
 
 using JSON3
 using LazyArtifacts
-using Preferences: load_preference, set_preferences!
+using Preferences: @load_preference, load_preference, set_preferences!
 import Libdl
 import SparseArrays
 

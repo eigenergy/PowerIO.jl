@@ -13,18 +13,25 @@
 
 const _SESSION_LIBRARY = Ref{String}("")    # set_library! override; "" means unset
 const _ENV_LIBRARY = Ref{String}("")        # POWERIO_CAPI captured at module init
-const _PREFERRED_LIBRARY = Ref{String}("")  # Preferences.jl override
-const _RESOLVED = Ref{String}("")           # memoized artifact / loader path resolution
 const _LIBRARY_PREFERENCE = "library"
-const _LIB_HANDLES = Dict{String,Any}()
+const _PREFERRED_LIBRARY = Ref{String}(let value = @load_preference(_LIBRARY_PREFERENCE, "")
+    value isa AbstractString ? String(value) : ""
+end)                                        # Preferences.jl override
+const _RESOLVED = Ref{String}("")           # memoized artifact / loader path resolution
+const _LIB_HANDLES = Dict{String,Ptr{Nothing}}()
 const _LIB_HANDLES_LOCK = ReentrantLock()
 
 function __init__()
+    # Julia calls package initializers again when it loads a generated image.
+    # The tracked preference above is already part of that image; traversing
+    # Preferences' open Dict schema here also prevents trim verification. Leave
+    # the session and environment refs untouched while generating it. The
+    # load-time call below captures the process environment normally.
+    ccall(:jl_generating_output, Cint, ()) != 0 && return
     # Overrides are read at init; the artifact/loader path fallback is resolved
     # and memoized lazily in `_lib()`.
     _SESSION_LIBRARY[] = ""
     _ENV_LIBRARY[] = get(ENV, "POWERIO_CAPI", "")
-    _PREFERRED_LIBRARY[] = _library_preference()
 end
 
 """
@@ -58,20 +65,13 @@ function clear_library!(; persist::Bool=false)
     _SESSION_LIBRARY[] = ""
     if persist
         set_preferences!(@__MODULE__, _LIBRARY_PREFERENCE => missing; force=true)
-        _PREFERRED_LIBRARY[] = _library_preference()
-    else
-        _PREFERRED_LIBRARY[] = _library_preference()
+        value = load_preference(@__MODULE__, _LIBRARY_PREFERENCE, "";
+                                disable_invalidation=true)
+        _PREFERRED_LIBRARY[] = value isa AbstractString ? String(value) : ""
     end
     _ABI_OK[] = false
     _ABI_OK_LIB[] = ""
     return
-end
-
-function _library_preference()
-    value = load_preference(@__MODULE__, _LIBRARY_PREFERENCE, "";
-                            disable_invalidation=true)
-    value isa AbstractString || return ""
-    return String(value)
 end
 
 function _lib()
@@ -177,10 +177,10 @@ function _ensure_compatible(lib::AbstractString=_lib())
     _ABI_OK[] && _ABI_OK_LIB[] == lib && return
     got = try
         abi_version(lib)
-    catch e
+    catch
         error("PowerIO: the C ABI at \"$lib\" has no pio_abi_version: it predates " *
               "the versioned ABI. Rebuild powerio-capi (`cargo build -p powerio-capi --release` " *
-              "in a sibling powerio checkout). Underlying: $e")
+              "in a sibling powerio checkout), or check that the library path can be loaded.")
     end
     got == PIO_ABI_VERSION || error(
         "PowerIO: C ABI version mismatch: the library at \"$lib\" reports ABI $got, this PowerIO.jl " *
@@ -352,6 +352,10 @@ _lib_call_error(e) = error(
     "PowerIO: could not call the C ABI at \"$(_lib())\": build it " *
     "(`cargo build -p powerio-capi --release` in a sibling powerio checkout) " *
     "or call `set_library!` / set POWERIO_CAPI. Underlying: $e")
+_lib_call_error() = error(
+    "PowerIO: could not call the C ABI at \"$(_lib())\": build it " *
+    "(`cargo build -p powerio-capi --release` in a sibling powerio checkout) " *
+    "or call `set_library!` / set POWERIO_CAPI, and check that the path can be loaded.")
 
 # Directed error for an entry point the resolved library predates: `sym` is
 # absent even though the ABI handshake passes (additive symbols do not bump the
@@ -386,8 +390,8 @@ function _parse_handle(path::AbstractString; from=nothing)
         ccall(_library_symbol(lib, :pio_parse_file), Ptr{Cvoid},
               (Cstring, Cstring, Ptr{UInt8}, Csize_t),
               path, fromc, err, length(err))
-    catch e
-        _lib_call_error(e)
+    catch
+        _lib_call_error()
     end
     ptr == C_NULL && error("PowerIO.parse_file: " * _cstr(err))
     return BalancedNetworkHandle(ptr, lib)

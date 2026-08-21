@@ -184,6 +184,11 @@
         @test eltype(pdata.arc) === PowerIO._powerdata_arc_row_type(Float64)
         @test ac.pdmax == Float64[] && ac.emax isa Vector{Float64}
 
+        routed_model_path = joinpath(mktempdir(), "case14.json")
+        write(routed_model_path, to_json(net))
+        @test to_powerdata(routed_model_path) == pdata
+        @test parse_ac_power_data(routed_model_path) == ac
+
         if !package_available()
             @test_skip to_package(net)
         else
@@ -224,6 +229,8 @@
             @test write_package(pkg_path, pkg) == pkg_path
             @test package_model_kind(read_package(pkg_path)) == :balanced
             @test PowerIO.n_branches(from_package(read(pkg_path, String))) == 20
+            @test to_powerdata(pkg_path) == pdata
+            @test parse_ac_power_data(pkg_path) == ac
 
             pkg_with_solver = to_package(net; include_solver_metadata=true)
             meta = pkg_with_solver.derived.normalized_solver_tables
@@ -347,6 +354,8 @@
         inf_ac = parse_ac_power_data(inf_net)
         @test inf_ac.qmax[1] == Inf
         @test inf_ac.qmin[1] == -Inf
+        @test to_powerdata(inf_net).gen[1].qmax == Inf
+        @test to_powerdata(inf_net).gen[1].qmin == -Inf
         @test to_powerdata(inf_net; filtered=false).gen[1].qmax == Inf
         @test PowerIO._json_float(Float64, "Infinity") === Inf
         @test PowerIO._json_float(Float64, "-Infinity") === -Inf
@@ -373,15 +382,82 @@
         @test_logs (:warn, r"CANONICALIZE\.NORMALIZE\.GEN_COST_ABSENT") match_mode = :any PowerIO.LoadSeries(costless_net, [1.0])
         # A costed case has nothing to report.
         costed_net = parse_file(joinpath(data, "case9.m"))
+        live = Val(:live)
         @test_logs min_level = Logging.Warn parse_ac_power_data(costed_net)
         @test_logs min_level = Logging.Warn to_powerdata(costed_net)
+        @test to_powerdata(costed_net) == to_powerdata(costed_net; filtered=true)
+        @test to_powerdata(costed_net, Float64, live) == to_powerdata(costed_net)
+        @test to_powerdata(costed_net, Float64, live; filtered=false) ==
+              to_powerdata(costed_net; filtered=false)
+        @test parse_ac_power_data(costed_net) ==
+              parse_ac_power_data(costed_net; filtered=true)
+        @test parse_ac_power_data(costed_net, Float64, live) ==
+              parse_ac_power_data(costed_net)
+
+        # The closed bridge schema ignores fields added by newer model JSON
+        # producers, including nested values and escaped string contents.
+        additive = JSON3.read(to_json(costed_net), Dict{String,Any})
+        additive["future"] = Dict(
+            "nested" => Any[Dict("text" => "brace } ] quote \" slash \\")],
+        )
+        additive["buses"][1]["future_bus"] = Dict(
+            "deep" => Any[1, Dict("escaped" => "a\\\"b")],
+        )
+        additive["generators"][1]["cost"]["future_cost"] = Dict(
+            "values" => Any[true, nothing, "x\\y"],
+        )
+        additive_net = BalancedNetwork(JSON3.read(JSON3.write(additive)))
+        @test to_powerdata(additive_net; filtered=false) ==
+              to_powerdata(costed_net; filtered=false)
+
+        # Required bridge fields still fail at the read boundary with a
+        # directed error instead of falling into schema-free JSON decoding.
+        malformed = deepcopy(additive)
+        malformed["loads"][1]["in_service"] = "yes"
+        malformed_net = BalancedNetwork(JSON3.read(JSON3.write(malformed)))
+        malformed_error = try
+            to_powerdata(malformed_net; filtered=false)
+            nothing
+        catch e
+            e
+        end
+        @test malformed_error isa ArgumentError
+        @test occursin("invalid Boolean in model JSON", sprint(showerror, malformed_error))
+
+        missing = deepcopy(additive)
+        delete!(missing["loads"][1], "in_service")
+        missing_net = BalancedNetwork(JSON3.read(JSON3.write(missing)))
+        missing_error = try
+            to_powerdata(missing_net; filtered=false)
+            nothing
+        catch e
+            e
+        end
+        @test missing_error isa ArgumentError
+        @test occursin("missing required field `in_service`",
+                       sprint(showerror, missing_error))
         # Each call reports for itself: separate cases deserve separate warnings,
         # so the dedupe is within a call rather than capped across the session.
         @test_logs (:warn, r"GEN_COST_ABSENT") match_mode = :any parse_ac_power_data(costless_net)
         # The unfiltered path runs no normalize pass, so it reports nothing.
         @test_logs min_level = Logging.Warn to_powerdata(costless_net; filtered=false)
         # An already normalized network is passed straight through.
-        @test_logs min_level = Logging.Warn to_powerdata(to_normalized(costed_net))
+        normalized_net = to_normalized(costed_net)
+        normalized_pd = @test_logs min_level = Logging.Warn to_powerdata(normalized_net)
+        data_only_normalized = BalancedNetwork(JSON3.read(to_json(normalized_net)))
+        @test getfield(data_only_normalized, :handle) === nothing
+        @test_logs min_level = Logging.Warn to_powerdata(data_only_normalized)
+        @test to_powerdata(data_only_normalized) == normalized_pd
+        @test_throws ErrorException to_powerdata(data_only_normalized, Float64, live)
+        legacy_normalized = PowerIO._json_plain(JSON3.read(to_json(normalized_net)))
+        legacy_normalized["source_format"] = "Normalized"
+        @test to_powerdata(BalancedNetwork(JSON3.read(JSON3.write(legacy_normalized)))) ==
+              normalized_pd
+        finalized_normalized = to_normalized(costed_net)
+        finalized_normalized.data
+        PowerIO.source_format(finalized_normalized)
+        finalize(getfield(finalized_normalized, :handle))
+        @test to_powerdata(finalized_normalized) == normalized_pd
 
         storage_text = """
         function mpc = storage_case
