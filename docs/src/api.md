@@ -34,6 +34,13 @@ Modules = [PowerIO]
 Pages = ["dense.jl"]
 ```
 
+## Normalize pass provenance
+
+```@autodocs
+Modules = [PowerIO]
+Pages = ["solver_index.jl"]
+```
+
 ## Matrices
 
 ```@autodocs
