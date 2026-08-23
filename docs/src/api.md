@@ -48,6 +48,13 @@ Modules = [PowerIO]
 Pages = ["matrix.jl"]
 ```
 
+## DC incidence parts
+
+```@autodocs
+Modules = [PowerIO]
+Pages = ["incidence_parts.jl"]
+```
+
 ## Arrow export
 
 ```@autodocs
