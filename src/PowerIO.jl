@@ -97,6 +97,10 @@ export parse_goc3_json, goc3_scopf_data, ScopfInstance, DeviceClassLayout,
        goc3_status_flags, goc3_add_status_flags!, goc3_interval_bounds,
        parse_scopf, scopf_available
 
+# Normalize-pass provenance: which source row each normalized solver-table row
+# came from. Named unqualified because a consumer reads it beside `to_powerdata`.
+export source_rows, source_rows_available
+
 # .pio.json network packages (Rust pkg feature)
 export NetworkPackage, to_package, from_package, read_package, write_package,
        package_model_kind, package_available, validate_package, package_validation,
@@ -125,6 +129,7 @@ include("dist.jl")        # MulticonductorNetwork distribution API (feature dist
 include("display.jl")     # compact and multiline display for parsed networks
 include("graphs.jl")      # graph projections for balanced and multiconductor models
 include("package.jl")     # .pio.json network packages (feature pkg)
+include("solver_index.jl") # normalize-pass source-row provenance
 include("scopf.jl")       # native SCOPF problem instance JSON (feature prob)
 include("features.jl")    # public feature probe summary (reads scopf.jl's probe)
 include("goc3.jl")        # GO Challenge 3 JSON helpers (pure Julia)

@@ -16,6 +16,7 @@ using SHA
     include("test_roundtrip.jl")  # C ABI round trip, adapters, packages
     include("test_powermodels_ref.jl") # PowerModels reference utilities
     include("test_transforms.jl") # PyPSA writer, parse dispatch, to_normalized, to_dense
+    include("test_solver_index.jl") # normalize-pass source-row provenance
     include("test_loadseries.jl") # LoadSeries multiperiod bus loads
     include("test_arrow.jl")      # Arrow export (feature arrow)
     include("test_matrix.jl")     # Rust computed sparse matrices
