@@ -80,7 +80,8 @@ export to_dense, to_arrow, ArrowTable, release_c_data, arrow_catalog
 
 # Sparse system matrices (Rust matrix feature)
 export calc_admittance_matrix, calc_susceptance_matrix, calc_incidence_matrix,
-       calc_bprime_matrix, calc_bdoubleprime_matrix
+       calc_bprime_matrix, calc_bdoubleprime_matrix,
+       calc_incidence_parts, branch_susceptance, incidence_parts_available
 
 # Ecosystem bridges (PowerModels, ExaModels, gridfm). `to_powerdata`/`parse_ac_power_data`
 # and the `LoadSeries` multiperiod-load surface are ExaModels-facing convenience bridges
@@ -124,6 +125,7 @@ include("exa.jl")         # ExaModels bridge: to_powerdata / parse_ac_power_data
 include("operatingpoints.jl") # OperatingPointSeries skeleton (reserved; not yet functional)
 include("arrow.jl")       # Arrow C Data Interface export (feature arrow)
 include("matrix.jl")      # sparse matrices computed by the Rust matrix API
+include("incidence_parts.jl") # DC incidence parts: b, p_shift, the column map
 include("gridfm.jl")      # gridfm-datakit Parquet reader (feature gridfm)
 include("dist.jl")        # MulticonductorNetwork distribution API (feature dist)
 include("display.jl")     # compact and multiline display for parsed networks

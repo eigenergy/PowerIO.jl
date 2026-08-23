@@ -3,6 +3,7 @@ using Test
 using JSON3
 using Aqua
 using Libdl
+using SparseArrays
 using Logging
 using SHA
 
@@ -20,6 +21,7 @@ using SHA
     include("test_loadseries.jl") # LoadSeries multiperiod bus loads
     include("test_arrow.jl")      # Arrow export (feature arrow)
     include("test_matrix.jl")     # Rust computed sparse matrices
+    include("test_incidence_parts.jl") # DC incidence parts (b, p_shift, column map)
     include("test_memory_safety.jl")
     include("test_gridfm.jl")     # gridfm reader (feature gridfm)
     include("test_dist.jl")       # distribution API (feature dist)
