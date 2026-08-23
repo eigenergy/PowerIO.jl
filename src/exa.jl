@@ -1,4 +1,27 @@
-function _powerdata_real(x, ::Type{T}, element::AbstractString,
+# Two readers, one per field role.
+#
+# `_powerdata_bound` accepts a finite value or ±Inf and refuses a NaN: an
+# absent reactive limit is `Inf` in MATPOWER, PowerModels, pandapower and
+# PyPSA, and stock case9241pegase.m carries it on seven generators, so a
+# finiteness check there refuses a case whose data is fine.
+#
+# `_powerdata_real` is that reader plus a finiteness check, and it is the one
+# for every field that is not a bound. 0.9 relaxed the check for the bound
+# case and relaxed it for the whole row, so an infinite series reactance, tap
+# ratio, voltage magnitude or base kV reached the caller — and for `br_x` it
+# did not stop there, since `_branch_coeffs` ran on it in the same `let` block
+# and the row carried admittance coefficients derived from `1/Inf` with
+# nothing recorded. The Rust core moved the other way in the same release
+# (#292): `branch_susceptance` returns `NaN` for a denominator that is not
+# finite, and `IncidenceParts` errors with `NonFiniteSusceptance` rather than
+# assembling. An infinite reactance is a corrupt case there and was a valid
+# row here.
+#
+# The split is by whether a source format spells "no bound" as ±Inf, not by
+# whether a field is a limit: no format spells "no voltage limit" that way, so
+# `vmin`/`vmax` are a data defect rather than a convention and read as reals.
+
+function _powerdata_bound(x, ::Type{T}, element::AbstractString,
                          field::Symbol) where {T<:Real}
     x === nothing &&
         throw(ArgumentError("PowerIO.to_powerdata: $element has missing field `$field`"))
@@ -9,13 +32,14 @@ function _powerdata_real(x, ::Type{T}, element::AbstractString,
         throw(ArgumentError("PowerIO.to_powerdata: $element has invalid field `$field`: $msg"))
     end
     # An infinite limit is how MATPOWER, PowerModels, pandapower and PyPSA spell
-    # "no bound", so it passes through. A NaN carries no such reading.
+    # "no bound", so it passes through here. A NaN carries no such reading, and
+    # `_powerdata_real` is the reader for a field that is not a bound.
     isnan(y) &&
         throw(ArgumentError("PowerIO.to_powerdata: $element has NaN field `$field`"))
     return y
 end
 
-function _powerdata_real(x::Union{Float64,Int64}, ::Type{T},
+function _powerdata_bound(x::Union{Float64,Int64}, ::Type{T},
                          element::AbstractString, field::Symbol) where {T<:Real}
     y = T(x)
     isnan(y) &&
@@ -23,7 +47,7 @@ function _powerdata_real(x::Union{Float64,Int64}, ::Type{T},
     return y
 end
 
-function _powerdata_real(x::String, ::Type{T}, element::AbstractString,
+function _powerdata_bound(x::String, ::Type{T}, element::AbstractString,
                          field::Symbol) where {T<:Real}
     y = if x == "Infinity"
         T(Inf)
@@ -38,6 +62,17 @@ function _powerdata_real(x::String, ::Type{T}, element::AbstractString,
     end
     isnan(y) &&
         throw(ArgumentError("PowerIO.to_powerdata: $element has NaN field `$field`"))
+    return y
+end
+
+# A field that is not a bound. `_powerdata_bound` first, so the NaN and the
+# unparseable-string messages stay identical whichever reader a call site picks.
+function _powerdata_real(x, ::Type{T}, element::AbstractString,
+                         field::Symbol) where {T<:Real}
+    y = _powerdata_bound(x, T, element, field)
+    isfinite(y) || throw(ArgumentError(
+        "PowerIO.to_powerdata: $element has nonfinite field `$field` ($y); " *
+        "an infinite value spells an absent bound and `$field` is not a bound"))
     return y
 end
 
@@ -693,13 +728,13 @@ function _to_powerdata_normalized_input(input::_PowerdataInput,
                 bus = id_to_idx[Int(g.bus)],
                 pg = _powerdata_real(g.pg, T, "generator $i", :pg),
                 qg = _powerdata_real(g.qg, T, "generator $i", :qg),
-                qmax = _powerdata_real(g.qmax, T, "generator $i", :qmax),
-                qmin = _powerdata_real(g.qmin, T, "generator $i", :qmin),
+                qmax = _powerdata_bound(g.qmax, T, "generator $i", :qmax),
+                qmin = _powerdata_bound(g.qmin, T, "generator $i", :qmin),
                 vg = _powerdata_real(g.vg, T, "generator $i", :vg),
                 mbase = _powerdata_real(g.mbase, T, "generator $i", :mbase),
                 status = Int(g.in_service),
-                pmax = _powerdata_real(g.pmax, T, "generator $i", :pmax),
-                pmin = _powerdata_real(g.pmin, T, "generator $i", :pmin),
+                pmax = _powerdata_bound(g.pmax, T, "generator $i", :pmax),
+                pmin = _powerdata_bound(g.pmin, T, "generator $i", :pmin),
                 model_poly,
                 startup,
                 shutdown,
@@ -742,14 +777,14 @@ function _to_powerdata_normalized_input(input::_PowerdataInput,
                 b_to,
                 g_fr,
                 g_to,
-                rate_a = _powerdata_real(br.rate_a, T, label, :rate_a),
-                rate_b = _powerdata_real(br.rate_b, T, label, :rate_b),
-                rate_c = _powerdata_real(br.rate_c, T, label, :rate_c),
+                rate_a = _powerdata_bound(br.rate_a, T, label, :rate_a),
+                rate_b = _powerdata_bound(br.rate_b, T, label, :rate_b),
+                rate_c = _powerdata_bound(br.rate_c, T, label, :rate_c),
                 tap,
                 shift,
                 status = Int(br.in_service),
-                angmin = _powerdata_real(br.angmin, T, label, :angmin),
-                angmax = _powerdata_real(br.angmax, T, label, :angmax),
+                angmin = _powerdata_bound(br.angmin, T, label, :angmin),
+                angmax = _powerdata_bound(br.angmax, T, label, :angmax),
                 f_idx = i,
                 t_idx = i + m,
                 c1, c2, c3, c4, c5, c6, c7, c8,
@@ -770,14 +805,14 @@ function _to_powerdata_normalized_input(input::_PowerdataInput,
         Pexts = _powerdata_real(st.ps, T, "storage $row", :ps),
         Qexts = _powerdata_real(st.qs, T, "storage $row", :qs),
         energy = _powerdata_real(st.energy, T, "storage $row", :energy),
-        energy_rating = _powerdata_real(st.energy_rating, T, "storage $row", :energy_rating),
-        charge_rating = _powerdata_real(st.charge_rating, T, "storage $row", :charge_rating),
-        discharge_rating = _powerdata_real(st.discharge_rating, T, "storage $row", :discharge_rating),
+        energy_rating = _powerdata_bound(st.energy_rating, T, "storage $row", :energy_rating),
+        charge_rating = _powerdata_bound(st.charge_rating, T, "storage $row", :charge_rating),
+        discharge_rating = _powerdata_bound(st.discharge_rating, T, "storage $row", :discharge_rating),
         charge_efficiency = _powerdata_real(st.charge_efficiency, T, "storage $row", :charge_efficiency),
         discharge_efficiency = _powerdata_real(st.discharge_efficiency, T, "storage $row", :discharge_efficiency),
-        thermal_rating = _powerdata_real(st.thermal_rating, T, "storage $row", :thermal_rating),
-        qmin = _powerdata_real(st.qmin, T, "storage $row", :qmin),
-        qmax = _powerdata_real(st.qmax, T, "storage $row", :qmax),
+        thermal_rating = _powerdata_bound(st.thermal_rating, T, "storage $row", :thermal_rating),
+        qmin = _powerdata_bound(st.qmin, T, "storage $row", :qmin),
+        qmax = _powerdata_bound(st.qmax, T, "storage $row", :qmax),
         Zr = _powerdata_real(st.r, T, "storage $row", :r),
         Zim = _powerdata_real(st.x, T, "storage $row", :x),
         p_loss = _powerdata_real(st.p_loss, T, "storage $row", :p_loss),
@@ -818,6 +853,19 @@ re-emitted as `@warn`, one per distinct diagnostic code. A case with no generato
 cost data warns `CANONICALIZE.NORMALIZE.GEN_COST_ABSENT`: the rows build, and any
 cost objective built from them is identically zero. Read them off the network
 itself with [`warnings`](@ref)`(`[`to_normalized`](@ref)`(net))`.
+
+A field reads as finite unless it is a bound a source format spells as
+unlimited. `±Inf` passes on the generator and storage reactive and active
+limits, the branch ratings, and the angle-difference bounds — an absent
+reactive limit is `Inf` in MATPOWER, PowerModels, pandapower and PyPSA, and
+stock case9241pegase.m carries it on seven generators. Everywhere else an
+infinite value is refused with the element and the field named, including
+`br_r`, `br_x`, `b`, `tap`, `shift`, `vm`, `va`, `base_kv`, `vmin`, `vmax`,
+`pg`, `qg`, `mbase` and the cost coefficients: no format spells "no voltage
+limit" or "no reactance" as `Inf`, so it is a data defect rather than a
+convention, and an infinite `br_x` otherwise reached `_branch_coeffs` and put
+admittance coefficients derived from `1/Inf` in the returned row. A `NaN` is
+refused everywhere, as before.
 
 This is an ExaModels-facing bridge (a Julia sibling of [`to_powermodels`](@ref)):
 the returned row schema is the field set ExaModelsPower's model builders read. It is
@@ -978,14 +1026,14 @@ function _to_powerdata_raw_input(input::_PowerdataInput,
                 b_to,
                 g_fr,
                 g_to,
-                rate_a = _powerdata_real(br.rate_a, T, label, :rate_a) / base,
-                rate_b = _powerdata_real(br.rate_b, T, label, :rate_b) / base,
-                rate_c = _powerdata_real(br.rate_c, T, label, :rate_c) / base,
+                rate_a = _powerdata_bound(br.rate_a, T, label, :rate_a) / base,
+                rate_b = _powerdata_bound(br.rate_b, T, label, :rate_b) / base,
+                rate_c = _powerdata_bound(br.rate_c, T, label, :rate_c) / base,
                 tap,
                 shift,
                 status = Int(Bool(br.in_service)),
-                angmin = _powerdata_real(br.angmin, T, label, :angmin) / T(180) * T(pi),
-                angmax = _powerdata_real(br.angmax, T, label, :angmax) / T(180) * T(pi),
+                angmin = _powerdata_bound(br.angmin, T, label, :angmin) / T(180) * T(pi),
+                angmax = _powerdata_bound(br.angmax, T, label, :angmax) / T(180) * T(pi),
                 f_idx = i,
                 t_idx = i + m,
                 c1, c2, c3, c4, c5, c6, c7, c8,
@@ -1059,7 +1107,9 @@ to_powerdata(path::AbstractString, ::Type{T}, live::Val{:live}; from=nothing,
 
 Return the NamedTuple layout consumed by ExaModelsPower's `build_polar_opf`,
 `build_rect_opf`, and `build_dcopf`. `input` may be a [`BalancedNetwork`](@ref) or a path.
-Emits the normalize findings as `@warn` the way [`to_powerdata`](@ref) does.
+Emits the normalize findings as `@warn` the way [`to_powerdata`](@ref) does,
+and reads each field under the same finiteness rule: `±Inf` on a bound a
+source format spells as unlimited, refused everywhere else.
 The final `Val(:live)` form is the handle-only spelling for ahead of time
 callers; it requires either a live network or a path that parses as one.
 """
