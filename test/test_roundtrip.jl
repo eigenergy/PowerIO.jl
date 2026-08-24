@@ -386,29 +386,22 @@
         @test_throws ArgumentError PowerIO._powerdata_real(Inf, Float64, "bus 1", :vmax)
         @test_throws ArgumentError PowerIO._powerdata_real(-Inf, Float64, "bus 1", :base_kv)
 
-        # The bounds a format really does spell unlimited stay open, on both
-        # the generator and the branch rows.
-        for (field, value) in ((:qmax, Inf), (:qmin, -Inf), (:pmax, Inf),
-                               (:pmin, -Inf), (:rate_a, Inf), (:rate_b, Inf),
-                               (:rate_c, Inf), (:angmin, -Inf), (:angmax, Inf),
-                               (:thermal_rating, Inf), (:energy_rating, Inf),
-                               (:charge_rating, Inf), (:discharge_rating, Inf))
-            @test PowerIO._powerdata_bound(value, Float64, "row 1", field) === value
-        end
+        # The numeric reader passes an infinite bound through as well, not just
+        # the "Infinity" spelling above. One assertion is the whole property:
+        # the reader never looks at `field`, so a list of them would be thirteen
+        # copies of this line pretending to pin which fields are bounds. Which
+        # fields those are is pinned on real cases — `inf_net`'s qmax/qmin,
+        # `inf_p`'s pmax, and `inf_vmax` on the other side of the split.
+        @test PowerIO._powerdata_bound(Inf, Float64, "row 1", :qmax) === Inf
 
         # An infinite reactance reached `_branch_coeffs` in the same `let`
         # block, so the row carried admittance coefficients derived from
         # `1/Inf` with nothing recorded. The Rust core refuses the same case
         # (`NonFiniteSusceptance`); the bridge now agrees with it.
         inf_x = replace(pv_noref, "0.01 0.1" => "0.01 Inf")
-        inf_x_err = try
-            to_powerdata(parse_str(inf_x, "matpower"))
-            nothing
-        catch e
-            e
-        end
-        @test inf_x_err isa ArgumentError
-        @test occursin("nonfinite field `br_x`", sprint(showerror, inf_x_err))
+        @test_throws ArgumentError to_powerdata(parse_str(inf_x, "matpower"))
+        @test occursin("nonfinite field `br_x`",
+                       refusal(() -> to_powerdata(parse_str(inf_x, "matpower"))))
         # And the same case through the other entry point.
         @test_throws ArgumentError parse_ac_power_data(parse_str(inf_x, "matpower"))
 
@@ -416,14 +409,9 @@
         # reads as a real: this is the case the 0.9 relaxation swept in with
         # the reactive limits it was written for.
         inf_vmax = replace(pv_noref, "1 1.1 0.9;" => "1 Inf 0.9;")
-        inf_vmax_err = try
-            to_powerdata(parse_str(inf_vmax, "matpower"))
-            nothing
-        catch e
-            e
-        end
-        @test inf_vmax_err isa ArgumentError
-        @test occursin("nonfinite field `vmax`", sprint(showerror, inf_vmax_err))
+        @test_throws ArgumentError to_powerdata(parse_str(inf_vmax, "matpower"))
+        @test occursin("nonfinite field `vmax`",
+                       refusal(() -> to_powerdata(parse_str(inf_vmax, "matpower"))))
 
         # The rule is the field's, not the pass's. `filtered=false` skips
         # normalization, not the contract: it read every field but the branch

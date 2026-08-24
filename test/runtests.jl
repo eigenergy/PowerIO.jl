@@ -7,6 +7,19 @@ using SparseArrays
 using Logging
 using SHA
 
+# The message a call refuses with, or "" when it did not refuse at all. Reading
+# a refusal this way keeps the assertion on the line that makes it: `err = try
+# ...; nothing; catch e; e end` took six lines to produce a value whose failure
+# printed `nothing !== nothing` and named neither the call nor the message.
+# `occursin` against "" is false, so a call that stops throwing still fails —
+# except against a *negative* `occursin`, which needs its own `!isempty`.
+refusal(f) = try
+    f()
+    ""
+catch e
+    sprint(showerror, e)
+end
+
 @testset "PowerIO" begin
     include("test_release.jl")    # Project.toml and changelog release guard
     include("test_release_automation.jl") # reviewed intent and artifact state machine

@@ -218,10 +218,9 @@ end
 # powerio/src/format/routing.rs `distribution_format_from_name`); the
 # drift-canary test feeds every claimed token back through the core.
 
-_canonical_format_key(s) = replace(lowercase(String(s)), "-" => "", "_" => "")
 const _DIST_FORMAT_KEYS = Set(["dss", "opendss", "pmd", "pmdjson", "engineering",
                                "bmopf", "bmopfjson"])
-_is_dist_format(s) = _canonical_format_key(s) in _DIST_FORMAT_KEYS
+_is_dist_format(s) = _canonical_token_key(s) in _DIST_FORMAT_KEYS
 _is_dss_path(p) = lowercase(splitext(String(p))[2]) == ".dss"
 _is_package_path(p) = endswith(lowercase(String(p)), ".pio.json")
 

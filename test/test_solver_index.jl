@@ -21,24 +21,34 @@
         @test rows.generator == collect(1:3)
         # The lengths are the normalized ones, which is what makes the vectors
         # usable as a map: one entry per row of the table they describe.
-        @test length(rows.bus) == length(PowerIO.to_powerdata(net).bus)
-        @test length(rows.generator) == length(PowerIO.to_powerdata(net).gen)
-        @test length(rows.branch) == length(PowerIO.to_powerdata(net).branch)
+        pd = PowerIO.to_powerdata(net)
+        @test length(rows.bus) == length(pd.bus)
+        @test length(rows.generator) == length(pd.gen)
+        @test length(rows.branch) == length(pd.branch)
 
         # norm_tiny is the fixture the normalize pass was written against: an
         # isolated bus, an out-of-service branch, and a branch onto the dropped
-        # bus. The surviving rows keep the case's own row numbers rather than
-        # being renumbered, which is the whole point of asking.
+        # bus. What it pins is which rows survive and how many — every row it
+        # drops is the last of its table, so `[1,2,3]` and `[1,2]` are equally
+        # what a renumbering would produce.
         tiny = PowerIO.parse_file(joinpath(@__DIR__, "data", "norm_tiny.m"))
         tiny_rows = PowerIO.source_rows(tiny)
+        tiny_pd = PowerIO.to_powerdata(tiny)
         @test tiny_rows.bus == [1, 2, 3]
         @test tiny_rows.branch == [1, 2]
         @test tiny_rows.generator == [1, 2]
-        @test length(tiny_rows.bus) == length(PowerIO.to_powerdata(tiny).bus)
-        @test length(tiny_rows.branch) == length(PowerIO.to_powerdata(tiny).branch)
-        # Bus 8 is in the case and in no normalized row: a gap, not a shift.
-        @test length(tiny_rows.bus) == 3
-        @test !(4 in tiny_rows.bus)
+        @test length(tiny_rows.bus) == length(tiny_pd.bus)
+        @test length(tiny_rows.branch) == length(tiny_pd.branch)
+
+        # A dropped row leaves a gap; the rows after it keep the numbers the
+        # case gave them. That is the whole point of asking, and no fixture
+        # above separates it from a renumbering — it takes a case that drops an
+        # *interior* row, which case9 with branch 4 out of service is. A
+        # renumbering answers `1:8` here.
+        doc = JSON3.read(PowerIO.to_json(net), Dict{String,Any})
+        doc["branches"][4]["in_service"] = false
+        gapped_rows = PowerIO.source_rows(PowerIO.from_json(JSON3.write(doc)))
+        @test gapped_rows.branch == [1, 2, 3, 5, 6, 7, 8, 9]
 
         # `to_dense` is a *different* row space and these vectors do not index
         # it: its tables are the handle's parse-time core, which still holds
@@ -56,7 +66,7 @@
 
         # 1-based, like every other row number this package reports. The gen
         # source row indexes the case's own generator table.
-        @test PowerIO.to_powerdata(tiny).gen[1].bus ==
+        @test tiny_pd.gen[1].bus ==
               Int(PowerIO.generators(tiny)[tiny_rows.generator[1]].bus)
 
         # The ccall and the string free both go to the library that allocated

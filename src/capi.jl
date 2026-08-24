@@ -459,6 +459,15 @@ end
 # compiler may drop the buffer after `pointer(buf)` and a GC mid-copy dangles.
 _cstr(buf::Vector{UInt8}) = GC.@preserve buf unsafe_string(pointer(buf))
 
+# The lookup key for a name the Rust core owns — a format name, a DC
+# convention. Both separators are deleted rather than one folded into the
+# other, because that is what the core's own `from_token` readers do: rewriting
+# `-` to `_` instead refuses spellings the library accepts. The tables keyed by
+# this live beside the routing they serve; the normalization is one rule and is
+# shared so the two cannot drift apart from each other while both still claim
+# to mirror the core.
+_canonical_token_key(s) = replace(lowercase(String(s)), "-" => "", "_" => "")
+
 # Owned Strings, one per non-empty line (a SubString would pin the whole
 # buffer-sized parent).
 _nonempty_lines(s::AbstractString) = String.(filter(!isempty, split(s, '\n')))

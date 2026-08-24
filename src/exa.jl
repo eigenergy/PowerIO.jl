@@ -21,33 +21,42 @@
 # whether a field is a limit: no format spells "no voltage limit" that way, so
 # `vmin`/`vmax` are a data defect rather than a convention and read as reals.
 
-function _powerdata_bound(x, ::Type{T}, element::AbstractString,
+# The element the field belongs to travels as data — `("bus", 7)` — and is
+# rendered only inside a `throw`. Building `"bus 7"` per field instead cost one
+# string per field read on every case that has nothing wrong with it: 25,801 of
+# them on case2869pegase, ~7.2 MB, for a message no caller ever sees. A plain
+# `String` still passes through, so a call site with nothing to interpolate
+# names itself directly.
+_pd_ctx(x) = x
+_pd_ctx(t::Tuple) = string(t[1], ' ', t[2])
+
+function _powerdata_bound(x, ::Type{T}, element,
                          field::Symbol) where {T<:Real}
     x === nothing &&
-        throw(ArgumentError("PowerIO.to_powerdata: $element has missing field `$field`"))
+        throw(ArgumentError("PowerIO.to_powerdata: $(_pd_ctx(element)) has missing field `$field`"))
     y = try
         _json_float(T, x)
     catch err
         msg = sprint(showerror, err)
-        throw(ArgumentError("PowerIO.to_powerdata: $element has invalid field `$field`: $msg"))
+        throw(ArgumentError("PowerIO.to_powerdata: $(_pd_ctx(element)) has invalid field `$field`: $msg"))
     end
     # An infinite limit is how MATPOWER, PowerModels, pandapower and PyPSA spell
     # "no bound", so it passes through here. A NaN carries no such reading, and
     # `_powerdata_real` is the reader for a field that is not a bound.
     isnan(y) &&
-        throw(ArgumentError("PowerIO.to_powerdata: $element has NaN field `$field`"))
+        throw(ArgumentError("PowerIO.to_powerdata: $(_pd_ctx(element)) has NaN field `$field`"))
     return y
 end
 
 function _powerdata_bound(x::Union{Float64,Int64}, ::Type{T},
-                         element::AbstractString, field::Symbol) where {T<:Real}
+                         element, field::Symbol) where {T<:Real}
     y = T(x)
     isnan(y) &&
-        throw(ArgumentError("PowerIO.to_powerdata: $element has NaN field `$field`"))
+        throw(ArgumentError("PowerIO.to_powerdata: $(_pd_ctx(element)) has NaN field `$field`"))
     return y
 end
 
-function _powerdata_bound(x::String, ::Type{T}, element::AbstractString,
+function _powerdata_bound(x::String, ::Type{T}, element,
                          field::Symbol) where {T<:Real}
     y = if x == "Infinity"
         T(Inf)
@@ -57,21 +66,21 @@ function _powerdata_bound(x::String, ::Type{T}, element::AbstractString,
         T(NaN)
     else
         throw(ArgumentError(
-            "PowerIO.to_powerdata: $element has invalid field `$field`: " *
+            "PowerIO.to_powerdata: $(_pd_ctx(element)) has invalid field `$field`: " *
             "$(repr(x)) is neither a number nor a nonfinite spelling"))
     end
     isnan(y) &&
-        throw(ArgumentError("PowerIO.to_powerdata: $element has NaN field `$field`"))
+        throw(ArgumentError("PowerIO.to_powerdata: $(_pd_ctx(element)) has NaN field `$field`"))
     return y
 end
 
 # A field that is not a bound. `_powerdata_bound` first, so the NaN and the
 # unparseable-string messages stay identical whichever reader a call site picks.
-function _powerdata_real(x, ::Type{T}, element::AbstractString,
+function _powerdata_real(x, ::Type{T}, element,
                          field::Symbol) where {T<:Real}
     y = _powerdata_bound(x, T, element, field)
     isfinite(y) || throw(ArgumentError(
-        "PowerIO.to_powerdata: $element has nonfinite field `$field` ($y); " *
+        "PowerIO.to_powerdata: $(_pd_ctx(element)) has nonfinite field `$field` ($y); " *
         "an infinite value spells an absent bound and `$field` is not a bound"))
     return y
 end
@@ -683,16 +692,16 @@ function _to_powerdata_normalized_input(input::_PowerdataInput,
     for (row, l) in enumerate(input.loads)
         idx = get(id_to_idx, Int(l.bus), 0)
         idx == 0 && continue
-        pd[idx] += _powerdata_real(l.p, T, "load $row", :p)
-        qd[idx] += _powerdata_real(l.q, T, "load $row", :q)
+        pd[idx] += _powerdata_real(l.p, T, ("load", row), :p)
+        qd[idx] += _powerdata_real(l.q, T, ("load", row), :q)
     end
     gs = zeros(T, length(kept_ids))
     bs = zeros(T, length(kept_ids))
     for (row, s) in enumerate(input.shunts)
         idx = get(id_to_idx, Int(s.bus), 0)
         idx == 0 && continue
-        gs[idx] += _powerdata_real(s.g, T, "shunt $row", :g)
-        bs[idx] += _powerdata_real(s.b, T, "shunt $row", :b)
+        gs[idx] += _powerdata_real(s.g, T, ("shunt", row), :g)
+        bs[idx] += _powerdata_real(s.b, T, ("shunt", row), :b)
     end
 
     BusRow = _powerdata_bus_row_type(T)
@@ -707,12 +716,12 @@ function _to_powerdata_normalized_input(input::_PowerdataInput,
                 gs = gs[i],
                 bs = bs[i],
                 area = Int(b.area),
-                vm = _powerdata_real(b.vm, T, "bus $id", :vm),
-                va = _powerdata_real(b.va, T, "bus $id", :va),
-                baseKV = _powerdata_real(b.base_kv, T, "bus $id", :base_kv),
+                vm = _powerdata_real(b.vm, T, ("bus", id), :vm),
+                va = _powerdata_real(b.va, T, ("bus", id), :va),
+                baseKV = _powerdata_real(b.base_kv, T, ("bus", id), :base_kv),
                 zone = Int(b.zone),
-                vmax = _powerdata_real(b.vmax, T, "bus $id", :vmax),
-                vmin = _powerdata_real(b.vmin, T, "bus $id", :vmin),
+                vmax = _powerdata_real(b.vmax, T, ("bus", id), :vmax),
+                vmin = _powerdata_real(b.vmin, T, ("bus", id), :vmin),
             ))
         end
         for (i, b) in enumerate(raw_buses)
@@ -726,15 +735,15 @@ function _to_powerdata_normalized_input(input::_PowerdataInput,
             GenRow((;
                 i,
                 bus = id_to_idx[Int(g.bus)],
-                pg = _powerdata_real(g.pg, T, "generator $i", :pg),
-                qg = _powerdata_real(g.qg, T, "generator $i", :qg),
-                qmax = _powerdata_bound(g.qmax, T, "generator $i", :qmax),
-                qmin = _powerdata_bound(g.qmin, T, "generator $i", :qmin),
-                vg = _powerdata_real(g.vg, T, "generator $i", :vg),
-                mbase = _powerdata_real(g.mbase, T, "generator $i", :mbase),
+                pg = _powerdata_real(g.pg, T, ("generator", i), :pg),
+                qg = _powerdata_real(g.qg, T, ("generator", i), :qg),
+                qmax = _powerdata_bound(g.qmax, T, ("generator", i), :qmax),
+                qmin = _powerdata_bound(g.qmin, T, ("generator", i), :qmin),
+                vg = _powerdata_real(g.vg, T, ("generator", i), :vg),
+                mbase = _powerdata_real(g.mbase, T, ("generator", i), :mbase),
                 status = Int(g.in_service),
-                pmax = _powerdata_bound(g.pmax, T, "generator $i", :pmax),
-                pmin = _powerdata_bound(g.pmin, T, "generator $i", :pmin),
+                pmax = _powerdata_bound(g.pmax, T, ("generator", i), :pmax),
+                pmin = _powerdata_bound(g.pmin, T, ("generator", i), :pmin),
                 model_poly,
                 startup,
                 shutdown,
@@ -752,7 +761,7 @@ function _to_powerdata_normalized_input(input::_PowerdataInput,
     BranchRow = _powerdata_branch_row_type(T)
     branch_rows = BranchRow[
         let
-            label = "branch $i"
+            label = ("branch", i)
             f = id_to_idx[Int(br.from)]
             t = id_to_idx[Int(br.to)]
             tap_raw = _powerdata_real(br.tap, T, label, :tap)
@@ -802,21 +811,21 @@ function _to_powerdata_normalized_input(input::_PowerdataInput,
     storage_rows = StorageRow[StorageRow((;
         i = row,
         storage_bus = Int(st.bus),
-        Pexts = _powerdata_real(st.ps, T, "storage $row", :ps),
-        Qexts = _powerdata_real(st.qs, T, "storage $row", :qs),
-        energy = _powerdata_real(st.energy, T, "storage $row", :energy),
-        energy_rating = _powerdata_bound(st.energy_rating, T, "storage $row", :energy_rating),
-        charge_rating = _powerdata_bound(st.charge_rating, T, "storage $row", :charge_rating),
-        discharge_rating = _powerdata_bound(st.discharge_rating, T, "storage $row", :discharge_rating),
-        charge_efficiency = _powerdata_real(st.charge_efficiency, T, "storage $row", :charge_efficiency),
-        discharge_efficiency = _powerdata_real(st.discharge_efficiency, T, "storage $row", :discharge_efficiency),
-        thermal_rating = _powerdata_bound(st.thermal_rating, T, "storage $row", :thermal_rating),
-        qmin = _powerdata_bound(st.qmin, T, "storage $row", :qmin),
-        qmax = _powerdata_bound(st.qmax, T, "storage $row", :qmax),
-        Zr = _powerdata_real(st.r, T, "storage $row", :r),
-        Zim = _powerdata_real(st.x, T, "storage $row", :x),
-        p_loss = _powerdata_real(st.p_loss, T, "storage $row", :p_loss),
-        q_loss = _powerdata_real(st.q_loss, T, "storage $row", :q_loss),
+        Pexts = _powerdata_real(st.ps, T, ("storage", row), :ps),
+        Qexts = _powerdata_real(st.qs, T, ("storage", row), :qs),
+        energy = _powerdata_real(st.energy, T, ("storage", row), :energy),
+        energy_rating = _powerdata_bound(st.energy_rating, T, ("storage", row), :energy_rating),
+        charge_rating = _powerdata_bound(st.charge_rating, T, ("storage", row), :charge_rating),
+        discharge_rating = _powerdata_bound(st.discharge_rating, T, ("storage", row), :discharge_rating),
+        charge_efficiency = _powerdata_real(st.charge_efficiency, T, ("storage", row), :charge_efficiency),
+        discharge_efficiency = _powerdata_real(st.discharge_efficiency, T, ("storage", row), :discharge_efficiency),
+        thermal_rating = _powerdata_bound(st.thermal_rating, T, ("storage", row), :thermal_rating),
+        qmin = _powerdata_bound(st.qmin, T, ("storage", row), :qmin),
+        qmax = _powerdata_bound(st.qmax, T, ("storage", row), :qmax),
+        Zr = _powerdata_real(st.r, T, ("storage", row), :r),
+        Zim = _powerdata_real(st.x, T, ("storage", row), :x),
+        p_loss = _powerdata_real(st.p_loss, T, ("storage", row), :p_loss),
+        q_loss = _powerdata_real(st.q_loss, T, ("storage", row), :q_loss),
         status = Int(st.in_service),
     )) for (row, st) in enumerate(input.storage)]
 
@@ -915,16 +924,16 @@ function _to_powerdata_raw_input(input::_PowerdataInput,
     for (row, l) in enumerate(input.loads)
         idx = get(id_to_idx, Int(l.bus), 0)
         idx == 0 && continue
-        pd[idx] += _powerdata_real(l.p, T, "load $row", :p) / base
-        qd[idx] += _powerdata_real(l.q, T, "load $row", :q) / base
+        pd[idx] += _powerdata_real(l.p, T, ("load", row), :p) / base
+        qd[idx] += _powerdata_real(l.q, T, ("load", row), :q) / base
     end
     gs = zeros(T, length(kept_ids))
     bs = zeros(T, length(kept_ids))
     for (row, s) in enumerate(input.shunts)
         idx = get(id_to_idx, Int(s.bus), 0)
         idx == 0 && continue
-        gs[idx] += _powerdata_real(s.g, T, "shunt $row", :g) / base
-        bs[idx] += _powerdata_real(s.b, T, "shunt $row", :b) / base
+        gs[idx] += _powerdata_real(s.g, T, ("shunt", row), :g) / base
+        bs[idx] += _powerdata_real(s.b, T, ("shunt", row), :b) / base
     end
 
     BusRow = _powerdata_bus_row_type(T)
@@ -939,12 +948,12 @@ function _to_powerdata_raw_input(input::_PowerdataInput,
                 gs = gs[i],
                 bs = bs[i],
                 area = Int(b.area),
-                vm = _powerdata_real(b.vm, T, "bus $id", :vm),
-                va = _powerdata_real(b.va, T, "bus $id", :va),
-                baseKV = _powerdata_real(b.base_kv, T, "bus $id", :base_kv),
+                vm = _powerdata_real(b.vm, T, ("bus", id), :vm),
+                va = _powerdata_real(b.va, T, ("bus", id), :va),
+                baseKV = _powerdata_real(b.base_kv, T, ("bus", id), :base_kv),
                 zone = Int(b.zone),
-                vmax = _powerdata_real(b.vmax, T, "bus $id", :vmax),
-                vmin = _powerdata_real(b.vmin, T, "bus $id", :vmin),
+                vmax = _powerdata_real(b.vmax, T, ("bus", id), :vmax),
+                vmin = _powerdata_real(b.vmin, T, ("bus", id), :vmin),
             ))
         end
         for b in raw_buses
@@ -958,15 +967,15 @@ function _to_powerdata_raw_input(input::_PowerdataInput,
             GenRow((;
                 i,
                 bus = id_to_idx[Int(g.bus)],
-                pg = _powerdata_real(g.pg, T, "generator $i", :pg) / base,
-                qg = _powerdata_real(g.qg, T, "generator $i", :qg) / base,
-                qmax = _powerdata_bound(g.qmax, T, "generator $i", :qmax) / base,
-                qmin = _powerdata_bound(g.qmin, T, "generator $i", :qmin) / base,
-                vg = _powerdata_real(g.vg, T, "generator $i", :vg),
-                mbase = _powerdata_real(g.mbase, T, "generator $i", :mbase),
+                pg = _powerdata_real(g.pg, T, ("generator", i), :pg) / base,
+                qg = _powerdata_real(g.qg, T, ("generator", i), :qg) / base,
+                qmax = _powerdata_bound(g.qmax, T, ("generator", i), :qmax) / base,
+                qmin = _powerdata_bound(g.qmin, T, ("generator", i), :qmin) / base,
+                vg = _powerdata_real(g.vg, T, ("generator", i), :vg),
+                mbase = _powerdata_real(g.mbase, T, ("generator", i), :mbase),
                 status = Int(Bool(g.in_service)),
-                pmax = _powerdata_bound(g.pmax, T, "generator $i", :pmax) / base,
-                pmin = _powerdata_bound(g.pmin, T, "generator $i", :pmin) / base,
+                pmax = _powerdata_bound(g.pmax, T, ("generator", i), :pmax) / base,
+                pmin = _powerdata_bound(g.pmin, T, ("generator", i), :pmin) / base,
                 model_poly,
                 startup,
                 shutdown,
@@ -1014,7 +1023,7 @@ function _to_powerdata_raw_input(input::_PowerdataInput,
         let
             f = id_to_idx[Int(br.from)]
             t = id_to_idx[Int(br.to)]
-            label = "branch $i"
+            label = ("branch", i)
             tap_raw = _powerdata_real(br.tap, T, label, :tap)
             tap = isapprox(tap_raw, zero(T)) ? one(T) : tap_raw
             shift = _powerdata_real(br.shift, T, label, :shift) / T(180) * T(pi)
@@ -1062,21 +1071,21 @@ function _to_powerdata_raw_input(input::_PowerdataInput,
     storage_rows = StorageRow[StorageRow((;
         i = row,
         storage_bus = Int(st.bus),
-        Pexts = _powerdata_real(st.ps, T, "storage $row", :ps),
-        Qexts = _powerdata_real(st.qs, T, "storage $row", :qs),
-        energy = _powerdata_real(st.energy, T, "storage $row", :energy) / base,
-        energy_rating = _powerdata_bound(st.energy_rating, T, "storage $row", :energy_rating) / base,
-        charge_rating = _powerdata_bound(st.charge_rating, T, "storage $row", :charge_rating) / base,
-        discharge_rating = _powerdata_bound(st.discharge_rating, T, "storage $row", :discharge_rating) / base,
-        charge_efficiency = _powerdata_real(st.charge_efficiency, T, "storage $row", :charge_efficiency),
-        discharge_efficiency = _powerdata_real(st.discharge_efficiency, T, "storage $row", :discharge_efficiency),
-        thermal_rating = _powerdata_bound(st.thermal_rating, T, "storage $row", :thermal_rating) / base,
-        qmin = _powerdata_bound(st.qmin, T, "storage $row", :qmin) / base,
-        qmax = _powerdata_bound(st.qmax, T, "storage $row", :qmax) / base,
-        Zr = _powerdata_real(st.r, T, "storage $row", :r),
-        Zim = _powerdata_real(st.x, T, "storage $row", :x),
-        p_loss = _powerdata_real(st.p_loss, T, "storage $row", :p_loss),
-        q_loss = _powerdata_real(st.q_loss, T, "storage $row", :q_loss),
+        Pexts = _powerdata_real(st.ps, T, ("storage", row), :ps),
+        Qexts = _powerdata_real(st.qs, T, ("storage", row), :qs),
+        energy = _powerdata_real(st.energy, T, ("storage", row), :energy) / base,
+        energy_rating = _powerdata_bound(st.energy_rating, T, ("storage", row), :energy_rating) / base,
+        charge_rating = _powerdata_bound(st.charge_rating, T, ("storage", row), :charge_rating) / base,
+        discharge_rating = _powerdata_bound(st.discharge_rating, T, ("storage", row), :discharge_rating) / base,
+        charge_efficiency = _powerdata_real(st.charge_efficiency, T, ("storage", row), :charge_efficiency),
+        discharge_efficiency = _powerdata_real(st.discharge_efficiency, T, ("storage", row), :discharge_efficiency),
+        thermal_rating = _powerdata_bound(st.thermal_rating, T, ("storage", row), :thermal_rating) / base,
+        qmin = _powerdata_bound(st.qmin, T, ("storage", row), :qmin) / base,
+        qmax = _powerdata_bound(st.qmax, T, ("storage", row), :qmax) / base,
+        Zr = _powerdata_real(st.r, T, ("storage", row), :r),
+        Zim = _powerdata_real(st.x, T, ("storage", row), :x),
+        p_loss = _powerdata_real(st.p_loss, T, ("storage", row), :p_loss),
+        q_loss = _powerdata_real(st.q_loss, T, ("storage", row), :q_loss),
         status = Int(Bool(st.in_service)),
     )) for (row, st) in enumerate(input.storage)]
 
@@ -1267,8 +1276,8 @@ function _load_alignment_input(input::_PowerdataInput,
     for (row, l) in enumerate(input.loads)
         idx = get(id_to_idx, Int(l.bus), 0)
         idx == 0 && continue
-        base_pd[idx] += _powerdata_real(l.p, T, "load $row", :p)
-        base_qd[idx] += _powerdata_real(l.q, T, "load $row", :q)
+        base_pd[idx] += _powerdata_real(l.p, T, ("load", row), :p)
+        base_qd[idx] += _powerdata_real(l.q, T, ("load", row), :q)
     end
     return base, bus_ids, base_pd, base_qd
 end

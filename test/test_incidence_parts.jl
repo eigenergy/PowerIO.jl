@@ -3,18 +3,20 @@
 
     data = joinpath(@__DIR__, "data")
 
-    # The token table is pure Julia, so it is checked whatever the library is.
+    # The token table is pure Julia, so every key it claims is checked whatever
+    # the library is; the gated block below feeds the same table through the C
+    # ABI, which is the half that needs one.
     @test_throws ArgumentError PowerIO._dc_convention_token(:bogus)
-    @test PowerIO._dc_convention_token(:series) == "series"
+    for (key, token) in PowerIO._DC_CONVENTIONS
+        @test PowerIO._dc_convention_token(key) == token
+    end
+    # The spellings the table does not hold literally. The core deletes both
+    # separators rather than folding one into the other and lowercases, so
+    # these resolve through Python and the CLI and have to resolve here;
+    # rewriting `-` to `_` refused them.
     @test PowerIO._dc_convention_token(:series_impedance) == "series"
     @test PowerIO._dc_convention_token("Series-Impedance") == "series"
-    @test PowerIO._dc_convention_token(:mp) == "matpower"
     @test PowerIO._dc_convention_token(:reactance_only) == "reactance-only"
-    # The core deletes both separators rather than folding one into the other,
-    # so these three resolve through Python and the CLI and have to resolve
-    # here; rewriting `-` to `_` refused them.
-    @test PowerIO._dc_convention_token("seriesimpedance") == "series"
-    @test PowerIO._dc_convention_token("reactanceonly") == "reactance-only"
     @test PowerIO._dc_convention_token("REACTANCEONLY") == "reactance-only"
 
     # `nothing` is how this package spells "the default" for `from=`, so it
@@ -26,14 +28,9 @@
     # 0.8 spelled `b = 1/x` "paper-pure" and made it the default. The core
     # names the successor rather than resolving it, because the nearest looking
     # option is a different formula; the Julia refusal carries the same hint.
-    paper_err = try
-        PowerIO._dc_convention_token("paper-pure")
-        nothing
-    catch e
-        e
-    end
-    @test paper_err isa ArgumentError
-    @test occursin("reactance_only", sprint(showerror, paper_err))
+    @test_throws ArgumentError PowerIO._dc_convention_token("paper-pure")
+    @test occursin("reactance_only",
+                   refusal(() -> PowerIO._dc_convention_token("paper-pure")))
 
     # `calc_incidence_parts` needs `arrow` as well as `matrix` — the matrix
     # crosses as an Arrow table — and `matrix_available()` is the one probe
@@ -61,10 +58,9 @@
         @test parts.branch_rows == collect(1:length(dense.branch.x))
 
         # Drift canary for the token table mirrored off `DcConvention::from_token`
-        # (powerio/src/dc.rs): every spelling Julia claims has to resolve here,
-        # and every token it produces has to be one the C ABI takes.
+        # (powerio/src/dc.rs): every token Julia produces has to be one the C
+        # ABI takes, and so does every key that resolves to it.
         for (key, token) in PowerIO._DC_CONVENTIONS
-            @test PowerIO._dc_convention_token(key) == token
             @test PowerIO.branch_susceptance(net; convention=key) isa Vector{Float64}
             @test PowerIO.branch_susceptance(net; convention=token) isa Vector{Float64}
         end
@@ -156,16 +152,11 @@
         doc2 = JSON3.read(PowerIO.to_json(net), Dict{String,Any})
         doc2["branches"][3]["x"] = "Infinity"
         poisoned = PowerIO.from_json(JSON3.write(doc2))
-        err = try
-            PowerIO.branch_susceptance(poisoned; convention=:reactance_only)
-            nothing
-        catch e
-            e
-        end
-        @test err !== nothing
-        @test occursin("branch_susceptance", sprint(showerror, err))
+        poisoned_b = refusal(() ->
+            PowerIO.branch_susceptance(poisoned; convention=:reactance_only))
+        @test occursin("branch_susceptance", poisoned_b)
         # Every C ABI message reads `CODE: message`.
-        @test occursin(": ", sprint(showerror, err))
+        @test occursin(": ", poisoned_b)
 
         # The Arrow incidence table takes no convention over the C ABI: the
         # library builds it under the default `:series`, the only convention
@@ -178,37 +169,24 @@
         infinite_r = PowerIO.from_json(JSON3.write(doc3))
         @test PowerIO.branch_susceptance(infinite_r; convention=:reactance_only) isa
               Vector{Float64}
-        arrow_err = try
-            PowerIO.calc_incidence_parts(infinite_r; convention=:reactance_only)
-            nothing
-        catch e
-            e
-        end
-        @test arrow_err !== nothing
-        @test occursin("calc_incidence_parts", sprint(showerror, arrow_err))
-        @test occursin(":series", sprint(showerror, arrow_err))
+        arrow_err = refusal(() ->
+            PowerIO.calc_incidence_parts(infinite_r; convention=:reactance_only))
+        @test occursin("calc_incidence_parts", arrow_err)
+        @test occursin(":series", arrow_err)
         # Under `:series` itself the refusal is the caller's own, and passes
         # through unwrapped.
-        series_err = try
-            PowerIO.calc_incidence_parts(infinite_r)
-            nothing
-        catch e
-            e
-        end
-        @test series_err !== nothing
-        @test !occursin("whatever `convention` asks for", sprint(showerror, series_err))
+        series_err = refusal(() -> PowerIO.calc_incidence_parts(infinite_r))
+        # The assertion below is a negative one, so it passes against the empty
+        # string a call that stopped refusing would return: pinned separately.
+        @test !isempty(series_err)
+        @test !occursin("whatever `convention` asks for", series_err)
         # And a case no convention carries is the caller's own, not a
         # convention mismatch: `poisoned`'s infinite reactance is refused by
         # `:reactance_only` too, so that refusal is the one to report.
-        poisoned_err = try
-            PowerIO.calc_incidence_parts(poisoned; convention=:reactance_only)
-            nothing
-        catch e
-            e
-        end
-        @test poisoned_err !== nothing
-        @test !occursin("whatever `convention` asks for", sprint(showerror, poisoned_err))
-        @test occursin("calc_incidence_parts", sprint(showerror, poisoned_err))
+        poisoned_err = refusal(() ->
+            PowerIO.calc_incidence_parts(poisoned; convention=:reactance_only))
+        @test occursin("calc_incidence_parts", poisoned_err)
+        @test !occursin("whatever `convention` asks for", poisoned_err)
 
         # Every ccall on a live handle goes to the library that allocated it,
         # not to `_lib()`. `set_library!` is public API for pointing at a local
