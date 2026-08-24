@@ -12,10 +12,9 @@
 # did not stop there, since `_branch_coeffs` ran on it in the same `let` block
 # and the row carried admittance coefficients derived from `1/Inf` with
 # nothing recorded. The Rust core moved the other way in the same release
-# (#292): `branch_susceptance` returns `NaN` for a denominator that is not
-# finite, and `IncidenceParts` errors with `NonFiniteSusceptance` rather than
-# assembling. An infinite reactance is a corrupt case there and was a valid
-# row here.
+# (#292): the DC matrix builder rejects a denominator that is not finite rather
+# than assembling it. An infinite reactance is a corrupt case there and was a
+# valid row here.
 #
 # The split is by whether a source format spells "no bound" as ±Inf, not by
 # whether a field is a limit: no format spells "no voltage limit" that way, so
@@ -914,7 +913,7 @@ _to_powerdata_live(net::BalancedNetwork, ::Type{T}, ::Val{false}) where {T<:Real
     _to_powerdata_raw_input(_powerdata_input(_live_handle(net, "to_powerdata")), T)
 
 # The same two readers as the normalized path above. `filtered=false` skips the
-# normalize pass, not the field contract: an infinite `vmax` or a NaN `pg` is
+# normalize pass, not the field rule: an infinite `vmax` or a NaN `pg` is
 # the same data defect whichever route reached it, and the row this builds goes
 # to the same ExaModelsPower model builders. Only the branch block was guarded
 # before, so a NaN `base_mva` divided every per unit field in the case and

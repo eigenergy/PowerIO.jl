@@ -59,7 +59,7 @@ net.warnings            # parse warnings, retained on the handle
 Writing back to the format the case was parsed from echoes the source byte for
 byte; a cross-format write reports every fidelity loss in `warnings`.
 
-The type marker forms remain the explicit spelling when you want to pin the
+The type marker forms remain the explicit spelling when you want to select the
 model: `parse_file(MulticonductorNetwork, path)` routes nowhere, and
 `parse_file(BalancedNetwork, path)` reaches the balanced parser no matter the
 extension. Cross-model requests (`convert_file("feeder.dss", "matpower")`) are
@@ -114,7 +114,7 @@ other tables are always present in a library payload; a missing one raises a
 Two JSON forms exist on purpose, and they carry the same model:
 
 - **`.pio.json` packages** carry a case between PowerIO consumers with
-  provenance, diagnostics, validation, operating points, and lowering history.
+  source details, diagnostics, validation, operating points, and lowering history.
   Julia stores packages as JSON backed envelopes today.
 - **BMOPF JSON** is the exchange format for tools outside PowerIO.
 

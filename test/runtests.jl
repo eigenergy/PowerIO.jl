@@ -30,11 +30,11 @@ end
     include("test_roundtrip.jl")  # C ABI round trip, adapters, packages
     include("test_powermodels_ref.jl") # PowerModels reference utilities
     include("test_transforms.jl") # PyPSA writer, parse dispatch, to_normalized, to_dense
-    include("test_solver_index.jl") # normalize-pass source-row provenance
+    include("test_solver_index.jl") # normalized source rows
     include("test_loadseries.jl") # LoadSeries multiperiod bus loads
     include("test_arrow.jl")      # Arrow export (feature arrow)
     include("test_matrix.jl")     # Rust computed sparse matrices
-    include("test_incidence_parts.jl") # DC incidence parts (b, p_shift, column map)
+    include("test_dc_power_flow.jl") # PowerModels DC matrix definitions
     include("test_memory_safety.jl")
     include("test_gridfm.jl")     # gridfm reader (feature gridfm)
     include("test_dist.jl")       # distribution API (feature dist)

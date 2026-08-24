@@ -16,6 +16,25 @@ struct AdmittanceMatrix{T}
     matrix::SparseArrays.SparseMatrixCSC{T,Int}
 end
 
+"""
+    PowerIO.IncidenceMatrix{T}
+
+Sparse branch by bus incidence matrix with its bus ids and source branch rows.
+`matrix[e, i]` is `+1` at branch `e`'s from bus and `-1` at its to bus.
+`branch_rows[e]` is the 1-based row in the parsed branch table; zero denotes a
+branch introduced while building the indexed network.
+"""
+struct IncidenceMatrix{T}
+    idx_to_bus::Vector{Int}
+    bus_to_idx::Dict{Int,Int}
+    branch_rows::Vector{Int}
+    matrix::SparseArrays.SparseMatrixCSC{T,Int}
+end
+
+Base.show(io::IO, x::IncidenceMatrix{<:Number}) =
+    print(io, "IncidenceMatrix(", size(x.matrix, 1), " branches, ",
+          size(x.matrix, 2), " buses, ", SparseArrays.nnz(x.matrix), " entries)")
+
 Base.show(io::IO, x::AdmittanceMatrix{<:Number}) =
     print(io, "AdmittanceMatrix(", length(x.idx_to_bus), " buses, ",
           SparseArrays.nnz(x.matrix), " entries)")
@@ -125,8 +144,7 @@ calc_admittance_matrix(path::AbstractString; from=nothing) =
     calc_bprime_matrix(net::BalancedNetwork)
     calc_bprime_matrix(path; from=nothing)
 
-Return Rust's FDPF `B'` matrix as a `PowerIO.AdmittanceMatrix{Float64}`. This
-preserves Rust's positive Laplacian convention.
+Return Rust's FDPF `B'` matrix as a `PowerIO.AdmittanceMatrix{Float64}`.
 """
 calc_bprime_matrix(net::BalancedNetwork) = _wrapped_real_matrix(net, :bprime)
 
@@ -148,45 +166,18 @@ calc_bdoubleprime_matrix(path::AbstractString; from=nothing) =
     calc_susceptance_matrix(net::BalancedNetwork)
     calc_susceptance_matrix(path; from=nothing)
 
-Return a PowerModels sign convention susceptance matrix as a
-`PowerIO.AdmittanceMatrix{Float64}`. This is the sign adjusted form of Rust's
-`B'` matrix: `calc_susceptance_matrix(net).matrix == -calc_bprime_matrix(net).matrix`.
-
-`B'` is the fast decoupled power flow matrix, so a phase shifting branch folds
-into the off diagonal and the result is **not symmetric in general**. On
-PowerModels' `case5.m`, whose 3-4 pair carries a one degree shift, the two off
-diagonal entries differ by 0.23.
-
-It is therefore not the DC OPF `B`-theta Laplacian, which is a different matrix:
-that one weights each branch by `DcConvention`, stays symmetric, and routes phase
-shifts through the injection vector rather than the matrix. Build that one from
-[`calc_incidence_matrix`](@ref) and the branch series values.
-
-# Convention
-
-Each branch enters with the series susceptance `x / (r^2 + x^2)` from its own
-impedance: Rust builds `B'` under the BX scheme, which keeps the resistance and
-sets the tap magnitude to one. That weight is a positive Laplacian edge weight
-in [`calc_bprime_matrix`](@ref), where off diagonal entries are negative and
-each diagonal is the sum over its incident branches. Negating flips both signs,
-so here the off diagonal entries are positive and the diagonals negative.
-
-# Extending the generic
-
-A downstream package can add a method to this generic for its own network type,
-returning a matrix under a different sign, a different per branch weight, or a
-different phase shifter treatment. Nothing at the call site distinguishes the
-methods, so:
-
-- [`calc_bprime_matrix`](@ref) names one matrix and one convention. Use it when
-  a package extends the generic, and when the positive Laplacian form is what
-  the caller wants regardless of which packages are loaded.
-- A package adding a method for its own network type owns documenting that
-  method's convention: sign, per branch weight, and phase shifter treatment.
+Return the PowerModels bus susceptance matrix
+`B = A' * Diagonal(b) * A` under the `:series` convention, where
+`b[e] = imag(inv(r[e] + im*x[e]))`. The result is symmetric. Phase shifts are
+not included in `B`; [`DcPowerFlowData`](@ref) returns their affine bus
+injection separately.
 """
 function calc_susceptance_matrix(net::BalancedNetwork)
-    bp = calc_bprime_matrix(net)
-    return AdmittanceMatrix(bp.idx_to_bus, bp.bus_to_idx, -bp.matrix)
+    A, b, idx_to_bus, bus_to_idx =
+        _series_incidence_and_susceptance(net, "calc_susceptance_matrix")
+    Bf = _branch_susceptance_matrix(A, b)
+    B = transpose(A) * Bf
+    return AdmittanceMatrix(idx_to_bus, bus_to_idx, B)
 end
 
 calc_susceptance_matrix(path::AbstractString; from=nothing) =
@@ -196,23 +187,107 @@ calc_susceptance_matrix(path::AbstractString; from=nothing) =
     calc_incidence_matrix(net::BalancedNetwork)
     calc_incidence_matrix(path; from=nothing)
 
-Return the Rust computed signed incidence matrix as a
-`PowerIO.AdmittanceMatrix{Float64}`, the wrapper the four other `calc_*` matrices
-return, so the bus id maps travel with the matrix rather than the caller
-rebuilding them. Rows use the `matrix_bus` axis and `idx_to_bus` / `bus_to_idx`
-map them to external bus ids; columns use the `matrix_branch` axis, which the
-wrapper does not name.
-
-`AdmittanceMatrix` reads oddly for a rectangular bus-by-branch matrix. Returning
-what its siblings return is worth more than the name today; renaming the wrapper
-is a 1.0 question.
+Return the signed incidence matrix in PowerModels orientation: branches by
+buses, with `+1` at each branch's from bus and `-1` at its to bus. The result is
+an [`IncidenceMatrix`](@ref), which carries the external bus ids and source
+branch rows.
 """
-function calc_incidence_matrix(net::BalancedNetwork)
-    h = _live_handle(net, "calc_incidence_matrix")
+function _incidence_arrow(net::BalancedNetwork, fname::AbstractString)
+    h = _live_handle(net, fname)
     coo = _matrix_arrow_from_handle(h, :incidence)
     idx_to_bus, bus_to_idx = _matrix_bus_maps(h, coo.row_count)
-    return AdmittanceMatrix(idx_to_bus, bus_to_idx, _sparse_from_owned_coo!(coo, coo.value))
+    return h, coo, idx_to_bus, bus_to_idx
+end
+
+function _sparse_incidence_from_owned_coo!(coo)
+    bus_rows = getproperty(coo, :row_index)
+    branch_cols = getproperty(coo, :col_index)
+    @inbounds for i in eachindex(bus_rows)
+        bus_rows[i] += 1
+        branch_cols[i] += 1
+    end
+    return SparseArrays.sparse(
+        branch_cols,
+        bus_rows,
+        getproperty(coo, :value),
+        Int(getproperty(coo, :col_count)),
+        Int(getproperty(coo, :row_count)),
+    )
+end
+
+function _incidence_matrix_from_owned_coo!(coo, idx_to_bus, bus_to_idx, branch_rows)
+    matrix = _sparse_incidence_from_owned_coo!(coo)
+    return IncidenceMatrix(idx_to_bus, bus_to_idx, branch_rows, matrix)
+end
+
+function _matrix_branch_rows(h::BalancedNetworkHandle, m::Integer)
+    axis = _arrow_from_handle(h, :matrix_branch, true)
+    rows = Vector{Int}(undef, Int(m))
+    seen = falses(Int(m))
+    for k in eachindex(axis.index)
+        idx = Int(axis.index[k]) + 1
+        1 <= idx <= length(rows) || error(
+            "PowerIO.calc_incidence_matrix: matrix branch index $(axis.index[k]) is out of range")
+        seen[idx] && error(
+            "PowerIO.calc_incidence_matrix: duplicate matrix branch index $(axis.index[k])")
+        source_row = Int(axis.source_row[k])
+        rows[idx] = source_row < 0 ? 0 : source_row + 1
+        seen[idx] = true
+    end
+    all(seen) || error("PowerIO.calc_incidence_matrix: matrix branch table is missing an index")
+    return rows
+end
+
+function calc_incidence_matrix(net::BalancedNetwork)
+    h, coo, idx_to_bus, bus_to_idx = _incidence_arrow(net, "calc_incidence_matrix")
+    branch_rows = _matrix_branch_rows(h, coo.col_count)
+    return _incidence_matrix_from_owned_coo!(
+        coo, idx_to_bus, bus_to_idx, branch_rows)
 end
 
 calc_incidence_matrix(path::AbstractString; from=nothing) =
     _matrix_from_path(calc_incidence_matrix, path, "calc_incidence_matrix"; from=from)
+
+function _branch_susceptance_matrix(A::SparseArrays.SparseMatrixCSC{Float64,Int},
+                                        b::AbstractVector{<:Real})
+    size(A, 1) == length(b) || throw(DimensionMismatch(
+        "incidence matrix has $(size(A, 1)) branch rows but b has $(length(b)) values"))
+    Bf = copy(A)
+    rowval = SparseArrays.rowvals(Bf)
+    nzval = SparseArrays.nonzeros(Bf)
+    for bus in axes(Bf, 2)
+        for ptr in SparseArrays.nzrange(Bf, bus)
+            nzval[ptr] *= b[rowval[ptr]]
+        end
+    end
+    return Bf
+end
+
+function _series_incidence_and_susceptance(net::BalancedNetwork, fname::AbstractString)
+    _, coo, idx_to_bus, bus_to_idx = _incidence_arrow(net, fname)
+    m = Int(coo.col_count)
+    b = Vector{Float64}(undef, m)
+    got = _dc_vector_call(net, fname, :pio_branch_susceptance,
+                          Float64, "series", b, m)
+    _check_filled(got, m, "pio_branch_susceptance")
+    A = _sparse_incidence_from_owned_coo!(coo)
+    return A, b, idx_to_bus, bus_to_idx
+end
+
+"""
+    calc_branch_susceptance_matrix(net::BalancedNetwork)
+    calc_branch_susceptance_matrix(path; from=nothing)
+
+Return the PowerModels branch susceptance matrix
+`Bf = Diagonal(b) * A` under the `:series` convention. Rows are the branch rows
+and columns are the bus columns of [`DcPowerFlowData`](@ref).
+"""
+function calc_branch_susceptance_matrix(net::BalancedNetwork)
+    A, b, _, _ =
+        _series_incidence_and_susceptance(net, "calc_branch_susceptance_matrix")
+    return _branch_susceptance_matrix(A, b)
+end
+
+calc_branch_susceptance_matrix(path::AbstractString; from=nothing) =
+    _matrix_from_path(calc_branch_susceptance_matrix, path,
+                      "calc_branch_susceptance_matrix"; from=from)

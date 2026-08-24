@@ -14,8 +14,8 @@
     if PowerIO.library_available() && PowerIO.dist_available() &&
        PowerIO._exports_symbol(:pio_dist_capabilities_json)
         # The document states the powerio release that wrote it, whatever that
-        # release is; pinning a floor here would fail every lockstep window
-        # where the binding leads the pinned binaries. The `isa` guard turns a
+        # release is; fixing a floor here would fail every lockstep window
+        # where the binding leads the selected binaries. The `isa` guard turns a
         # document without `powerio_version` into a clean failure instead of a
         # `VersionNumber(nothing)` test error.
         @test caps.powerio_version isa AbstractString &&
@@ -392,7 +392,7 @@ end
         @test_throws ErrorException to_format(net, "matpower")
         @test_throws ErrorException parse_file(BalancedNetwork, dss)
         @test_throws ErrorException parse_file(dss; from="matpower")
-        # The parse_str marker must pin the model too, not route on the token.
+        # The parse_str marker must select the model too, not route on the token.
         @test_throws ErrorException parse_str(BalancedNetwork, dss_text, "dss")
         mtext = read(joinpath(@__DIR__, "data", "case14.m"), String)
         @test parse_str(BalancedNetwork, mtext, "matpower") isa BalancedNetwork

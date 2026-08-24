@@ -308,7 +308,7 @@ end
 
 # The allocating library's `pio_network_free`, memoized per resolved path:
 # resolving `_lib()` at finalization time would cross allocators after a
-# `set_library!` swap. The un-dlclosed handle deliberately pins the library so
+# `set_library!` swap. The un-dlclosed handle deliberately keeps the library loaded so
 # the pointer stays valid for every outstanding finalizer.
 const _FREE_FN = Ref{Ptr{Cvoid}}(C_NULL)
 const _FREE_FN_LIB = Ref{String}("")
@@ -468,7 +468,7 @@ _cstr(buf::Vector{UInt8}) = GC.@preserve buf unsafe_string(pointer(buf))
 # to mirror the core.
 _canonical_token_key(s) = replace(lowercase(String(s)), "-" => "", "_" => "")
 
-# Owned Strings, one per non-empty line (a SubString would pin the whole
+# Owned Strings, one per non-empty line (a SubString would retain the whole
 # buffer-sized parent).
 _nonempty_lines(s::AbstractString) = String.(filter(!isempty, split(s, '\n')))
 

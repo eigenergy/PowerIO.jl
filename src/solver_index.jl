@@ -1,4 +1,4 @@
-# Normalize-pass provenance over the C ABI (`pio_solver_index_json`, powerio
+# Normalized source rows over the C ABI (`pio_solver_index_json`, powerio
 # v0.9).
 #
 # The normalize pass computes, for every row of its dense solver tables, the
@@ -6,7 +6,7 @@
 # purpose — "one map instead of two that could drift" — and it covers the
 # star-lowered view the matrix builders read. This is the accessor for it.
 #
-# It sits beside `to_powerdata` rather than inside it: the provenance is a
+# It sits beside `to_powerdata` rather than inside it: the source row map is a
 # property of the pass, not of the ExaModels bridge, so it is reachable without
 # going through the bridge and the bridge's row schema does not have to change.
 # Reachable is all that means. The vectors are in the pass's row space, and
@@ -17,7 +17,7 @@
     source_rows_available() -> Bool
 
 True if the resolved C library exports `pio_solver_index_json` (powerio v0.9,
-no cargo feature needed). A consumer that can work without provenance probes
+no cargo feature needed). A consumer that can work without source rows probes
 this rather than resolving the symbol itself.
 """
 source_rows_available() = _exports_symbol(:pio_solver_index_json)
@@ -50,7 +50,7 @@ holding a **1-based** row of the source case, or `nothing` where the row has no
 source — a synthetic three-winding star bus and the branches it lowers to.
 
 This is the map the normalize pass computes for itself. Without it a consumer
-that wants normalized tables plus provenance has to re-derive the pass's drop
+that wants normalized tables plus source rows has to re-derive the pass's drop
 rule from a second, unfiltered extraction — keep a generator if its `status` is
 nonzero and its bus survived — which costs a full extra pass and is a guess at
 the rule rather than the rule. The guess is wrong wherever normalization does

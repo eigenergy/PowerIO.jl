@@ -1,114 +1,61 @@
 # Matrices
 
-PowerIO returns native Julia sparse matrices backed by Rust matrix construction.
-Matrix builders are a core API, not a transmission guide footnote.
+The matrix functions return Julia sparse matrices assembled by the Rust core.
+They support [`BalancedNetwork`](@ref).
 
-The PowerIO C ABI transports common power system matrix entries as Arrow COO
-tables. Julia materializes those entries as `SparseMatrixCSC` values and stores
-matrix metadata in wrappers that are familiar to PowerModels users.
-
-The shipped matrix API supports [`BalancedNetwork`](@ref). Distribution system
-matrices belong in this API family once Rust exposes distribution matrix
-constructors.
-
-## Usage
 ```julia
 net = parse_file("case14.m")
 
-ybus = calc_admittance_matrix(net)       # PowerIO.AdmittanceMatrix{ComplexF64}
-Y = ybus.matrix
-
-sm = calc_susceptance_matrix(net)     # NOTE: PowerModels sign convention
-B = sm.matrix
-
-A = calc_incidence_matrix(net).matrix # rows are buses, columns are branches
-Bp = calc_bprime_matrix(net).matrix   # Rust B' positive Laplacian
+Ybus = calc_admittance_matrix(net).matrix
+Bp = calc_bprime_matrix(net).matrix
 Bpp = calc_bdoubleprime_matrix(net).matrix
+
+dc = DcPowerFlowData(net; convention=:series)
+A = dc.incidence_matrix.matrix
+b = dc.branch_susceptance
+p_shift = dc.phase_shift_injection
+
+B = calc_susceptance_matrix(net).matrix
+Bf = calc_branch_susceptance_matrix(net)
 ```
 
-## Structure
+`AdmittanceMatrix` carries a square bus matrix with `idx_to_bus` and
+`bus_to_idx`. `IncidenceMatrix` carries the rectangular branch by bus matrix,
+the same bus maps, and `branch_rows`.
 
-All five `calc_*` functions return `PowerIO.AdmittanceMatrix`, which carries:
+## DC power flow
 
-- `idx_to_bus`: row index to external bus id.
-- `bus_to_idx`: external bus id to row index.
-- `matrix`: the sparse matrix.
-
-The row and column index space is the dense matrix row index chosen by Rust.
-Use `idx_to_bus` and `bus_to_idx` when you need to translate between matrix
-rows and external bus ids.
-
-`calc_incidence_matrix` is the one whose columns are branches rather than buses,
-so only its rows go through the bus maps. It returns the same wrapper as the
-other four so the maps travel with the matrix; the type name reads oddly for a
-bus-by-branch matrix, and renaming it is a 1.0 question.
-
-## The DC parts, not only the assembled matrix
-
-The `calc_*` functions above return matrices that are already assembled. A
-consumer differentiating a DC OPF solution treats the per-branch susceptance as
-a *parameter vector* rather than an ingredient — its DC network is `(A, b, sw)`
-and its susceptance matrix is a function it rebuilds,
-`B = A * Diagonal(-b .* sw) * A'` — so an assembled `B'` is the wrong
-granularity: it has already summed away the thing being differentiated.
-
-[`calc_incidence_parts`](@ref) returns the parts instead:
+[`DcPowerFlowData`](@ref) follows the PowerModels orientation and signs:
 
 ```julia
-parts = calc_incidence_parts(net; convention=:series)
-parts.matrix                  # the signed incidence, as calc_incidence_matrix returns
-parts.b                       # per-branch susceptance, a positive Laplacian weight
-parts.p_shift                 # phase shift bus injection, in matrix row order
-parts.branch_rows             # 1-based column to source branch row
-parts.skipped_zero_impedance  # 1-based rows the DC denominator guard dropped
+A[e, from] = +1
+A[e, to] = -1
 
-A = parts.matrix.matrix
-# On a case with no phase shifter this reassembles the library's own matrix,
-# bit for bit rather than to a tolerance.
-A * spdiagm(0 => parts.b) * A' == calc_bprime_matrix(net).matrix
+b_series = imag(inv(r + im*x))
+b_matpower = -1 / (x*tap)
+b_reactance_only = -1 / x
+
+B = A' * Diagonal(b) * A
+Bf = Diagonal(b) * A
+p_shift = A' * (b .* shift)
+
+p_bus = -B * va + p_shift
+p_branch = -Bf * va
 ```
 
-That identity is exact on a shifter-free case and it does not hold on a case
-that carries one, which is the reason the parts are worth returning rather than
-a redundant spelling of `calc_bprime_matrix`. The library builds `B'` with the
-shifts left in the matrix, so a shifted branch's two off-diagonal entries differ
-and `B'` is asymmetric; the incidence build routes the same shift into `p_shift`
-instead, leaving the Laplacian `A * Diagonal(b) * A'` symmetric by construction.
-On `test/data/norm_tiny.m`, whose branch 2 carries a two degree shift, the two
-matrices differ by 2.0e-2 on that off-diagonal pair.
-[`calc_susceptance_matrix`](@ref)'s docstring states the same asymmetry from the
-matrix side.
+`B` is the bus susceptance matrix and `Bf` is the branch susceptance matrix.
+Phase shifts stay in `p_shift`, so `B` remains symmetric.
 
-[`branch_susceptance`](@ref) returns the vector alone, and needs a library built
-`--features matrix` without `arrow`.
+`dc.branch_rows[e]` is the 1-based branch table row for row `e` of `A` and
+entry `e` of `b`. `dc.skipped_branch_rows` lists in-service branches omitted
+because their DC denominator is too small. `dc.convention` is `:series`,
+`:matpower`, or `:reactance_only`.
 
-Ask for `b` rather than computing it. The formula is
-`x / (r² + x²)` under `:series`, and reproducing it outside inherits none of the
-guards powerio 0.9 put on this path: the denominator is bounded on magnitude
-rather than compared against a fixed constant, a nonfinite susceptance raises
-naming the branch instead of joining the Laplacian as a zero weight edge, and a
-`:matpower` tap too small to divide by is refused. `convention` is `:series`
-(the default, reading the whole series impedance), `:matpower` (`b = 1/(x τ)`),
-or `:reactance_only` (`b = 1/x`, the textbook linearization a published result
-needs written exactly that way) — a token you name rather than a formula you
-write.
+[`branch_susceptance`](@ref) returns `b` alone and needs a library built with
+the `matrix` feature. `DcPowerFlowData` also needs `arrow` for `A`.
 
-`skipped_zero_impedance` and `branch_rows` travel with the vectors because a
-consumer rebuilding `B` from `A` and `b` needs to know which branches the
-builder dropped, or its matrix and the library's disagree with nothing to say
-why.
-
-## Sign Convention
-
-`calc_susceptance_matrix(net).matrix` follows the PowerModels sign convention.
-Rust's `B'` keeps the positive Laplacian convention, so:
-
-```julia
-calc_susceptance_matrix(net).matrix == -calc_bprime_matrix(net).matrix
-```
-
-[`to_arrow`](@ref) remains available for lower level consumers that want COO
-tables directly:
+[`to_arrow`](@ref) remains available for callers that want the Rust COO tables
+directly:
 
 ```julia
 coo = to_arrow(net, :ybus)   # row_index, col_index, g, b

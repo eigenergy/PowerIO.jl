@@ -328,9 +328,9 @@ end
             return dest
         end
 
-        pinned = "url = \"https://github.com/eigenergy/powerio/releases/download/" *
+        artifact_entry = "url = \"https://github.com/eigenergy/powerio/releases/download/" *
                  "v0.9.0/libpowerio_capi.aarch64-apple-darwin.tar.gz\"\n"
-        write(artifact, pinned)
+        write(artifact, artifact_entry)
         before = read(artifact)
         parked = ArtifactUpdater.run_update(
             "v0.9.0", status; artifact_path=artifact, fetcher=fake_fetch,

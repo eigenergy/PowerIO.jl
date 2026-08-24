@@ -4,8 +4,10 @@
     for sym in (:BalancedNetwork, :parse_file, :parse_str, :parse_bytes, :from_json, :convert_file,
                 :convert_str, :to_format, :to_normalized, :set_library!, :clear_library!,
                 :to_json, :to_dense, :to_matpower, :to_arrow, :calc_admittance_matrix,
-                :calc_susceptance_matrix, :calc_incidence_matrix, :calc_bprime_matrix,
-                :calc_bdoubleprime_matrix, :ArrowTable,
+                :calc_susceptance_matrix, :calc_branch_susceptance_matrix,
+                :calc_incidence_matrix, :calc_bprime_matrix,
+                :calc_bdoubleprime_matrix, :DcPowerFlowData, :IncidenceMatrix,
+                :branch_susceptance, :dc_power_flow_available, :ArrowTable,
                 :write_pypsa_csv_folder, :Diagnostic,
                 :to_powermodels, :from_powermodels, :to_powerdata,
                 :parse_ac_power_data, :LoadSeries, :read_load_series, :n_periods,
@@ -30,6 +32,8 @@
     @test !isdefined(PowerIO, :Network)
     @test !isdefined(PowerIO, :DistNetwork)
     @test !isdefined(PowerIO, :dist_graph)
+    @test !isdefined(PowerIO, :calc_incidence_parts)
+    @test !isdefined(PowerIO, :incidence_parts_available)
     # The accessor API the ecosystem bridges read must exist. Most of it stays
     # unexported because the names collide with the packages a consumer loads
     # beside this one; `n_buses` and `warnings` are the exported two.
@@ -45,6 +49,8 @@
     end
     @test isdefined(PowerIO, :AdmittanceMatrix)
     @test :AdmittanceMatrix ∉ names(PowerIO)
+    @test :IncidenceMatrix ∈ names(PowerIO)
+    @test :DcPowerFlowData ∈ names(PowerIO)
     # The docs and the show methods name these unqualified, so they are exported.
     for sym in (:set_library!, :clear_library!, :warnings, :n_buses, :Diagnostic)
         @test sym ∈ names(PowerIO)
@@ -194,7 +200,7 @@ end
     mk(buses) = PowerIO.BalancedNetwork(JSON3.read(JSON3.write((; buses = buses))))
 
     # REF at array position 2 but id 7: a "returns the index" bug would read 2;
-    # the id is 7. This pins the accessor to the id field, not the position.
+    # the id is 7. This checks the accessor against the id field, not the position.
     one_ref = mk([(id = 4, kind = "PQ"), (id = 7, kind = "REF"), (id = 9, kind = "PV")])
     @test PowerIO.reference_bus_id(one_ref) == 7
     @test :warnings in propertynames(one_ref)
@@ -327,7 +333,7 @@ end
         @test PowerIO.base_mva(pwb) == PowerIO.base_mva(aux) == 100.0
 
         # The MATPOWER sibling is an earlier revision of the same case: same bus
-        # table and same generators, one line short. Pin that one line so a
+        # table and same generators, one line short. Check that line so a
         # reader regression cannot pass as a revision difference.
         @test Set(b.id for b in pwb.data.buses) == Set(b.id for b in mat.data.buses)
         @test length(pwb.data.generators) == length(mat.data.generators) == 49
@@ -399,7 +405,7 @@ end
     @test Set(String.(from_file)) == Set(String.(lossy))
 end
 
-@testset "schema version contract" begin
+@testset "schema versions" begin
     # The ABI integers do not cover document formats. Check the versions
     # the library reports against the mirrored constants.
     if !PowerIO.library_available()
@@ -478,7 +484,7 @@ end
 
         # The tokens that prefix an errbuf message, for a caller that branches
         # on the kind of failure instead of matching prose. The set may grow, so
-        # assert the five documented ones are present rather than pinning it.
+        # assert the five documented ones are present rather than fixing it.
         cats = info.error_categories
         @test cats isa AbstractVector
         @test all(c -> c isa AbstractString && !isempty(c), cats)

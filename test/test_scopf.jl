@@ -56,57 +56,57 @@
         @test Int(lengths.I) == length(data.bus_lookup)
         @test Int(lengths.L_T) == length(data.dt)
 
-        # The wire document and the typed Julia view are one contract. Extend
+        # The wire document and the typed Julia view have one row schema. Extend
         # the synthetic source so every row shape is present, then compare all
         # keys rather than a hand-picked subset.
-        contract_source = JSON3.read(text, Dict{String,Any})
-        variable_xf = deepcopy(contract_source["network"]["two_winding_transformer"][1])
+        schema_source = JSON3.read(text, Dict{String,Any})
+        variable_xf = deepcopy(schema_source["network"]["two_winding_transformer"][1])
         variable_xf["uid"] = "xf_variable"
         variable_xf["ta_lb"] = -0.1
         variable_xf["ta_ub"] = 0.1
         variable_xf["tm_lb"] = 0.9
         variable_xf["tm_ub"] = 1.1
-        push!(contract_source["network"]["two_winding_transformer"], variable_xf)
-        consumer = contract_source["network"]["simple_dispatchable_device"][2]
+        push!(schema_source["network"]["two_winding_transformer"], variable_xf)
+        consumer = schema_source["network"]["simple_dispatchable_device"][2]
         consumer["energy_req_ub"] = [[0.0, 2.0, 9.0]]
         consumer["energy_req_lb"] = [[0.0, 2.0, 1.0]]
-        contract_doc = PowerIO.parse_scopf(JSON3.write(contract_source))
+        schema_doc = PowerIO.parse_scopf(JSON3.write(schema_source))
 
         same_keys(row, T) = Set(propertynames(row)) == Set(fieldnames(T))
-        static_contracts = (
-            (contract_doc.instance.static.bus, PowerIO._ScopfBusRow),
-            (contract_doc.instance.static.shunt, PowerIO._ScopfShuntRow),
-            (contract_doc.instance.static.acl_branch, PowerIO._ScopfAclRow),
-            (contract_doc.instance.static.acx_branch, PowerIO._ScopfAcxRow),
-            (contract_doc.instance.static.vpd, PowerIO._ScopfVpdRow),
-            (contract_doc.instance.static.fpd, PowerIO._ScopfFpdRow),
-            (contract_doc.instance.static.vwr, PowerIO._ScopfVwrRow),
-            (contract_doc.instance.static.fwr, PowerIO._ScopfFwrRow),
-            (contract_doc.instance.static.dc_branch, PowerIO._ScopfDcRow),
-            (contract_doc.instance.static.prod, PowerIO._ScopfSddRow),
-            (contract_doc.instance.static.cons, PowerIO._ScopfSddRow),
-            (contract_doc.instance.static.active_reserve, PowerIO._ScopfActiveReserveRow),
-            (contract_doc.instance.static.reactive_reserve, PowerIO._ScopfReactiveReserveRow),
-            (contract_doc.instance.static.active_reserve_set_pr, PowerIO._ScopfActiveReserveSetRow),
-            (contract_doc.instance.static.active_reserve_set_cs, PowerIO._ScopfActiveReserveSetRow),
-            (contract_doc.instance.static.reactive_reserve_set_pr, PowerIO._ScopfReactiveReserveSetRow),
-            (contract_doc.instance.static.reactive_reserve_set_cs, PowerIO._ScopfReactiveReserveSetRow),
+        static_schemas = (
+            (schema_doc.instance.static.bus, PowerIO._ScopfBusRow),
+            (schema_doc.instance.static.shunt, PowerIO._ScopfShuntRow),
+            (schema_doc.instance.static.acl_branch, PowerIO._ScopfAclRow),
+            (schema_doc.instance.static.acx_branch, PowerIO._ScopfAcxRow),
+            (schema_doc.instance.static.vpd, PowerIO._ScopfVpdRow),
+            (schema_doc.instance.static.fpd, PowerIO._ScopfFpdRow),
+            (schema_doc.instance.static.vwr, PowerIO._ScopfVwrRow),
+            (schema_doc.instance.static.fwr, PowerIO._ScopfFwrRow),
+            (schema_doc.instance.static.dc_branch, PowerIO._ScopfDcRow),
+            (schema_doc.instance.static.prod, PowerIO._ScopfSddRow),
+            (schema_doc.instance.static.cons, PowerIO._ScopfSddRow),
+            (schema_doc.instance.static.active_reserve, PowerIO._ScopfActiveReserveRow),
+            (schema_doc.instance.static.reactive_reserve, PowerIO._ScopfReactiveReserveRow),
+            (schema_doc.instance.static.active_reserve_set_pr, PowerIO._ScopfActiveReserveSetRow),
+            (schema_doc.instance.static.active_reserve_set_cs, PowerIO._ScopfActiveReserveSetRow),
+            (schema_doc.instance.static.reactive_reserve_set_pr, PowerIO._ScopfReactiveReserveSetRow),
+            (schema_doc.instance.static.reactive_reserve_set_cs, PowerIO._ScopfReactiveReserveSetRow),
         )
-        for (rows, T) in static_contracts
+        for (rows, T) in static_schemas
             @test !isempty(rows)
             @test all(row -> same_keys(row, T), rows)
         end
-        energy_contracts = (
-            (contract_doc.instance.energy_windows.W_en_max_pr, PowerIO._ScopfWinMaxPrRow),
-            (contract_doc.instance.energy_windows.W_en_max_cs, PowerIO._ScopfWinMaxCsRow),
-            (contract_doc.instance.energy_windows.W_en_min_pr, PowerIO._ScopfWinMinPrRow),
-            (contract_doc.instance.energy_windows.W_en_min_cs, PowerIO._ScopfWinMinCsRow),
-            (contract_doc.instance.energy_windows.T_w_en_max_pr, PowerIO._ScopfWinTMaxPrRow),
-            (contract_doc.instance.energy_windows.T_w_en_max_cs, PowerIO._ScopfWinTMaxCsRow),
-            (contract_doc.instance.energy_windows.T_w_en_min_pr, PowerIO._ScopfWinTMinPrRow),
-            (contract_doc.instance.energy_windows.T_w_en_min_cs, PowerIO._ScopfWinTMinCsRow),
+        energy_schemas = (
+            (schema_doc.instance.energy_windows.W_en_max_pr, PowerIO._ScopfWinMaxPrRow),
+            (schema_doc.instance.energy_windows.W_en_max_cs, PowerIO._ScopfWinMaxCsRow),
+            (schema_doc.instance.energy_windows.W_en_min_pr, PowerIO._ScopfWinMinPrRow),
+            (schema_doc.instance.energy_windows.W_en_min_cs, PowerIO._ScopfWinMinCsRow),
+            (schema_doc.instance.energy_windows.T_w_en_max_pr, PowerIO._ScopfWinTMaxPrRow),
+            (schema_doc.instance.energy_windows.T_w_en_max_cs, PowerIO._ScopfWinTMaxCsRow),
+            (schema_doc.instance.energy_windows.T_w_en_min_pr, PowerIO._ScopfWinTMinPrRow),
+            (schema_doc.instance.energy_windows.T_w_en_min_cs, PowerIO._ScopfWinTMinCsRow),
         )
-        for (rows, T) in energy_contracts
+        for (rows, T) in energy_schemas
             @test !isempty(rows)
             @test all(row -> same_keys(row, T), rows)
         end

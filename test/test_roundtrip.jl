@@ -203,7 +203,7 @@
             # reports. A library that predates the report is held to the
             # binding's major only, its own pre-0.8 acceptance rule; an
             # exact-minor check against the binding constant would break
-            # on every lockstep window (pinned binaries one envelope
+            # on every lockstep window (selected binaries one envelope
             # minor behind the binding).
             # The document states the powerio release that wrote it, and the
             # library reports the same value, so the two must agree exactly.
@@ -389,8 +389,8 @@
         # The numeric reader passes an infinite bound through as well, not just
         # the "Infinity" spelling above. One assertion is the whole property:
         # the reader never looks at `field`, so a list of them would be thirteen
-        # copies of this line pretending to pin which fields are bounds. Which
-        # fields those are is pinned on real cases — `inf_net`'s qmax/qmin,
+        # copies of this line pretending to define which fields are bounds. Which
+        # fields those are is checked on real cases — `inf_net`'s qmax/qmin,
         # `inf_p`'s pmax, and `inf_vmax` on the other side of the split.
         @test PowerIO._powerdata_bound(Inf, Float64, "row 1", :qmax) === Inf
 
@@ -414,7 +414,7 @@
                        refusal(() -> to_powerdata(parse_str(inf_vmax, "matpower"))))
 
         # The rule is the field's, not the pass's. `filtered=false` skips
-        # normalization, not the contract: it read every field but the branch
+        # normalization, not the field rule: it read every field but the branch
         # block through the bare JSON decoder, so an infinite `vmax` or a NaN
         # `pg` reached an ExaModelsPower row, and a NaN `baseMVA` divided every
         # per unit field in the case and returned a table of NaN.

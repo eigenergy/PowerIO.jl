@@ -241,7 +241,7 @@ function artifact_tag(path::AbstractString=joinpath(ROOT, "Artifacts.toml"))
     text = read(path, String)
     tags = Set(m.captures[1] for m in eachmatch(
         r"/releases/download/(v[0-9]+\.[0-9]+\.[0-9]+)/", text))
-    length(tags) == 1 || error("Artifacts.toml must pin exactly one powerio release tag")
+    length(tags) == 1 || error("Artifacts.toml must select exactly one powerio release tag")
     return only(tags)
 end
 
@@ -376,7 +376,7 @@ function main(args=ARGS)
         isempty(args) || error("usage: release_state.jl check")
         validate_ready_intent()
         artifact_tag() == read_intent().powerio_tag ||
-            error("Artifacts.toml does not pin the intended powerio tag")
+            error("Artifacts.toml does not select the intended powerio tag")
     elseif command == "digest"
         length(args) <= 1 || error("usage: release_state.jl digest [REV]")
         println(canonical_source_digest(ROOT; rev=isempty(args) ? "HEAD" : only(args)))

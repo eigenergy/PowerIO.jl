@@ -14,6 +14,7 @@ using SparseArrays
     end
         @test_throws ErrorException calc_admittance_matrix(m)
         @test_throws ErrorException calc_susceptance_matrix(m)
+        @test_throws ErrorException calc_branch_susceptance_matrix(m)
         @test_throws ErrorException calc_incidence_matrix(m)
         @test_throws ErrorException calc_bprime_matrix(m)
         @test_throws ErrorException calc_bdoubleprime_matrix(m)
@@ -71,7 +72,12 @@ using SparseArrays
 
         susceptance = calc_susceptance_matrix(m)
         @test susceptance isa PowerIO.AdmittanceMatrix{Float64}
-        @test susceptance.matrix == -bprime.matrix
+        dc = PowerIO.DcPowerFlowData(net)
+        A = dc.incidence_matrix.matrix
+        expected_susceptance = sparse(
+            transpose(A) * spdiagm(0 => dc.branch_susceptance) * A)
+        @test susceptance.matrix == expected_susceptance
+        @test Matrix(susceptance.matrix) == Matrix(transpose(susceptance.matrix))
         @test calc_susceptance_matrix(net).matrix == susceptance.matrix
         @test getfield(net, :data) === nothing
         @test susceptance.idx_to_bus == idx_to_bus
@@ -88,16 +94,15 @@ using SparseArrays
         incidence_coo = to_arrow(m, :incidence)
         @test incidence_coo.row_axis in ("matrix_bus", "solver_bus")
         @test incidence_coo.col_axis in ("matrix_branch", "solver_branch")
-        incidence_expected = sparse_from_coo(incidence_coo, incidence_coo.value)
+        incidence_expected = transpose(sparse_from_coo(incidence_coo, incidence_coo.value))
         incidence = calc_incidence_matrix(m)
-        # Wrapped like its four siblings, so the bus id maps travel with it. The
-        # columns are branches, which the wrapper does not name.
-        @test incidence isa PowerIO.AdmittanceMatrix{Float64}
+        @test incidence isa PowerIO.IncidenceMatrix{Float64}
         @test incidence.matrix isa SparseMatrixCSC{Float64,Int}
-        @test size(incidence.matrix) == (incidence_coo.row_count, incidence_coo.col_count)
+        @test size(incidence.matrix) == (incidence_coo.col_count, incidence_coo.row_count)
         @test incidence.matrix == incidence_expected
         @test incidence.idx_to_bus == collect(1:14)
         @test incidence.bus_to_idx[7] == 7
+        @test incidence.branch_rows == collect(1:size(incidence.matrix, 1))
         @test calc_incidence_matrix(net).matrix == incidence.matrix
         @test getfield(net, :data) === nothing
     end

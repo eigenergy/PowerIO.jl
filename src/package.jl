@@ -404,7 +404,7 @@ function _package_extract_ptr(pkg::NetworkPackage, sym::Symbol)
     lib = getfield(h, :lib)
     err = zeros(UInt8, _ERRLEN)
     # ccall needs a literal symbol, so resolve the entry point by hand; the
-    # un-dlclosed handle pins the library, as in `_network_free_fn`.
+    # un-dlclosed handle keeps the library loaded, as in `_network_free_fn`.
     _require_export("from_package", sym, "`--features pkg`", lib)
     if sym === :pio_package_to_balanced_network
         _network_free_fn(lib)

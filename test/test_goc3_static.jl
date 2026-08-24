@@ -143,7 +143,7 @@ else
     end
     # `isconcretetype && !== Any` is not enough: JSON3 reads an integer-valued number
     # ("1.0") as Int64, so an untyped row builder yields a concrete-but-wrong `Int64`
-    # field (and a non-isbits `Any` field once a branch differs across rows). Pin the
+    # field (and a non-isbits `Any` field once a branch differs across rows). Check the
     # declared Float64 fields so a builder that drops the typed comprehension is caught.
     @test length(sc_data.shunt) == 1 && sc_data.shunt[1].uid == "sh_00"
     @test fieldtype(eltype(sc_data.shunt), :g_sh) === Float64
@@ -371,11 +371,11 @@ else
     end
 end
 
-# Optional external validation accepts a checksum-pinned user supplied case.
+# Optional external validation accepts a checksum-verified user supplied case.
 const GOC3_REAL_CASE_SHA256 =
     "ad16973416243f38b5286efcf770f5e4b4493e89fdf7ffa6de678d3974b87e49"
 
-@testset "GOC3 static index sets from a checksum-pinned case" begin
+@testset "GOC3 static index sets from a checksum-verified case" begin
     path = get(ENV, "POWERIO_GOC3_VALIDATION_CASE", "")
     if isempty(path)
         @test_skip PowerIO.parse_goc3_json(path)
@@ -391,7 +391,7 @@ const GOC3_REAL_CASE_SHA256 =
         scd = PowerIO.goc3_scopf_data(read(path, String))
         sc_data = scd.static
         lengths = scd.lengths
-        # Counts pinned to this specific scenario (14 buses, 17 AC lines, 3 transformers,
+        # Counts checked against this specific scenario (14 buses, 17 AC lines, 3 transformers,
         # no DC lines, 6 producers, 11 consumers, 24 periods).
         @test lengths.I == 14
         @test (lengths.L_J_ln, lengths.L_J_xf, lengths.L_J_dc) == (17, 3, 0)
@@ -461,7 +461,7 @@ const GOC3_REAL_CASE_SHA256 =
 
         pjtm_pr = scd.price_blocks.producer
         pjtm_cs = scd.price_blocks.consumer
-        # Total (device, period, cost-block) rows, pinned to this scenario's cost curves.
+        # Total (device, period, cost-block) rows, checked against this scenario's cost curves.
         @test length(pjtm_pr) == 720 && length(pjtm_cs) == 1056
 
         surv = scd.ac_contingency_survivors

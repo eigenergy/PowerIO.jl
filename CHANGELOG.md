@@ -10,7 +10,7 @@ Moves the binding to powerio C ABI 5 and completes the GOC3 SCOPF instance. A cl
 
 Breaking: seven returned NamedTuple row or length shapes grow: shunt, AC line, transformer, device, active reserve membership, reactive reserve membership, and instance lengths. Positional destructuring and `propertynames` order change.
 
-**This release needs powerio v0.9.0 binaries.** `PIO_ABI_VERSION` is 5 (`src/capi.jl`) and the binding gates on it by equality, so an older library fails `_ensure_compatible` at the first call into it with a version mismatch error rather than degrading. That includes the v0.8.3 artifact 0.8.4 pinned, which reports ABI 4: the pin and the binding move together and cannot be upgraded separately. `PIO_DIST_ABI_VERSION` stays 1.
+**This release needs powerio v0.9.0 binaries.** `PIO_ABI_VERSION` is 5 (`src/capi.jl`) and the binding gates on it by equality, so an older library fails `_ensure_compatible` at the first call into it with a version mismatch error rather than degrading. That includes the v0.8.3 artifact 0.8.4, which reports ABI 4: the artifact and the binding move together and cannot be upgraded separately. `PIO_DIST_ABI_VERSION` stays 1.
 
 **What ABI 5 changes for a caller** ([migration guide](https://powerio.dev/guide/abi-v5.html)). The seven conversion entry points return their fidelity loss findings as a JSON array of diagnostic records through an owned out pointer instead of a caller buffer, so a long warning list is no longer truncated with nothing saying so. The binding keeps each record behind the line it renders, so `to_format`, `convert_file`, `convert_str` and `write_pypsa_csv_folder` return a `Vector{Diagnostic}` whose elements read as their `CODE: message` line anywhere a string was expected, every line now leads with its diagnostic code, and every error message the library raises carries the same prefix (`REQUEST.FORMAT.UNKNOWN: unknown format`). Code matching on exact message text sees the new prefixes; read `d.code` to branch on the code. The four transmission write entry points take a `PioWriteOptions` pointer the binding passes as `C_NULL`, every default, and `pio_normalize` folds its two repair arguments into a `PioNormalizeOptions` struct the binding builds per call; `to_normalized` keeps its Julia keyword surface and `to_normalized_with_options` is removed. `pio_n_buses` and `pio_bus_ids` report the star lowered bus space, so `length(bus_ids) == n_buses` holds and both agree with `bus_demand`, `bus_shunt` and the island count on a case carrying an in service three winding transformer. Four C symbols are gone: the three `pio_acopf_*`, which nothing here referenced, and `pio_normalize_with_options`, which the binding used as the key for its C normalize route — `correct_voltage_angle_differences!` gates on `library_available()` now, where the old key would have silently dropped every call to the pure Julia repair. Seven JSON documents changed shape while their symbols kept their signatures: `schema_version` is `powerio_version`, `pio_schema_versions_json` dropped four keys, `pio_summary_json` gained a `topology` block, and the Arrow metadata key is `powerio.version`. A binding built against ABI 4 passes the handshake and then reads `null` for keys it mirrors, which is why the integer moved.
 
@@ -18,7 +18,7 @@ Breaking: seven returned NamedTuple row or length shapes grow: shunt, AC line, t
 
 **Reader and writer output moves with the binaries, and no C declaration shows it.** Three classes, each detailed in [powerio's own 0.9.0 notes](https://github.com/eigenergy/powerio/releases/tag/v0.9.0). A PSS/E case whose space delimited records pad a quoted field parses to different values: both delimiter styles trim now, so `' 1'` reads `1`, and a blank quoted field holds its column instead of vanishing and shifting every column after it. PowerWorld device ids and circuits are stored trimmed, and a value equal to the positional default the writer re-derives is not retained, for every parallel circuit rather than the first alone, so code reading `extras["id"]` or the circuit key off a parsed PowerWorld case finds nothing where a default used to sit. The MATPOWER writer's dropped extras warning carries the count of elements it covers and covers three winding transformers.
 
-- `to_powerdata` and `parse_ac_power_data` accept an infinite variable bound, and only a bound. An absent reactive limit is `Inf` in MATPOWER, PowerModels, pandapower and PyPSA, and stock case9241pegase.m carries it on seven generators; the finiteness check refused those cases while reporting a present field as invalid. `±Inf` now passes on the generator and storage reactive and active limits, the branch ratings and the angle-difference bounds. It is refused everywhere else — `br_r`, `br_x`, `b`, `tap`, `shift`, `vm`, `va`, `base_kv`, `vmin`, `vmax`, `pg`, `qg`, `mbase` and the cost coefficients — with the element and the field named. The split is by whether a source format spells "no bound" that way, not by whether a field is a limit: nothing spells "no voltage limit" as `Inf`, so `vmin`/`vmax` are a data defect rather than a convention. **Behavior change from an earlier 0.9 draft**, which relaxed the check for the whole row rather than for the bounds it was written for: an infinite series reactance, tap ratio, voltage magnitude or base kV reached the caller, and for `br_x` the row also carried admittance coefficients derived from `1/Inf` with nothing recorded. The Rust core moved the other way in the same release (#292) — `branch_susceptance` returns `NaN` for a nonfinite denominator and `IncidenceParts` errors with `NonFiniteSusceptance` — so an infinite reactance was a corrupt case through `calc_susceptance_matrix` and a valid row through this bridge. An absent field is still an error and so is a `NaN`, which no bound reads as. The rule belongs to the field rather than to the pass, so `filtered=false` reads under it too: that path checked the branch block alone before, and a `NaN` `baseMVA` there divided every per unit field in the case and returned a table of `NaN` with nothing recorded (eigenergy/PowerIO.jl#113).
+- `to_powerdata` and `parse_ac_power_data` accept an infinite variable bound, and only a bound. An absent reactive limit is `Inf` in MATPOWER, PowerModels, pandapower and PyPSA, and stock case9241pegase.m carries it on seven generators; the finiteness check refused those cases while reporting a present field as invalid. `±Inf` now passes on the generator and storage reactive and active limits, the branch ratings and the angle-difference bounds. It is refused everywhere else — `br_r`, `br_x`, `b`, `tap`, `shift`, `vm`, `va`, `base_kv`, `vmin`, `vmax`, `pg`, `qg`, `mbase` and the cost coefficients — with the element and the field named. The split is by whether a source format spells "no bound" that way, not by whether a field is a limit: nothing spells "no voltage limit" as `Inf`, so `vmin`/`vmax` are a data defect rather than a convention. **Behavior change from an earlier 0.9 draft**, which relaxed the check for the whole row rather than for the bounds it was written for: an infinite series reactance, tap ratio, voltage magnitude or base kV reached the caller, and for `br_x` the row also carried admittance coefficients derived from `1/Inf` with nothing recorded. The Rust core moved the other way in the same release (#292) and rejects a DC matrix denominator that is not finite, so an infinite reactance was a corrupt case through `calc_susceptance_matrix` and a valid row through this bridge. An absent field is still an error and so is a `NaN`, which no bound reads as. The rule belongs to the field rather than to the pass, so `filtered=false` reads under it too: that path checked the branch block alone before, and a `NaN` `baseMVA` there divided every per unit field in the case and returned a table of `NaN` with nothing recorded (eigenergy/PowerIO.jl#113).
 - Every float the binding reads out of a parsed payload takes powerio 0.9.0's nonfinite spelling. Model JSON has no `Inf` literal, so the library writes a nonfinite float as the string `"Infinity"`, `"-Infinity"` or `"NaN"` where it used to write an unreadable `null`. `base_mva`, `base_frequency` and every `to_powerdata` field read a number or one of those three.
 - New: `Diagnostic`, the element type of the fidelity findings the conversion verbs return. It reads as the `CODE: message` line it always was — `occursin`, `split`, `join` and `==` against a `String` all see that line — and carries the record's `code`, `severity`, `message` and the rest under `record`. A consumer lifting findings no longer splits strings. `warnings(net)` still returns lines; the C ABI carries records on the conversion entry points alone.
 - `to_arrow` returns whatever schema metadata a table carries, under field names that drop the `powerio.` prefix. Only the matrix selectors read it before, so `solver_gen_cost` and `solver_gen_cost_coeff` lost `powerio.base_mva`, the MVA base their per unit values sit on, and converting a cost to currency per MWh took a second call. A table the producer attaches no metadata to decodes to its columns alone, as before.
@@ -28,11 +28,11 @@ Breaking: seven returned NamedTuple row or length shapes grow: shunt, AC line, t
 - The ExaModels bridge reports what the normalize pass found. `to_powerdata`, `parse_ac_power_data` and `LoadSeries` normalize internally and keep only the tables, so every finding of that pass went unseen; each distinct diagnostic code is now a `@warn`, once per call, deduped within the call so separate cases still each report. A case carrying no generator cost data reports `CANONICALIZE.NORMALIZE.GEN_COST_ABSENT`, which the caller about to build an identically zero cost objective is the one who needs, and a case stating no reference bus reports `CANONICALIZE.NORMALIZE.REFERENCE_DESIGNATED`. `filtered=false` and an already normalized network run no pass and report nothing.
 - `set_library!`, `clear_library!`, `warnings` and `n_buses` are exported. The docs and this package's own `show` methods name all four unqualified, so a reader following them had to discover the `PowerIO.` prefix by error. The rest of the element and scalar accessors stay unexported, where their names would collide with the ecosystem packages loaded beside this one.
 - `ArrowTable` and `ScopfInstance` print a summary. An `ArrowTable` reports its column and row counts, and reads `released` rather than throwing from inside `show` once its buffers are freed; a `ScopfInstance` reports the case sizes off `lengths`, where its seven type parameters used to fill the screen.
-- New: `source_rows(net)` returns the normalize pass's own provenance — one 1-based source row per normalized `bus`, `load`, `shunt`, `branch`, `switch`, `generator`, `storage` and `hvdc` row, or `nothing` where the row has no source (a synthetic three-winding star bus and the branches it lowers to). The vectors existed in the Rust core and reached Julia only through an Arrow solver table, whose cargo feature is off by default, or a `.pio.json` package's derived block; nothing on the `parse_file` → `to_powerdata` path exposed them. A consumer that wanted normalized tables plus provenance therefore re-derived the pass's drop rule from a second unfiltered extraction, which costs a full extra pass and is a guess at the rule rather than the rule — wrong wherever normalization does something the guess does not model, star lowering changing the branch count most of all. The accessor sits beside `to_powerdata` rather than inside it, because the provenance is a property of the pass and not of the ExaModels bridge, so it is reachable without going through the bridge and no row shape changes. The vectors are in the pass's row space: `to_dense` reports the handle's parse-time tables, which still hold the isolated buses and out-of-service branches the pass drops, so they do not index a `to_dense` row. `source_rows_available()` reports whether the resolved library exports `pio_solver_index_json` (eigenergy/PowerIO.jl#112, eigenergy/powerio#399).
-- New: `calc_incidence_parts(net; convention=:series)` and `branch_susceptance(net; convention=:series)` return the DC network as the parts it is assembled from — the signed incidence `A`, the per-branch susceptance `b`, the phase shift bus injection `p_shift`, the 1-based column-to-branch-row map, and the rows the DC denominator guard skipped. The matrix surface returned assembled matrices and the quantities they are assembled from never crossed the boundary. A differentiable-modeling consumer treats `b` as a parameter vector — its DC network is `(A, b, sw)` and its positive Laplacian is a function it rebuilds, `L = A * Diagonal(b .* sw) * A'` — so the assembled matrix is the wrong granularity: it has already summed away the thing being differentiated. Computing `b` outside reimplements a formula powerio 0.9 hardened (#292) and inherits none of the guards; a nonfinite susceptance now raises here, naming the branch, rather than joining the Laplacian as a zero weight edge, and a `:matpower` tap too small to divide by is `DegenerateTap`. `b` is a **positive** Laplacian edge weight, as powerio states; PowerModels and tellegen write the negation, so a consumer negates once knowingly. The `DcConvention` choice is a token a caller names (`:series`, `:matpower`, `:reactance_only`) rather than a formula it writes. `branch_susceptance` needs a library built `--features matrix`; `calc_incidence_parts` also needs `arrow` for the matrix itself, and `incidence_parts_available()` reports the extractors (eigenergy/PowerIO.jl#114, eigenergy/powerio#400).
+- New: `source_rows(net)` returns the normalize pass's own source rows — one 1-based source row per normalized `bus`, `load`, `shunt`, `branch`, `switch`, `generator`, `storage` and `hvdc` row, or `nothing` where the row has no source. The vectors existed in the Rust core and reached Julia only through Arrow solver tables or a `.pio.json` package. A consumer otherwise re-derived the drop rule from a second unfiltered extraction, which costs a full extra pass and fails when normalization changes the row space. The accessor sits beside `to_powerdata` because the source row map belongs to normalization rather than the ExaModels bridge. `source_rows_available()` reports whether the resolved library exports `pio_solver_index_json` (eigenergy/PowerIO.jl#112, eigenergy/powerio#399).
+- New: `DcPowerFlowData(net; convention=:series)` returns a branch by bus incidence matrix, branch susceptance, phase shift injection, source branch rows, skipped rows, and the selected convention. Its public definitions match PowerModels: `A[e, from] = +1`, `A[e, to] = -1`, series `b = imag(inv(r + im*x))`, `B = A' * Diagonal(b) * A`, and `Bf = Diagonal(b) * A`. `calc_susceptance_matrix` returns the symmetric bus susceptance matrix, `calc_branch_susceptance_matrix` returns `Bf`, and phase shifts stay in `p_shift = A' * (b .* shift)`. The bulk C call fills the arrays from one Rust incidence build (eigenergy/PowerIO.jl#114, eigenergy/powerio#400).
 - Breaking: `CompilerPackage` is removed. It was the fourth 0.3.0 compatibility alias, and the release that dropped `Network`, `DistNetwork` and `NetworkHandle` missed it. Use `NetworkPackage`, which it aliased.
 - Breaking: `to_normalized_with_options` is removed. Its keywords are `to_normalized`'s and always were; the separate spelling existed because the binding used the matching C symbol as its dispatch key, and ABI 5 retired that symbol.
-- Breaking: `calc_incidence_matrix` returns `PowerIO.AdmittanceMatrix{Float64}` rather than a bare `SparseMatrixCSC`, so the bus id maps travel with the matrix as they do for the other four `calc_*` functions; read `.matrix` for the sparse array. The wrapper's name reads oddly for a bus-by-branch matrix, whose columns are branches and go through no bus map, and renaming it is a 1.0 question — returning what its siblings return is worth more today.
+- Breaking: `calc_incidence_matrix` returns `PowerIO.IncidenceMatrix{Float64}` in branch by bus orientation. Its matrix has `+1` at each branch's from bus and `-1` at its to bus, matching PowerModels. The wrapper carries bus ids and source branch rows.
 - Breaking: `to_dense(net).reference_bus` is a 1-based index into `bus_ids`, so `bus_ids[reference_bus]` is the reference bus id with no adjustment. It reported the C ABI's 0-based index before, inside a NamedTuple whose every other index is Julia's. The Python binding's `to_dense` stays 0 based, as does `reference_bus_indices`, which reports the C index space verbatim.
 - Breaking: `convert_str(MulticonductorNetwork, text, to; from)` takes `from` as a keyword, matching `convert_str(text, to; from)`. The positional spelling is gone.
 - `validate_package` and `package_validation` cross reference each other. One runs the validation profile and the other reads the summary already on the package, which the names alone did not say.
@@ -78,33 +78,33 @@ Breaking: seven returned NamedTuple row or length shapes grow: shunt, AC line, t
 
 Tracks powerio v0.8.3, keeping core C ABI v4 and distribution C ABI v1.
 No breaking changes: the Julia API is unchanged, and the full test suite
-passed against the pinned binaries before this release (automated repin).
+passed against the selected binaries before this release (automated artifact update).
 
-- Binaries repinned to the [powerio v0.8.3 release](https://github.com/eigenergy/powerio/releases/tag/v0.8.3); see its notes for the upstream changes.
+- Binaries updated to the [powerio v0.8.3 release](https://github.com/eigenergy/powerio/releases/tag/v0.8.3); see its notes for the upstream changes.
 
 ## 0.8.3
 
 Tracks powerio v0.8.2, keeping core C ABI v4 and distribution C ABI v1.
 No breaking changes: the Julia API is unchanged, and the full test suite
-passed against the pinned binaries before this release (automated repin).
+passed against the selected binaries before this release (automated artifact update).
 
-- Binaries repinned to the [powerio v0.8.2 release](https://github.com/eigenergy/powerio/releases/tag/v0.8.2); see its notes for the upstream changes.
+- Binaries updated to the [powerio v0.8.2 release](https://github.com/eigenergy/powerio/releases/tag/v0.8.2); see its notes for the upstream changes.
 
 ## 0.8.2
 
 Tracks powerio v0.8.1, keeping core C ABI v4 and distribution C ABI v1.
 No breaking changes: the Julia API is unchanged, and the full test suite
-passed against the pinned binaries before this release (automated repin).
+passed against the selected binaries before this release (automated artifact update).
 
-- Binaries repinned to the [powerio v0.8.1 release](https://github.com/eigenergy/powerio/releases/tag/v0.8.1); see its notes for the upstream changes.
+- Binaries updated to the [powerio v0.8.1 release](https://github.com/eigenergy/powerio/releases/tag/v0.8.1); see its notes for the upstream changes.
 
 ## 0.8.1
 
 Tracks powerio v0.8.0, keeping core C ABI v4 and distribution C ABI v1.
 No breaking changes: the Julia API is unchanged, and the full test suite
-passed against the pinned binaries before this release (automated repin).
+passed against the selected binaries before this release (automated artifact update).
 
-- Binaries repinned to the [powerio v0.8.0 release](https://github.com/eigenergy/powerio/releases/tag/v0.8.0); see its notes for the upstream changes.
+- Binaries updated to the [powerio v0.8.0 release](https://github.com/eigenergy/powerio/releases/tag/v0.8.0); see its notes for the upstream changes.
 
 ## 0.8.0
 
@@ -112,7 +112,7 @@ Tracks the powerio v0.8 document surface: the `.pio.json` envelope moves to
 schema 0.2.0 and the distribution capability document to 1.1.0. Breaking for
 the Julia API: `PIO_PACKAGE_SCHEMA_URL` is removed, `dist_capabilities()`
 reports a wider layout, and the warning truncation marker text changed.
-Binaries stay pinned to powerio v0.7.3 until the automated repin; the test
+Binaries stay at powerio v0.7.3 until the automated artifact update; the test
 suite passes against both vintages.
 
 - `dist_capabilities()` reports the powerio v0.8 flags (`typed_capacitors`,
@@ -129,7 +129,7 @@ suite passes against both vintages.
 - New exported `schema_versions()`: the document-format lineages the library
   reports through `pio_schema_versions_json` (powerio v0.8).
   `PIO_PACKAGE_SCHEMA_VERSION` is now `"0.2.0"`, and the release gate parks
-  a repin whose binaries report a different package or Arrow lineage.
+  an artifact update whose binaries report a different package or Arrow lineage.
 - New exported `demands_mw(series)`: the `LoadSeries` matrices rescaled to
   MW for interfaces that divide by `baseMVA` themselves, such as
   `ExaModelsPower.mpopf_model`.
@@ -146,16 +146,16 @@ suite passes against both vintages.
 
 Tracks powerio v0.7.3, keeping core C ABI v4 and distribution C ABI v1.
 No breaking changes: the Julia API is unchanged, and the full test suite
-passed against the pinned binaries before this release (automated repin).
+passed against the selected binaries before this release (automated artifact update).
 
-- Binaries repinned to the [powerio v0.7.3 release](https://github.com/eigenergy/powerio/releases/tag/v0.7.3); see its notes for the upstream changes.
+- Binaries updated to the [powerio v0.7.3 release](https://github.com/eigenergy/powerio/releases/tag/v0.7.3); see its notes for the upstream changes.
 
 ## 0.7.2
 
 Tracks powerio v0.7.2, keeping core C ABI v4 and distribution C ABI v1. No
 Julia API changes.
 
-- Binaries repinned to powerio v0.7.2 (#80).
+- Binaries updated to powerio v0.7.2 (#80).
 - Pulls in the upstream v0.7.2 JSON reader hardening (PowerModels,
   pandapower, egret, GOC3, Surge) and the leading UTF-8 byte order mark
   strip in every text reader (eigenergy/powerio#260).
@@ -205,12 +205,12 @@ the SCOPF index classification (eigenergy/powerio#252) with unchanged output.
 
 ## 0.7.0
 
-Artifact repin to the powerio v0.7.0 binaries. No breaking changes in the
+Artifact update to the powerio v0.7.0 binaries. No breaking changes in the
 Julia API: `PIO_ABI_VERSION` stays 4 and `PIO_DIST_ABI_VERSION` stays 1, so
-the Julia surface is unchanged, and the minor version tracks the pinned
+the Julia surface is unchanged, and the minor version tracks the selected
 powerio release.
 
-- Repin `Artifacts.toml` to the powerio v0.7.0 release tarballs.
+- Update `Artifacts.toml` to the powerio v0.7.0 release tarballs.
 - Upstream, powerio 0.7.0 adds the `powerio-prob` crate (DC OPF, AC OPF, and
   GOC3 SCOPF problem instances) and demotes `powerio-json` from the public
   case format surface while keeping the `"powerio-json"` token as an ABI v4
@@ -255,7 +255,7 @@ ABI artifacts remain the v0.6.3 binaries.
 
 Tracks powerio v0.6.3, keeping core C ABI v4 and distribution C ABI v1.
 
-- Binaries repinned to powerio v0.6.3.
+- Binaries updated to powerio v0.6.3.
 - Added Rust backed sparse matrix helpers for balanced networks:
   `calc_admittance_matrix`, `calc_susceptance_matrix`, `calc_bprime_matrix`,
   `calc_bdoubleprime_matrix`, and `calc_incidence_matrix`.
@@ -269,7 +269,7 @@ Tracks powerio v0.6.3, keeping core C ABI v4 and distribution C ABI v1.
 
 Tracks powerio v0.6.2, keeping core C ABI v4 and distribution C ABI v1.
 
-- Binaries repinned to powerio v0.6.2.
+- Binaries updated to powerio v0.6.2.
 - `dist_capabilities()` reports the native BMOPF export fidelity flags exposed
   by `pio_dist_capabilities_json`.
 - `to_graph(net)` exposes graph projections for `BalancedNetwork` and
@@ -301,7 +301,7 @@ on the Julia side.
   model the package declares, and a bare `.json` routes on the core's
   cross-domain classifier (`pio_classify_str`). The type-marker forms
   (`parse_file(BalancedNetwork, path)`, `parse_file(MulticonductorNetwork,
-  path)`) pin a model explicitly and bypass routing. `parse_file(path)`'s
+  path)`) select a model explicitly and bypass routing. `parse_file(path)`'s
   return type is now a union over the two models.
 - `MulticonductorNetwork` carries its element tables: `data::JSON3.Object`
   (the `pio-payload-multiconductor/1` payload) next to the live handle,
@@ -332,7 +332,7 @@ Tracks powerio v0.5.0, keeping core C ABI v4 and distribution C ABI v1. No
 Julia API changes; the minor bump is breaking only in the pre-1.0 SemVer sense
 and puts the version in lockstep with powerio going forward.
 
-- Binaries repinned to powerio v0.5.0 for Linux, macOS, and Windows.
+- Binaries updated to powerio v0.5.0 for Linux, macOS, and Windows.
 - Parser routing picks up GO Challenge 3 JSON input and Surge JSON read and
   write.
 - The operating point C surface is fully live: `materialize_operating_point`
@@ -370,7 +370,7 @@ the primary parsed model names are now `BalancedNetwork` and
 `MulticonductorNetwork`; `Network` and `DistNetwork` remain as deprecated
 compatibility bindings.
 
-- Binaries repinned to powerio v0.4.0 for Linux, macOS, and Windows. The shipped
+- Binaries updated to powerio v0.4.0 for Linux, macOS, and Windows. The shipped
   C ABI artifacts include the `arrow`, `gridfm`, `dist`, and `pkg` features.
 - `.pio.json` compiler package support through `CompilerPackage`, `to_package`,
   `from_package`, `read_package`, `write_package`, `validate_package`,
@@ -394,7 +394,7 @@ compatibility bindings.
 Tracks powerio v0.3.3, keeping core C ABI v4 and distribution C ABI v1. No
 Julia API changes.
 
-- Binaries repinned to powerio v0.3.3 for Linux, macOS, and Windows.
+- Binaries updated to powerio v0.3.3 for Linux, macOS, and Windows.
 - Pulls in upstream parser, distribution, MCP, and display API fixes from
   powerio v0.3.3.
 
@@ -403,7 +403,7 @@ Julia API changes.
 Tracks powerio v0.3.2, keeping core C ABI v4 and distribution C ABI v1. No
 Julia API changes.
 
-- Binaries repinned to powerio v0.3.2 for Linux, macOS, and Windows.
+- Binaries updated to powerio v0.3.2 for Linux, macOS, and Windows.
 - Pulls in upstream OpenDSS to BMOPF shunt conversion fixes, including
   grounding reactors and delta capacitor or reactor banks.
 
@@ -412,7 +412,7 @@ Julia API changes.
 Tracks powerio v0.3.1, keeping core C ABI v4 (`PIO_ABI_VERSION` 4) and adding
 distribution C ABI v1 (`PIO_DIST_ABI_VERSION` 1). No transmission API changes.
 
-- Binaries repinned to powerio v0.3.1 for Linux, macOS, and Windows.
+- Binaries updated to powerio v0.3.1 for Linux, macOS, and Windows.
 - Distribution calls now require `pio_dist_abi_version() == 1` and use the
   supported C one-shot conversion order `(text/path, from, to)` underneath the
   stable Julia surface.
@@ -451,7 +451,7 @@ functions — and a new distribution binding is added.
 - `convert_str(text, to; from)` — the in-memory sibling of `convert_file`, over
   the v4 `pio_convert_str` (and `convert_str(DistNetwork, …)` for distribution).
 - `arrow_available` / `gridfm_available` / `dist_available` are now exported.
-- Binaries repinned to powerio v0.3.0.
+- Binaries updated to powerio v0.3.0.
 
 ## 0.1.4
 
@@ -473,7 +473,7 @@ Updates binaries to track powerio v0.2.4. No Julia binding changes.
 
 ## 0.1.2
 
-Tracks powerio v0.2.2 (C ABI version 3, unchanged); the repinned binaries improve
+Tracks powerio v0.2.2 (C ABI version 3, unchanged); the updated binaries improve
 PSS/E and PowerWorld parsing. Additive Julia-side changes only.
 
 - `n_components(net)` and `is_radial(net)` accessors over `pio_n_components` /
@@ -486,7 +486,7 @@ PSS/E and PowerWorld parsing. Additive Julia-side changes only.
 ## 0.1.1
 
 Adds two C-ABI bindings; still targets powerio C ABI version 3 (powerio 0.2.x
-binaries are drop in, the v0.2.1 artifact pin unchanged). No breaking changes —
+binaries are drop in, with the v0.2.1 artifact unchanged). No breaking changes —
 an additive patch over 0.1.0.
 
 - `write_pypsa_csv_folder(net, out_dir) -> (out_dir, warnings)` writes a PyPSA

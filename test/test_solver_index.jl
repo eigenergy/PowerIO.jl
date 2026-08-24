@@ -28,7 +28,7 @@
 
         # norm_tiny is the fixture the normalize pass was written against: an
         # isolated bus, an out-of-service branch, and a branch onto the dropped
-        # bus. What it pins is which rows survive and how many — every row it
+        # bus. This checks which rows survive and how many — every row it
         # drops is the last of its table, so `[1,2,3]` and `[1,2]` are equally
         # what a renumbering would produce.
         tiny = PowerIO.parse_file(joinpath(@__DIR__, "data", "norm_tiny.m"))
@@ -52,7 +52,7 @@
 
         # `to_dense` is a *different* row space and these vectors do not index
         # it: its tables are the handle's parse-time core, which still holds
-        # the isolated bus and the out-of-service branch the pass drops. Pinned
+        # the isolated bus and the out-of-service branch the pass drops. Checked
         # on the one fixture where they disagree, so the alignment cannot be
         # re-derived from case9, where nothing is dropped and they coincide.
         @test length(PowerIO.to_dense(tiny).bus_ids) == 4

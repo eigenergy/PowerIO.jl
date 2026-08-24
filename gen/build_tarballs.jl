@@ -1,6 +1,6 @@
 # BinaryBuilder recipe for a future PowerIO_jll. Current PowerIO.jl releases use
 # eigenergy/powerio's release-binaries workflow plus gen/update_artifacts.jl, not
-# this recipe. Before submitting a JLL, update the source pin and version to a
+# this recipe. Before submitting a JLL, update the source revision and version to a
 # release commit that exports every C ABI surface PowerIO.jl needs.
 #
 # Run:  julia build_tarballs.jl --verbose   (add a platform triplet to build one)
@@ -15,7 +15,7 @@ name = "PowerIO"
 # usable, not the version number.
 version = v"0.5.0"
 
-# Historical pin for the JLL prototype. The release artifact pipeline does not
+# Historical revision for the JLL prototype. The release artifact pipeline does not
 # use it.
 sources = [
     GitSource("https://github.com/eigenergy/powerio.git",
@@ -28,7 +28,7 @@ sources = [
 script = raw"""
 cd $WORKSPACE/srcdir/powerio
 # --features arrow ships pio_to_arrow; --features matrix ships the matrix COO
-# Arrow tables when the pinned source supports them; --features gridfm ships
+# Arrow tables when the selected source supports them; --features gridfm ships
 # pio_read_dir / pio_scenario_ids; --features dist ships pio_dist_*;
 # --features pkg ships pio_package_*; --features prob ships pio_scopf_*.
 features=arrow,gridfm,dist

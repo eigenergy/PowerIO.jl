@@ -27,7 +27,7 @@
 
 # `pio_dist_network_free`, memoized per resolved path — the `_network_free_fn`
 # story for distribution handles (a `set_library!` swap must not free across
-# allocators; the pinned dlopen handle keeps the pointer valid for live finalizers).
+# allocators; the retained dlopen handle keeps the pointer valid for live finalizers).
 const _DIST_FREE_FN = Ref{Ptr{Cvoid}}(C_NULL)
 const _DIST_FREE_FN_LIB = Ref{String}("")
 function _dist_network_free_fn(lib::AbstractString=_lib())
@@ -86,7 +86,7 @@ Build one with [`parse_file`](@ref)`("feeder.dss")` (the bare verb routes on
 the format) or the explicit `parse_file(MulticonductorNetwork, path)`. A
 `MulticonductorNetwork` constructed from a bare payload object has
 `handle === nothing`; the accessors work on it, but the handle transforms
-([`to_format`](@ref), [`to_package`](@ref)) error. JSON carry with provenance
+([`to_format`](@ref), [`to_package`](@ref)) error. JSON carries source details
 is [`to_package`](@ref) / [`from_package`](@ref); exchange with tools outside
 PowerIO is `to_format(net, "bmopf")`.
 
@@ -405,7 +405,7 @@ n_buses(net::MulticonductorNetwork) = Int(_summary(net).counts.buses)
 buses(net::MulticonductorNetwork) = _mc_table(net, :buses)
 "Lines (conductor-level), each with `terminal_map_from` / `terminal_map_to` and a `linecode`. Optional per-conductor `i_max` (A) and `s_max` (VA) override the linecode's ratings."
 lines(net::MulticonductorNetwork) = _mc_table(net, :lines)
-"Line codes: per-unit-length impedance and shunt matrices, row-major, SI. Optional `source` names the matrix provenance."
+"Line codes: per-unit-length impedance and shunt matrices, row-major, SI. Optional `source` names the matrix origin."
 linecodes(net::MulticonductorNetwork) = _mc_table(net, :linecodes)
 "Switches, with the same terminal maps as lines."
 switches(net::MulticonductorNetwork) = _mc_table(net, :switches)

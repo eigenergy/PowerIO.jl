@@ -38,7 +38,7 @@ The two share the same verbs, and the bare verbs route on the format:
 a `MulticonductorNetwork`, and `parse_file("case.pio.json")` whichever model
 the package holds. `to_format`, `convert_file`, and `warnings` dispatch on the
 network type; the type marker forms (`parse_file(BalancedNetwork, path)`,
-`parse_file(MulticonductorNetwork, path)`) pin a model explicitly.
+`parse_file(MulticonductorNetwork, path)`) select a model explicitly.
 
 ## Where to go
 

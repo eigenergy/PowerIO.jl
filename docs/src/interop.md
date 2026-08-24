@@ -86,7 +86,7 @@ ref = PowerIO.build_ref(data)
 ## `.pio.json` network packages
 
 `.pio.json` compiler packages wrap balanced and multiconductor networks with
-validation and provenance, over the native `pio_package_*` C ABI API
+validation and source details, over the native `pio_package_*` C ABI API
 (needs the default `pkg` feature; [`package_available`](@ref) reports it).
 
 ```julia

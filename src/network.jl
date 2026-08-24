@@ -227,7 +227,7 @@ Accepted format tokens (case-insensitive): `"matpower"`/`"m"`,
 `"pypsa-csv"`; distribution: `"dss"`/`"opendss"`, `"pmd"`/`"engineering"`,
 `"bmopf"`.
 
-The type marker forms pin the model when the routed return type would be
+The type marker forms select the model when the routed return type would be
 ambiguous to a reader: `parse_file(BalancedNetwork, path)` and
 `parse_file(MulticonductorNetwork, path)` — the `parse(T, x)` idiom.
 """

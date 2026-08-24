@@ -99,7 +99,7 @@
 
         if PowerIO.dist_available()
             @testset "multiconductor finalize before first data access" begin
-                # Same lazy-data contract as BalancedNetwork; the error must name
+                # Same lazy-data behavior as BalancedNetwork; the error must name
                 # the finalized case identically for consistency.
                 dss = joinpath(data, "dist", "switch.dss")
                 if isfile(dss)

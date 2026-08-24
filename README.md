@@ -34,7 +34,7 @@ Supported distribution formats:
 - IEEE BMOPF JSON
 
 PowerIO package JSON (`.pio.json`) carries either model between PowerIO
-consumers with provenance and diagnostics. `to_json` / `from_json` expose the
+consumers with source details and diagnostics. `to_json` / `from_json` expose the
 balanced model's internal JSON snapshot; use `.pio.json` packages or a named
 exchange format for files shared with other tools.
 
@@ -95,8 +95,9 @@ to_normalized(net; clamp_angle_bounds=true)
 to_dense(net)                      # dense typed arrays for matrix assembly
 calc_admittance_matrix(net).matrix # Ybus as SparseMatrixCSC{ComplexF64}
 calc_susceptance_matrix(net).matrix
-calc_incidence_matrix(net)
-calc_bprime_matrix(net).matrix     # Rust B' positive Laplacian
+calc_incidence_matrix(net).matrix  # branches by buses, +1 from and -1 to
+calc_branch_susceptance_matrix(net) # Bf = Diagonal(b) * A
+calc_bprime_matrix(net).matrix     # Rust FDPF B'
 to_arrow(net, :branch)             # one table over the Arrow C Data Interface
 to_arrow(net, :bprime)             # lower level matrix COO table
 to_matpower(net)                   # byte exact when the input was MATPOWER
@@ -171,8 +172,8 @@ The artifact pipeline behind released versions is described in
 
 ## Version line
 
-Each PowerIO.jl release pins one powerio release. `Artifacts.toml` records
-the exact pinned tag, and each CHANGELOG section names the C ABI pair it
+Each PowerIO.jl release selects one powerio release. `Artifacts.toml` records
+the exact tag, and each CHANGELOG section names the C ABI pair it
 keeps. The released artifacts enable the Arrow, matrix, GridFM, distribution,
 package, and problem instance features. The Julia package stays thin around
 the C ABI while owning stable Julia entry points for parsing, conversion,

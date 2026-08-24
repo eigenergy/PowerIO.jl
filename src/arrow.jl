@@ -93,7 +93,7 @@ function _arrow_eltype(fmt::AbstractString)
     throw(ArgumentError("PowerIO.to_arrow: unsupported Arrow column format $(repr(fmt))"))
 end
 
-# Inverse of `_arrow_eltype` for the primitive types the matrix fast path pins.
+# Inverse of `_arrow_eltype` for the primitive types the matrix fast path expects.
 # The fast path hardcodes each column's Julia type, so it must confirm the
 # producer's schema format code agrees before reinterpreting the data buffer;
 # otherwise a mismatched powerio-capi build would be read as garbage.
@@ -106,7 +106,7 @@ end
 
 # The lineage rule lives in schema_lineage.jl (included by
 # package.jl); gen/update_artifacts.jl checks it against the library's
-# `pio_schema_versions_json` report before it pins binaries.
+# `pio_schema_versions_json` report before it selects binaries.
 
 const _ARROW_TABLE_IDS = (
     bus = Cint(0),
@@ -535,7 +535,7 @@ function _arrow_from_handle(h::BalancedNetworkHandle, table::Symbol, copy::Bool)
         if occursin("unknown Arrow table id", msg)
             error("PowerIO.to_arrow: the loaded C library does not support table " *
                   "$(repr(table)) (id $(Int(id))). Rebuild powerio-capi from a " *
-                  "matching commit or repin the PowerIO.jl artifact.")
+                  "matching commit or update the PowerIO.jl artifact.")
         end
         error("PowerIO.to_arrow: " * msg)
     end
@@ -580,7 +580,7 @@ function _fast_child_column(::Type{T}, arr::Base.RefValue{CArrowArray},
     child_sch_ptr != C_NULL ||
         error("PowerIO.to_arrow: null schema child pointer at column $child_idx")
     child_sch = unsafe_load(child_sch_ptr)
-    # The fast path pins each column's Julia type; confirm the producer's format
+    # The fast path fixes each column's Julia type; confirm the producer's format
     # code agrees before reinterpreting its buffer, matching the generic decode's
     # `_arrow_eltype` gate so a wrong-typed column errors instead of decoding garbage.
     child_sch.format != C_NULL || error("PowerIO.to_arrow: null format for column $name")

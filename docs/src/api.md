@@ -34,7 +34,7 @@ Modules = [PowerIO]
 Pages = ["dense.jl"]
 ```
 
-## Normalize pass provenance
+## Normalized source rows
 
 ```@autodocs
 Modules = [PowerIO]
@@ -48,11 +48,11 @@ Modules = [PowerIO]
 Pages = ["matrix.jl"]
 ```
 
-## DC incidence parts
+## DC power flow
 
 ```@autodocs
 Modules = [PowerIO]
-Pages = ["incidence_parts.jl"]
+Pages = ["dc_power_flow.jl"]
 ```
 
 ## Arrow export

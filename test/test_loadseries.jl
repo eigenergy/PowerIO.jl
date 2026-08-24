@@ -136,7 +136,7 @@ end
 
         # A series aligns to `parse_ac_power_data`'s bus rows. The alignment now
         # comes off the normalized view directly instead of a second
-        # `to_powerdata` build, so pin the two against each other on a case with
+        # `to_powerdata` build, so compare the two on a case with
         # an isolated bus, which normalization drops.
         drops = """
         function mpc = drops
