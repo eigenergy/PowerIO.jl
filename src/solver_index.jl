@@ -7,8 +7,11 @@
 # star-lowered view the matrix builders read. This is the accessor for it.
 #
 # It sits beside `to_powerdata` rather than inside it: the provenance is a
-# property of the pass, not of the ExaModels bridge, so `to_dense` callers
-# reach it here too and the bridge's row schema does not have to change.
+# property of the pass, not of the ExaModels bridge, so it is reachable without
+# going through the bridge and the bridge's row schema does not have to change.
+# Reachable is all that means. The vectors are in the pass's row space, and
+# `to_dense` reports the handle's parse-time tables, so they do not index a
+# `to_dense` row and the two lengths differ on any case the pass drops from.
 
 """
     source_rows_available() -> Bool
@@ -55,10 +58,18 @@ something it does not model; star lowering, which changes the branch count, is
 the case, and a caller checking its own count against the filtered table then
 fails on a case the library handled.
 
-The ordering is the normalized one [`to_powerdata`](@ref) and `to_dense`
-report, so `source_rows(net).generator[i]` is the source row of
-`to_powerdata(net).gen[i]`. An out-of-service generator leaves a gap in the
-source rows instead of renumbering the ones that survived.
+The ordering is the normalized one [`to_powerdata`](@ref) reports, so
+`source_rows(net).generator[i]` is the source row of `to_powerdata(net).gen[i]`.
+An out-of-service generator leaves a gap in the source rows instead of
+renumbering the ones that survived.
+
+[`to_dense`](@ref) is a *different* row space and these vectors do not index it.
+Its tables come straight from the parse-time core the handle built, which still
+holds the isolated buses and out-of-service branches the normalize pass drops,
+so the two coincide only on a case that drops nothing. On
+`test/data/norm_tiny.m`, `to_dense(net).bus_ids` has four entries where
+`source_rows(net).bus` has three — and where the dropped rows come first the
+misalignment is a wrong answer rather than a bounds error.
 
 Needs a live network handle and a library that exports `pio_solver_index_json`;
 [`source_rows_available`](@ref) reports the latter.
@@ -71,10 +82,15 @@ rows.generator[1]   # the case row generator 1 came from, or `nothing`
 ```
 """
 function source_rows(net::BalancedNetwork)
-    lib = _lib()
+    # The handle's library, not `_lib()`: `set_library!` can swap the
+    # configured build while this network is still alive, and its pointer is
+    # the *parsing* build's allocation. Reading it through another build is a
+    # type confusion the ABI handshake cannot see, and `_take_string` below is
+    # a free that has to reach the allocator that made the string.
+    h = _live_handle(net, "source_rows")
+    lib = getfield(h, :lib)
     _ensure_compatible(lib)
     _require_export("source_rows", :pio_solver_index_json, "powerio v0.9", lib)
-    h = _live_handle(net, "source_rows")
     err = zeros(UInt8, _ERRLEN)
     s = GC.@preserve h ccall(_library_symbol(lib, :pio_solver_index_json), Cstring,
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))

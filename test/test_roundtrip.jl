@@ -416,16 +416,52 @@
         # reads as a real: this is the case the 0.9 relaxation swept in with
         # the reactive limits it was written for.
         inf_vmax = replace(pv_noref, "1 1.1 0.9;" => "1 Inf 0.9;")
-        if inf_vmax != pv_noref
-            inf_vmax_err = try
-                to_powerdata(parse_str(inf_vmax, "matpower"))
-                nothing
-            catch e
-                e
-            end
-            @test inf_vmax_err isa ArgumentError
-            @test occursin("nonfinite field `vmax`", sprint(showerror, inf_vmax_err))
+        inf_vmax_err = try
+            to_powerdata(parse_str(inf_vmax, "matpower"))
+            nothing
+        catch e
+            e
         end
+        @test inf_vmax_err isa ArgumentError
+        @test occursin("nonfinite field `vmax`", sprint(showerror, inf_vmax_err))
+
+        # The rule is the field's, not the pass's. `filtered=false` skips
+        # normalization, not the contract: it read every field but the branch
+        # block through the bare JSON decoder, so an infinite `vmax` or a NaN
+        # `pg` reached an ExaModelsPower row, and a NaN `baseMVA` divided every
+        # per unit field in the case and returned a table of NaN.
+        @test_throws ArgumentError to_powerdata(parse_str(inf_vmax, "matpower");
+                                                filtered=false)
+        @test_throws ArgumentError parse_ac_power_data(parse_str(inf_vmax, "matpower");
+                                                       filtered=false)
+        @test_throws ArgumentError to_powerdata(parse_str(inf_x, "matpower");
+                                                filtered=false)
+        nan_vm = replace(pv_noref, "1 1.0 0 138" => "1 NaN 0 138")
+        @test_throws ArgumentError to_powerdata(parse_str(nan_vm, "matpower");
+                                                filtered=false)
+        nan_pg = replace(pv_noref, "1 50 0 50 -50 1 100 1 100 0;" =>
+                                   "1 NaN 0 50 -50 1 100 1 100 0;")
+        nan_pg_err = try
+            to_powerdata(parse_str(nan_pg, "matpower"); filtered=false)
+            nothing
+        catch e
+            e
+        end
+        @test nan_pg_err isa ArgumentError
+        @test occursin("NaN field `pg`", sprint(showerror, nan_pg_err))
+        nan_qmax = replace(pv_noref, "1 50 0 50 -50 1 100 1 100 0;" =>
+                                     "1 50 0 NaN -50 1 100 1 100 0;")
+        @test_throws ArgumentError to_powerdata(parse_str(nan_qmax, "matpower");
+                                                filtered=false)
+        nan_base = replace(pv_noref, "mpc.baseMVA = 100;" => "mpc.baseMVA = NaN;")
+        @test_throws ArgumentError to_powerdata(parse_str(nan_base, "matpower");
+                                                filtered=false)
+        # ...and the bounds a source format spells unlimited still pass there,
+        # which is the half of the split `filtered=false` already had right.
+        @test to_powerdata(inf_net; filtered=false).gen[1].qmin == -Inf
+        inf_p = replace(pv_noref, "1 50 0 50 -50 1 100 1 100 0;" =>
+                                  "1 50 0 50 -50 1 100 1 Inf -Inf;")
+        @test to_powerdata(parse_str(inf_p, "matpower"); filtered=false).gen[1].pmax == Inf
 
         # The bridge normalizes internally and keeps only the tables, so it
         # re-emits what normalize found. A case with no cost data builds rows

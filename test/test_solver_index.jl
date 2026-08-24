@@ -40,6 +40,14 @@
         @test length(tiny_rows.bus) == 3
         @test !(4 in tiny_rows.bus)
 
+        # `to_dense` is a *different* row space and these vectors do not index
+        # it: its tables are the handle's parse-time core, which still holds
+        # the isolated bus and the out-of-service branch the pass drops. Pinned
+        # on the one fixture where they disagree, so the alignment cannot be
+        # re-derived from case9, where nothing is dropped and they coincide.
+        @test length(PowerIO.to_dense(tiny).bus_ids) == 4
+        @test length(tiny_rows.bus) != length(PowerIO.to_dense(tiny).bus_ids)
+
         # Every entry is a source row or `nothing`; nothing is a sentinel a
         # caller could index with by accident.
         for name in propertynames(tiny_rows), v in getproperty(tiny_rows, name)
@@ -50,6 +58,20 @@
         # source row indexes the case's own generator table.
         @test PowerIO.to_powerdata(tiny).gen[1].bus ==
               Int(PowerIO.generators(tiny)[tiny_rows.generator[1]].bus)
+
+        # The ccall and the string free both go to the library that allocated
+        # the handle, not to `_lib()`. `set_library!` can swap the configured
+        # build while this network is alive, and reading its pointer through
+        # another build is a type confusion the integer ABI handshake cannot
+        # see; freeing the returned document through another allocator is worse
+        # still. A path that cannot be opened makes the difference observable
+        # without a second real build.
+        try
+            PowerIO.set_library!("/nonexistent/libpowerio_capi.so")
+            @test PowerIO.source_rows(net).bus == collect(1:9)
+        finally
+            PowerIO.clear_library!()
+        end
 
         # A network with no live handle cannot answer: the pass runs in Rust.
         detached = PowerIO.from_json(PowerIO.to_json(net))

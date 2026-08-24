@@ -7,8 +7,8 @@
 #
 # A differentiable-modeling consumer treats the susceptance as a parameter
 # vector rather than an ingredient — its DC network is `(A, b, sw)` and its
-# susceptance matrix is a function it rebuilds, `B = A' * Diagonal(-b .* sw) *
-# A` — so the assembled matrix is the wrong granularity: it has already summed
+# susceptance matrix is a function it rebuilds, `B = A * Diagonal(-b .* sw) *
+# A'` — so the assembled matrix is the wrong granularity: it has already summed
 # away the thing being differentiated. Computing `b` outside instead
 # reimplements a formula powerio 0.9 hardened (#292) and inherits none of the
 # guards: the magnitude bound on the denominator, `NonFiniteSusceptance`
@@ -31,16 +31,38 @@ incidence_parts_available() =
 # The tokens the C surface takes, which are the ones Python's `convention=` and
 # the CLI's `--convention` take. Resolved here rather than passed through so a
 # misspelling is a Julia-side error naming the options, not a C refusal.
-const _DC_CONVENTIONS = (
-    series = "series",
-    series_impedance = "series",
-    matpower = "matpower",
-    mp = "matpower",
-    reactance_only = "reactance-only",
-)
+#
+# The mirror is of `DcConvention::from_token` (powerio/src/dc.rs), which owns
+# the set, and it normalizes the way that owner does: both separators are
+# deleted rather than one folded into the other, so `"seriesimpedance"` and
+# `"reactanceonly"` resolve here as they already do through Python and the CLI.
+# Rewriting `-` to `_` instead refused three spellings the library accepts. The
+# drift-canary test feeds every key back through the C ABI.
+_dc_convention_key(s) = replace(lowercase(String(s)), "-" => "", "_" => "")
+const _DC_CONVENTIONS = Dict("series" => "series",
+                             "seriesimpedance" => "series",
+                             "matpower" => "matpower",
+                             "mp" => "matpower",
+                             "reactanceonly" => "reactance-only")
+
+# The 0.8 spellings of `b = 1/x`, which was also 0.8's default. Named rather
+# than resolved, for the reason the core gives: the nearest-looking option,
+# `:series`, is a different formula, so a caller who guesses gets numbers
+# instead of an error.
+const _DC_CONVENTION_RETIRED = ("paper", "paperpure", "pure")
 
 function _dc_convention_token(convention)
-    key = Symbol(replace(lowercase(String(convention)), '-' => '_'))
+    # Typed before converted: `nothing` is how this package spells "the
+    # default" for `from=`, so `convention=nothing` is a plausible call, and
+    # `String(nothing)` answered it with a `MethodError` naming Base rather
+    # than the error naming the options this table exists to give.
+    convention isa Union{Symbol,AbstractString} || throw(ArgumentError(
+        "PowerIO: a DC convention is named by a Symbol or a String, got " *
+        "$(repr(convention)); expected :series, :matpower or :reactance_only"))
+    key = _dc_convention_key(convention)
+    key in _DC_CONVENTION_RETIRED && throw(ArgumentError(
+        "PowerIO: convention 'paper-pure' is now :reactance_only; it is no longer " *
+        "the default, and :series is a different formula (b = x/(r^2 + x^2))"))
     token = get(_DC_CONVENTIONS, key, nothing)
     token === nothing && throw(ArgumentError(
         "PowerIO: unknown DC convention $(repr(convention)); expected " *
@@ -49,26 +71,59 @@ function _dc_convention_token(convention)
     return token
 end
 
-# The four extractors share one shape: size query, allocate, fill, and a
-# negative return carrying the guard's own `CODE: message` in the errbuf.
-function _incidence_fill(net::BalancedNetwork, fname::AbstractString, sym::Symbol,
-                         ::Type{E}, convention) where {E}
-    lib = _lib()
-    _ensure_compatible(lib)
-    _require_export(fname, sym, "powerio v0.9, `--features matrix`", lib)
+# One extractor call: write up to `cap` values into `out` and return the total
+# the library has, whatever `cap` was. A negative return carries the guard's
+# own `CODE: message` in the errbuf.
+#
+# The library is the handle's, not `_lib()`. `set_library!` is public API for
+# pointing at a locally built cdylib and can be called while a parsed network
+# is still alive; the pointer inside that handle is an allocation of the build
+# that parsed it, and handing it to another build's `pio_branch_susceptance` is
+# a type confusion neither side catches, since `_ensure_compatible` only
+# handshakes an integer version. Every other handle-taking ccall in this
+# package already resolves through `getfield(h, :lib)` for the same reason the
+# free function is memoized per path.
+function _incidence_call(net::BalancedNetwork, fname::AbstractString, sym::Symbol,
+                         ::Type{E}, convention, out, cap::Integer) where {E}
     token = _dc_convention_token(convention)
     h = _live_handle(net, fname)
+    lib = getfield(h, :lib)
+    _ensure_compatible(lib)
+    _require_export(fname, sym, "powerio v0.9, `--features matrix`", lib)
     err = zeros(UInt8, _ERRLEN)
     n = GC.@preserve h ccall(_library_symbol(lib, sym), Cptrdiff_t,
                              (Ptr{Cvoid}, Cstring, Ptr{E}, Csize_t, Ptr{UInt8}, Csize_t),
-                             h.ptr, token, Ptr{E}(C_NULL), 0, err, length(err))
+                             h.ptr, token, out, cap, err, length(err))
     n < 0 && error("PowerIO.$fname: " * _cstr(err))
-    out = Vector{E}(undef, Int(n))
-    got = GC.@preserve h ccall(_library_symbol(lib, sym), Cptrdiff_t,
-                               (Ptr{Cvoid}, Cstring, Ptr{E}, Csize_t, Ptr{UInt8}, Csize_t),
-                               h.ptr, token, out, length(out), err, length(err))
-    got < 0 && error("PowerIO.$fname: " * _cstr(err))
+    return Int(n)
+end
+
+# Size query, allocate, fill — for a vector whose length nothing else knows.
+# The size query is a full incidence build on the C side, not a cheap count, so
+# this shape costs two of them; `_incidence_fill_known` is the one to reach for
+# when a count is already in hand.
+function _incidence_fill(net::BalancedNetwork, fname::AbstractString, sym::Symbol,
+                         ::Type{E}, convention) where {E}
+    n = _incidence_call(net, fname, sym, E, convention, Ptr{E}(C_NULL), 0)
+    out = Vector{E}(undef, n)
+    got = _incidence_call(net, fname, sym, E, convention, out, length(out))
     got == n || error("PowerIO.$fname: the C ABI reported $n then filled $got")
+    return out
+end
+
+# Fill against a count the caller already has, skipping the size query and the
+# incidence build behind it. The C `fill` writes `min(cap, total)` and returns
+# the total either way, so a cap that disagrees is a silent truncation with an
+# undefined tail unless the return is checked — which is why the check below is
+# the guard the dropped length comparisons used to be, not a formality.
+function _incidence_fill_known(net::BalancedNetwork, fname::AbstractString, sym::Symbol,
+                               ::Type{E}, convention, want::Int,
+                               what::AbstractString) where {E}
+    out = Vector{E}(undef, want)
+    got = _incidence_call(net, fname, sym, E, convention, out, want)
+    got == want || error(
+        "PowerIO.$fname: the incidence matrix has $want $what and the C ABI " *
+        "reported $got; they no longer describe the same DC network")
     return out
 end
 
@@ -119,7 +174,12 @@ branch_susceptance(path::AbstractString; from=nothing, convention=:series) =
 The DC network as the parts it is assembled from, under one `convention`:
 
 - `matrix` — the signed incidence `A`, exactly what [`calc_incidence_matrix`](@ref)
-  returns, so the bus id maps travel with it;
+  returns, so the bus id maps travel with it. Its columns and signs do not
+  depend on `convention`, but the C ABI takes no convention on the Arrow table
+  it crosses as: the library builds it under the default `:series`, so a case
+  only another convention can carry — a nonfinite `r` beside a usable `x` — has
+  no matrix here, and [`branch_susceptance`](@ref) is the way to the vector
+  alone;
 - `b` — the per-branch susceptance, length `m`, a positive Laplacian weight
   (see [`branch_susceptance`](@ref));
 - `p_shift` — the phase shift bus injection, length `n`, in the `matrix` row
@@ -145,26 +205,61 @@ Arrow table. [`branch_susceptance`](@ref) alone needs only `matrix`.
 """
 function calc_incidence_parts(net::BalancedNetwork; convention=:series)
     token = _dc_convention_token(convention)
-    b = _incidence_fill(net, "calc_incidence_parts", :pio_branch_susceptance,
+    # The `arrow` feature is required here rather than left to the `try` below.
+    # A library built `--features matrix` without it — the build
+    # `branch_susceptance` documents as enough, so a plausible one to be
+    # holding — fails inside `calc_incidence_matrix` with the toolchain message
+    # that names the missing feature, and under a non-default convention the
+    # rewrite below would bury that under a claim about the case's data which
+    # is not true of it. Asked through the handle's own library, as every other
+    # resolution in this file is.
+    h = _live_handle(net, "calc_incidence_parts")
+    lib = getfield(h, :lib)
+    _ensure_compatible(lib)
+    _require_export("calc_incidence_parts", :pio_to_arrow,
+                    "powerio v0.9, `--features matrix,arrow`", lib)
+    # The matrix first, because it is what knows the shape. Each extractor
+    # runs its own incidence build per call and the C ABI's own note says to
+    # size once and keep the count: taking `m` and `n` off the matrix drops
+    # three of the four size queries, and each of those was a full build.
+    matrix = try
+        calc_incidence_matrix(net)
+    catch err
+        # The Arrow incidence table takes no convention over the C ABI; it is
+        # always the default `:series`, which is the strictest of the three
+        # because it is the only one that reads the resistance. A branch whose
+        # `r` is nonfinite and whose `x` is fine therefore computes under the
+        # requested convention and is refused here, and the `to_arrow` message
+        # names neither this function nor the convention that did the refusing.
+        #
+        # Only report that mismatch once it is one. A case that is corrupt
+        # under every convention would otherwise be blamed on the default and
+        # send its caller looking for a convention that carries it, so ask the
+        # requested one and let its own refusal — which names the branch —
+        # stand. This runs on the error path alone.
+        token == "series" && rethrow()
+        _incidence_fill(net, "calc_incidence_parts", :pio_branch_susceptance,
                         Float64, convention)
-    p_shift = _incidence_fill(net, "calc_incidence_parts", :pio_phase_shift_injection,
-                              Float64, convention)
-    rows = _incidence_rows(_incidence_fill(net, "calc_incidence_parts",
-                                           :pio_incidence_branch_rows, Int64, convention))
+        error("PowerIO.calc_incidence_parts: `matrix` is the library's Arrow " *
+              "incidence table, which it builds under the default :series " *
+              "convention whatever `convention` asks for, and :series refuses " *
+              "this case where :$(convention) carries it: " *
+              sprint(showerror, err) *
+              ". `branch_susceptance` returns the vector alone.")
+    end
+    m = size(matrix.matrix, 2)
+    n = length(matrix.idx_to_bus)
+    b = _incidence_fill_known(net, "calc_incidence_parts", :pio_branch_susceptance,
+                              Float64, convention, m, "columns")
+    p_shift = _incidence_fill_known(net, "calc_incidence_parts", :pio_phase_shift_injection,
+                                    Float64, convention, n, "rows")
+    rows = _incidence_rows(_incidence_fill_known(
+        net, "calc_incidence_parts", :pio_incidence_branch_rows, Int64, convention,
+        m, "columns"))
+    # The skipped rows are the one vector the matrix cannot size: a branch with
+    # no column is by definition not counted by one. It keeps its size query.
     skipped = _incidence_rows(_incidence_fill(net, "calc_incidence_parts",
                                               :pio_incidence_skipped_rows, Int64, convention))
-    matrix = calc_incidence_matrix(net)
-    # The Arrow incidence table is built under the default convention. The
-    # column set does not depend on the convention -- the guard that drops a
-    # column reads the reactance alone -- so the two agree, and if a future
-    # release makes them disagree a caller must not find out by indexing.
-    size(matrix.matrix, 2) == length(b) || error(
-        "PowerIO.calc_incidence_parts: the incidence matrix has " *
-        "$(size(matrix.matrix, 2)) columns and the susceptance vector has " *
-        "$(length(b)); they no longer describe the same DC network")
-    length(rows) == length(b) || error(
-        "PowerIO.calc_incidence_parts: the column map has $(length(rows)) " *
-        "entries for $(length(b)) columns")
     return (; matrix, b, p_shift, branch_rows = rows,
             skipped_zero_impedance = skipped, convention = token)
 end

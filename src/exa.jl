@@ -867,6 +867,10 @@ convention, and an infinite `br_x` otherwise reached `_branch_coeffs` and put
 admittance coefficients derived from `1/Inf` in the returned row. A `NaN` is
 refused everywhere, as before.
 
+The rule is the field's, not the pass's, so `filtered=false` reads under it too:
+skipping normalization skips a pass, and the row still goes to the same
+ExaModelsPower model builders.
+
 This is an ExaModels-facing bridge (a Julia sibling of [`to_powermodels`](@ref)):
 the returned row schema is the field set ExaModelsPower's model builders read. It is
 not a general PowerIO representation and does not port to the Rust core / C ABI; for
@@ -893,28 +897,34 @@ _to_powerdata_live(net::BalancedNetwork, ::Type{T}, ::Val{true}) where {T<:Real}
 _to_powerdata_live(net::BalancedNetwork, ::Type{T}, ::Val{false}) where {T<:Real} =
     _to_powerdata_raw_input(_powerdata_input(_live_handle(net, "to_powerdata")), T)
 
+# The same two readers as the normalized path above. `filtered=false` skips the
+# normalize pass, not the field contract: an infinite `vmax` or a NaN `pg` is
+# the same data defect whichever route reached it, and the row this builds goes
+# to the same ExaModelsPower model builders. Only the branch block was guarded
+# before, so a NaN `base_mva` divided every per unit field in the case and
+# arrived as a table of NaN with nothing recorded.
 function _to_powerdata_raw_input(input::_PowerdataInput,
                                  ::Type{T}) where {T<:Real}
-    base = _json_float(T, input.base_mva)
+    base = _powerdata_real(input.base_mva, T, "network", :base_mva)
     raw_buses = input.buses
     kept_ids = [Int(b.id) for b in raw_buses]
     id_to_idx = Dict(id => i for (i, id) in enumerate(kept_ids))
 
     pd = zeros(T, length(kept_ids))
     qd = zeros(T, length(kept_ids))
-    for l in input.loads
+    for (row, l) in enumerate(input.loads)
         idx = get(id_to_idx, Int(l.bus), 0)
         idx == 0 && continue
-        pd[idx] += _json_float(T, l.p) / base
-        qd[idx] += _json_float(T, l.q) / base
+        pd[idx] += _powerdata_real(l.p, T, "load $row", :p) / base
+        qd[idx] += _powerdata_real(l.q, T, "load $row", :q) / base
     end
     gs = zeros(T, length(kept_ids))
     bs = zeros(T, length(kept_ids))
-    for s in input.shunts
+    for (row, s) in enumerate(input.shunts)
         idx = get(id_to_idx, Int(s.bus), 0)
         idx == 0 && continue
-        gs[idx] += _json_float(T, s.g) / base
-        bs[idx] += _json_float(T, s.b) / base
+        gs[idx] += _powerdata_real(s.g, T, "shunt $row", :g) / base
+        bs[idx] += _powerdata_real(s.b, T, "shunt $row", :b) / base
     end
 
     BusRow = _powerdata_bus_row_type(T)
@@ -929,12 +939,12 @@ function _to_powerdata_raw_input(input::_PowerdataInput,
                 gs = gs[i],
                 bs = bs[i],
                 area = Int(b.area),
-                vm = _json_float(T, b.vm),
-                va = _json_float(T, b.va),
-                baseKV = _json_float(T, b.base_kv),
+                vm = _powerdata_real(b.vm, T, "bus $id", :vm),
+                va = _powerdata_real(b.va, T, "bus $id", :va),
+                baseKV = _powerdata_real(b.base_kv, T, "bus $id", :base_kv),
                 zone = Int(b.zone),
-                vmax = _json_float(T, b.vmax),
-                vmin = _json_float(T, b.vmin),
+                vmax = _powerdata_real(b.vmax, T, "bus $id", :vmax),
+                vmin = _powerdata_real(b.vmin, T, "bus $id", :vmin),
             ))
         end
         for b in raw_buses
@@ -948,15 +958,15 @@ function _to_powerdata_raw_input(input::_PowerdataInput,
             GenRow((;
                 i,
                 bus = id_to_idx[Int(g.bus)],
-                pg = _json_float(T, g.pg) / base,
-                qg = _json_float(T, g.qg) / base,
-                qmax = _json_float(T, g.qmax) / base,
-                qmin = _json_float(T, g.qmin) / base,
-                vg = _json_float(T, g.vg),
-                mbase = _json_float(T, g.mbase),
+                pg = _powerdata_real(g.pg, T, "generator $i", :pg) / base,
+                qg = _powerdata_real(g.qg, T, "generator $i", :qg) / base,
+                qmax = _powerdata_bound(g.qmax, T, "generator $i", :qmax) / base,
+                qmin = _powerdata_bound(g.qmin, T, "generator $i", :qmin) / base,
+                vg = _powerdata_real(g.vg, T, "generator $i", :vg),
+                mbase = _powerdata_real(g.mbase, T, "generator $i", :mbase),
                 status = Int(Bool(g.in_service)),
-                pmax = _json_float(T, g.pmax) / base,
-                pmin = _json_float(T, g.pmin) / base,
+                pmax = _powerdata_bound(g.pmax, T, "generator $i", :pmax) / base,
+                pmin = _powerdata_bound(g.pmin, T, "generator $i", :pmin) / base,
                 model_poly,
                 startup,
                 shutdown,
@@ -971,11 +981,12 @@ function _to_powerdata_raw_input(input::_PowerdataInput,
     has_gen = falses(length(bus_rows))
     biggest_gen_bus = 0
     biggest_gen_pmax = typemin(T)
-    for g in kept_gens
+    for (i, g) in enumerate(kept_gens)
         Bool(g.in_service) || continue
         idx = id_to_idx[Int(g.bus)]
         has_gen[idx] = true
-        pmax = _json_float(T, g.pmax) / base
+        # The row's own value, already read and checked once above.
+        pmax = gen_rows[i].pmax
         if pmax > biggest_gen_pmax
             biggest_gen_pmax = pmax
             biggest_gen_bus = idx
@@ -1051,21 +1062,21 @@ function _to_powerdata_raw_input(input::_PowerdataInput,
     storage_rows = StorageRow[StorageRow((;
         i = row,
         storage_bus = Int(st.bus),
-        Pexts = _json_float(T, st.ps),
-        Qexts = _json_float(T, st.qs),
-        energy = _json_float(T, st.energy) / base,
-        energy_rating = _json_float(T, st.energy_rating) / base,
-        charge_rating = _json_float(T, st.charge_rating) / base,
-        discharge_rating = _json_float(T, st.discharge_rating) / base,
-        charge_efficiency = _json_float(T, st.charge_efficiency),
-        discharge_efficiency = _json_float(T, st.discharge_efficiency),
-        thermal_rating = _json_float(T, st.thermal_rating) / base,
-        qmin = _json_float(T, st.qmin) / base,
-        qmax = _json_float(T, st.qmax) / base,
-        Zr = _json_float(T, st.r),
-        Zim = _json_float(T, st.x),
-        p_loss = _json_float(T, st.p_loss),
-        q_loss = _json_float(T, st.q_loss),
+        Pexts = _powerdata_real(st.ps, T, "storage $row", :ps),
+        Qexts = _powerdata_real(st.qs, T, "storage $row", :qs),
+        energy = _powerdata_real(st.energy, T, "storage $row", :energy) / base,
+        energy_rating = _powerdata_bound(st.energy_rating, T, "storage $row", :energy_rating) / base,
+        charge_rating = _powerdata_bound(st.charge_rating, T, "storage $row", :charge_rating) / base,
+        discharge_rating = _powerdata_bound(st.discharge_rating, T, "storage $row", :discharge_rating) / base,
+        charge_efficiency = _powerdata_real(st.charge_efficiency, T, "storage $row", :charge_efficiency),
+        discharge_efficiency = _powerdata_real(st.discharge_efficiency, T, "storage $row", :discharge_efficiency),
+        thermal_rating = _powerdata_bound(st.thermal_rating, T, "storage $row", :thermal_rating) / base,
+        qmin = _powerdata_bound(st.qmin, T, "storage $row", :qmin) / base,
+        qmax = _powerdata_bound(st.qmax, T, "storage $row", :qmax) / base,
+        Zr = _powerdata_real(st.r, T, "storage $row", :r),
+        Zim = _powerdata_real(st.x, T, "storage $row", :x),
+        p_loss = _powerdata_real(st.p_loss, T, "storage $row", :p_loss),
+        q_loss = _powerdata_real(st.q_loss, T, "storage $row", :q_loss),
         status = Int(Bool(st.in_service)),
     )) for (row, st) in enumerate(input.storage)]
 

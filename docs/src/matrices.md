@@ -49,7 +49,7 @@ The `calc_*` functions above return matrices that are already assembled. A
 consumer differentiating a DC OPF solution treats the per-branch susceptance as
 a *parameter vector* rather than an ingredient — its DC network is `(A, b, sw)`
 and its susceptance matrix is a function it rebuilds,
-`B = A' * Diagonal(-b .* sw) * A` — so an assembled `B'` is the wrong
+`B = A * Diagonal(-b .* sw) * A'` — so an assembled `B'` is the wrong
 granularity: it has already summed away the thing being differentiated.
 
 [`calc_incidence_parts`](@ref) returns the parts instead:
@@ -63,8 +63,21 @@ parts.branch_rows             # 1-based column to source branch row
 parts.skipped_zero_impedance  # 1-based rows the DC denominator guard dropped
 
 A = parts.matrix.matrix
-A * spdiagm(0 => parts.b) * A' == calc_bprime_matrix(net).matrix   # exactly
+# On a case with no phase shifter this reassembles the library's own matrix,
+# bit for bit rather than to a tolerance.
+A * spdiagm(0 => parts.b) * A' == calc_bprime_matrix(net).matrix
 ```
+
+That identity is exact on a shifter-free case and it does not hold on a case
+that carries one, which is the reason the parts are worth returning rather than
+a redundant spelling of `calc_bprime_matrix`. The library builds `B'` with the
+shifts left in the matrix, so a shifted branch's two off-diagonal entries differ
+and `B'` is asymmetric; the incidence build routes the same shift into `p_shift`
+instead, leaving the Laplacian `A * Diagonal(b) * A'` symmetric by construction.
+On `test/data/norm_tiny.m`, whose branch 2 carries a two degree shift, the two
+matrices differ by 2.0e-2 on that off-diagonal pair.
+[`calc_susceptance_matrix`](@ref)'s docstring states the same asymmetry from the
+matrix side.
 
 [`branch_susceptance`](@ref) returns the vector alone, and needs a library built
 `--features matrix` without `arrow`.
