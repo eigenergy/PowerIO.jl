@@ -444,6 +444,10 @@
         nan_base = replace(pv_noref, "mpc.baseMVA = 100;" => "mpc.baseMVA = NaN;")
         @test_throws ArgumentError to_powerdata(parse_str(nan_base, "matpower");
                                                 filtered=false)
+        zero_base = replace(pv_noref, "mpc.baseMVA = 100;" => "mpc.baseMVA = 0;")
+        @test occursin("must be positive",
+                       refusal(() -> to_powerdata(parse_str(zero_base, "matpower");
+                                                  filtered=false)))
         # ...and the bounds a source format spells unlimited still pass there,
         # which is the half of the split `filtered=false` already had right.
         @test to_powerdata(inf_net; filtered=false).gen[1].qmin == -Inf

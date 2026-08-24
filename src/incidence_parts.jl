@@ -26,7 +26,8 @@ the `arrow` feature for the matrix itself; [`branch_susceptance`](@ref) does
 not.
 """
 incidence_parts_available() =
-    all(_exports_symbol, (:pio_branch_susceptance, :pio_phase_shift_injection,
+    all(_exports_symbol, (:pio_incidence_parts, :pio_branch_susceptance,
+                          :pio_phase_shift_injection,
                           :pio_incidence_branch_rows, :pio_incidence_skipped_rows))
 
 # The tokens the C surface takes, which are the ones Python's `convention=` and
@@ -78,8 +79,7 @@ end
 #
 # `token` arrives resolved. The public entry points resolve once, so a
 # misspelled convention is still refused before any handle work — which is the
-# reason the table exists — without re-walking it six times per
-# `calc_incidence_parts`.
+# reason the table exists — without re-walking it for each vector.
 #
 # The library is the handle's, not `_lib()`. `set_library!` is public API for
 # pointing at a locally built cdylib and can be called while a parsed network
@@ -103,10 +103,8 @@ function _incidence_call(net::BalancedNetwork, fname::AbstractString, sym::Symbo
     return Int(n)
 end
 
-# Size query, allocate, fill — for a vector whose length nothing else knows.
-# The size query is a full incidence build on the C side, not a cheap count, so
-# this shape costs two of them; `_incidence_fill_known` is the one to reach for
-# when a count is already in hand.
+# Size query, allocate, fill — for one standalone vector whose length nothing
+# else knows. `calc_incidence_parts` uses the bulk extractor below instead.
 function _incidence_fill(net::BalancedNetwork, fname::AbstractString, sym::Symbol,
                          ::Type{E}, token::AbstractString) where {E}
     n = _incidence_call(net, fname, sym, E, token, Ptr{E}(C_NULL), 0)
@@ -116,55 +114,58 @@ function _incidence_fill(net::BalancedNetwork, fname::AbstractString, sym::Symbo
     return out
 end
 
-# Fill against a count the caller already has, skipping the size query and the
-# incidence build behind it. The C `fill` writes `min(cap, total)` and returns
-# the total either way, so a cap that disagrees is a silent truncation with an
-# undefined tail unless the return is checked — which is why the check below is
-# the guard the dropped length comparisons used to be, not a formality.
-function _incidence_fill_known(net::BalancedNetwork, fname::AbstractString, sym::Symbol,
-                               ::Type{E}, token::AbstractString, want::Int,
-                               what::AbstractString) where {E}
-    out = Vector{E}(undef, want)
-    got = _incidence_call(net, fname, sym, E, token, out, want)
-    got == want || error(
-        "PowerIO.$fname: the incidence matrix has $want $what and the C ABI " *
-        "reported $got; they no longer describe the same DC network")
-    return out
-end
-
-# The skipped rows are the one vector the incidence matrix cannot size: a
-# branch the DC denominator guard dropped has no column, so no column counts
-# it. The branch table does bound it, though — every skipped row is a branch —
-# so one over-sized fill and a trim replace the size query, and that size query
-# was a fifth full incidence build.
-#
-# `pio_n_branches` is read off the core the handle built at parse and costs
-# nanoseconds; `n_branches(net)` is not the same call, it goes through the
-# summary document and costs more than the build this saves. The bound is `nb`
-# and not `nb - m`, because `m` counts the columns of the always-`:series`
-# Arrow matrix while the extractor runs under `token`: a convention that keeps
-# a branch `:series` drops would overflow the tighter cap.
-function _incidence_skipped_rows(net::BalancedNetwork, token::AbstractString)
+# Fill all four vectors from one Rust incidence build. The Arrow matrix gives
+# exact capacities for the branch and bus vectors. The source branch count
+# bounds skipped rows, including when `token` keeps a branch the Arrow table's
+# fixed :series convention drops.
+function _incidence_parts_fill(net::BalancedNetwork, token::AbstractString, m::Int, n::Int)
     h = _live_handle(net, "calc_incidence_parts")
     lib = getfield(h, :lib)
+    _ensure_compatible(lib)
+    _require_export("calc_incidence_parts", :pio_incidence_parts,
+                    "powerio v0.9, `--features matrix`", lib)
     nb = Int(GC.@preserve h ccall(_library_symbol(lib, :pio_n_branches), Csize_t,
                                   (Ptr{Cvoid},), h.ptr))
-    out = Vector{Int64}(undef, nb)
-    got = _incidence_call(net, "calc_incidence_parts", :pio_incidence_skipped_rows,
-                          Int64, token, out, nb)
-    # A total above the cap is a short fill with an undefined tail, and here it
-    # would be resized *up* into uninitialized memory and returned as row
-    # numbers. Only an ABI that no longer agrees the skipped rows are branches
-    # can produce it.
-    got <= nb || error(
+    b = Vector{Float64}(undef, m)
+    rows = Vector{Int64}(undef, m)
+    p_shift = Vector{Float64}(undef, n)
+    skipped = Vector{Int64}(undef, nb)
+    out_m, out_n, out_skipped = Ref{Csize_t}(0), Ref{Csize_t}(0), Ref{Csize_t}(0)
+    err = zeros(UInt8, _ERRLEN)
+    status = GC.@preserve h ccall(
+        _library_symbol(lib, :pio_incidence_parts), Cint,
+        (Ptr{Cvoid}, Cstring, Ptr{Float64}, Ptr{Int64}, Csize_t,
+         Ptr{Float64}, Csize_t, Ptr{Int64}, Csize_t,
+         Ref{Csize_t}, Ref{Csize_t}, Ref{Csize_t}, Ptr{UInt8}, Csize_t),
+        h.ptr, token, b, rows, m, p_shift, n, skipped, nb,
+        out_m, out_n, out_skipped, err, length(err))
+    status == 0 || error("PowerIO.calc_incidence_parts: " * _cstr(err))
+
+    got_m, got_n, got_skipped = Int(out_m[]), Int(out_n[]), Int(out_skipped[])
+    got_m == m || error(
+        "PowerIO.calc_incidence_parts: the incidence matrix has $m columns and the C ABI " *
+        "reported $got_m; they no longer describe the same DC network")
+    got_n == n || error(
+        "PowerIO.calc_incidence_parts: the incidence matrix has $n rows and the C ABI " *
+        "reported $got_n; they no longer describe the same DC network")
+    got_skipped <= nb || error(
         "PowerIO.calc_incidence_parts: the case has $nb branches and the C ABI reports " *
-        "$got skipped rows; they no longer describe the same DC network")
-    resize!(out, got)
-    return out
+        "$got_skipped skipped rows; they no longer describe the same DC network")
+    resize!(skipped, got_skipped)
+    return b, p_shift, rows, skipped
 end
 
 # Rust rows are 0-based; every row number this package reports is 1-based.
-_incidence_rows(v::Vector{Int64}) = Int[Int(x) + 1 for x in v]
+function _incidence_rows(v::Vector{Int64})
+    if Int === Int64
+        for i in eachindex(v)
+            v[i] == typemax(Int64) && error("PowerIO: incidence row does not fit in Int")
+            v[i] += 1
+        end
+        return v
+    end
+    return Int[Int(x) + 1 for x in v]
+end
 
 """
     branch_susceptance(net::BalancedNetwork; convention=:series) -> Vector{Float64}
@@ -289,22 +290,14 @@ Arrow table. [`branch_susceptance`](@ref) alone needs only `matrix`.
 """
 function calc_incidence_parts(net::BalancedNetwork; convention=:series)
     token = _dc_convention_token(convention)
-    # The matrix first, because it is what knows the shape. Each extractor runs
-    # its own incidence build per call and the C ABI's own note says to size
-    # once and keep the count: `m` and `n` come off the matrix, and the branch
-    # count bounds the fourth vector, so none of the four size queries — each
-    # one a full build — is asked at all.
+    # The matrix first because it owns the shape. One bulk C call then fills
+    # every vector from one matching incidence build.
     matrix = _incidence_matrix_for_parts(net, convention, token)
     m = size(matrix.matrix, 2)
     n = length(matrix.idx_to_bus)
-    b = _incidence_fill_known(net, "calc_incidence_parts", :pio_branch_susceptance,
-                              Float64, token, m, "columns")
-    p_shift = _incidence_fill_known(net, "calc_incidence_parts", :pio_phase_shift_injection,
-                                    Float64, token, n, "rows")
-    rows = _incidence_rows(_incidence_fill_known(
-        net, "calc_incidence_parts", :pio_incidence_branch_rows, Int64, token,
-        m, "columns"))
-    skipped = _incidence_rows(_incidence_skipped_rows(net, token))
+    b, p_shift, rows, skipped = _incidence_parts_fill(net, token, m, n)
+    rows = _incidence_rows(rows)
+    skipped = _incidence_rows(skipped)
     return (; matrix, b, p_shift, branch_rows = rows,
             skipped_zero_impedance = skipped, convention = token)
 end

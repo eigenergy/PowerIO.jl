@@ -98,7 +98,7 @@
 
         # The parts reassemble the library's own matrix. This is the property
         # that makes them worth returning: a consumer differentiating through
-        # `B = A * Diagonal(-b .* sw) * A'` gets the same operator the matrix
+        # `L = A * Diagonal(b .* sw) * A'` gets the same operator the matrix
         # surface would have handed it, with `b` still separable. Exactly, and
         # only on a case with no phase shifter — see the norm_tiny block below.
         A = parts.matrix.matrix

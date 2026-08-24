@@ -85,6 +85,13 @@ function _powerdata_real(x, ::Type{T}, element,
     return y
 end
 
+function _powerdata_base(x, ::Type{T}) where {T<:Real}
+    base = _powerdata_real(x, T, "network", :base_mva)
+    base > zero(T) || throw(ArgumentError(
+        "PowerIO.to_powerdata: network field `base_mva` must be positive, got $base"))
+    return base
+end
+
 function _quadratic_cost_coeffs(coeffs::Vector{T}, base::T,
                                 normalized::Bool) where {T<:Real}
     scaled = copy(coeffs)
@@ -682,7 +689,7 @@ _to_powerdata_normalized_live(net::BalancedNetwork, ::Type{T}) where {T<:Real} =
 
 function _to_powerdata_normalized_input(input::_PowerdataInput,
                                         ::Type{T}) where {T<:Real}
-    base = _powerdata_real(input.base_mva, T, "network", :base_mva)
+    base = _powerdata_base(input.base_mva, T)
     raw_buses = input.buses
     kept_ids = [Int(b.id) for b in raw_buses]
     id_to_idx = Dict(id => i for (i, id) in enumerate(kept_ids))
@@ -914,7 +921,7 @@ _to_powerdata_live(net::BalancedNetwork, ::Type{T}, ::Val{false}) where {T<:Real
 # arrived as a table of NaN with nothing recorded.
 function _to_powerdata_raw_input(input::_PowerdataInput,
                                  ::Type{T}) where {T<:Real}
-    base = _powerdata_real(input.base_mva, T, "network", :base_mva)
+    base = _powerdata_base(input.base_mva, T)
     raw_buses = input.buses
     kept_ids = [Int(b.id) for b in raw_buses]
     id_to_idx = Dict(id => i for (i, id) in enumerate(kept_ids))
@@ -1268,7 +1275,7 @@ end
 
 function _load_alignment_input(input::_PowerdataInput,
                                ::Type{T}) where {T<:Real}
-    base = _powerdata_real(input.base_mva, T, "network", :base_mva)
+    base = _powerdata_base(input.base_mva, T)
     bus_ids = Int[Int(b.id) for b in input.buses]
     id_to_idx = Dict(id => i for (i, id) in enumerate(bus_ids))
     base_pd = zeros(T, length(bus_ids))
