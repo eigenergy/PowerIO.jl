@@ -7,9 +7,10 @@
 #
 # A differentiable-modeling consumer treats the susceptance as a parameter
 # vector rather than an ingredient — its DC network is `(A, b, sw)` and its
-# susceptance matrix is a function it rebuilds, `B = A * Diagonal(-b .* sw) *
-# A'` — so the assembled matrix is the wrong granularity: it has already summed
-# away the thing being differentiated. Computing `b` outside instead
+# positive Laplacian is a function it rebuilds:
+# `L = A * Diagonal(b .* sw) * A'`. The assembled matrix is the wrong
+# granularity because it has already summed away the thing being
+# differentiated. Computing `b` outside instead
 # reimplements a formula powerio 0.9 hardened (#292) and inherits none of the
 # guards: the magnitude bound on the denominator, `NonFiniteSusceptance`
 # instead of a silently dropped edge, `DegenerateTap` under `:matpower`. These
