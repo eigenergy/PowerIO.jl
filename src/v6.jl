@@ -1,0 +1,385 @@
+# ABI v6: structured error handles, the stored module surface, and the DC
+# branch data with borrowed array views.
+#
+# Every handle keeps the pointer AND the library that created it, and every
+# ccall on a handle resolves its symbol from `getfield(h, :lib)` — never the
+# globally configured `_lib()` — so a handle outlives a `set_library!` switch
+# without dispatching into the wrong image. Borrowed array views root their
+# owner handle, so the spans they alias stay valid for the view's lifetime;
+# `copy` returns an ordinary mutable Julia array.
+
+"""
+    PowerIOCError
+
+A structured failure from an ABI v6 entry point: the stable diagnostic
+`code`, the rendered `message`, and the structured `diagnostics` decoded from
+the error handle's JSON array.
+"""
+struct PowerIOCError <: Exception
+    code::String
+    message::String
+    diagnostics::Any
+end
+
+function Base.showerror(io::IO, e::PowerIOCError)
+    print(io, "PowerIOCError: ", e.message)
+end
+
+# Copy one v6 error handle into a Julia exception and release the handle.
+function _v6_error(lib::AbstractString, err::Ptr{Cvoid})
+    code = unsafe_string(ccall(_library_symbol(lib, :pio_error_code), Cstring,
+                               (Ptr{Cvoid},), err))
+    message = unsafe_string(ccall(_library_symbol(lib, :pio_error_message), Cstring,
+                                  (Ptr{Cvoid},), err))
+    diagnostics_json = unsafe_string(ccall(_library_symbol(lib, :pio_error_diagnostics_json),
+                                           Cstring, (Ptr{Cvoid},), err))
+    ccall(_library_symbol(lib, :pio_error_release), Cvoid, (Ptr{Cvoid},), err)
+    diagnostics = try
+        JSON3.read(diagnostics_json)
+    catch
+        JSON3.read("[]")
+    end
+    return PowerIOCError(code, message, diagnostics)
+end
+
+# Run one fallible v6 ccall: `f(err_ref)` returns the raw result; a non-NULL
+# stored error handle throws `PowerIOCError`.
+function _v6_call(f, lib::AbstractString)
+    err = Ref{Ptr{Cvoid}}(C_NULL)
+    result = f(err)
+    err[] == C_NULL || throw(_v6_error(lib, err[]))
+    return result
+end
+
+"""
+    StoredModule
+
+One runtime module: a typed value with its common records, behind an owned
+ABI v6 handle. Read stored `.pio.json` text with [`read_module`](@ref), parse
+a case with [`parse_module`](@ref), and write the stored version 1 document
+with [`write_module`](@ref). The handle's finalizer releases it; every
+retained child (an exported module, DC data) is independently owned, so
+releasing this module never invalidates them.
+"""
+mutable struct StoredModule
+    ptr::Ptr{Cvoid}
+    lib::String
+    function StoredModule(ptr::Ptr{Cvoid}, lib::AbstractString)
+        ptr == C_NULL && error("PowerIO: null module handle")
+        lib = String(lib)
+        release = _library_symbol(lib, :pio_module_release)
+        h = new(ptr, lib)
+        finalizer(h) do x
+            x.ptr == C_NULL || ccall(release, Cvoid, (Ptr{Cvoid},), x.ptr)
+            x.ptr = C_NULL
+        end
+        return h
+    end
+end
+
+function _module_ptr(m::StoredModule)
+    ptr = getfield(m, :ptr)
+    ptr == C_NULL && error("PowerIO: the module handle was released")
+    return ptr
+end
+
+"""
+    read_module(text::AbstractString) -> StoredModule
+
+Read stored `.pio.json` text: version 1, or a released 0.9 package upgraded
+one way.
+"""
+function read_module(text::AbstractString)
+    lib = _lib()
+    ptr = _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_module_read_json), Ptr{Cvoid},
+              (Cstring, Ref{Ptr{Cvoid}}), text, err)
+    end
+    return StoredModule(ptr, lib)
+end
+
+"""
+    parse_module(path; format=nothing) -> StoredModule
+
+Parse a case file into a module of whichever family claims it.
+"""
+function parse_module(path::AbstractString; format::Union{AbstractString,Nothing}=nothing)
+    lib = _lib()
+    ptr = _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_module_parse_file), Ptr{Cvoid},
+              (Cstring, Cstring, Ref{Ptr{Cvoid}}), path,
+              format === nothing ? C_NULL : format, err)
+    end
+    return StoredModule(ptr, lib)
+end
+
+"""
+    parse_module_str(text; format=nothing) -> StoredModule
+
+Parse in-memory case text into a module.
+"""
+function parse_module_str(text::AbstractString;
+                          format::Union{AbstractString,Nothing}=nothing)
+    lib = _lib()
+    ptr = _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_module_parse_str), Ptr{Cvoid},
+              (Cstring, Cstring, Ref{Ptr{Cvoid}}), text,
+              format === nothing ? C_NULL : format, err)
+    end
+    return StoredModule(ptr, lib)
+end
+
+"""
+    write_module(m::StoredModule) -> String
+
+The stored version 1 document.
+"""
+function write_module(m::StoredModule)
+    lib = getfield(m, :lib)
+    s = GC.@preserve m _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_module_write_json), Cstring,
+              (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _module_ptr(m), err)
+    end
+    return _take_string(lib, s)
+end
+
+"""
+    module_kind(m::StoredModule) -> String
+
+The value's permanent kind identifier (`"balanced_network"`, ...).
+"""
+function module_kind(m::StoredModule)
+    lib = getfield(m, :lib)
+    s = GC.@preserve m ccall(_library_symbol(lib, :pio_module_kind), Cstring,
+                             (Ptr{Cvoid},), _module_ptr(m))
+    return unsafe_string(s)
+end
+
+"""
+    inspect_module(m::StoredModule)
+
+Value inspection and supported operation discovery, decoded from JSON.
+"""
+function inspect_module(m::StoredModule)
+    lib = getfield(m, :lib)
+    s = GC.@preserve m _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_module_inspect_json), Cstring,
+              (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _module_ptr(m), err)
+    end
+    return JSON3.read(_take_string(lib, s))
+end
+
+"""
+    state_inventory(m::StoredModule)
+
+The typed time or scenario inventory of the module's value.
+"""
+function state_inventory(m::StoredModule)
+    lib = getfield(m, :lib)
+    s = GC.@preserve m _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_module_state_inventory_json), Cstring,
+              (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _module_ptr(m), err)
+    end
+    return JSON3.read(_take_string(lib, s))
+end
+
+"""
+    export_state(m::StoredModule; time_position=nothing, scenario=nothing) -> StoredModule
+
+Export one selected time point or scenario as an independent static module.
+Pass exactly one key.
+"""
+function export_state(m::StoredModule;
+                      time_position::Union{Integer,Nothing}=nothing,
+                      scenario::Union{AbstractString,Nothing}=nothing)
+    (time_position === nothing) == (scenario === nothing) &&
+        error("PowerIO.export_state: pass exactly one of time_position and scenario")
+    lib = getfield(m, :lib)
+    position = time_position === nothing ? Int64(-1) : Int64(time_position)
+    ptr = GC.@preserve m _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_module_export_state), Ptr{Cvoid},
+              (Ptr{Cvoid}, Int64, Cstring, Ref{Ptr{Cvoid}}), _module_ptr(m), position,
+              scenario === nothing ? C_NULL : scenario, err)
+    end
+    return StoredModule(ptr, lib)
+end
+
+"""
+    lower_module_to_balanced(m::StoredModule; base_mva=100.0) -> StoredModule
+
+Explicitly lower a multiconductor module to a balanced module. Records and
+source ownership carry over; the pass appends its findings and one Transform
+history entry.
+"""
+function lower_module_to_balanced(m::StoredModule; base_mva::Real=100.0)
+    lib = getfield(m, :lib)
+    ptr = GC.@preserve m _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_module_lower_to_balanced), Ptr{Cvoid},
+              (Ptr{Cvoid}, Cdouble, Ref{Ptr{Cvoid}}), _module_ptr(m), base_mva, err)
+    end
+    return StoredModule(ptr, lib)
+end
+
+# ---- DC branch data ---------------------------------------------------------
+
+"""
+    BorrowedVector{T}
+
+A read only view over a span owned by a C result handle. The view roots the
+owner, so the span stays valid for the view's lifetime; `copy` returns an
+ordinary mutable `Vector{T}`. Mutation throws.
+"""
+struct BorrowedVector{T} <: AbstractVector{T}
+    owner::Any
+    ptr::Ptr{T}
+    len::Int
+end
+
+Base.size(v::BorrowedVector) = (v.len,)
+Base.IndexStyle(::Type{<:BorrowedVector}) = IndexLinear()
+function Base.getindex(v::BorrowedVector{T}, i::Int) where {T}
+    @boundscheck checkbounds(v, i)
+    owner = getfield(v, :owner)
+    GC.@preserve owner unsafe_load(v.ptr, i)
+end
+Base.setindex!(::BorrowedVector, _, ::Int) =
+    error("PowerIO: a BorrowedVector is read only; `copy` it for a mutable array")
+Base.copy(v::BorrowedVector{T}) where {T} = T[v[i] for i in eachindex(v)]
+
+"""
+    DcData
+
+The DC branch data of one balanced module under one susceptance formula, an
+independently owned ABI v6 result: releasing the module that built it never
+invalidates it. Fields with numeric spans are [`BorrowedVector`](@ref)s over
+the handle's own arrays.
+
+The public equations and signs match PowerModels directly:
+
+    A[e, from] = +1
+    A[e, to]   = -1
+    B  = A' * Diagonal(b) * A
+    Bf = Diagonal(b) * A
+    p_shift  = A' * (b .* shift)
+    p_bus    = -B * va + p_shift
+    p_branch = -Bf * va + b .* shift
+"""
+mutable struct DcData
+    ptr::Ptr{Cvoid}
+    lib::String
+    function DcData(ptr::Ptr{Cvoid}, lib::AbstractString)
+        ptr == C_NULL && error("PowerIO: null DC data handle")
+        lib = String(lib)
+        release = _library_symbol(lib, :pio_dc_data_release)
+        h = new(ptr, lib)
+        finalizer(h) do x
+            x.ptr == C_NULL || ccall(release, Cvoid, (Ptr{Cvoid},), x.ptr)
+            x.ptr = C_NULL
+        end
+        return h
+    end
+end
+
+function _dc_ptr(d::DcData)
+    ptr = getfield(d, :ptr)
+    ptr == C_NULL && error("PowerIO: the DC data handle was released")
+    return ptr
+end
+
+"""
+    dc_data(m::StoredModule; formula="series_susceptance") -> DcData
+
+Build the DC branch data of the module's balanced network value. Formulas:
+`series_susceptance` (`imag(inv(r + im*x))` with the PowerModels sign),
+`tap_adjusted_reactance` (`1/(x*tap)`), `reactance_only` (`1/x`).
+"""
+function dc_data(m::StoredModule; formula::AbstractString="series_susceptance")
+    lib = getfield(m, :lib)
+    ptr = GC.@preserve m _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_dc_data_build), Ptr{Cvoid},
+              (Ptr{Cvoid}, Cstring, Ref{Ptr{Cvoid}}), _module_ptr(m), formula, err)
+    end
+    return DcData(ptr, lib)
+end
+
+_dc_len(d::DcData, sym::Symbol) =
+    Int(GC.@preserve d ccall(_library_symbol(getfield(d, :lib), sym), Csize_t,
+                             (Ptr{Cvoid},), _dc_ptr(d)))
+
+"""Included incidence row count (`m`)."""
+n_rows(d::DcData) = _dc_len(d, :pio_dc_data_n_rows)
+
+"""Incidence column count (`n`, the bus count)."""
+n_buses(d::DcData) = _dc_len(d, :pio_dc_data_n_buses)
+
+function _dc_span(d::DcData, sym::Symbol, ::Type{T}, len::Int) where {T}
+    lib = getfield(d, :lib)
+    ptr = GC.@preserve d ccall(_library_symbol(lib, sym), Ptr{T}, (Ptr{Cvoid},), _dc_ptr(d))
+    ptr == C_NULL && error("PowerIO: NULL DC data span")
+    return BorrowedVector{T}(d, ptr, len)
+end
+
+"""From bus column per included row (`A[e, from] = +1`), zero based."""
+from_indices(d::DcData) = _dc_span(d, :pio_dc_data_from_indices, Int64, n_rows(d))
+
+"""To bus column per included row (`A[e, to] = -1`), zero based."""
+to_indices(d::DcData) = _dc_span(d, :pio_dc_data_to_indices, Int64, n_rows(d))
+
+"""Branch susceptance per included row, PowerModels sign."""
+susceptance(d::DcData) = _dc_span(d, :pio_dc_data_susceptance, Float64, n_rows(d))
+
+"""Phase shift bus injection `p_shift = A' * (b .* shift)`, per bus."""
+shift_injection(d::DcData) = _dc_span(d, :pio_dc_data_shift_injection, Float64, n_buses(d))
+
+function _dc_strings(d::DcData, sym::Symbol, len::Int)
+    lib = getfield(d, :lib)
+    table = GC.@preserve d ccall(_library_symbol(lib, sym), Ptr{Cstring},
+                                 (Ptr{Cvoid},), _dc_ptr(d))
+    table == C_NULL && return String[]
+    return GC.@preserve d String[unsafe_string(unsafe_load(table, i)) for i in 1:len]
+end
+
+"""Stable module element ID per included row."""
+row_ids(d::DcData) = _dc_strings(d, :pio_dc_data_row_ids, n_rows(d))
+
+"""Stable bus element ID per incidence column."""
+bus_ids(d::DcData) = _dc_strings(d, :pio_dc_data_bus_ids, n_buses(d))
+
+"""Omitted branches: stable element IDs and diagnostic reasons."""
+function omitted(d::DcData)
+    count = _dc_len(d, :pio_dc_data_n_omitted)
+    ids = _dc_strings(d, :pio_dc_data_omitted_ids, count)
+    reasons = _dc_strings(d, :pio_dc_data_omitted_reasons, count)
+    return collect(zip(ids, reasons))
+end
+
+"""The selected branch susceptance formula's stable name."""
+function formula(d::DcData)
+    lib = getfield(d, :lib)
+    s = GC.@preserve d ccall(_library_symbol(lib, :pio_dc_data_formula), Cstring,
+                             (Ptr{Cvoid},), _dc_ptr(d))
+    return unsafe_string(s)
+end
+
+"""
+    branch_flow(d::DcData, va::AbstractVector{<:Real}) -> Vector{Float64}
+
+The angle dependent branch flow `-b .* (va_from - va_to)`, filled by the C
+library while converting sign, with no intermediate vector beyond the result.
+`va` is per bus, radians.
+"""
+function branch_flow(d::DcData, va::AbstractVector{<:Real})
+    lib = getfield(d, :lib)
+    rows = n_rows(d)
+    buses = n_buses(d)
+    length(va) == buses ||
+        error("PowerIO.branch_flow: va has $(length(va)) entries for $buses buses")
+    angles = Vector{Float64}(va)
+    out = Vector{Float64}(undef, rows)
+    ok = GC.@preserve d angles out ccall(_library_symbol(lib, :pio_dc_data_fill_branch_flow),
+                                         Bool,
+                                         (Ptr{Cvoid}, Ptr{Float64}, Csize_t, Ptr{Float64}, Csize_t),
+                                         _dc_ptr(d), angles, length(angles), out, length(out))
+    ok || error("PowerIO.branch_flow: the fill was refused")
+    return out
+end

@@ -22,6 +22,7 @@ makedocs(;
         "Ecosystem interop" => "interop.md",
         "Binary distribution" => "binary.md",
         "Memory safety" => "memory-safety.md",
+        "Stored modules (ABI v6)" => "stored-modules.md",
         "Language APIs" => "languages.md",
         "API reference" => "api.md",
     ],

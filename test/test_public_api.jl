@@ -415,7 +415,7 @@ end
             doc = JSON3.read(PowerIO._take_string(lib, s))
 
             @test haskey(doc, :powerio_version)
-            @test doc.abi == PowerIO.PIO_ABI_VERSION
+            @test UInt32(doc.abi) in PowerIO._ACCEPTED_ABI_VERSIONS
 
             # The per document lineages are gone: one powerio version covers
             # every document the library authors.
@@ -441,7 +441,7 @@ end
     else
         info = PowerIO.build_info()
         @test info !== nothing
-        @test info.abi == PowerIO.PIO_ABI_VERSION
+        @test UInt32(info.abi) in PowerIO._ACCEPTED_ABI_VERSIONS
         @test info.abi == PowerIO.abi_version()
         @test info.powerio_version == PowerIO.library_version()
         @test info.powerio_version == schema_versions().powerio_version

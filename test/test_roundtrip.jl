@@ -499,8 +499,8 @@
         @test storage_pd.storage[1].energy_rating == 6.0
 
         # library_available() is true here, so the ABI handshake passed: the
-        # library's ABI version must equal the one this binding targets.
-        @test PowerIO.abi_version() == PowerIO.PIO_ABI_VERSION
+        # library reports a version this binding accepts.
+        @test PowerIO.abi_version() in PowerIO._ACCEPTED_ABI_VERSIONS
         @test !isempty(PowerIO.library_version())
     end
 end

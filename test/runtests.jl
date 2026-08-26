@@ -14,6 +14,7 @@ using SHA
     include("test_goc3_static.jl") # GO Challenge 3 SCOPF static index sets
     include("test_scopf.jl")      # native SCOPF instance JSON (feature prob)
     include("test_roundtrip.jl")  # C ABI round trip, adapters, packages
+    include("test_v6.jl")         # ABI v6: stored modules, errors, DC data
     include("test_powermodels_ref.jl") # PowerModels reference utilities
     include("test_transforms.jl") # PyPSA writer, parse dispatch, to_normalized, to_dense
     include("test_loadseries.jl") # LoadSeries multiperiod bus loads

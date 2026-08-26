@@ -74,6 +74,13 @@ export warnings, n_buses
 # C library resolution, named unqualified by the module docstring and the errors
 # that tell a caller how to point at a local build.
 export set_library!, clear_library!
+# ABI v6: the stored module surface and DC branch data. Span accessors
+# (PowerIO.susceptance, PowerIO.row_ids, ...) stay qualified: their names are
+# the cross language vocabulary, too generic to claim as exports.
+export StoredModule, read_module, parse_module, parse_module_str, write_module,
+    module_kind, inspect_module, state_inventory, export_state,
+    lower_module_to_balanced, DcData, dc_data, BorrowedVector, PowerIOCError,
+    branch_flow
 
 # Materialized numeric views
 export to_dense, to_arrow, ArrowTable, release_c_data, arrow_catalog
@@ -112,6 +119,7 @@ export to_graph, features, has_feature, schema_versions, build_info,
        arrow_available, gridfm_available, matrix_available
 
 include("capi.jl")        # library resolution, ABI handshake, BalancedNetworkHandle, buffer helpers
+include("v6.jl")         # ABI v6: error handles, stored modules, DC branch data
 include("network.jl")     # BalancedNetwork and the parse / convert / serialize verbs
 include("accessors.jl")   # element tables and scalar accessors
 include("dense.jl")       # to_dense: numeric tables straight from the C ABI extractors

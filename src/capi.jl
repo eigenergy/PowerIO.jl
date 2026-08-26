@@ -146,6 +146,12 @@ end
 # cryptic ccall fault (a wrong signature) or silently wrong numbers deep in a solver.
 
 const PIO_ABI_VERSION = UInt32(6)
+
+# The v5 surface this binding grew up on is unchanged in v6, so a v5 library
+# still serves every pre-v6 entry point. The v6 additions (error handles,
+# stored modules, DC data) resolve their own symbols and raise a directed
+# error naming the missing export on an older library.
+const _ACCEPTED_ABI_VERSIONS = (UInt32(5), UInt32(6))
 const _ABI_OK = Ref{Bool}(false)
 const _ABI_OK_LIB = Ref{String}("")
 
@@ -182,10 +188,10 @@ function _ensure_compatible(lib::AbstractString=_lib())
               "the versioned ABI. Rebuild powerio-capi (`cargo build -p powerio-capi --release` " *
               "in a sibling powerio checkout), or check that the library path can be loaded.")
     end
-    got == PIO_ABI_VERSION || error(
+    got in _ACCEPTED_ABI_VERSIONS || error(
         "PowerIO: C ABI version mismatch: the library at \"$lib\" reports ABI $got, this PowerIO.jl " *
-        "targets ABI $(PIO_ABI_VERSION). Rebuild powerio-capi from a matching commit, or " *
-        "update PowerIO.jl.")
+        "targets ABI $(PIO_ABI_VERSION) (and accepts $(Int.(_ACCEPTED_ABI_VERSIONS))). Rebuild " *
+        "powerio-capi from a matching commit, or update PowerIO.jl.")
     _ABI_OK[] = true
     _ABI_OK_LIB[] = lib
     return
