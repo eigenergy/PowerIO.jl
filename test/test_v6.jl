@@ -139,3 +139,42 @@ end
     diagnostics = module_diagnostics(m)
     @test diagnostics isa Vector{ModuleDiagnostic}
 end
+
+@testset "assembled DC matrices match the equations and the matrix surface" begin
+    if !_has_v6
+        @test_skip "the resolved library predates the ABI v6 entry points"
+        return
+    end
+    case9 = joinpath(@__DIR__, "data", "case9.m")
+    m = parse_module(case9)
+    d = dc_data(m)
+    rows = PowerIO.n_rows(d)
+    buses = PowerIO.n_buses(d)
+
+    a = incidence_matrix(d)
+    @test size(a) == (rows, buses)
+    @test all(sum(a; dims=2) .== 0)
+
+    b_matrix = susceptance_laplacian(d)
+    @test size(b_matrix) == (buses, buses)
+    @test b_matrix ≈ b_matrix'  # no shifted branch in case9
+    bf = flow_matrix(d)
+    @test size(bf) == (rows, buses)
+
+    # p_branch = -Bf va (+ b .* shift, zero here) agrees with the C fill, and
+    # p_bus = -B va + p_shift agrees with A' applied to that flow.
+    va = collect(range(0.0, 0.08; length=buses))
+    flow = branch_flow(d, va)
+    @test flow ≈ -(bf * va) atol=1e-12
+    @test bus_injection(d, va) ≈ a' * flow atol=1e-12
+
+    # The Laplacian agrees with the branch data it was assembled from: each
+    # off diagonal entry is the negated susceptance of the branch joining the
+    # pair (case9 has no parallel branches).
+    from = PowerIO.from_indices(d)
+    to = PowerIO.to_indices(d)
+    b = PowerIO.susceptance(d)
+    for e in 1:rows
+        @test b_matrix[from[e] + 1, to[e] + 1] ≈ -b[e] atol=1e-12
+    end
+end

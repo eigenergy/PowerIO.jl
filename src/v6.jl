@@ -476,3 +476,63 @@ function module_sources(m::StoredModule)
     return [ModuleSource(String(row.id), String(row.name), Int(row.byte_length),
                          _record_string(row, :format)) for row in rows]
 end
+
+# ---- assembled DC matrices --------------------------------------------------
+
+"""
+    incidence_matrix(d::DcData) -> SparseMatrixCSC{Float64,Int}
+
+The signed incidence `A` (`m × n`): `A[e, from] = +1`, `A[e, to] = -1`,
+assembled from the DC data's own spans with no temporary sign converted
+vector — the spans already carry the PowerModels orientation.
+"""
+function incidence_matrix(d::DcData)
+    rows = n_rows(d)
+    from = from_indices(d)
+    to = to_indices(d)
+    i = Vector{Int}(undef, 2rows)
+    j = Vector{Int}(undef, 2rows)
+    v = Vector{Float64}(undef, 2rows)
+    for e in 1:rows
+        i[2e - 1] = e
+        j[2e - 1] = Int(from[e]) + 1
+        v[2e - 1] = 1.0
+        i[2e] = e
+        j[2e] = Int(to[e]) + 1
+        v[2e] = -1.0
+    end
+    return SparseArrays.sparse(i, j, v, rows, n_buses(d))
+end
+
+"""
+    susceptance_laplacian(d::DcData) -> SparseMatrixCSC{Float64,Int}
+
+The DC Laplacian `B = A' * Diagonal(b) * A` (`n × n`), PowerModels sign,
+assembled from the DC data's spans.
+"""
+function susceptance_laplacian(d::DcData)
+    a = incidence_matrix(d)
+    return a' * SparseArrays.spdiagm(0 => copy(susceptance(d))) * a
+end
+
+"""
+    flow_matrix(d::DcData) -> SparseMatrixCSC{Float64,Int}
+
+The branch flow map `Bf = Diagonal(b) * A` (`m × n`), PowerModels sign, so
+`p_branch = -Bf * va + b .* shift`.
+"""
+function flow_matrix(d::DcData)
+    a = incidence_matrix(d)
+    return SparseArrays.spdiagm(0 => copy(susceptance(d))) * a
+end
+
+"""
+    bus_injection(d::DcData, va::AbstractVector{<:Real}) -> Vector{Float64}
+
+The DC bus injection `p_bus = -B * va + p_shift`, PowerModels sign.
+"""
+function bus_injection(d::DcData, va::AbstractVector{<:Real})
+    length(va) == n_buses(d) ||
+        error("PowerIO.bus_injection: va has $(length(va)) entries for $(n_buses(d)) buses")
+    return -(susceptance_laplacian(d) * Vector{Float64}(va)) + copy(shift_injection(d))
+end

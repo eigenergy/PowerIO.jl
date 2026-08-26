@@ -81,7 +81,8 @@ export StoredModule, read_module, parse_module, parse_module_str, write_module,
     module_kind, inspect_module, state_inventory, export_state,
     lower_module_to_balanced, DcData, dc_data, BorrowedVector, PowerIOCError,
     branch_flow, ModuleDiagnostic, ModuleHistoryEntry, ModuleSource,
-    module_diagnostics, module_history, module_sources
+    module_diagnostics, module_history, module_sources, incidence_matrix,
+    susceptance_laplacian, flow_matrix, bus_injection
 
 # Materialized numeric views
 export to_dense, to_arrow, ArrowTable, release_c_data, arrow_catalog
