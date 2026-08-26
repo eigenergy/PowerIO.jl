@@ -116,3 +116,26 @@ _has_v6 = PowerIO.library_available() &&
         @test occursin("export_selected_state", write_module(exported))
     end
 end
+
+@testset "typed module records and bounded field readers" begin
+    if !_has_v6
+        @test_skip "the resolved library predates the ABI v6 entry points"
+        return
+    end
+    case9 = joinpath(@__DIR__, "data", "case9.m")
+    m = parse_module(case9)
+    sources = module_sources(m)
+    @test length(sources) == 1
+    @test endswith(sources[1].name, "case9.m")
+    @test sources[1].byte_length > 0
+
+    lowered_history = module_history(lower_module_to_balanced(
+        parse_module_str("New Circuit.c basekv=12.47 bus1=src\n"; format="dss")))
+    @test any(e -> e.kind == "transform" && e.name == "lower_multiconductor_to_balanced",
+              lowered_history)
+    entry = only(filter(e -> e.kind == "transform", lowered_history))
+    @test any(a -> occursin("power base", a), entry.assumptions)
+
+    diagnostics = module_diagnostics(m)
+    @test diagnostics isa Vector{ModuleDiagnostic}
+end

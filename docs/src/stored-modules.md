@@ -28,6 +28,17 @@ lower_module_to_balanced
 PowerIOCError
 ```
 
+## Typed records
+
+```@docs
+ModuleDiagnostic
+ModuleHistoryEntry
+ModuleSource
+module_diagnostics
+module_history
+module_sources
+```
+
 ## DC branch data
 
 The public equations and signs match PowerModels directly:

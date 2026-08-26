@@ -383,3 +383,96 @@ function branch_flow(d::DcData, va::AbstractVector{<:Real})
     ok || error("PowerIO.branch_flow: the fill was refused")
     return out
 end
+
+# ---- typed record access ----------------------------------------------------
+
+"""
+    ModuleDiagnostic
+
+One durable finding on a stored module: `code`, `severity`, `message`, and
+the optional `target` pointer into the value.
+"""
+struct ModuleDiagnostic
+    code::String
+    severity::String
+    message::String
+    target::Union{String,Nothing}
+end
+
+"""
+    ModuleHistoryEntry
+
+One structured, descriptive operation in a module's history: `id`, `kind`
+(`"parse"`, `"upgrade"`, `"transform"`, ...), `name`, and the stated
+`assumptions` and `losses`. History describes; it does not replay.
+"""
+struct ModuleHistoryEntry
+    id::String
+    kind::String
+    name::String
+    assumptions::Vector{String}
+    losses::Vector{String}
+end
+
+"""
+    ModuleSource
+
+One source a module was compiled from: module local `id`, display `name`,
+`byte_length`, and the optional stated `format`.
+"""
+struct ModuleSource
+    id::String
+    name::String
+    byte_length::Int
+    format::Union{String,Nothing}
+end
+
+# The stored document is the wire; decoding records from it reads exactly what
+# `write_module` states, no whole network re-serialization beyond that wire.
+function _stored_document(m::StoredModule)
+    return JSON3.read(write_module(m))
+end
+
+_record_string(row, key) = haskey(row, key) ? String(row[key]) : nothing
+
+"""
+    module_diagnostics(m::StoredModule) -> Vector{ModuleDiagnostic}
+
+The module's durable findings, decoded from the stored document.
+"""
+function module_diagnostics(m::StoredModule)
+    document = _stored_document(m)
+    rows = get(document, :diagnostics, nothing)
+    rows === nothing && return ModuleDiagnostic[]
+    return [ModuleDiagnostic(String(row.code), String(row.severity), String(row.message),
+                             _record_string(row, :target)) for row in rows]
+end
+
+"""
+    module_history(m::StoredModule) -> Vector{ModuleHistoryEntry}
+
+The module's descriptive history, decoded from the stored document.
+"""
+function module_history(m::StoredModule)
+    document = _stored_document(m)
+    rows = get(document, :history, nothing)
+    rows === nothing && return ModuleHistoryEntry[]
+    return [ModuleHistoryEntry(
+                String(row.id), String(row.kind), String(row.name),
+                haskey(row, :assumptions) ? String.(row.assumptions) : String[],
+                haskey(row, :losses) ? String.(row.losses) : String[],
+            ) for row in rows]
+end
+
+"""
+    module_sources(m::StoredModule) -> Vector{ModuleSource}
+
+The sources the module was compiled from, decoded from the stored document.
+"""
+function module_sources(m::StoredModule)
+    document = _stored_document(m)
+    rows = get(document, :sources, nothing)
+    rows === nothing && return ModuleSource[]
+    return [ModuleSource(String(row.id), String(row.name), Int(row.byte_length),
+                         _record_string(row, :format)) for row in rows]
+end
