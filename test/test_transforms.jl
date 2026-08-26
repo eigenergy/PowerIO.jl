@@ -7,7 +7,9 @@
 
         # write_pypsa_csv_folder writes a directory and round-trips back through
         # the pypsa-csv reader; bus count and base_mva survive the model crossing.
-        out = mktempdir()
+        # The writer refuses an existing target, so the output is a fresh child
+        # of the temporary directory.
+        out = joinpath(mktempdir(), "pypsa")
         dir, warnings = write_pypsa_csv_folder(net, out)
         @test dir == out
         @test warnings isa AbstractVector{<:AbstractString}

@@ -539,9 +539,11 @@ end
 """
     write_pypsa_csv_folder(net::BalancedNetwork, out_dir) -> (out_dir, warnings)
 
-Write `net` as a PyPSA CSV folder under `out_dir` (created if absent) — the
+Write `net` as a PyPSA CSV folder at `out_dir` — the
 directory inverse of `parse_file(out_dir; from="pypsa-csv")`, where the
-other writers (`to_format`, `convert_file`) emit a single text document. Returns
+other writers (`to_format`, `convert_file`) emit a single text document. The
+folder is staged completely and committed only when nothing exists at
+`out_dir`; an existing entry there is refused rather than replaced. Returns
 the output directory and any fidelity warnings the writer reports for fields the
 PyPSA static-network CSV schema can't carry. Needs `net`'s live Rust handle
 (from [`parse_file`](@ref)).
