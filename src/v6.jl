@@ -344,6 +344,9 @@ to_indices(d::DcData) = _dc_span(d, :pio_dc_data_to_indices, Int64, n_rows(d))
 """Branch susceptance per included row, PowerModels sign."""
 susceptance(d::DcData) = _dc_span(d, :pio_dc_data_susceptance, Float64, n_rows(d))
 
+"""Branch phase shift angle per included row, radians (the `shift` in `p_branch = -Bf * va - b .* shift`)."""
+shift(d::DcData) = _dc_span(d, :pio_dc_data_shift, Float64, n_rows(d))
+
 """Phase shift bus injection `p_shift = -A' * (b .* shift)`, per bus."""
 shift_injection(d::DcData) = _dc_span(d, :pio_dc_data_shift_injection, Float64, n_buses(d))
 

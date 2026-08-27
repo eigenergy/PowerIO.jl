@@ -70,6 +70,7 @@ PowerIO.n_buses(::DcData)
 PowerIO.from_indices
 PowerIO.to_indices
 PowerIO.susceptance
+PowerIO.shift
 PowerIO.shift_injection
 PowerIO.row_ids
 PowerIO.bus_ids
