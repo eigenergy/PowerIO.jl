@@ -28,15 +28,8 @@
 # `pio_dist_network_free`, memoized per resolved path — the `_network_free_fn`
 # story for distribution handles (a `set_library!` swap must not free across
 # allocators; the pinned dlopen handle keeps the pointer valid for live finalizers).
-const _DIST_FREE_FN = Ref{Ptr{Cvoid}}(C_NULL)
-const _DIST_FREE_FN_LIB = Ref{String}("")
 function _dist_network_free_fn(lib::AbstractString=_lib())
-    lib = String(lib)
-    if _DIST_FREE_FN[] == C_NULL || _DIST_FREE_FN_LIB[] != lib
-        _DIST_FREE_FN[] = _library_symbol(lib, :pio_dist_network_free)
-        _DIST_FREE_FN_LIB[] = lib
-    end
-    return _DIST_FREE_FN[]
+    return _library_symbol(String(lib), :pio_dist_network_free)
 end
 
 """
