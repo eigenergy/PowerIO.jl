@@ -18,6 +18,11 @@ error naming what is wrong before any v6 ccall runs.
 
 ```@docs
 StoredModule
+PowerIO.parse
+parse_module_bytes
+as_network
+as_dist_network
+lowering_readiness
 read_module
 parse_module
 parse_module_str
@@ -39,9 +44,9 @@ A[e, from] = +1
 A[e, to]   = -1
 B  = A' * Diagonal(b) * A
 Bf = Diagonal(b) * A
-p_shift  = -A' * (b .* shift)
+p_shift  = A' * (b .* shift)
 p_bus    = -B * va + p_shift
-p_branch = -Bf * va - b .* shift
+p_branch = -Bf * va + b .* shift
 ```
 
 Numeric spans surface as [`BorrowedVector`](@ref) read only views that keep

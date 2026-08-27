@@ -76,32 +76,17 @@ Modules = [PowerIO]
 Pages = ["dist.jl"]
 ```
 
-## `.pio.json` packages
+## Stored modules and typed values
 
-```@autodocs
-Modules = [PowerIO]
-Pages = ["package.jl"]
-```
+[`PowerIO.parse`](@ref), [`StoredModule`](@ref), the typed narrowing entries,
+and the DC branch data surface are documented on
+[Stored modules](stored-modules.md).
 
 ## GridFM reader
 
 ```@autodocs
 Modules = [PowerIO]
 Pages = ["gridfm.jl"]
-```
-
-## GO Challenge 3 helpers
-
-```@autodocs
-Modules = [PowerIO]
-Pages = ["goc3.jl"]
-```
-
-## Native SCOPF problem instances
-
-```@autodocs
-Modules = [PowerIO]
-Pages = ["scopf.jl"]
 ```
 
 ## Feature probes
