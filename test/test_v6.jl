@@ -281,8 +281,9 @@ end
     for e in 1:length(b)
         r = branch.r[e]
         x = branch.x[e]
-        # series susceptance with the PowerModels sign: -imag(1/(r + ix)).
-        @test b[e] ≈ -imag(inv(complex(r, x))) atol=1e-12
+        # series susceptance with the PowerModels sign: imag(1/(r + ix)),
+        # negative for an inductive branch.
+        @test b[e] ≈ imag(inv(complex(r, x))) atol=1e-12
         # The incidence columns map back to the bus IDs the raw table names.
         @test ids[from[e] + 1] == string(branch.from[e])
         @test ids[to[e] + 1] == string(branch.to[e])
