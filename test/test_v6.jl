@@ -58,7 +58,13 @@ _has_v6 = PowerIO.library_available() &&
         b = PowerIO.susceptance(d)
         @test b isa BorrowedVector{Float64}
         @test length(b) == rows
-        @test all(>(0), b)
+        # PowerModels sign: imag(inv(r + im*x)) is negative for an inductive
+        # branch, and case9 has no shunt susceptance or capacitive branch.
+        @test all(<(0), b)
+        shift = PowerIO.shift(d)
+        @test shift isa BorrowedVector{Float64}
+        @test length(shift) == rows
+        @test all(iszero, shift)  # case9 has no phase shifting transformer
         @test PowerIO.formula(d) == "series_susceptance"
         @test PowerIO.row_ids(d)[1] == "branches:0"
         @test length(PowerIO.bus_ids(d)) == buses
@@ -86,7 +92,7 @@ _has_v6 = PowerIO.library_available() &&
         view = PowerIO.susceptance(dc_data(parse_module(case9)))
         GC.gc()
         @test length(view) == rows
-        @test view[1] > 0
+        @test view[1] < 0
     end
 
     @testset "series values inventory and export over the module surface" begin
@@ -366,4 +372,61 @@ end
     # (as opposed to the in window but export short branch just above) has no
     # live fixture to exercise here.
     @test_skip "no library in this environment reports an ABI version outside _ACCEPTED_ABI_VERSIONS"
+end
+
+@testset "the new v6 refusal codes decode correctly" begin
+    if !_has_v6
+        @test_skip "the resolved library predates the ABI v6 entry points"
+        return
+    end
+    case9 = joinpath(@__DIR__, "data", "case9.m")
+    m = parse_module(case9)
+
+    # Reachable through the public API: dc_data does not validate its
+    # `formula` keyword or the module's value kind before the ccall.
+    err = try
+        dc_data(m; formula="nodal_admittance")
+        nothing
+    catch e
+        e
+    end
+    @test err isa PowerIOCError
+    @test err.code == "REQUEST.CAPI.UNKNOWN_FORMULA"
+
+    mc = parse_module_str(
+        "Clear\nNew Circuit.tiny basekv=12.47 bus1=src\n" *
+        "New Line.l1 bus1=src bus2=a length=1\nSet VoltageBases=[12.47]\n";
+        format="dss")
+    err = try
+        dc_data(mc)
+        nothing
+    catch e
+        e
+    end
+    @test err isa PowerIOCError
+    @test err.code == "REQUEST.CAPI.NOT_A_BALANCED_NETWORK"
+
+    # BIND.CAPI.NULL_HANDLE (a NULL module handle) and
+    # REQUEST.CAPI.SELECTOR_CONFLICT (export_state given both or neither
+    # selector) are C ABI refusals the safe wrappers already refuse first:
+    # `_module_ptr` raises its own released-handle error before any ccall
+    # sees a NULL pointer, and export_state's keyword check rejects both
+    # conflicting combinations before it dispatches. Neither can surface
+    # through the public API; exercised here with a direct ccall to confirm
+    # PowerIOCError decodes these two codes correctly as well.
+    lib = PowerIO._lib()
+    err_ref = Ref{Ptr{Cvoid}}(C_NULL)
+    s = ccall(PowerIO._library_symbol(lib, :pio_module_write_json), Cstring,
+              (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), C_NULL, err_ref)
+    @test s == C_NULL
+    @test err_ref[] != C_NULL
+    @test PowerIO._v6_error(lib, err_ref[]).code == "BIND.CAPI.NULL_HANDLE"
+
+    err_ref = Ref{Ptr{Cvoid}}(C_NULL)
+    ptr = ccall(PowerIO._library_symbol(lib, :pio_module_export_state), Ptr{Cvoid},
+                (Ptr{Cvoid}, Int64, Cstring, Ref{Ptr{Cvoid}}), PowerIO._module_ptr(m),
+                Int64(0), "s1", err_ref)
+    @test ptr == C_NULL
+    @test err_ref[] != C_NULL
+    @test PowerIO._v6_error(lib, err_ref[]).code == "REQUEST.CAPI.SELECTOR_CONFLICT"
 end
