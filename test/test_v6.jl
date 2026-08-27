@@ -184,10 +184,8 @@ end
         @test_skip "the resolved library predates the ABI v6 entry points"
         return
     end
-    # p_shift = -A' * (b .* shift) and p_branch = -Bf * va - b .* shift: the
-    # KCL identity A' * p_branch == p_bus only holds with both signs
-    # corrected. pio_dc_data_fill_branch_flow gaining the `- b .* shift` term
-    # is a rebuild in flight; this testset may only pass once it lands.
+    # p_shift = A' * (b .* shift) and p_branch = -Bf * va + b .* shift, so
+    # the KCL identity A' * p_branch == p_bus holds elementwise.
     shifted = """
     function mpc = case2shift
     mpc.version = '2';
@@ -219,7 +217,7 @@ end
     from = copy(PowerIO.from_indices(d))
     to = copy(PowerIO.to_indices(d))
     dva = va[from .+ 1] .- va[to .+ 1]
-    @test p_branch ≈ -b .* dva .- b .* row_shift atol=1e-12
+    @test p_branch ≈ -b .* dva .+ b .* row_shift atol=1e-12
     @test !(p_branch ≈ -b .* dva)
 end
 

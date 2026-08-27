@@ -597,7 +597,7 @@ end
     flow_matrix(d::DcData) -> SparseMatrixCSC{Float64,Int}
 
 The branch flow map `Bf = Diagonal(b) * A` (`m × n`), PowerModels sign, so
-`p_branch = -Bf * va - b .* shift`.
+`p_branch = -Bf * va + b .* shift`.
 """
 function flow_matrix(d::DcData)
     a = incidence_matrix(d)
