@@ -311,9 +311,9 @@ The public equations and signs match PowerModels directly:
     A[e, to]   = -1
     B  = A' * Diagonal(b) * A
     Bf = Diagonal(b) * A
-    p_shift  = -A' * (b .* shift)
+    p_shift  = A' * (b .* shift)
     p_bus    = -B * va + p_shift
-    p_branch = -Bf * va - b .* shift
+    p_branch = -Bf * va + b .* shift
 """
 mutable struct DcData
     ptr::Ptr{Cvoid}
@@ -379,10 +379,10 @@ to_indices(d::DcData) = _dc_span(d, :pio_dc_data_to_indices, Int64, n_rows(d))
 """Branch susceptance per included row, PowerModels sign."""
 susceptance(d::DcData) = _dc_span(d, :pio_dc_data_susceptance, Float64, n_rows(d))
 
-"""Branch phase shift angle per included row, radians (the `shift` in `p_branch = -Bf * va - b .* shift`)."""
+"""Branch phase shift angle per included row, radians (the `shift` in `p_branch = -Bf * va + b .* shift`)."""
 shift(d::DcData) = _dc_span(d, :pio_dc_data_shift, Float64, n_rows(d))
 
-"""Phase shift bus injection `p_shift = -A' * (b .* shift)`, per bus."""
+"""Phase shift bus injection `p_shift = A' * (b .* shift)`, per bus."""
 shift_injection(d::DcData) = _dc_span(d, :pio_dc_data_shift_injection, Float64, n_buses(d))
 
 # Read a C string table (`const char *const *`): `sym` is the table itself,
@@ -440,8 +440,8 @@ end
 """
     branch_flow(d::DcData, va::AbstractVector{<:Real}) -> Vector{Float64}
 
-The complete affine branch flow `p_branch = -Bf * va - b .* shift`, per row
-`-b[e] * (va_from - va_to) - b[e] * shift[e]`, filled by the C library with
+The complete affine branch flow `p_branch = -Bf * va + b .* shift`, per row
+`-b[e] * (va_from - va_to) + b[e] * shift[e]`, filled by the C library with
 no intermediate vector beyond the result. The phase shift term is included
 in the returned values; [`shift`](@ref) is the per row `shift` the fill
 uses. `va` is per bus, radians.
