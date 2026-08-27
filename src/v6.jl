@@ -405,9 +405,11 @@ end
 """
     branch_flow(d::DcData, va::AbstractVector{<:Real}) -> Vector{Float64}
 
-The angle dependent branch flow `-b .* (va_from - va_to)`, filled by the C
-library while converting sign, with no intermediate vector beyond the result.
-`va` is per bus, radians.
+The complete affine branch flow `p_branch = -Bf * va - b .* shift`, per row
+`-b[e] * (va_from - va_to) - b[e] * shift[e]`, filled by the C library with
+no intermediate vector beyond the result. The phase shift term is included
+in the returned values; [`shift`](@ref) is the per row `shift` the fill
+uses. `va` is per bus, radians.
 """
 function branch_flow(d::DcData, va::AbstractVector{<:Real})
     lib = getfield(d, :lib)
