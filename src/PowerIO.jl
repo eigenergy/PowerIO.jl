@@ -99,11 +99,6 @@ export to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
        LoadSeries, read_load_series, n_periods, demands_mw,
        read_gridfm, read_gridfm_scenarios
 
-# GO Challenge 3 (general, format-neutral SCOPF input data). `goc3_scopf_data` is the
-# single entry point: the Rust core projects the instance and it types the rows.
-# `parse_scopf` returns the same projection as its versioned JSON document;
-# `parse_goc3_json` stays for raw-document and unit-commitment utilities.
-# .pio.json network packages (Rust pkg feature)
 # Multiconductor distribution
 export dist_available, dist_abi_version, dist_capabilities
 

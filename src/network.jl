@@ -202,24 +202,18 @@ end
 """
     parse_file(BalancedNetwork, path; from=nothing) -> BalancedNetwork
     parse_file(MulticonductorNetwork, path; from=nothing) -> MulticonductorNetwork
-    parse_file(io::IO, format::AbstractString)
-    parse_file(BalancedNetwork, path; from=nothing) -> BalancedNetwork
-    parse_file(MulticonductorNetwork, path; from=nothing) -> MulticonductorNetwork
 
-Parse a case. The bare verb routes on the format and returns the model the
-file holds: transmission cases (MATPOWER, PSS/E, PowerWorld, PSLF EPC,
-PowerModels JSON, egret JSON, pandapower JSON, PyPSA CSV folders, Surge JSON)
-parse into a [`BalancedNetwork`](@ref), multiconductor distribution cases
-(OpenDSS, PMD, BMOPF) into a [`MulticonductorNetwork`](@ref), and a `.pio.json`
-package into whichever model its envelope declares.
+Parse a case whose model the type marker pins — the `parse(T, x)` idiom.
+Transmission cases (MATPOWER, PSS/E, PowerWorld, PSLF EPC, PowerModels JSON,
+egret JSON, pandapower JSON, PyPSA CSV folders, Surge JSON) parse into a
+[`BalancedNetwork`](@ref); multiconductor distribution cases (OpenDSS, PMD,
+BMOPF) into a [`MulticonductorNetwork`](@ref).
 
 From a file `path` the format is inferred: by extension (`.m`, `.raw`, `.aux`,
-`.dss`, `.pio.json`), and for a bare `.json` by the same top level markers the
-core parsers use (`pio_classify_str`), unless `from` is given. A bare `.json`
-holding model JSON is read with [`from_json`](@ref); model JSON is not a case
-format and has no format token. From an `io` stream the `format` is required
-(there is no extension); parse in-memory text by wrapping it,
-`parse_file(IOBuffer(text), "matpower")`.
+`.dss`), and for a bare `.json` by the same top level markers the core parsers
+use (`pio_classify_str`), unless `from` is given. A bare `.json` holding model
+JSON is read with [`from_json`](@ref); model JSON is not a case format and has
+no format token.
 
 Accepted format tokens (case-insensitive): `"matpower"`/`"m"`,
 `"powermodels-json"`/`"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`,
@@ -228,11 +222,9 @@ Accepted format tokens (case-insensitive): `"matpower"`/`"m"`,
 `"pypsa-csv"`; distribution: `"dss"`/`"opendss"`, `"pmd"`/`"engineering"`,
 `"bmopf"`.
 
-The type marker forms pin the model when the routed return type would be
-ambiguous to a reader: `parse_file(BalancedNetwork, path)` and
-`parse_file(MulticonductorNetwork, path)` — the `parse(T, x)` idiom. The
-untyped entry is [`PowerIO.parse`](@ref), whose `value_type` narrows in the
-same call.
+The untyped entry is [`PowerIO.parse`](@ref), which reads any source
+(including a `.pio.json` stored module) into a [`StoredModule`](@ref) and
+narrows with `value_type` in the same call.
 """
 function parse_file(::Type{BalancedNetwork}, path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)

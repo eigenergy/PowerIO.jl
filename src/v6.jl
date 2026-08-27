@@ -346,6 +346,7 @@ Build the DC branch data of the module's balanced network value. Formulas:
 """
 function dc_data(m::StoredModule; formula::AbstractString="series_susceptance")
     lib = getfield(m, :lib)
+    _require_export("dc_data", :pio_dc_data_build, "powerio v1.0 with the prob feature", lib)
     ptr = GC.@preserve m _v6_call(lib) do err
         ccall(_library_symbol(lib, :pio_dc_data_build), Ptr{Cvoid},
               (Ptr{Cvoid}, Cstring, Ref{Ptr{Cvoid}}), _module_ptr(m), formula, err)
@@ -511,7 +512,12 @@ function _stored_document(m::StoredModule)
     return JSON3.read(write_module(m))
 end
 
-_record_string(row, key) = haskey(row, key) ? String(row[key]) : nothing
+# An explicit JSON null reads like an absent key: the capi diagnostics
+# document writes "target": null where the DTO omits the key.
+function _record_string(row, key)
+    value = get(row, key, nothing)
+    return value === nothing ? nothing : String(value)
+end
 
 """
     module_diagnostics(m::StoredModule) -> Vector{ModuleDiagnostic}
