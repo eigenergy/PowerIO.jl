@@ -300,7 +300,7 @@
         # (`NonFiniteSusceptance`); the bridge now agrees with it.
         inf_x = replace(pv_noref, "0.01 0.1" => "0.01 Inf")
         inf_x_err = try
-            to_powerdata(parse_str(inf_x, "matpower"))
+            to_powerdata(PowerIO.parse_str(BalancedNetwork, inf_x, "matpower"))
             nothing
         catch e
             e
@@ -308,7 +308,7 @@
         @test inf_x_err isa ArgumentError
         @test occursin("nonfinite field `br_x`", sprint(showerror, inf_x_err))
         # And the same case through the other entry point.
-        @test_throws ArgumentError parse_ac_power_data(parse_str(inf_x, "matpower"))
+        @test_throws ArgumentError parse_ac_power_data(PowerIO.parse_str(BalancedNetwork, inf_x, "matpower"))
 
         # A voltage bound is a limit but no format spells it unlimited, so it
         # reads as a real: this is the case the 0.9 relaxation swept in with
@@ -316,7 +316,7 @@
         inf_vmax = replace(pv_noref, "1 1.1 0.9;" => "1 Inf 0.9;")
         if inf_vmax != pv_noref
             inf_vmax_err = try
-                to_powerdata(parse_str(inf_vmax, "matpower"))
+                to_powerdata(PowerIO.parse_str(BalancedNetwork, inf_vmax, "matpower"))
                 nothing
             catch e
                 e
