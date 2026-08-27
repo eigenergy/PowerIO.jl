@@ -82,7 +82,10 @@ jobs:
         # the v0.6.1 Rust PRs merge, matrix and normalize options tests skip; once
         # they land, this job exercises them.
         run: |
-          features=arrow,gridfm,dist,pkg
+          features=arrow,gridfm,dist
+          if grep -q '^pkg = ' powerio/powerio-capi/Cargo.toml; then
+            features="$features,pkg"
+          fi
           if grep -q '^matrix = ' powerio/powerio-capi/Cargo.toml; then
             features="$features,matrix"
           fi
