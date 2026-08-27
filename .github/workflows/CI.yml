@@ -51,6 +51,12 @@ jobs:
           if git ls-remote --exit-code --heads "$remote" "$POWERIO_BRANCH" >/dev/null 2>&1; then
             echo "ref=$POWERIO_BRANCH" >> "$GITHUB_OUTPUT"
             echo "Using eigenergy/powerio branch $POWERIO_BRANCH"
+          elif [ -f .github/powerio-companion ] && \
+               companion="$(tr -d '[:space:]' < .github/powerio-companion)" && \
+               [ -n "$companion" ] && \
+               git ls-remote --exit-code --heads "$remote" "$companion" >/dev/null 2>&1; then
+            echo "ref=$companion" >> "$GITHUB_OUTPUT"
+            echo "Using eigenergy/powerio branch $companion (.github/powerio-companion); no branch named $POWERIO_BRANCH exists"
           else
             echo "ref=main" >> "$GITHUB_OUTPUT"
             echo "Using eigenergy/powerio main; no branch named $POWERIO_BRANCH exists"

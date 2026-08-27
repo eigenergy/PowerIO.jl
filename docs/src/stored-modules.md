@@ -9,8 +9,10 @@ Every handle is an independently owned reference over an immutable value.
 Releasing a parent never invalidates a retained child, and every ccall on a
 handle resolves its symbol from the library that created the handle, so a
 handle outlives a `set_library!` switch. The v6 entry points ship with
-powerio releases past 0.9; against a v5 library they raise a directed error
-naming the missing export.
+powerio releases past 0.9. Reading or parsing a module checks the resolved
+library first: an ABI version this binding does not accept, or an accepted
+version missing the v6 entry points (a v5 library), each raise a directed
+error naming what is wrong before any v6 ccall runs.
 
 ## Modules
 
@@ -37,9 +39,9 @@ A[e, from] = +1
 A[e, to]   = -1
 B  = A' * Diagonal(b) * A
 Bf = Diagonal(b) * A
-p_shift  = A' * (b .* shift)
+p_shift  = -A' * (b .* shift)
 p_bus    = -B * va + p_shift
-p_branch = -Bf * va + b .* shift
+p_branch = -Bf * va - b .* shift
 ```
 
 Numeric spans surface as [`BorrowedVector`](@ref) read only views that keep

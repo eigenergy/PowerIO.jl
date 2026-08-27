@@ -113,6 +113,99 @@ _has_v6 = PowerIO.library_available() &&
         @test [p.label for p in inventory.time_points] == ["h0", "h1"]
         exported = export_state(m; time_position=1)
         @test module_kind(exported) == "balanced_network"
+        # time_position is zero based: position 1 selects the SECOND time
+        # point ("h1"), whose update set pg to 95.0. Read it back off the
+        # exported network's own generator so an off by one silently landing
+        # on "h0" (pg unchanged) cannot pass.
+        exported_value = JSON3.read(write_module(exported)).value
+        @test exported_value.kind == "balanced_network"
+        exported_net = from_json(JSON3.write(exported_value.data))
+        @test Float64(first(PowerIO.generators(exported_net)).pg) ≈ 95.0
         @test occursin("export_selected_state", write_module(exported))
     end
+end
+
+@testset "module_kind and formula outlive their GC.@preserve scope" begin
+    if !_has_v6
+        @test_skip "the resolved library predates the ABI v6 entry points"
+        return
+    end
+    # Every module/DcData handle below exists only as an inline argument, with
+    # no local binding keeping it alive past the ccall: if the GC.@preserve
+    # around the ccall does not also cover the unsafe_string read, an
+    # interleaved collection frees the handle before its name is read back.
+    case9 = joinpath(@__DIR__, "data", "case9.m")
+    dss_text = "New Circuit.c basekv=12.47 bus1=src\n"
+    for _ in 1:200
+        GC.gc()
+        @test module_kind(parse_module_str(dss_text; format="dss")) == "multiconductor_network"
+        GC.gc()
+        @test PowerIO.formula(PowerIO.dc_data(parse_module(case9))) == "series_susceptance"
+    end
+end
+
+@testset "BorrowedVector rejects access once its owner is released" begin
+    if !_has_v6
+        @test_skip "the resolved library predates the ABI v6 entry points"
+        return
+    end
+    d = PowerIO.dc_data(parse_module(joinpath(@__DIR__, "data", "case9.m")))
+    v = PowerIO.susceptance(d)
+    @test length(v) == PowerIO.n_rows(d)
+    @test v[1] isa Float64
+    @test v[1:3] isa Vector{Float64}
+    @test collect(v) isa Vector{Float64}
+    before = copy(v)
+    @test before == collect(v)
+
+    # The owner is still reachable through `d`: a GC pass changes nothing.
+    GC.gc()
+    @test v[1] == before[1]
+
+    finalize(d)
+    @test_throws ErrorException v[1]
+    @test_throws ErrorException v[1:3]
+    @test_throws ErrorException collect(v)
+    @test_throws ErrorException copy(v)
+end
+
+@testset "read_module, parse_module, parse_module_str keep working against ABI 6" begin
+    if !_has_v6
+        @test_skip "the resolved library predates the ABI v6 entry points"
+        return
+    end
+    case9 = joinpath(@__DIR__, "data", "case9.m")
+    @test module_kind(parse_module(case9)) == "balanced_network"
+    @test module_kind(parse_module_str(read(case9, String); format="matpower")) == "balanced_network"
+    @test module_kind(read_module(write_module(parse_module(case9)))) == "balanced_network"
+end
+
+@testset "read_module, parse_module, parse_module_str preflight the library" begin
+    if !PowerIO.library_available()
+        @test_skip "no library resolved in this environment"
+        return
+    end
+    if _has_v6
+        @test_skip "the resolved library already exports the ABI v6 entry points; needs one that predates them (e.g. the pinned ABI 5 artifact, POWERIO_CAPI unset) to exercise the missing-export path"
+    else
+        case9 = joinpath(@__DIR__, "data", "case9.m")
+        cases = ((:pio_module_read_json, () -> read_module("{}")),
+                 (:pio_module_parse_file, () -> parse_module(case9)),
+                 (:pio_module_parse_str, () -> parse_module_str("not a case"; format="matpower")))
+        for (sym, thunk) in cases
+            err = try
+                thunk()
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            @test occursin(String(sym), sprint(showerror, err))
+        end
+    end
+    # No library in this environment reports an ABI version outside
+    # `_ACCEPTED_ABI_VERSIONS`, so the out of window branch of the preflight
+    # (as opposed to the in window but export short branch just above) has no
+    # live fixture to exercise here.
+    @test_skip "no library in this environment reports an ABI version outside _ACCEPTED_ABI_VERSIONS"
 end
