@@ -6,11 +6,10 @@
 | BMOPFTools.jl | both | PowerIO backed OpenDSS / BMOPF conversion |
 | ExaModelsPower.jl / ExaPowerIO.jl | out | [`to_powerdata`](@ref) / [`parse_ac_power_data`](@ref) |
 | PowerGridPlanning.jl | out | [`to_powermodels`](@ref), `PowerIO.build_ref`, and angle repair helpers |
-| powerio-pkg `.pio.json` | both | [`to_package`](@ref) / [`from_package`](@ref) / [`read_package`](@ref) / [`write_package`](@ref) |
+| `.pio.json` stored modules | in | [`PowerIO.parse`](@ref) / [`parse_module_bytes`](@ref) / [`as_network`](@ref) |
 | GridFM (gridfm-datakit Parquet) | in | [`read_gridfm`](@ref) / [`read_gridfm_scenarios`](@ref) |
-| GO Challenge 3 JSON | in | [`parse_goc3_json`](@ref) |
 | [PowerDiff.jl](https://github.com/grid-opt-alg-lab/PowerDiff.jl) | out | PowerDiff depends on PowerIO as its parser and data layer |
-| OpenDSS / PMD / IEEE BMOPF | both | format-routed `parse_file` / `to_format`; see [Distribution networks](distribution.md) |
+| OpenDSS / PMD / IEEE BMOPF | both | format-routed `PowerIO.parse` / `to_format`; see [Distribution networks](distribution.md) |
 
 ## PowerModels.jl
 
@@ -19,7 +18,7 @@ data dictionary — the post-parse `Dict{String,Any}` layout PowerModels.jl
 consumes. [`from_powermodels`](@ref) reads one back.
 
 ```julia
-net = parse_file("case14.m")
+net = PowerIO.parse("case14.m"; value_type=BalancedNetwork)
 data = to_powermodels(net)      # Dict{String,Any} with "bus", "branch", "gen", ...
 net2 = from_powermodels(data)
 ```
@@ -28,7 +27,7 @@ PowerIO also exposes the reference dict helpers that several PowerModels style
 packages need:
 
 ```julia
-data = to_powermodels(parse_file("case14.m"))
+data = to_powermodels(PowerIO.parse("case14.m"; value_type=BalancedNetwork))
 PowerIO.correct_voltage_angle_differences!(data)
 ref = PowerIO.build_ref(data)
 ```
@@ -79,37 +78,23 @@ PowerIO.
 using PowerGridPlanning
 
 network = PowerGridPlanning.load_network("case14.m")
-data = PowerIO.to_powermodels(PowerIO.parse_file("case14.m"))
+data = PowerIO.to_powermodels(PowerIO.parse("case14.m"; value_type=PowerIO.BalancedNetwork))
 ref = PowerIO.build_ref(data)
 ```
 
-## `.pio.json` network packages
+## `.pio.json` stored modules
 
-`.pio.json` compiler packages wrap balanced and multiconductor networks with
-validation and provenance, over the native `pio_package_*` C ABI API
-(needs the default `pkg` feature; [`package_available`](@ref) reports it).
+A `.pio.json` document is a stored module: a typed value with provenance,
+validation, and diagnostics. [`PowerIO.parse`](@ref) reads one from a path or
+bytes ([`parse_module_bytes`](@ref) is the explicit byte entry), and
+[`as_network`](@ref) / [`as_dist_network`](@ref) open the live handle for a
+network-valued module.
 
 ```julia
-pkg = to_package(net)                    # ::NetworkPackage, model_kind = :balanced
-json = to_json(pkg)                      # the .pio.json envelope
-net = from_package(json)                 # back to a live BalancedNetwork
-write_package("case14.pio.json", pkg)
-pkg = read_package("case14.pio.json")
-
-package_validation(pkg).status           # "ok"
-package_diagnostics(pkg)                 # structured diagnostics
-package_study(pkg)                       # study block, or nothing
-validated = validate_package(pkg)
-
-study_pkg = read_package("study-case.pio.json")
-package_study(study_pkg)                 # study block
-materialize_study_commit(study_pkg, 0)   # apply study commits through index 0
+m = PowerIO.parse("case14.pio.json")
+module_kind(m)                           # "balanced_network"
+net = as_network(m)                      # live BalancedNetwork
 ```
-
-`to_package(net; include_solver_metadata=true)` records the compact
-normalized solver table identity block used by `powerio-pkg`. Multiconductor
-packages preflight and lower explicitly; see
-[Distribution networks](distribution.md).
 
 ## GridFM
 
@@ -125,10 +110,3 @@ to_matpower(r.network)                           # gridfm -> any classical forma
 reads = read_gridfm_scenarios("out/case14/raw")  # one result per scenario id
 ```
 
-## GO Challenge 3
-
-[`parse_goc3_json`](@ref) reads a GO Challenge 3 problem JSON into indexed
-lookups (bus, device, line, transformer tables plus time series);
-[`goc3_status_flags`](@ref) and [`goc3_add_status_flags!`](@ref) derive
-startup/shutdown flags from unit commitment on/off trajectories. Pure Julia;
-no C library needed.
