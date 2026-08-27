@@ -200,6 +200,16 @@ end
     p_branch = branch_flow(d, va)
     p_bus = bus_injection(d, va)
     @test a' * p_branch ≈ p_bus atol=1e-10
+
+    # The documented equation is the computed one, elementwise: the shift
+    # term is included, and the shift free expression differs.
+    b = copy(PowerIO.susceptance(d))
+    row_shift = copy(PowerIO.shift(d))
+    from = copy(PowerIO.from_indices(d))
+    to = copy(PowerIO.to_indices(d))
+    dva = va[from .+ 1] .- va[to .+ 1]
+    @test p_branch ≈ -b .* dva .- b .* row_shift atol=1e-12
+    @test !(p_branch ≈ -b .* dva)
 end
 
 @testset "typed module records and bounded field readers" begin
