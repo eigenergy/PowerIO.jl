@@ -22,7 +22,7 @@ struct PowerIOCError <: Exception
 end
 
 function Base.showerror(io::IO, e::PowerIOCError)
-    print(io, "PowerIOCError: ", e.message)
+    print(io, "PowerIOCError [", e.code, "]: ", e.message)
 end
 
 # Copy one v6 error handle into a Julia exception and release the handle.
@@ -36,7 +36,8 @@ function _v6_error(lib::AbstractString, err::Ptr{Cvoid})
     ccall(_library_symbol(lib, :pio_error_release), Cvoid, (Ptr{Cvoid},), err)
     diagnostics = try
         JSON3.read(diagnostics_json)
-    catch
+    catch e
+        @debug "PowerIO: could not decode v6 error diagnostics JSON" exception = (e, catch_backtrace())
         JSON3.read("[]")
     end
     return PowerIOCError(code, message, diagnostics)
@@ -91,6 +92,8 @@ one way.
 """
 function read_module(text::AbstractString)
     lib = _lib()
+    _ensure_compatible(lib)
+    _require_export("read_module", :pio_module_read_json, "powerio v1.0", lib)
     ptr = _v6_call(lib) do err
         ccall(_library_symbol(lib, :pio_module_read_json), Ptr{Cvoid},
               (Cstring, Ref{Ptr{Cvoid}}), text, err)
@@ -105,6 +108,8 @@ Parse a case file into a module of whichever family claims it.
 """
 function parse_module(path::AbstractString; format::Union{AbstractString,Nothing}=nothing)
     lib = _lib()
+    _ensure_compatible(lib)
+    _require_export("parse_module", :pio_module_parse_file, "powerio v1.0", lib)
     ptr = _v6_call(lib) do err
         ccall(_library_symbol(lib, :pio_module_parse_file), Ptr{Cvoid},
               (Cstring, Cstring, Ref{Ptr{Cvoid}}), path,
@@ -121,6 +126,8 @@ Parse in-memory case text into a module.
 function parse_module_str(text::AbstractString;
                           format::Union{AbstractString,Nothing}=nothing)
     lib = _lib()
+    _ensure_compatible(lib)
+    _require_export("parse_module_str", :pio_module_parse_str, "powerio v1.0", lib)
     ptr = _v6_call(lib) do err
         ccall(_library_symbol(lib, :pio_module_parse_str), Ptr{Cvoid},
               (Cstring, Cstring, Ref{Ptr{Cvoid}}), text,
@@ -150,9 +157,8 @@ The value's permanent kind identifier (`"balanced_network"`, ...).
 """
 function module_kind(m::StoredModule)
     lib = getfield(m, :lib)
-    s = GC.@preserve m ccall(_library_symbol(lib, :pio_module_kind), Cstring,
-                             (Ptr{Cvoid},), _module_ptr(m))
-    return unsafe_string(s)
+    return GC.@preserve m unsafe_string(ccall(_library_symbol(lib, :pio_module_kind), Cstring,
+                                              (Ptr{Cvoid},), _module_ptr(m)))
 end
 
 """
@@ -187,7 +193,8 @@ end
     export_state(m::StoredModule; time_position=nothing, scenario=nothing) -> StoredModule
 
 Export one selected time point or scenario as an independent static module.
-Pass exactly one key.
+Pass exactly one key. `time_position` is zero based, matching the C ABI and
+every other language binding; the first time point is `time_position=0`.
 """
 function export_state(m::StoredModule;
                       time_position::Union{Integer,Nothing}=nothing,
@@ -240,11 +247,20 @@ Base.IndexStyle(::Type{<:BorrowedVector}) = IndexLinear()
 function Base.getindex(v::BorrowedVector{T}, i::Int) where {T}
     @boundscheck checkbounds(v, i)
     owner = getfield(v, :owner)
-    GC.@preserve owner unsafe_load(v.ptr, i)
+    GC.@preserve owner begin
+        _dc_ptr(owner)  # raises the owner's own released-handle error first
+        unsafe_load(v.ptr, i)
+    end
 end
 Base.setindex!(::BorrowedVector, _, ::Int) =
     error("PowerIO: a BorrowedVector is read only; `copy` it for a mutable array")
-Base.copy(v::BorrowedVector{T}) where {T} = T[v[i] for i in eachindex(v)]
+function Base.copy(v::BorrowedVector{T}) where {T}
+    owner = getfield(v, :owner)
+    GC.@preserve owner begin
+        _dc_ptr(owner)  # one release check up front, not once per element
+        return T[unsafe_load(v.ptr, i) for i in eachindex(v)]
+    end
+end
 
 """
     DcData
@@ -260,9 +276,9 @@ The public equations and signs match PowerModels directly:
     A[e, to]   = -1
     B  = A' * Diagonal(b) * A
     Bf = Diagonal(b) * A
-    p_shift  = A' * (b .* shift)
+    p_shift  = -A' * (b .* shift)
     p_bus    = -B * va + p_shift
-    p_branch = -Bf * va + b .* shift
+    p_branch = -Bf * va - b .* shift
 """
 mutable struct DcData
     ptr::Ptr{Cvoid}
@@ -328,10 +344,22 @@ to_indices(d::DcData) = _dc_span(d, :pio_dc_data_to_indices, Int64, n_rows(d))
 """Branch susceptance per included row, PowerModels sign."""
 susceptance(d::DcData) = _dc_span(d, :pio_dc_data_susceptance, Float64, n_rows(d))
 
-"""Phase shift bus injection `p_shift = A' * (b .* shift)`, per bus."""
+"""Phase shift bus injection `p_shift = -A' * (b .* shift)`, per bus."""
 shift_injection(d::DcData) = _dc_span(d, :pio_dc_data_shift_injection, Float64, n_buses(d))
 
-function _dc_strings(d::DcData, sym::Symbol, len::Int)
+# Read a C string table (`const char *const *`): `sym` is the table itself,
+# `count_sym` is the count accessor that owns its length. The length always
+# comes from calling `count_sym` here, never from a value a caller already had
+# on hand; `expected`, when given, is that caller's independently obtained
+# belief about the same count (e.g. a public `n_rows`/`n_buses` it already
+# read), checked against `count_sym` so a disagreement is a directed error
+# instead of a bounds fault deep in a matrix build.
+function _dc_strings(d::DcData, sym::Symbol, count_sym::Symbol,
+                     expected::Union{Int,Nothing}=nothing)
+    len = _dc_len(d, count_sym)
+    if expected !== nothing && expected != len
+        error("PowerIO: $sym has $len entries ($count_sym), expected $expected")
+    end
     lib = getfield(d, :lib)
     table = GC.@preserve d ccall(_library_symbol(lib, sym), Ptr{Cstring},
                                  (Ptr{Cvoid},), _dc_ptr(d))
@@ -340,25 +368,24 @@ function _dc_strings(d::DcData, sym::Symbol, len::Int)
 end
 
 """Stable module element ID per included row."""
-row_ids(d::DcData) = _dc_strings(d, :pio_dc_data_row_ids, n_rows(d))
+row_ids(d::DcData) = _dc_strings(d, :pio_dc_data_row_ids, :pio_dc_data_n_rows, n_rows(d))
 
 """Stable bus element ID per incidence column."""
-bus_ids(d::DcData) = _dc_strings(d, :pio_dc_data_bus_ids, n_buses(d))
+bus_ids(d::DcData) = _dc_strings(d, :pio_dc_data_bus_ids, :pio_dc_data_n_buses, n_buses(d))
 
 """Omitted branches: stable element IDs and diagnostic reasons."""
 function omitted(d::DcData)
     count = _dc_len(d, :pio_dc_data_n_omitted)
-    ids = _dc_strings(d, :pio_dc_data_omitted_ids, count)
-    reasons = _dc_strings(d, :pio_dc_data_omitted_reasons, count)
+    ids = _dc_strings(d, :pio_dc_data_omitted_ids, :pio_dc_data_n_omitted, count)
+    reasons = _dc_strings(d, :pio_dc_data_omitted_reasons, :pio_dc_data_n_omitted, count)
     return collect(zip(ids, reasons))
 end
 
 """The selected branch susceptance formula's stable name."""
 function formula(d::DcData)
     lib = getfield(d, :lib)
-    s = GC.@preserve d ccall(_library_symbol(lib, :pio_dc_data_formula), Cstring,
-                             (Ptr{Cvoid},), _dc_ptr(d))
-    return unsafe_string(s)
+    return GC.@preserve d unsafe_string(ccall(_library_symbol(lib, :pio_dc_data_formula), Cstring,
+                                              (Ptr{Cvoid},), _dc_ptr(d)))
 end
 
 """

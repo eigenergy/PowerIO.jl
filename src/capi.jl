@@ -148,9 +148,11 @@ end
 const PIO_ABI_VERSION = UInt32(6)
 
 # The v5 surface this binding grew up on is unchanged in v6, so a v5 library
-# still serves every pre-v6 entry point. The v6 additions (error handles,
-# stored modules, DC data) resolve their own symbols and raise a directed
-# error naming the missing export on an older library.
+# still serves every pre-v6 entry point. Constructing a stored module
+# (`read_module`, `parse_module`, `parse_module_str`) checks the ABI version
+# and the specific v6 export it is about to call before dispatching, so an out
+# of window library and a library missing the v6 entry points each raise a
+# directed error there instead of a raw ccall fault.
 const _ACCEPTED_ABI_VERSIONS = (UInt32(5), UInt32(6))
 const _ABI_OK = Ref{Bool}(false)
 const _ABI_OK_LIB = Ref{String}("")
