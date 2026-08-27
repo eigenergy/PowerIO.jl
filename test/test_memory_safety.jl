@@ -113,3 +113,26 @@
         end
     end
 end
+
+@testset "free fn resolution is keyed by the exact library passed" begin
+    # Two distinct dlopen images of the same build: concurrent resolutions
+    # against the two paths must each return the pointer resolved from the
+    # path passed on that call, never the other task's.
+    primary = PowerIO._lib()
+    copy_path = joinpath(mktempdir(), basename(primary))
+    cp(primary, copy_path)
+    paths = (primary, copy_path)
+    results = Vector{Tuple{Ptr{Cvoid},Ptr{Cvoid}}}(undef, 64)
+    tasks = [Threads.@spawn begin
+                 lib = paths[1 + (i % 2)]
+                 got = PowerIO._network_free_fn(lib)
+                 want = PowerIO._library_symbol(lib, :pio_network_free)
+                 dist_got = PowerIO._dist_network_free_fn(lib)
+                 dist_want = PowerIO._library_symbol(lib, :pio_dist_network_free)
+                 results[i] = (got == want ? C_NULL : got,
+                               dist_got == dist_want ? C_NULL : dist_got)
+             end for i in 1:64]
+    foreach(wait, tasks)
+    @test all(r -> r == (C_NULL, C_NULL), results)
+    rm(dirname(copy_path); recursive=true, force=true)
+end
