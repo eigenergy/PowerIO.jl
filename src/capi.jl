@@ -318,15 +318,12 @@ end
 # resolving `_lib()` at finalization time would cross allocators after a
 # `set_library!` swap. The un-dlclosed handle deliberately pins the library so
 # the pointer stays valid for every outstanding finalizer.
-const _FREE_FN = Ref{Ptr{Cvoid}}(C_NULL)
-const _FREE_FN_LIB = Ref{String}("")
+# Resolved per call through the lock guarded dlopen cache, the shape the v6
+# constructors use: a single slot memo pair raced under concurrent tasks
+# resolving against two different libraries, handing one caller the other's
+# pointer.
 function _network_free_fn(lib::AbstractString=_lib())
-    lib = String(lib)
-    if _FREE_FN[] == C_NULL || _FREE_FN_LIB[] != lib
-        _FREE_FN[] = _library_symbol(lib, :pio_network_free)
-        _FREE_FN_LIB[] = lib
-    end
-    return _FREE_FN[]
+    return _library_symbol(String(lib), :pio_network_free)
 end
 
 """
