@@ -59,7 +59,7 @@ import Libdl
 import SparseArrays
 
 # Parsing and the parsed models
-export BalancedNetwork, MulticonductorNetwork, parse_file, parse_str, parse_bytes, from_json
+export BalancedNetwork, MulticonductorNetwork, from_json
 
 # Conversion and serialization. `Diagnostic` is the element type of the fidelity
 # findings the conversion verbs return.
@@ -77,9 +77,11 @@ export set_library!, clear_library!
 # ABI v6: the stored module surface and DC branch data. Span accessors
 # (PowerIO.susceptance, PowerIO.row_ids, ...) stay qualified: their names are
 # the cross language vocabulary, too generic to claim as exports.
-export StoredModule, read_module, parse_module, parse_module_str, write_module,
-    module_kind, inspect_module, state_inventory, export_state,
-    lower_module_to_balanced, DcData, dc_data, BorrowedVector, PowerIOCError,
+export StoredModule, read_module, parse_module, parse_module_str,
+    parse_module_bytes, write_module, module_kind, inspect_module,
+    state_inventory, export_state, lowering_readiness, lower_module_to_balanced,
+    as_network,
+    as_dist_network, DcData, dc_data, BorrowedVector, PowerIOCError,
     branch_flow
 
 # Materialized numeric views
@@ -100,19 +102,9 @@ export to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
 # single entry point: the Rust core projects the instance and it types the rows.
 # `parse_scopf` returns the same projection as its versioned JSON document;
 # `parse_goc3_json` stays for raw-document and unit-commitment utilities.
-export parse_goc3_json, goc3_scopf_data, ScopfInstance, DeviceClassLayout,
-       goc3_status_flags, goc3_add_status_flags!, goc3_interval_bounds,
-       parse_scopf, scopf_available
-
 # .pio.json network packages (Rust pkg feature)
-export NetworkPackage, to_package, from_package, read_package, write_package,
-       package_model_kind, package_available, validate_package, package_validation,
-       package_diagnostics, package_operating_points, package_study,
-       set_operating_points, materialize_operating_point, materialize_study_commit
-
 # Multiconductor distribution
-export multiconductor_to_balanced_preflight, lower_multiconductor_to_balanced,
-       dist_available, dist_abi_version, dist_capabilities
+export dist_available, dist_abi_version, dist_capabilities
 
 # Graph projection and feature probes
 export to_graph, features, has_feature, schema_versions, build_info,
@@ -130,11 +122,9 @@ include("arrow.jl")       # Arrow C Data Interface export (feature arrow)
 include("matrix.jl")      # sparse matrices computed by the Rust matrix API
 include("gridfm.jl")      # gridfm-datakit Parquet reader (feature gridfm)
 include("dist.jl")        # MulticonductorNetwork distribution API (feature dist)
+include("parse.jl")       # PowerIO.parse and the module to network narrowing
 include("display.jl")     # compact and multiline display for parsed networks
 include("graphs.jl")      # graph projections for balanced and multiconductor models
-include("package.jl")     # .pio.json network packages (feature pkg)
-include("scopf.jl")       # native SCOPF problem instance JSON (feature prob)
-include("features.jl")    # public feature probe summary (reads scopf.jl's probe)
-include("goc3.jl")        # GO Challenge 3 JSON helpers (pure Julia)
+include("features.jl")    # public feature probe summary
 
 end # module

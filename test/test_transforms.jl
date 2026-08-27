@@ -1,9 +1,9 @@
 @testset "PyPSA CSV writer and reference bus indices" begin
     if !PowerIO.library_available()
-        @test_skip parse_file("case14.m")
+        @test_skip PowerIO.parse("case14.m"; value_type=BalancedNetwork)
     else
         data = joinpath(@__DIR__, "data")
-        net = parse_file(joinpath(data, "case14.m"))
+        net = PowerIO.parse(joinpath(data, "case14.m"); value_type=BalancedNetwork)
 
         # write_pypsa_csv_folder writes a directory and round-trips back through
         # the pypsa-csv reader; bus count and base_mva survive the model crossing.
@@ -14,7 +14,7 @@
         @test dir == out
         @test warnings isa AbstractVector{<:AbstractString}
         @test !isempty(readdir(out))
-        back = parse_file(out; from = "pypsa-csv")
+        back = PowerIO.parse(out; from="pypsa-csv", value_type=BalancedNetwork)
         @test PowerIO.n_buses(back) == PowerIO.n_buses(net)
         @test PowerIO.base_mva(back) ≈ PowerIO.base_mva(net)
 
@@ -47,7 +47,7 @@ end
 
 @testset "parse_file input methods and to_* dispatch" begin
     if !PowerIO.library_available()
-        @test_skip parse_file("case14.m")
+        @test_skip PowerIO.parse("case14.m"; value_type=BalancedNetwork)
     else
         data = joinpath(@__DIR__, "data")
         mtext = read(joinpath(data, "case14.m"), String)
@@ -55,8 +55,8 @@ end
         # parse_file from an IO matches parse_file from a path field-for-field,
         # except `name`: a path parse takes the case name from the file stem
         # ("case14"), an in-memory parse has no path so the core defaults it.
-        net = parse_file(joinpath(data, "case14.m"))
-        nets = parse_file(IOBuffer(mtext), "matpower")
+        net = PowerIO.parse(joinpath(data, "case14.m"); value_type=BalancedNetwork)
+        nets = PowerIO.parse(IOBuffer(mtext); from="matpower", value_type=BalancedNetwork)
         @test PowerIO.source_format(nets) == "matpower"
         @test PowerIO.n_buses(nets) == PowerIO.n_buses(net)
         for k in keys(net.data)
@@ -69,7 +69,7 @@ end
         @test to_dense(net).branch.x ≈ to_dense(joinpath(data, "case14.m")).branch.x
         # to_matpower(net) equals the file->MATPOWER conversion (byte-exact) and round-trips.
         @test to_matpower(net) == convert_file(joinpath(data, "case14.m"), "matpower")[1]
-        @test PowerIO.n_buses(parse_file(IOBuffer(to_matpower(net)), "matpower")) == 14
+        @test PowerIO.n_buses(PowerIO.parse(IOBuffer(to_matpower(net)); from="matpower", value_type=BalancedNetwork)) == 14
         @test JSON3.read(to_json(net)).base_mva == PowerIO.base_mva(net)
 
         # to_json works on a handle-less BalancedNetwork (built straight from JSON); every
@@ -101,7 +101,7 @@ end
         # norm_tiny: ids 1,3,5,8 with bus 8 ISOLATED; branch 1-5 out of service
         # and branch 5-8 onto the dropped bus. Normalized keeps source ids on
         # buses and branch endpoints; PowerData below maps them to dense rows.
-        tiny_net = parse_file(joinpath(data, "norm_tiny.m"))
+        tiny_net = PowerIO.parse(joinpath(data, "norm_tiny.m"); value_type=BalancedNetwork)
         tiny = to_normalized(tiny_net)
         @test PowerIO.n_buses(tiny) == 3                          # isolated bus 8 dropped
         @test PowerIO.n_branches(tiny) == 2                      # out-of-service + dangling dropped
@@ -120,29 +120,29 @@ end
 
         # Error paths report Julia errors. Build the bad cases in memory.
         try
-            parse_file(joinpath(data, "missing.m"))
+            PowerIO.parse(joinpath(data, "missing.m"); value_type=BalancedNetwork)
             error("expected parse_file to fail")
         catch e
-            @test occursin("PowerIO.parse_file:", sprint(showerror, e))
+            @test occursin("READ.IO.OPEN", sprint(showerror, e))
         end
         try
-            parse_str("not a MATPOWER case", "matpower")
+            PowerIO.parse(IOBuffer("not a MATPOWER case"); from="matpower", value_type=BalancedNetwork)
             error("expected parse_str to fail")
         catch e
-            @test occursin("PowerIO.parse_str:", sprint(showerror, e))
+            @test occursin("PARSE.", sprint(showerror, e))
         end
         basemva0 = replace(mtext, "mpc.baseMVA = 100" => "mpc.baseMVA = 0")
-        @test_throws ErrorException to_normalized(parse_file(IOBuffer(basemva0), "matpower"))
+        @test_throws ErrorException to_normalized(PowerIO.parse(IOBuffer(basemva0); from="matpower", value_type=BalancedNetwork))
         # No generators and no REF bus: nothing to promote to slack.
         noref = "function mpc = noref\nmpc.version = '2';\nmpc.baseMVA = 100;\n" *
                 "mpc.bus = [\n1 1 10 5 0 0 1 1.0 0 138 1 1.1 0.9;\n" *
                 "2 1 20 8 0 0 1 1.0 -1 138 1 1.1 0.9;\n];\n" *
                 "mpc.gen = [\n];\nmpc.branch = [\n1 2 0.01 0.1 0 100 100 100 0 0 1 -30 30;\n];\n"
-        @test_throws ErrorException to_normalized(parse_file(IOBuffer(noref), "matpower"))
+        @test_throws ErrorException to_normalized(PowerIO.parse(IOBuffer(noref); from="matpower", value_type=BalancedNetwork))
 
         # The clamp rides `PioNormalizeOptions` on `pio_normalize`; the symbol is
         # not feature gated, so a compatible library always has it.
-        angle_net = parse_file(joinpath(data, "angle_bounds_clamp.m"))
+        angle_net = PowerIO.parse(joinpath(data, "angle_bounds_clamp.m"); value_type=BalancedNetwork)
         clamped = to_normalized(angle_net; clamp_angle_bounds=true)
         @test PowerIO.branches(clamped)[1].angmin ≈ -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
         @test PowerIO.branches(clamped)[1].angmax ≈ PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
@@ -192,7 +192,7 @@ end
         \t2\t3\t0.01\t0.1\t0\t0\t0\t0\t0\t0\t1\t-360\t360;
         ];
         """
-        multi = to_dense(parse_str(two_slacks, "matpower"))
+        multi = to_dense(PowerIO.parse(IOBuffer(two_slacks); from="matpower", value_type=BalancedNetwork))
         @test multi.reference_bus === nothing
         # Absence is `nothing`, so indexing with it fails loudly rather than
         # silently reading a bus.
@@ -204,7 +204,7 @@ end
         @test d.gen.bus == [1, 2, 3, 6, 8]              # generator buses, file order
         @test sum(d.demand.pd) ≈ 259.0 rtol = 1e-6      # total active demand (MW)
         # The dense gen table lines up with the JSON payload's count.
-        @test d.ng == PowerIO.n_gens(parse_file(joinpath(@__DIR__, "data", "case14.m")))
+        @test d.ng == PowerIO.n_gens(PowerIO.parse(joinpath(@__DIR__, "data", "case14.m"); value_type=BalancedNetwork))
 
         # The v0.7 dense fields are present exactly when the resolved library
         # exports their extractors; a pre-0.7 ABI-4 library omits them. Each
@@ -231,7 +231,7 @@ end
                                             "state" => 1, "thermal_rating" => 1.25, "pf" => 0.1))
             pm["branch"]["1"]["b_fr"] = 0.02
             pm["branch"]["1"]["b_to"] = 0.03
-            swnet = parse_str(JSON3.write(pm), "powermodels")
+            swnet = PowerIO.parse(IOBuffer(JSON3.write(pm)); from="powermodels", value_type=BalancedNetwork)
             @test PowerIO.n_switches(swnet) == 1
             @test length(swnet.switches) == 1           # the JSON payload table agrees
             ds = to_dense(swnet)
@@ -282,7 +282,7 @@ end
         @test d.reference_bus == 1
         # The load rows still land on their file buses, and the star point
         # carries no demand of its own.
-        net = parse_file(fixture)
+        net = PowerIO.parse(fixture; value_type=BalancedNetwork)
         @test d.demand.pd[rows[2]] ≈ 45.0 && d.demand.qd[rows[3]] ≈ 5.0
         @test sum(d.demand.pd) ≈ 65.0
 

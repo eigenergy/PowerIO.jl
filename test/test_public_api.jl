@@ -1,7 +1,7 @@
 @testset "public API loads" begin
     # The module must load with no C library present (the binding is lazy),
     # and its public API must exist.
-    for sym in (:BalancedNetwork, :parse_file, :parse_str, :parse_bytes, :from_json, :convert_file,
+    for sym in (:BalancedNetwork, :from_json, :convert_file,
                 :convert_str, :to_format, :to_normalized, :set_library!, :clear_library!,
                 :to_json, :to_dense, :to_matpower, :to_arrow, :calc_admittance_matrix,
                 :calc_susceptance_matrix, :calc_incidence_matrix, :calc_bprime_matrix,
@@ -10,26 +10,27 @@
                 :to_powermodels, :from_powermodels, :to_powerdata,
                 :parse_ac_power_data, :LoadSeries, :read_load_series, :n_periods,
                 :demands_mw, :read_gridfm, :read_gridfm_scenarios,
-                :parse_goc3_json, :goc3_scopf_data, :ScopfInstance,
-                :goc3_status_flags, :goc3_add_status_flags!, :goc3_interval_bounds,
-                :parse_scopf, :scopf_available,
-                :NetworkPackage, :to_package, :from_package, :read_package,
-                :write_package, :package_model_kind, :package_available,
-                :validate_package, :package_validation, :package_diagnostics,
-                :package_operating_points, :package_study, :set_operating_points,
-                :materialize_operating_point, :materialize_study_commit,
-                :multiconductor_to_balanced_preflight,
-                :lower_multiconductor_to_balanced,
+                :StoredModule, :read_module, :parse_module, :parse_module_str,
+                :parse_module_bytes, :write_module, :module_kind,
+                :inspect_module, :state_inventory, :export_state, :as_network,
+                :as_dist_network, :lower_module_to_balanced,
                 :arrow_available, :gridfm_available, :matrix_available, :features,
                 :has_feature, :schema_versions, :build_info, :arrow_catalog,
                 :MulticonductorNetwork, :dist_available, :dist_abi_version,
                 :dist_capabilities, :to_graph)
         @test isdefined(PowerIO, sym)
     end
-    # The 0.3.0 compatibility bindings are gone in 0.9.0.
+    # The 0.3.0 compatibility bindings are gone in 0.9.0, and the 0.9
+    # package, SCOPF, and untyped parse surfaces are gone at 1.0.0. The
+    # typed family entries stay, unexported (PowerIO.parse_file(T, ...)).
     @test !isdefined(PowerIO, :Network)
     @test !isdefined(PowerIO, :DistNetwork)
     @test !isdefined(PowerIO, :dist_graph)
+    for sym in (:NetworkPackage, :read_package, :to_package, :from_package,
+                :ScopfInstance, :parse_scopf, :parse_goc3_json, :goc3_scopf_data)
+        @test !isdefined(PowerIO, sym)
+    end
+    @test :parse ∉ names(PowerIO)  # call it as PowerIO.parse, beside Base.parse
     # The accessor API the ecosystem bridges read must exist. Most of it stays
     # unexported because the names collide with the packages a consumer loads
     # beside this one; `n_buses` and `warnings` are the exported two.
@@ -56,11 +57,8 @@
     # LoadSeries is the exported ExaModelsPower multiperiod-load bridge; the general
     # OperatingPointSeries name is reserved for the coming format-neutral series.
     @test :LoadSeries ∈ names(PowerIO)
-    @test :goc3_scopf_data ∈ names(PowerIO)
-    @test :ScopfInstance ∈ names(PowerIO)
-    @test :DeviceClassLayout ∈ names(PowerIO)
-    # The Julia GOC3 projection is retired: the Rust core projects the instance
-    # and goc3_scopf_data types its rows. Nothing internal survives to leak.
+    # The Julia GOC3 projection is retired with the SCOPF surface. Nothing
+    # internal survives to leak.
     for sym in (:_goc3_static_data, :_goc3_energy_windows, :_goc3_price_blocks,
                 :_goc3_ac_contingency_survivors, :_goc3_dc_contingency_flows,
                 :_uidnum)
@@ -84,22 +82,18 @@
     @test PowerIO.PIO_DIST_ABI_VERSION isa Unsigned
 
     f = PowerIO.features()
-    @test propertynames(f) == (:arrow, :matrix, :gridfm, :dist, :package, :prob)
+    @test propertynames(f) == (:arrow, :matrix, :gridfm, :dist, :prob)
     @test f.arrow == PowerIO.arrow_available()
     @test f.matrix == PowerIO.matrix_available()
     @test f.gridfm == PowerIO.gridfm_available()
     @test f.dist == PowerIO.dist_available()
-    @test f.package == PowerIO.package_available()
-    @test f.prob == PowerIO.scopf_available()
+    @test f.prob == PowerIO.prob_available()
     # pio_has_feature reports what the library was compiled with; an unknown
-    # feature name is false, never an error, and "package" aliases the C
-    # feature name "pkg" (matching the features() field).
+    # feature name is false, never an error.
     @test PowerIO.has_feature("no-such-feature") == false
-    @test PowerIO.has_feature("package") == PowerIO.has_feature("pkg")
+    @test PowerIO.has_feature("pkg") == false
     if PowerIO.library_available()
         @test PowerIO.has_feature("dist") isa Bool
-        PowerIO._exports_symbol(:pio_has_feature) &&
-            @test PowerIO.has_feature("pkg") == PowerIO.package_available()
     end
 
     lib = PowerIO._lib()
@@ -271,21 +265,21 @@ end
     # The byte entry point takes an explicit length, so it needs no NUL and can
     # carry binary. Against a text case it must agree with the path parse.
     path = joinpath(@__DIR__, "data", "case9.m")
-    from_path = parse_file(path)
-    from_bytes = parse_bytes(read(path), "matpower")
+    from_path = PowerIO.parse(path; value_type=BalancedNetwork)
+    from_bytes = PowerIO.parse(read(path); from="matpower", value_type=BalancedNetwork)
     @test from_bytes isa BalancedNetwork
     @test length(from_bytes.data.buses) == length(from_path.data.buses)
     @test length(from_bytes.data.branches) == length(from_path.data.branches)
 
     # A read-only view of the same bytes works: the binding copies what it must
     # before the ccall rather than assuming a Vector{UInt8}.
-    @test parse_bytes(view(read(path), :), "matpower") isa BalancedNetwork
+    @test PowerIO.parse(view(read(path), :); from="matpower", value_type=BalancedNetwork) isa BalancedNetwork
 
     # Bytes a text format cannot decode surface as that, not as a bad case.
-    @test_throws ErrorException parse_bytes(UInt8[0xff, 0xfe, 0x00], "matpower")
+    @test_throws PowerIOCError PowerIO.parse(UInt8[0xff, 0xfe, 0x00]; from="matpower", value_type=BalancedNetwork)
 
     # The type marker form is symmetric with parse_str / parse_file.
-    @test parse_bytes(BalancedNetwork, read(path), "matpower") isa BalancedNetwork
+    @test PowerIO.parse_bytes(BalancedNetwork, read(path), "matpower") isa BalancedNetwork
 end
 
 @testset "PowerWorld byte paths" begin
@@ -309,9 +303,9 @@ end
         @info "PowerWorld fixtures not found next to POWERIO_CAPI; skipping the byte path tests"
         @test_skip "PowerWorld fixtures unavailable"
     else
-        pwb = parse_bytes(read(pwb_path), "pwb")
-        aux = parse_bytes(read(aux_path), "aux")
-        mat = parse_file(mat_path)
+        pwb = PowerIO.parse(read(pwb_path); from="pwb", value_type=BalancedNetwork)
+        aux = PowerIO.parse(read(aux_path); from="aux", value_type=BalancedNetwork)
+        mat = PowerIO.parse(mat_path; value_type=BalancedNetwork)
 
         # Each path reaches its own reader rather than a text fallback.
         @test PowerIO.source_format(pwb) == "powerworld-pwb"
@@ -341,10 +335,10 @@ end
         # binary reader validates its table chain, so a cut past the last case
         # table reads as a complete case; both cuts below land inside the chain.
         raw = read(pwb_path)
-        @test_throws ErrorException parse_bytes(raw[1:16], "pwb")
-        @test_throws ErrorException parse_bytes(raw[1:65536], "pwb")
+        @test_throws PowerIOCError PowerIO.parse(raw[1:16]; from="pwb", value_type=BalancedNetwork)
+        @test_throws PowerIOCError PowerIO.parse(raw[1:65536]; from="pwb", value_type=BalancedNetwork)
         text = read(aux_path)
-        @test_throws ErrorException parse_bytes(text[1:(length(text) ÷ 2)], "aux")
+        @test_throws PowerIOCError PowerIO.parse(text[1:(length(text) ÷ 2)]; from="aux", value_type=BalancedNetwork)
     end
 end
 
@@ -359,7 +353,7 @@ end
 
     # A case whose conversion loses nothing reports an empty list, not an
     # empty string, and the C side signals that with a NULL out pointer.
-    net = PowerIO.parse_file(joinpath(@__DIR__, "data", "case9.m"))
+    net = PowerIO.parse(joinpath(@__DIR__, "data", "case9.m"); value_type=BalancedNetwork)
     _, clean = PowerIO.to_format(net, "matpower")
     @test clean isa Vector{Diagnostic}
     @test isempty(clean)
@@ -374,7 +368,7 @@ end
 @testset "conversion findings carry their record" begin
     # The conversion entry points return the diagnostic document, not rendered
     # lines, so a consumer branches on `code` without splitting a string.
-    net = PowerIO.parse_file(joinpath(@__DIR__, "data", "case9.m"))
+    net = PowerIO.parse(joinpath(@__DIR__, "data", "case9.m"); value_type=BalancedNetwork)
     _, lossy = PowerIO.to_format(net, "psse")
     @test !isempty(lossy)
     d = first(lossy)
@@ -447,10 +441,9 @@ end
         @test info.powerio_version == schema_versions().powerio_version
 
         # `features` is what the library was compiled with, which is the same
-        # question `pio_has_feature` answers one name at a time. The C feature
-        # name is `pkg`; the Julia field name is `package`.
+        # question `pio_has_feature` answers one name at a time.
         feats = info.features
-        for name in (:arrow, :matrix, :gridfm, :dist, :pkg, :prob)
+        for name in (:arrow, :matrix, :gridfm, :dist, :prob)
             @test haskey(feats, name)
             @test feats[name] isa Bool
             @test feats[name] == PowerIO.has_feature(String(name))
@@ -463,7 +456,6 @@ end
         @test f.arrow == feats.arrow
         @test f.gridfm == feats.gridfm
         @test f.dist == feats.dist
-        @test f.package == feats.pkg
         @test f.prob == feats.prob
         @test f.matrix == (feats.arrow && feats.matrix)
 

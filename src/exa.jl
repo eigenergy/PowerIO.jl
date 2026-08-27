@@ -1047,11 +1047,11 @@ to_powerdata(path::AbstractString; from=nothing,
 
 to_powerdata(path::AbstractString, ::Type{T}; from=nothing,
              filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real} =
-    to_powerdata(parse_file(path; from=from), T; filtered=filtered)
+    to_powerdata(parse(path; from=from, value_type=BalancedNetwork), T; filtered=filtered)
 
 to_powerdata(path::AbstractString, ::Type{T}, live::Val{:live}; from=nothing,
              filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real} =
-    to_powerdata(parse_file(BalancedNetwork, path; from=from), T, live;
+    to_powerdata(parse(path; from=from, value_type=BalancedNetwork), T, live;
                  filtered=filtered)
 
 """
@@ -1085,7 +1085,7 @@ end
 function parse_ac_power_data(path::AbstractString, ::Type{T}, live::Val{:live};
                              from=nothing,
                              filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real}
-    net = parse_file(BalancedNetwork, path; from=from)
+    net = parse(path; from=from, value_type=BalancedNetwork)
     return parse_ac_power_data(net, T, live; filtered=filtered)
 end
 
@@ -1402,7 +1402,7 @@ function _read_load_file(path::AbstractString)
     for (lineno, line) in enumerate(eachline(path))
         fields = split(line)
         isempty(fields) && continue
-        vals = Float64[parse(Float64, f) for f in fields]
+        vals = Float64[Base.parse(Float64, f) for f in fields]
         ncol == -1 && (ncol = length(vals))
         length(vals) == ncol ||
             throw(DimensionMismatch(

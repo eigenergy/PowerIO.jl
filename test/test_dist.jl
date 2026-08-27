@@ -128,7 +128,7 @@ end
 
 @testset "distribution API (feature gated)" begin
     if !(PowerIO.library_available() && PowerIO.dist_available())
-        @test_skip parse_file(MulticonductorNetwork, "switch.dss")
+        @test_skip PowerIO.parse_file(MulticonductorNetwork, "switch.dss")
     else
         dss = joinpath(@__DIR__, "data", "dist", "switch.dss")
         @test PowerIO.dist_abi_version() == PowerIO.PIO_DIST_ABI_VERSION
@@ -137,7 +137,7 @@ end
         # The distribution case shares the transmission verbs: the entry points
         # take MulticonductorNetwork as a leading type marker (the parse(T, x) idiom),
         # to_format / warnings dispatch on the handle.
-        net = parse_file(MulticonductorNetwork, dss)
+        net = PowerIO.parse_file(MulticonductorNetwork, dss)
         @test net isa MulticonductorNetwork
         @test getfield(net, :data) === nothing
         @test PowerIO.warnings(net) isa Vector{String}
@@ -178,86 +178,39 @@ end
         pmd, pmd_w = to_format(net, "pmd")
         @test occursin("data_model", pmd)
         @test pmd_w isa AbstractVector{<:AbstractString}
-        pmd_net = parse_str(MulticonductorNetwork, pmd, "pmd")
+        pmd_net = PowerIO.parse_str(MulticonductorNetwork, pmd, "pmd")
         @test pmd_net isa MulticonductorNetwork
         @test PowerIO.warnings(pmd_net) isa Vector{String}
         @test getfield(pmd_net, :data) === nothing
 
-        if package_available()
-            multi_pkg = to_package(net)
-            @test multi_pkg isa NetworkPackage
-            @test package_model_kind(multi_pkg) == :multiconductor
-
-            z3 = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
-            r3 = [[0.01, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.01]]
-            x3 = [[0.10, 0.0, 0.0], [0.0, 0.10, 0.0], [0.0, 0.0, 0.10]]
-            # Stamp the package schema the loaded library speaks, so the
-            # fixture survives version skew in both directions; the binding
-            # constant covers a library that predates the report.
-            ready_pkg = NetworkPackage(JSON3.write((
-                powerio_version = something(schema_versions().powerio_version,),
-                producer = (tool = "PowerIO.jl test", version = "0"),
-                model_kind = "multiconductor",
-                model = (
-                    kind = "multiconductor",
-                    multiconductor_network = (
-                        name = nothing,
-                        base_frequency = 60.0,
-                        buses = [
-                            (id = "sourcebus", terminals = ["1", "2", "3"], grounded = String[],
-                             v_min = nothing, v_max = nothing, vpn_min = nothing, vpn_max = nothing,
-                             vpp_min = nothing, vpp_max = nothing, vpos_min = nothing,
-                             vpos_max = nothing, vneg_max = nothing, vzero_max = nothing,
-                             vn_max = nothing, extras = (;)),
-                            (id = "loadbus", terminals = ["1", "2", "3"], grounded = String[],
-                             v_min = nothing, v_max = nothing, vpn_min = nothing, vpn_max = nothing,
-                             vpp_min = nothing, vpp_max = nothing, vpos_min = nothing,
-                             vpos_max = nothing, vneg_max = nothing, vzero_max = nothing,
-                             vn_max = nothing, extras = (;)),
-                        ],
-                        linecodes = [(
-                            name = "lc", n_conductors = 3, r_series = r3, x_series = x3,
-                            g_from = z3, b_from = z3, g_to = z3, b_to = z3,
-                            i_max = nothing, s_max = nothing, extras = (;),
-                        )],
-                        lines = [(
-                            name = "l1", bus_from = "sourcebus", bus_to = "loadbus",
-                            terminal_map_from = ["1", "2", "3"],
-                            terminal_map_to = ["1", "2", "3"],
-                            linecode = "lc", length = 1.0, extras = (;),
-                        )],
-                        switches = [], transformers = [], loads = [], generators = [],
-                        shunts = [],
-                        sources = [(
-                            name = "source", bus = "sourcebus", terminal_map = ["1", "2", "3"],
-                            v_magnitude = [240.0, 240.0, 240.0],
-                            v_angle = [0.0, -2.0 * pi / 3.0, 2.0 * pi / 3.0],
-                            extras = (;),
-                        )],
-                        untyped = [], commands = [], options = [], warnings = String[],
-                        source_format = nothing, extras = (;),
-                    ),
-                ),
-                origin = (kind = "in_memory",),
-                validation = (
-                    status = "ok",
-                    counts = (fatal = 0, error = 0, warning = 0, info = 0, debug = 0),
-                ),
-            )))
-            report = multiconductor_to_balanced_preflight(ready_pkg; base_mva = 50.0)
-            @test report.status == "ok"
-            @test report.base_mva == 50.0
-            lowered = lower_multiconductor_to_balanced(ready_pkg; base_mva = 75.0)
-            @test package_model_kind(lowered) == :balanced
-            @test lowered.model.balanced_network.base_mva == 75.0
-            @test lowered.lowering_history[1].pass == "multiconductor-to-balanced"
-            @test PowerIO.n_buses(from_package(ready_pkg)) == 2
-        else
-            @test_skip to_package(net)
-        end
+        # The module surface owns the explicit lowering: parse the case to a
+        # module, inspect readiness, lower, and take the balanced handle. The
+        # fixture is three phase with no neutral, the shape the lowering
+        # supports.
+        lowerable = """
+        Clear
+        Set DefaultBaseFrequency=60
+        New Circuit.feeder basekv=0.416 pu=1.0 phases=3 bus1=sourcebus MVAsc3=2000 MVAsc1=2100
+        New Linecode.lc3 nphases=3 basefreq=60 units=km
+        ~ rmatrix = (0.211 | 0.049 0.211 | 0.049 0.049 0.211)
+        ~ xmatrix = (0.747 | 0.673 0.747 | 0.651 0.673 0.747)
+        ~ cmatrix = (10.0 | 0.0 10.0 | 0.0 0.0 10.0)
+        ~ normamps=185
+        New Line.l1 bus1=sourcebus.1.2.3 bus2=loadbus.1.2.3 phases=3 linecode=lc3 length=0.4 units=km
+        New Load.la bus1=loadbus.1.2.3 phases=3 conn=wye kv=0.416 kw=24 pf=0.95 model=1
+        """
+        m = PowerIO.parse(IOBuffer(lowerable); from="dss")
+        @test module_kind(m) == "multiconductor_network"
+        readiness = lowering_readiness(m; base_mva = 50.0)
+        @test readiness isa JSON3.Object
+        lowered = lower_module_to_balanced(m; base_mva = 75.0)
+        @test module_kind(lowered) == "balanced_network"
+        bal = as_network(lowered)
+        @test bal isa BalancedNetwork
+        @test PowerIO.base_mva(bal) == 75.0
 
         # The in-memory parser matches the file parser on the round trip.
-        net_str = parse_str(MulticonductorNetwork, read(dss, String), "dss")
+        net_str = PowerIO.parse_str(MulticonductorNetwork, read(dss, String), "dss")
         @test getfield(net_str, :data) === nothing
         @test first(to_format(net_str, "dss")) == read(dss, String)
         @test getfield(net_str, :data) === nothing
@@ -267,7 +220,7 @@ end
         bmopf, bmopf_w = convert_file(MulticonductorNetwork, dss, "bmopf")
         @test !isempty(bmopf)
         @test bmopf_w isa AbstractVector{<:AbstractString}
-        bmopf_net = parse_str(MulticonductorNetwork, bmopf, "bmopf")
+        bmopf_net = PowerIO.parse_str(MulticonductorNetwork, bmopf, "bmopf")
         @test bmopf_net isa MulticonductorNetwork
         @test PowerIO.warnings(bmopf_net) isa Vector{String}
         bmopf_hinted, _ = convert_file(MulticonductorNetwork, dss, "bmopf"; from="dss")
@@ -277,7 +230,7 @@ end
         @test cs == pmd
 
         gen_dss = joinpath(@__DIR__, "data", "dist", "generator.dss")
-        gen_net = parse_file(MulticonductorNetwork, gen_dss)
+        gen_net = PowerIO.parse_file(MulticonductorNetwork, gen_dss)
         gen_pmd, _ = to_format(gen_net, "pmd")
         gen_pmd_doc = PowerIO._json_plain(JSON3.read(gen_pmd))
         @test haskey(gen_pmd_doc, "generator")
@@ -294,7 +247,7 @@ end
         New Reactor.loadbusgrounding_B3230 phases=1 bus1=B3230.4 bus2=B3230.0 r=10.0 x=0.0
         New Reactor.loadbusgrounding_B2656 phases=1 bus1=B2656.4 bus2=B2656.0 r=10.0 x=0.0
         """
-        grounding_net = parse_str(MulticonductorNetwork, grounding, "dss")
+        grounding_net = PowerIO.parse_str(MulticonductorNetwork, grounding, "dss")
         @test !any(w -> occursin("reactor", lowercase(w)), PowerIO.warnings(grounding_net))
         grounding_bmopf, grounding_w = to_format(grounding_net, "bmopf")
         @test !any(w -> occursin("reactor", lowercase(w)) ||
@@ -321,7 +274,7 @@ end
 
         # The bare verb routes on the format: a .dss path parses into a
         # handle-carrying MulticonductorNetwork, symmetric with the balanced side.
-        routed = parse_file(dss)
+        routed = PowerIO.parse(dss; value_type=MulticonductorNetwork)
         @test routed isa MulticonductorNetwork
         @test getfield(routed, :data) === nothing
         @test PowerIO.n_buses(routed) > 0
@@ -342,9 +295,9 @@ end
         # Bare-verb routing agrees with the marker forms, for every entry point
         # and token spelling.
         dss_text = read(dss, String)
-        @test parse_str(dss_text, "dss") isa MulticonductorNetwork
-        @test parse_file(IOBuffer(dss_text), "dss") isa MulticonductorNetwork
-        @test parse_file(dss; from="OpenDSS") isa MulticonductorNetwork
+        @test PowerIO.parse(IOBuffer(dss_text); from="dss", value_type=MulticonductorNetwork) isa MulticonductorNetwork
+        @test PowerIO.parse(IOBuffer(dss_text); from="dss", value_type=MulticonductorNetwork) isa MulticonductorNetwork
+        @test PowerIO.parse(dss; from="OpenDSS", value_type=MulticonductorNetwork) isa MulticonductorNetwork
         @test first(convert_file(dss, "bmopf")) == bmopf
         @test first(convert_str(dss_text, "pmd"; from="dss")) == pmd
 
@@ -353,7 +306,7 @@ end
         # a wrong-format parse failure is fine, an unrecognized token is drift.
         for token in PowerIO._DIST_FORMAT_KEYS
             err = try
-                parse_str(MulticonductorNetwork, "not a case", token)
+                PowerIO.parse_str(MulticonductorNetwork, "not a case", token)
                 nothing
             catch e
                 sprint(showerror, e)
@@ -385,17 +338,17 @@ end
         # explicit BalancedNetwork marker bypasses routing to the balanced
         # parser, whose error names the distribution API.
         @test_throws ErrorException convert_file(dss, "matpower")
-        @test occursin("lower_multiconductor_to_balanced",
+        @test occursin("lower_module_to_balanced",
                        try convert_file(dss, "matpower"); "" catch e; sprint(showerror, e) end)
         @test_throws ErrorException convert_file(joinpath(@__DIR__, "data", "case14.m"), "bmopf")
         @test_throws ErrorException convert_str(dss_text, "matpower"; from="dss")
         @test_throws ErrorException to_format(net, "matpower")
-        @test_throws ErrorException parse_file(BalancedNetwork, dss)
-        @test_throws ErrorException parse_file(dss; from="matpower")
+        @test_throws ErrorException PowerIO.parse_file(BalancedNetwork, dss)
+        @test_throws PowerIOCError PowerIO.parse(dss; from="matpower", value_type=BalancedNetwork)
         # The parse_str marker must pin the model too, not route on the token.
-        @test_throws ErrorException parse_str(BalancedNetwork, dss_text, "dss")
+        @test_throws ErrorException PowerIO.parse_str(BalancedNetwork, dss_text, "dss")
         mtext = read(joinpath(@__DIR__, "data", "case14.m"), String)
-        @test parse_str(BalancedNetwork, mtext, "matpower") isa BalancedNetwork
+        @test PowerIO.parse_str(BalancedNetwork, mtext, "matpower") isa BalancedNetwork
 
         # A handle-less MulticonductorNetwork (payload only): accessors and
         # warnings work, the handle transforms refuse directedly.
@@ -426,29 +379,21 @@ end
             @test first(to_format(rebuilt, "bmopf")) == first(to_format(routed, "bmopf"))
             @test_throws ErrorException from_json(MulticonductorNetwork, "not json")
         end
-        if package_available()
-            @test_throws ErrorException to_package(bare)
-        end
-
-        if package_available()
-            # from_package returns the model the package holds; the rebuilt
-            # handle serializes (fresh serialization, no echo expectation).
-            back = from_package(to_package(routed))
+        # The stored module carries the multiconductor value both ways, and a
+        # .pio.json path routes through the universal parse to the right kind.
+        begin
+            m2 = PowerIO.parse(IOBuffer(read(dss, String)); from="dss")
+            routed_doc = write_module(m2)
+            back = as_dist_network(read_module(routed_doc))
             @test back isa MulticonductorNetwork
             @test getfield(back, :data) === nothing
-            @test PowerIO.n_buses(back) == PowerIO.n_buses(routed)
-            has_dist_summary && @test getfield(back, :data) === nothing
-            @test first(to_format(back, "bmopf")) == first(to_format(routed, "bmopf"))
-            has_dist_summary && @test getfield(back, :data) === nothing
-            # A .pio.json path routes through the package reader to the right
-            # model, for both kinds.
+            @test PowerIO.n_buses(back) == PowerIO.n_buses(net)
+            @test first(to_format(back, "bmopf")) == first(to_format(net, "bmopf"))
             dir = mktempdir()
             mpath = joinpath(dir, "feeder.pio.json")
-            write_package(mpath, routed)
-            @test parse_file(mpath) isa MulticonductorNetwork
-            bpath = joinpath(dir, "case14.pio.json")
-            write_package(bpath, parse_file(joinpath(@__DIR__, "data", "case14.m")))
-            @test parse_file(bpath) isa BalancedNetwork
+            write(mpath, routed_doc)
+            @test PowerIO.parse(mpath; value_type=MulticonductorNetwork) isa MulticonductorNetwork
+            @test_throws PowerIOCError PowerIO.parse(mpath; value_type=BalancedNetwork)
         end
 
         # A distribution flavored bare .json routes automatically off the
@@ -457,9 +402,9 @@ end
         dir = mktempdir()
         jpath = joinpath(dir, "feeder.json")
         write(jpath, pmd)
-        @test parse_file(jpath) isa MulticonductorNetwork
+        @test PowerIO.parse(jpath; value_type=MulticonductorNetwork) isa MulticonductorNetwork
 
         # A nonexistent path returns a Julia error, not a fault.
-        @test_throws ErrorException parse_file(MulticonductorNetwork, joinpath(@__DIR__, "data", "no_such.dss"))
+        @test_throws ErrorException PowerIO.parse_file(MulticonductorNetwork, joinpath(@__DIR__, "data", "no_such.dss"))
     end
 end

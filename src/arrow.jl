@@ -108,6 +108,8 @@ end
 # package.jl); gen/update_artifacts.jl checks it against the library's
 # `pio_schema_versions_json` report before it pins binaries.
 
+# Ids 6 to 14, 21, and 22 carried the retired 0.9 solver row projection and
+# stay burned: a new table takes the next unused id, never a retired one.
 const _ARROW_TABLE_IDS = (
     bus = Cint(0),
     branch = Cint(1),
@@ -115,23 +117,12 @@ const _ARROW_TABLE_IDS = (
     load = Cint(3),
     shunt = Cint(4),
     switch = Cint(5),
-    solver_bus = Cint(6),
-    solver_load = Cint(7),
-    solver_shunt = Cint(8),
-    solver_branch = Cint(9),
-    solver_switch = Cint(10),
-    solver_arc = Cint(11),
-    solver_gen = Cint(12),
-    solver_storage = Cint(13),
-    solver_hvdc = Cint(14),
     ybus = Cint(15),
     incidence = Cint(16),
     bprime = Cint(17),
     bdoubleprime = Cint(18),
     matrix_bus = Cint(19),
     matrix_branch = Cint(20),
-    solver_gen_cost = Cint(21),
-    solver_gen_cost_coeff = Cint(22),
 )
 
 const _MATRIX_ARROW_TABLES = Set((:ybus, :incidence, :bprime, :bdoubleprime))
@@ -407,9 +398,9 @@ function _matrix_axis_metadata(s::CArrowSchema)
         vlen = _metadata_len(ptr, offset, "value length", _ARROW_METADATA_MAX_BYTES)
         offset += sizeof(Int32)
         if is_row_count
-            row_count = parse(Int, unsafe_string(ptr + offset, vlen))
+            row_count = Base.parse(Int, unsafe_string(ptr + offset, vlen))
         elseif is_col_count
-            col_count = parse(Int, unsafe_string(ptr + offset, vlen))
+            col_count = Base.parse(Int, unsafe_string(ptr + offset, vlen))
         elseif is_row_axis
             row_axis = unsafe_string(ptr + offset, vlen)
         elseif is_col_axis
@@ -448,8 +439,8 @@ function _with_matrix_metadata(cols::NamedTuple, table::Symbol,
     format = get(metadata, "powerio.format", "coo")
     row_axis = get(metadata, "powerio.row_axis", "solver_bus")
     col_axis = get(metadata, "powerio.col_axis", table == :incidence ? "solver_branch" : "solver_bus")
-    row_count = parse(Int, metadata["powerio.row_count"])
-    col_count = parse(Int, metadata["powerio.col_count"])
+    row_count = Base.parse(Int, metadata["powerio.row_count"])
+    col_count = Base.parse(Int, metadata["powerio.col_count"])
     return (; cols..., table=reported, powerio_version, format, row_axis, col_axis,
             row_count, col_count)
 end
@@ -461,7 +452,7 @@ const _ARROW_METADATA_NUMERIC = Dict(:base_mva => Float64)
 
 _arrow_metadata_value(name::Symbol, value::AbstractString) =
     haskey(_ARROW_METADATA_NUMERIC, name) ?
-    parse(_ARROW_METADATA_NUMERIC[name], value) : value
+    Base.parse(_ARROW_METADATA_NUMERIC[name], value) : value
 
 # Every table's schema metadata rides back as extra fields, named by the metadata
 # key with the `powerio.` prefix dropped (`powerio.version` reads
@@ -645,15 +636,11 @@ end
 Export one network table over the Arrow C Data Interface. Raw table selectors are
 `:bus`, `:branch`, `:gen`, `:load`, `:shunt`, and `:switch`; those columns are
 the parsed network fields with 1-based (external) bus ids, the same id space as
-[`to_dense`](@ref). Normalized solver table selectors are `:solver_bus`,
-`:solver_load`, `:solver_shunt`, `:solver_branch`, `:solver_switch`,
-`:solver_arc`, `:solver_gen`, `:solver_storage`, and `:solver_hvdc`; those
-columns use dense 0-based row ids and per unit/radian values. Matrix selectors
-are `:ybus`, `:incidence`, `:bprime`, and `:bdoubleprime`; they return COO
-columns plus schema metadata. Matrix axis selectors are `:matrix_bus` and
-`:matrix_branch`; they map dense matrix rows and incidence columns back to source
-bus and branch rows. Generator cost selectors are `:solver_gen_cost` and
-`:solver_gen_cost_coeff`.
+[`to_dense`](@ref). Matrix selectors are `:ybus`, `:incidence`, `:bprime`, and
+`:bdoubleprime`; they return COO columns plus schema metadata. Matrix axis
+selectors are `:matrix_bus` and `:matrix_branch`; they map dense matrix rows
+and incidence columns back to source bus and branch rows. The 0.9 solver row
+tables are retired; their ids stay burned.
 
 Whatever schema metadata a table carries rides back as extra fields named by the
 metadata key without its `powerio.` prefix. The cost tables carry `base_mva`, the
