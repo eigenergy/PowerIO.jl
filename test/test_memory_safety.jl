@@ -1,12 +1,12 @@
 @testset "memory safety guards" begin
     if !PowerIO.library_available()
-        @test_skip parse_file("case14.m")
+        @test_skip PowerIO.parse("case14.m"; value_type=BalancedNetwork)
     else
         data = joinpath(@__DIR__, "data")
         m = joinpath(data, "case14.m")
 
         @testset "live handles keep their allocating library" begin
-            net = parse_file(m)
+            net = PowerIO.parse(m; value_type=BalancedNetwork)
             bus_ids = to_dense(net).bus_ids
             has_arrow = PowerIO.arrow_available()
             missing_lib = joinpath(mktempdir(), "not-libpowerio_capi.$(Libdl.dlext)")
@@ -27,7 +27,7 @@
 
         @testset "handle access under GC" begin
             for _ in 1:50
-                net = parse_file(m)
+                net = PowerIO.parse(m; value_type=BalancedNetwork)
                 d = to_dense(net)
                 GC.gc(); GC.gc()
                 @test d.n == 14
@@ -73,7 +73,7 @@
             # `data` is lazy: reading it after the handle is finalized re-materializes
             # through a freed handle, so the data-backed accessors must raise a clear
             # "finalized" error rather than a confusing "reparse it" one or a segfault.
-            net = parse_file(m)
+            net = PowerIO.parse(m; value_type=BalancedNetwork)
             @test getfield(net, :data) === nothing
             finalize(getfield(net, :handle))
             @test_throws ErrorException net.data
@@ -88,7 +88,7 @@
 
             # Finalizing *after* the first access leaves `data` cached, so the
             # payload-backed reads keep working.
-            net2 = parse_file(m)
+            net2 = PowerIO.parse(m; value_type=BalancedNetwork)
             n = PowerIO.n_buses(net2)
             cached = net2.data
             finalize(getfield(net2, :handle))
@@ -103,7 +103,7 @@
                 # the finalized case identically for consistency.
                 dss = joinpath(data, "dist", "switch.dss")
                 if isfile(dss)
-                    dn = parse_file(MulticonductorNetwork, dss)
+                    dn = PowerIO.parse_file(MulticonductorNetwork, dss)
                     finalize(getfield(dn, :handle))
                     @test_throws ErrorException dn.data
                     derr = try; dn.data; catch e; e; end

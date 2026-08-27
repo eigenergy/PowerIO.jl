@@ -137,6 +137,26 @@ function parse_module_str(text::AbstractString;
 end
 
 """
+    parse_module_bytes(bytes; format=nothing) -> StoredModule
+
+Parse in-memory case bytes into a module: the only in-memory way to read a
+binary format. Text formats must be UTF-8.
+"""
+function parse_module_bytes(bytes::AbstractVector{UInt8};
+                            format::Union{AbstractString,Nothing}=nothing)
+    lib = _lib()
+    _ensure_compatible(lib)
+    _require_export("parse_module_bytes", :pio_module_parse_bytes, "powerio v1.0", lib)
+    data = Vector{UInt8}(bytes)
+    ptr = GC.@preserve data _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_module_parse_bytes), Ptr{Cvoid},
+              (Ptr{UInt8}, Csize_t, Cstring, Ref{Ptr{Cvoid}}), data, length(data),
+              format === nothing ? C_NULL : format, err)
+    end
+    return StoredModule(ptr, lib)
+end
+
+"""
     write_module(m::StoredModule) -> String
 
 The stored version 1 document.
@@ -209,6 +229,21 @@ function export_state(m::StoredModule;
               scenario === nothing ? C_NULL : scenario, err)
     end
     return StoredModule(ptr, lib)
+end
+
+"""
+    lowering_readiness(m::StoredModule; base_mva=100.0)
+
+Readiness of the multiconductor value for the balanced lowering, decoded
+from JSON: the inspect half of the transformation.
+"""
+function lowering_readiness(m::StoredModule; base_mva::Real=100.0)
+    lib = getfield(m, :lib)
+    s = GC.@preserve m _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_module_lowering_readiness_json), Cstring,
+              (Ptr{Cvoid}, Cdouble, Ref{Ptr{Cvoid}}), _module_ptr(m), base_mva, err)
+    end
+    return JSON3.read(_take_string(lib, s))
 end
 
 """

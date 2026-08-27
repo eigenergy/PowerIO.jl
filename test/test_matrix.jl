@@ -18,7 +18,7 @@ using SparseArrays
         @test_throws ErrorException calc_bprime_matrix(m)
         @test_throws ErrorException calc_bdoubleprime_matrix(m)
     else
-        net = parse_file(m)
+        net = PowerIO.parse(m; value_type=BalancedNetwork)
         @test getfield(net, :data) === nothing
 
         sparse_from_coo(coo, values) = sparse(
