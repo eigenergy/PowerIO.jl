@@ -163,6 +163,19 @@ end
 
     diagnostics = module_diagnostics(m)
     @test diagnostics isa Vector{ModuleDiagnostic}
+
+    # A diagnostic row decodes whether `target` is stated, stated as an
+    # explicit null (the capi JSON spelling), or absent (the DTO spelling).
+    for (row, want) in (
+        (JSON3.read("""{"code":"C","severity":"note","message":"m","target":"t"}"""), "t"),
+        (JSON3.read("""{"code":"C","severity":"note","message":"m","target":null}"""), nothing),
+        (JSON3.read("""{"code":"C","severity":"note","message":"m"}"""), nothing),
+    )
+        record = ModuleDiagnostic(String(row.code), String(row.severity),
+                                  String(row.message),
+                                  PowerIO._record_string(row, :target))
+        @test record.target == want
+    end
 end
 
 @testset "module_kind and formula outlive their GC.@preserve scope" begin

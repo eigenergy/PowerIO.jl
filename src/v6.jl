@@ -511,7 +511,12 @@ function _stored_document(m::StoredModule)
     return JSON3.read(write_module(m))
 end
 
-_record_string(row, key) = haskey(row, key) ? String(row[key]) : nothing
+# An explicit JSON null reads like an absent key: the capi diagnostics
+# document writes "target": null where the DTO omits the key.
+function _record_string(row, key)
+    value = get(row, key, nothing)
+    return value === nothing ? nothing : String(value)
+end
 
 """
     module_diagnostics(m::StoredModule) -> Vector{ModuleDiagnostic}
