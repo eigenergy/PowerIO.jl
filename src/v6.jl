@@ -364,7 +364,18 @@ function _dc_strings(d::DcData, sym::Symbol, count_sym::Symbol,
     table = GC.@preserve d ccall(_library_symbol(lib, sym), Ptr{Cstring},
                                  (Ptr{Cvoid},), _dc_ptr(d))
     table == C_NULL && return String[]
-    return GC.@preserve d String[unsafe_string(unsafe_load(table, i)) for i in 1:len]
+    return GC.@preserve d String[_dc_string_entry(sym, table, i, len) for i in 1:len]
+end
+
+# One entry of a C string table: a NULL this far into a table whose own count
+# accessor claims `len` entries is the table and its count disagreeing about
+# what is actually populated, not an absent table (already handled above), so
+# it gets its own directed error rather than surfacing as unsafe_string's
+# generic "cannot convert NULL to string".
+function _dc_string_entry(sym::Symbol, table::Ptr{Cstring}, i::Int, len::Int)
+    p = unsafe_load(table, i)
+    p == C_NULL && error("PowerIO: $sym has a NULL entry at index $i of $len")
+    return unsafe_string(p)
 end
 
 """Stable module element ID per included row."""
