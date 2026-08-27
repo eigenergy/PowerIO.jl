@@ -27,21 +27,21 @@ The format is inferred from the extension unless `from` is given. egret and
 PowerModels both use `.json`, so those two need the hint:
 
 ```julia
-net   = parse_file("case14.m")
-egret = parse_file("grid.json"; from="egret")
+net   = PowerIO.parse("case14.m"; value_type=BalancedNetwork)
+egret = PowerIO.parse("grid.json"; from="egret", value_type=BalancedNetwork)
 ```
 
 ## Parsing
 
-[`parse_file`](@ref) reads a path or an `IO`; [`parse_str`](@ref) reads
-in-memory text (a `String` argument to `parse_file` is always a path);
-[`from_json`](@ref) rebuilds from the internal balanced JSON snapshot
-[`to_json`](@ref) writes.
+[`PowerIO.parse`](@ref) reads a path, in-memory bytes, or an `IO` into a
+[`StoredModule`](@ref); `value_type=BalancedNetwork` narrows to the live
+network handle in the same call. [`from_json`](@ref) rebuilds from the
+internal balanced JSON snapshot [`to_json`](@ref) writes.
 
 ```julia
-net = parse_file("case14.m")
-net = parse_file(IOBuffer(text), "matpower")
-net = parse_str(text, "matpower")
+m   = PowerIO.parse("case14.m")
+net = PowerIO.parse("case14.m"; value_type=BalancedNetwork)
+net = PowerIO.parse(codeunits(text); from="matpower", value_type=BalancedNetwork)
 net = from_json(to_json(net))
 ```
 

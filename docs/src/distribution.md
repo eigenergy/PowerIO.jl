@@ -37,8 +37,8 @@ on `dist_capabilities().typed_capacitors` before you read
 | PowerModelsDistribution ENGINEERING JSON | `"pmd"` | `.json` |
 | IEEE BMOPF Taskforce JSON | `"bmopf"` | `.json` |
 
-A `.pio.json` package is not a case format and has no token: read it with
-[`read_package`](@ref) and [`from_package`](@ref).
+A `.pio.json` stored module is not a case format and has no token: read it
+with [`PowerIO.parse`](@ref) and open the handle with [`as_dist_network`](@ref).
 
 A `.dss` path routes by extension. A bare `.json` routes by the same top level
 markers the core parsers use (the ENGINEERING `data_model` key means PMD, BMOPF

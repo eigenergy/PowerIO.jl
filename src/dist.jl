@@ -86,9 +86,9 @@ Build one with [`parse_file`](@ref)`("feeder.dss")` (the bare verb routes on
 the format) or the explicit `parse_file(MulticonductorNetwork, path)`. A
 `MulticonductorNetwork` constructed from a bare payload object has
 `handle === nothing`; the accessors work on it, but the handle transforms
-([`to_format`](@ref), [`to_package`](@ref)) error. JSON carry with provenance
-is [`to_package`](@ref) / [`from_package`](@ref); exchange with tools outside
-PowerIO is `to_format(net, "bmopf")`.
+([`to_format`](@ref)) error. JSON carry with provenance is the stored module
+([`write_module`](@ref) / [`PowerIO.parse`](@ref)); exchange with tools
+outside PowerIO is `to_format(net, "bmopf")`.
 
 As on [`BalancedNetwork`](@ref), `data` is lazy: `finalize(net.handle)` before the
 first `net.data` access leaves the data-backed accessors with nothing to read and
