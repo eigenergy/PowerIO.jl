@@ -44,7 +44,7 @@
         # A dict without branches is a no-op, not an error.
         @test PowerIO.correct_voltage_angle_differences!(Dict{String,Any}()) == Dict{String,Any}()
 
-        pm = to_powermodels(parse_file(joinpath(@__DIR__, "data", "angle_bounds_clamp.m")))
+        pm = to_powermodels(PowerIO.parse(joinpath(@__DIR__, "data", "angle_bounds_clamp.m"); value_type=BalancedNetwork))
         PowerIO.correct_voltage_angle_differences!(pm)
         @test pm["branch"]["1"]["angmin"] == -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
         @test pm["branch"]["1"]["angmax"] == PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
@@ -53,12 +53,12 @@
         @test pm["branch"]["3"]["angmin"] ≈ -pi / 6
         @test pm["branch"]["3"]["angmax"] ≈ pi / 6
 
-        custom = to_powermodels(parse_file(joinpath(@__DIR__, "data", "angle_bounds_clamp.m")))
+        custom = to_powermodels(PowerIO.parse(joinpath(@__DIR__, "data", "angle_bounds_clamp.m"); value_type=BalancedNetwork))
         PowerIO.correct_voltage_angle_differences!(custom; default_pad=0.5)
         @test custom["branch"]["1"]["angmin"] == -0.5
         @test custom["branch"]["1"]["angmax"] == 0.5
 
-        dropped = to_powermodels(parse_file(joinpath(@__DIR__, "data", "angle_bounds_clamp.m")))
+        dropped = to_powermodels(PowerIO.parse(joinpath(@__DIR__, "data", "angle_bounds_clamp.m"); value_type=BalancedNetwork))
         dropped["branch"]["2"]["br_status"] = 0
         dropped["branch"]["3"]["angmin"] = -2pi
         dropped["branch"]["3"]["angmax"] = 2pi
@@ -75,7 +75,7 @@
             data = joinpath(@__DIR__, "data")
 
             # case14 through to_powermodels: counts, arcs, slack, adjacency.
-            pm = to_powermodels(parse_file(joinpath(data, "case14.m")))
+            pm = to_powermodels(PowerIO.parse(joinpath(data, "case14.m"); value_type=BalancedNetwork))
             ref = PowerIO.build_ref(pm)
             @test length(ref[:bus]) == 14
             @test length(ref[:gen]) == 5
@@ -101,7 +101,7 @@
             # norm_tiny: bus 8 is ISOLATED (bus_type 4) and two branches are
             # out of service or dangle onto the dropped bus; the ref filters
             # all of them and keeps the non-contiguous source ids.
-            tiny = PowerIO.build_ref(to_powermodels(parse_file(joinpath(data, "norm_tiny.m"))))
+            tiny = PowerIO.build_ref(to_powermodels(PowerIO.parse(joinpath(data, "norm_tiny.m"); value_type=BalancedNetwork)))
             @test sort(collect(keys(tiny[:bus]))) == [1, 3, 5]
             @test length(tiny[:branch]) == 2
             @test all(br["f_bus"] in keys(tiny[:bus]) && br["t_bus"] in keys(tiny[:bus])

@@ -25,8 +25,8 @@ end
 Build a PowerIO [`BalancedNetwork`](@ref) from PowerModels network data. `data` may be a
 Julia dictionary / NamedTuple or a JSON string.
 """
-from_powermodels(data) = parse_str(JSON3.write(data), "powermodels-json")
-from_powermodels(data::AbstractString) = parse_str(data, "powermodels-json")
+from_powermodels(data) = parse_str(BalancedNetwork, JSON3.write(data), "powermodels-json")
+from_powermodels(data::AbstractString) = parse_str(BalancedNetwork, data, "powermodels-json")
 
 # --- PowerModels reference utilities -------------------------------------
 #
@@ -145,7 +145,7 @@ end
 function _pm_component_dict(network_data::Dict{String,<:Any}, name::String;
                             copy_rows::Bool=false)
     raw = get(network_data, name, Dict{String,Any}())
-    return Dict(parse(Int, string(k)) => (copy_rows ? deepcopy(v) : v)
+    return Dict(Base.parse(Int, string(k)) => (copy_rows ? deepcopy(v) : v)
                 for (k, v) in raw)
 end
 

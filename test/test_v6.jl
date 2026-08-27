@@ -97,22 +97,33 @@ _has_v6 = PowerIO.library_available() &&
 
     @testset "series values inventory and export over the module surface" begin
         # A released 0.9 package with operating points upgrades on read and
-        # selects by time position.
-        pkg = PowerIO.to_package(case9)
-        series = Dict(
-            "time_axis" => Dict("periods" => 2, "duration_hours" => [1.0, 1.0],
-                                "labels" => ["h0", "h1"]),
-            "points" => [
-                Dict("index" => 0, "updates" => Any[]),
-                Dict("index" => 1, "updates" => [Dict(
-                    "element" => Dict("table" => "generators",
-                                       "source_uid" => "generators:0"),
-                    "fields" => Dict("pg" => 95.0),
-                )]),
-            ],
-        )
-        pkg = PowerIO.set_operating_points(pkg, series)
-        m = read_module(PowerIO.to_json(pkg))
+        # selects by time position. The document is hand authored: the 0.9
+        # writer is gone, and the frozen layout is the upgrade specification.
+        network_json = JSON3.read(to_json(PowerIO.parse(case9; value_type=BalancedNetwork)))
+        legacy = JSON3.write(Dict(
+            "powerio_version" => "0.9.0",
+            "producer" => Dict("tool" => "PowerIO.jl test", "version" => "0"),
+            "model_kind" => "balanced",
+            "model" => Dict("kind" => "balanced", "balanced_network" => network_json),
+            "origin" => Dict("kind" => "in_memory"),
+            "validation" => Dict("status" => "ok",
+                                 "counts" => Dict("fatal" => 0, "error" => 0,
+                                                  "warning" => 0, "info" => 0,
+                                                  "debug" => 0)),
+            "operating_points" => Dict(
+                "time_axis" => Dict("periods" => 2, "duration_hours" => [1.0, 1.0],
+                                    "labels" => ["h0", "h1"]),
+                "points" => [
+                    Dict("index" => 0, "updates" => Any[]),
+                    Dict("index" => 1, "updates" => [Dict(
+                        "element" => Dict("table" => "generators",
+                                           "source_uid" => "generators:0"),
+                        "fields" => Dict("pg" => 95.0),
+                    )]),
+                ],
+            ),
+        ))
+        m = read_module(legacy)
         @test module_kind(m) == "balanced_operating_point_time_series"
         inventory = state_inventory(m)
         @test inventory.keyed_by == "time_position"
