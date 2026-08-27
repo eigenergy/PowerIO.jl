@@ -117,6 +117,77 @@ _has_v6 = PowerIO.library_available() &&
     end
 end
 
+@testset "DC data string and span lengths agree with their count accessors (3W bus table)" begin
+    if !_has_v6
+        @test_skip "the resolved library predates the ABI v6 entry points"
+        return
+    end
+    # An in service three winding transformer becomes a synthetic star bus:
+    # the string tables (row_ids, bus_ids, omitted) are separate arrays from
+    # the count accessors (n_rows, n_buses, n_omitted) on the Rust side, and a
+    # rebuild is in flight to keep them in step for this fixture. This
+    # testset may only pass once that rebuild is in the resolved library.
+    fixture = joinpath(@__DIR__, "data", "psse", "case3_3w_v33.raw")
+    d = dc_data(parse_module(fixture))
+    rows = PowerIO.n_rows(d)
+    buses = PowerIO.n_buses(d)
+
+    @test length(PowerIO.row_ids(d)) == rows
+    @test length(PowerIO.bus_ids(d)) == buses
+    @test length(PowerIO.from_indices(d)) == rows
+    @test length(PowerIO.to_indices(d)) == rows
+    @test length(PowerIO.susceptance(d)) == rows
+    @test length(PowerIO.shift_injection(d)) == buses
+    @test all(!isempty, PowerIO.row_ids(d))
+    @test all(!isempty, PowerIO.bus_ids(d))
+    for (id, reason) in PowerIO.omitted(d)
+        @test !isempty(id)
+        @test !isempty(reason)
+    end
+
+    a = incidence_matrix(d)
+    @test size(a) == (rows, buses)
+    b_matrix = susceptance_laplacian(d)
+    @test size(b_matrix) == (buses, buses)
+    bf = flow_matrix(d)
+    @test size(bf) == (rows, buses)
+    @test length(bus_injection(d, zeros(buses))) == buses
+end
+
+@testset "phase shift bus injection matches the sign corrected equations" begin
+    if !_has_v6
+        @test_skip "the resolved library predates the ABI v6 entry points"
+        return
+    end
+    # p_shift = -A' * (b .* shift) and p_branch = -Bf * va - b .* shift: the
+    # KCL identity A' * p_branch == p_bus only holds with both signs
+    # corrected. pio_dc_data_fill_branch_flow gaining the `- b .* shift` term
+    # is a rebuild in flight; this testset may only pass once it lands.
+    shifted = """
+    function mpc = case2shift
+    mpc.version = '2';
+    mpc.baseMVA = 100;
+    mpc.bus = [
+    \t1\t3\t0\t0\t0\t0\t1\t1.0\t0\t230\t1\t1.1\t0.9;
+    \t2\t1\t50\t10\t0\t0\t1\t1.0\t0\t230\t1\t1.1\t0.9;
+    ];
+    mpc.gen = [
+    \t1\t100\t0\t100\t-100\t1\t100\t1\t200\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0;
+    ];
+    mpc.branch = [
+    \t1\t2\t0.01\t0.1\t0\t0\t0\t0\t1\t5\t1\t-360\t360;
+    ];
+    """
+    d = dc_data(parse_module_str(shifted; format="matpower"))
+    @test any(!iszero, PowerIO.shift_injection(d))
+
+    a = incidence_matrix(d)
+    va = [0.0, -0.03]
+    p_branch = branch_flow(d, va)
+    p_bus = bus_injection(d, va)
+    @test a' * p_branch ≈ p_bus atol=1e-10
+end
+
 @testset "typed module records and bounded field readers" begin
     if !_has_v6
         @test_skip "the resolved library predates the ABI v6 entry points"
@@ -161,7 +232,7 @@ end
     bf = flow_matrix(d)
     @test size(bf) == (rows, buses)
 
-    # p_branch = -Bf va (+ b .* shift, zero here) agrees with the C fill, and
+    # p_branch = -Bf va (- b .* shift, zero here) agrees with the C fill, and
     # p_bus = -B va + p_shift agrees with A' applied to that flow.
     va = collect(range(0.0, 0.08; length=buses))
     flow = branch_flow(d, va)
