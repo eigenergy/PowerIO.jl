@@ -38,7 +38,7 @@ on `dist_capabilities().typed_capacitors` before you read
 | IEEE BMOPF Taskforce JSON | `"bmopf"` | `.json` |
 
 A `.pio.json` package is not a case format and has no token: read it with
-[`read_package`](@ref) and [`from_package`](@ref).
+the stored module surface ([`read_module`](@ref), [`as_dist_network`](@ref)).
 
 A `.dss` path routes by extension. A bare `.json` routes by the same top level
 markers the core parsers use (the ENGINEERING `data_model` key means PMD, BMOPF
@@ -47,8 +47,8 @@ otherwise); `from` overrides.
 ## The same verbs, routed by format
 
 ```julia
-net = parse_file("feeder.dss")            # ::MulticonductorNetwork
-net = parse_str(text, "dss")
+net = PowerIO.parse("feeder.dss"; value_type=MulticonductorNetwork)
+net = PowerIO.parse(IOBuffer(text); from="dss", value_type=MulticonductorNetwork)
 text, warnings = to_format(net, "pmd")    # dispatches on the network type
 bmopf, _ = convert_file("feeder.dss", "bmopf")
 pmd, _   = convert_str(text, "pmd"; from="dss")
@@ -115,29 +115,25 @@ Two JSON forms exist on purpose, and they carry the same model:
 
 - **`.pio.json` packages** carry a case between PowerIO consumers with
   provenance, diagnostics, validation, operating points, and lowering history.
-  Julia stores packages as JSON backed envelopes today.
-- **BMOPF JSON** is the exchange format for tools outside PowerIO.
+- **BMOPF JSON** is the format for tools outside PowerIO.
 
-`parse_file("case.pio.json")` returns whichever model the envelope declares.
-Package JSON is not used by solver, matrix, dense, or Arrow fast paths; those
-read live network handles directly. `from_package(pkg)` rebuilds a live network
-handle and leaves `net.data` unset until a caller asks for the rich payload.
+`PowerIO.parse("case.pio.json")` returns the stored module; [`as_network`](@ref)
+and [`as_dist_network`](@ref) hand back the typed handle it declares, with
+the module's retained source threaded on so a same format write still echoes
+the source bytes. Document JSON is not used by solver, matrix, dense, or
+Arrow fast paths; those read live network handles directly.
 
 ```julia
-pkg = to_package(net)                   # ::NetworkPackage, model_kind = :multiconductor
-write_package("feeder.pio.json", net)
-back = from_package(pkg)                # ::MulticonductorNetwork again
-exchange, _ = to_format(net, "bmopf")   # for everything else
+m = PowerIO.parse("feeder.dss")         # ::StoredModule, kind multiconductor_network
+write("feeder.pio.json", write_module(m))
+back = as_dist_network(read_module(read("feeder.pio.json", String)))
+exchange, _ = to_format(back, "bmopf")  # for everything else
 ```
 
-A handle rebuilt from a package retains no source text, so a same-format write
-is a fresh serialization rather than a byte-exact echo; the payload's parse
-warnings ride along.
-
-Supported multiconductor packages lower explicitly to balanced ones:
+Supported multiconductor modules lower explicitly to balanced ones:
 
 ```julia
-report = multiconductor_to_balanced_preflight(pkg)   # what would lowering lose?
-bpkg = lower_multiconductor_to_balanced(pkg)         # picks a base_mva
-net = from_package(bpkg)                             # ::BalancedNetwork
+report = lowering_readiness(m)          # what would lowering lose?
+lowered = lower_module_to_balanced(m)   # picks a base_mva
+net = as_network(lowered)               # ::BalancedNetwork
 ```

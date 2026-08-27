@@ -6,7 +6,7 @@ powerio repository:
 
 Julia-specific notes:
 
-- Julia adds `parse_file(io, format)` because multiple dispatch is the natural
+- Julia adds `PowerIO.parse(io; from=format)` because multiple dispatch is the natural
   way to express IO input.
 - Julia does not use `convert` / `convert!` for file format conversion. In
   Julia, `Base.convert` means type conversion and `!` marks mutation; PowerIO

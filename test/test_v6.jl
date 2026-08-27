@@ -265,7 +265,7 @@ end
     bf = flow_matrix(d)
     @test size(bf) == (rows, buses)
 
-    # p_branch = -Bf va (- b .* shift, zero here) agrees with the C fill, and
+    # p_branch = -Bf va (+ b .* shift, zero here) agrees with the C fill, and
     # p_bus = -B va + p_shift agrees with A' applied to that flow.
     va = collect(range(0.0, 0.08; length=buses))
     flow = branch_flow(d, va)

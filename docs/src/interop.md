@@ -6,11 +6,11 @@
 | BMOPFTools.jl | both | PowerIO backed OpenDSS / BMOPF conversion |
 | ExaModelsPower.jl / ExaPowerIO.jl | out | [`to_powerdata`](@ref) / [`parse_ac_power_data`](@ref) |
 | PowerGridPlanning.jl | out | [`to_powermodels`](@ref), `PowerIO.build_ref`, and angle repair helpers |
-| powerio-pkg `.pio.json` | both | [`to_package`](@ref) / [`from_package`](@ref) / [`read_package`](@ref) / [`write_package`](@ref) |
+| stored `.pio.json` module | both | [`read_module`](@ref) / [`write_module`](@ref) / [`as_network`](@ref) / [`as_dist_network`](@ref) |
 | GridFM (gridfm-datakit Parquet) | in | [`read_gridfm`](@ref) / [`read_gridfm_scenarios`](@ref) |
 | GO Challenge 3 JSON | in | [`parse_goc3_json`](@ref) |
 | [PowerDiff.jl](https://github.com/grid-opt-alg-lab/PowerDiff.jl) | out | PowerDiff depends on PowerIO as its parser and data layer |
-| OpenDSS / PMD / IEEE BMOPF | both | format-routed `parse_file` / `to_format`; see [Distribution networks](distribution.md) |
+| OpenDSS / PMD / IEEE BMOPF | both | `PowerIO.parse` / `to_format`; see [Distribution networks](distribution.md) |
 
 ## PowerModels.jl
 
@@ -19,7 +19,7 @@ data dictionary — the post-parse `Dict{String,Any}` layout PowerModels.jl
 consumes. [`from_powermodels`](@ref) reads one back.
 
 ```julia
-net = parse_file("case14.m")
+net = PowerIO.parse("case14.m"; value_type=BalancedNetwork)
 data = to_powermodels(net)      # Dict{String,Any} with "bus", "branch", "gen", ...
 net2 = from_powermodels(data)
 ```
@@ -28,7 +28,7 @@ PowerIO also exposes the reference dict helpers that several PowerModels style
 packages need:
 
 ```julia
-data = to_powermodels(parse_file("case14.m"))
+data = to_powermodels(PowerIO.parse("case14.m"; value_type=BalancedNetwork))
 PowerIO.correct_voltage_angle_differences!(data)
 ref = PowerIO.build_ref(data)
 ```
@@ -79,37 +79,30 @@ PowerIO.
 using PowerGridPlanning
 
 network = PowerGridPlanning.load_network("case14.m")
-data = PowerIO.to_powermodels(PowerIO.parse_file("case14.m"))
+data = PowerIO.to_powermodels(PowerIO.parse("case14.m"; value_type=PowerIO.BalancedNetwork))
 ref = PowerIO.build_ref(data)
 ```
 
 ## `.pio.json` network packages
 
-`.pio.json` compiler packages wrap balanced and multiconductor networks with
-validation and provenance, over the native `pio_package_*` C ABI API
-(needs the default `pkg` feature; [`package_available`](@ref) reports it).
+Stored `.pio.json` modules carry one typed value beside the module's records
+(sources, source maps, diagnostics, history), over the native `pio_module_*`
+C ABI surface.
 
 ```julia
-pkg = to_package(net)                    # ::NetworkPackage, model_kind = :balanced
-json = to_json(pkg)                      # the .pio.json envelope
-net = from_package(json)                 # back to a live BalancedNetwork
-write_package("case14.pio.json", pkg)
-pkg = read_package("case14.pio.json")
+m = PowerIO.parse("case14.m")            # ::StoredModule, kind balanced_network
+doc = write_module(m)                    # the stored version 1 document
+net = as_network(read_module(doc))       # back to a live BalancedNetwork
 
-package_validation(pkg).status           # "ok"
-package_diagnostics(pkg)                 # structured diagnostics
-package_study(pkg)                       # study block, or nothing
-validated = validate_package(pkg)
-
-study_pkg = read_package("study-case.pio.json")
-package_study(study_pkg)                 # study block
-materialize_study_commit(study_pkg, 0)   # apply study commits through index 0
+module_kind(m)                           # "balanced_network"
+module_diagnostics(m)                    # structured diagnostics
+module_history(m)                        # history entries
+module_sources(m)                        # source descriptors
 ```
 
-`to_package(net; include_solver_metadata=true)` records the compact
-normalized solver table identity block used by `powerio-pkg`. Multiconductor
-packages preflight and lower explicitly; see
-[Distribution networks](distribution.md).
+A released 0.9 package upgrades one way on read; a nonempty legacy study is
+refused with the materialize instruction. Multiconductor modules preflight
+and lower explicitly; see [Distribution networks](distribution.md).
 
 ## GridFM
 

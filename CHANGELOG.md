@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.0
+
+PowerIO.jl 1.0.0 binds powerio 1.0.0 over C ABI 6. The 0.9 surfaces are gone; `PowerIO.parse` and the stored module replace them.
+
+- `PowerIO.parse(source; from, value_type)` is the one entry: a path, an `IO`, or in-memory bytes parses to a `StoredModule` of whichever family claims it, and `value_type` narrows to `BalancedNetwork` or `MulticonductorNetwork` in the same call. The narrowing threads the module's provenance, so a same format write still echoes the source bytes.
+- The stored module surface binds ABI v6 end to end: `read_module` / `write_module` (a released 0.9 package upgrades one way on read), `parse_module_bytes`, `inspect_module`, typed state selection and export, `lowering_readiness` with `lower_module_to_balanced`, structured `PowerIOCError` failures, and the typed record readers.
+- The DC branch data serves the corrected equations, `p_shift = A' (b .* shift)` and `p_branch = -Bf va + b .* shift`, with the incidence, Laplacian, flow matrix, and bus injection assembled from the same spans and pinned elementwise on a shifted fixture.
+- Removed: the untyped `parse_file` / `parse_str` / `parse_bytes` (the typed family entries stay as `PowerIO.parse_file(T, ...)`), `NetworkPackage` with the package readers and study and operating point accessors, `ScopfInstance` with `parse_scopf` and the GOC3 projection helpers, and the retired 0.9 solver row Arrow tables.
+- `features()` reports `arrow`, `matrix`, `gridfm`, `dist`, and `prob`; the `prob` probe reads the DC data surface.
+
 ## 0.9.0
 
 **One GOC3 SCOPF implementation.** `goc3_scopf_data` takes the document text and types the Rust core's instance (`pio_scopf_parse_str`, the projection `parse_scopf` serializes; the native library with the `prob` feature is now required for it). The wire document uses the language-neutral `powerio.scopf` schema. The pure Julia projection is retired, so every language consumes the same rows and every ordinal comes from document-order enumeration. `ScopfInstance` replaces `producers_first::Bool` with `device_class_layout::DeviceClassLayout` (`:contiguous` with `producers_first`, or `:interleaved`) and gains `dt`; device rows carry `j_dev` (position within the class), `j_sdd` (position in the canonical producers-then-consumers stacking), and `u_0` (the document's `initial_status.on_status`, also on AC line and transformer rows); reserve membership rows carry the member device's ordinals. `goc3_add_status_flags!` gains a method taking the typed rows, so no consumer reads raw lookups for initial status. The interleaved-classes warning is deleted because no ordinal depends on a uid. The Rust projection costs ~13 ms on a 340 KB case against ~1.4 ms for the retired Julia one — a one-time per-case load cost; per-field C accessors are the recorded escape hatch if a workload ever cares.

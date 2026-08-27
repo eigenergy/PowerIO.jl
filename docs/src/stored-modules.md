@@ -50,9 +50,9 @@ A[e, from] = +1
 A[e, to]   = -1
 B  = A' * Diagonal(b) * A
 Bf = Diagonal(b) * A
-p_shift  = -A' * (b .* shift)
+p_shift  = A' * (b .* shift)
 p_bus    = -B * va + p_shift
-p_branch = -Bf * va - b .* shift
+p_branch = -Bf * va + b .* shift
 ```
 
 Numeric spans surface as [`BorrowedVector`](@ref) read only views that keep

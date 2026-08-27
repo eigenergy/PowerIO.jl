@@ -7,7 +7,7 @@ PowerIO.jl owns Rust memory only through these Julia objects:
 - `PackageHandle`: owns a `PioPackage *` and frees it with `pio_package_free`.
 - `ArrowBuffers`: owns Arrow C Data Interface array and schema release callbacks.
 
-`BalancedNetwork`, `MulticonductorNetwork`, `NetworkPackage`, dense arrays, copied Arrow tables, and JSON values are Julia owned data. They do not borrow Rust memory.
+`BalancedNetwork`, `MulticonductorNetwork`, dense arrays, copied Arrow tables, and JSON values are Julia owned data. They do not borrow Rust memory. `StoredModule` and `DcData` own C handles behind `retain`/`release` finalizers.
 
 ## Audit Findings
 
@@ -31,13 +31,13 @@ Arrow and matrix API: `pio_to_arrow`, `pio_matrix_available`, plus the Arrow arr
 
 GridFM API: `pio_read_dir` and `pio_scenario_ids`.
 
-Package API: `pio_package_parse_file`, `pio_package_parse_str`, `pio_package_free`, `pio_package_to_json`, `pio_package_from_balanced_network`, `pio_package_from_multiconductor_network`, `pio_package_to_balanced_network`, `pio_package_to_multiconductor_network`, `pio_package_validate`, `pio_package_validation_json`, `pio_package_diagnostics_json`, `pio_package_operating_points_json`, `pio_package_study_json`, `pio_package_materialize_operating_point`, `pio_package_materialize_study_commit`, `pio_package_multiconductor_to_balanced_preflight_json`, and `pio_package_lower_multiconductor_to_balanced`.
+Module API: `pio_module_read_json`, `pio_module_parse_file`, `pio_module_parse_str`, `pio_module_parse_bytes`, `pio_module_write_json`, `pio_module_as_network`, `pio_module_as_dist_network`, the inspection and selection entries, and the `pio_module_retain`/`pio_module_release` lifecycle.
 
 Distribution API: `pio_dist_abi_version`, `pio_dist_capabilities_json`, `pio_dist_parse_file`, `pio_dist_parse_str`, `pio_dist_network_free`, `pio_dist_warnings`, `pio_dist_summary_json`, `pio_dist_to_json`, `pio_dist_graph_json`, `pio_dist_to_format`, `pio_dist_convert_file`, and `pio_dist_convert_str`.
 
 ## Guarantees
 
-Under normal Julia use, public functions do not expose raw Rust owned pointers. A parsed network or package has one Julia owner with one finalizer. Finalizers capture the free function from the library that allocated the pointer, so `set_library!` affects future parses and conversions, not existing handles.
+Under normal Julia use, public functions do not expose raw Rust owned pointers. A parsed network or module has one Julia owner with one finalizer. Finalizers capture the free function from the library that allocated the pointer, so `set_library!` affects future parses and conversions, not existing handles.
 
 All public handle reads preserve the Julia handle across the C call. Dense extraction allocates Julia arrays, passes their buffers to Rust, validates returned counts against capacity, and returns only Julia owned arrays.
 

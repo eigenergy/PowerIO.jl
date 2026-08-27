@@ -8,8 +8,9 @@ the same model through Julia, Python, C/C++, and Rust.
 ```julia
 using PowerIO
 
-net = parse_file("case14.m")            # BalancedNetwork
+net = PowerIO.parse("case14.m"; value_type=BalancedNetwork)
 length(PowerIO.buses(net))              # 14
+m = PowerIO.parse("case14.m")           # StoredModule; module_kind names the value
 text, warnings = convert_file("case14.m", "psse")
 ```
 
@@ -33,12 +34,13 @@ local build; see [Binary distribution](binary.md).
   cases (OpenDSS, PowerModelsDistribution JSON, IEEE BMOPF JSON). See
   [Distribution networks](distribution.md).
 
-The two share the same verbs, and the bare verbs route on the format:
-`parse_file("case14.m")` returns a `BalancedNetwork`, `parse_file("feeder.dss")`
-a `MulticonductorNetwork`, and `parse_file("case.pio.json")` whichever model
-the package holds. `to_format`, `convert_file`, and `warnings` dispatch on the
-network type; the type marker forms (`parse_file(BalancedNetwork, path)`,
-`parse_file(MulticonductorNetwork, path)`) pin a model explicitly.
+The two share the same verbs, and `PowerIO.parse` routes on the format: a
+`.m` path parses to a balanced module, a `.dss` path to a multiconductor one,
+and a `.pio.json` to whichever value the document stores; `value_type`
+narrows to the network handle in the same call. `to_format`, `convert_file`,
+and `warnings` dispatch on the network type; the type marker forms
+(`PowerIO.parse_file(BalancedNetwork, path)`,
+`PowerIO.parse_file(MulticonductorNetwork, path)`) pin a family explicitly.
 
 ## Where to go
 
