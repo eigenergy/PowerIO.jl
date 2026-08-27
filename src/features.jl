@@ -1,3 +1,11 @@
+"""
+    prob_available() -> Bool
+
+True when the resolved library exports the problem data surface behind the
+`prob` cargo feature (`pio_dc_data_build`).
+"""
+prob_available() = _exports_symbol(:pio_dc_data_build)
+
 # One "usable from Julia" probe per optional cargo feature. `features()` and
 # `has_feature`'s pre-0.7 fallback both read this table, so adding a feature is
 # one entry and the two can never disagree.
@@ -6,8 +14,7 @@ const _FEATURE_PROBES = (;
     matrix = matrix_available,
     gridfm = gridfm_available,
     dist = dist_available,
-    package = package_available,
-    prob = scopf_available,
+    prob = prob_available,
 )
 
 """
@@ -15,7 +22,7 @@ const _FEATURE_PROBES = (;
 
 Return the optional C ABI features available in the resolved library.
 
-The fields are `arrow`, `matrix`, `gridfm`, `dist`, `package`, and `prob`. Each
+The fields are `arrow`, `matrix`, `gridfm`, `dist`, and `prob`. Each
 field reports "usable from Julia" (symbol present and, where one exists, the
 feature ABI handshake passes); [`has_feature`](@ref) asks the library itself
 what it was compiled with. Use this in downstream packages instead of probing
@@ -27,8 +34,7 @@ features() = map(probe -> probe(), _FEATURE_PROBES)
     has_feature(feature) -> Bool
 
 Whether the resolved library was compiled with the named cargo feature
-(`pio_has_feature`): `"arrow"`, `"matrix"`, `"gridfm"`, `"dist"`, `"pkg"` (the
-[`features`](@ref) field name `"package"` is accepted as an alias), or
+(`pio_has_feature`): `"arrow"`, `"matrix"`, `"gridfm"`, `"dist"`, or
 `"prob"`. Unknown names return `false`; like the sibling probes this never
 throws — an unresolvable or ABI-incompatible library answers `false`. Unlike
 [`features`](@ref), this is what the library says it was compiled with; it
@@ -37,7 +43,7 @@ does not run the per-feature ABI handshakes. A pre-0.7 library without
 instead.
 """
 function has_feature(feature::AbstractString)
-    feature = feature == "package" ? "pkg" : String(feature)
+    feature = String(feature)
     lib = _lib()
     if _exports_symbol(:pio_has_feature, lib)
         try

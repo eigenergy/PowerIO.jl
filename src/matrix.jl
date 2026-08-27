@@ -21,7 +21,7 @@ Base.show(io::IO, x::AdmittanceMatrix{<:Number}) =
           SparseArrays.nnz(x.matrix), " entries)")
 
 function _matrix_from_path(f, path::AbstractString, fname::AbstractString; from=nothing)
-    net = parse_file(path; from=from)
+    net = parse(path; from=from, value_type=BalancedNetwork)
     net isa BalancedNetwork ||
         error("PowerIO.$fname: matrix APIs currently support balanced networks only")
     try

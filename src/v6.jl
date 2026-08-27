@@ -137,6 +137,26 @@ function parse_module_str(text::AbstractString;
 end
 
 """
+    parse_module_bytes(bytes; format=nothing) -> StoredModule
+
+Parse in-memory case bytes into a module: the only in-memory way to read a
+binary format. Text formats must be UTF-8.
+"""
+function parse_module_bytes(bytes::AbstractVector{UInt8};
+                            format::Union{AbstractString,Nothing}=nothing)
+    lib = _lib()
+    _ensure_compatible(lib)
+    _require_export("parse_module_bytes", :pio_module_parse_bytes, "powerio v1.0", lib)
+    data = Vector{UInt8}(bytes)
+    ptr = GC.@preserve data _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_module_parse_bytes), Ptr{Cvoid},
+              (Ptr{UInt8}, Csize_t, Cstring, Ref{Ptr{Cvoid}}), data, length(data),
+              format === nothing ? C_NULL : format, err)
+    end
+    return StoredModule(ptr, lib)
+end
+
+"""
     write_module(m::StoredModule) -> String
 
 The stored version 1 document.
@@ -212,6 +232,21 @@ function export_state(m::StoredModule;
 end
 
 """
+    lowering_readiness(m::StoredModule; base_mva=100.0)
+
+Readiness of the multiconductor value for the balanced lowering, decoded
+from JSON: the inspect half of the transformation.
+"""
+function lowering_readiness(m::StoredModule; base_mva::Real=100.0)
+    lib = getfield(m, :lib)
+    s = GC.@preserve m _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_module_lowering_readiness_json), Cstring,
+              (Ptr{Cvoid}, Cdouble, Ref{Ptr{Cvoid}}), _module_ptr(m), base_mva, err)
+    end
+    return JSON3.read(_take_string(lib, s))
+end
+
+"""
     lower_module_to_balanced(m::StoredModule; base_mva=100.0) -> StoredModule
 
 Explicitly lower a multiconductor module to a balanced module. Records and
@@ -276,9 +311,9 @@ The public equations and signs match PowerModels directly:
     A[e, to]   = -1
     B  = A' * Diagonal(b) * A
     Bf = Diagonal(b) * A
-    p_shift  = -A' * (b .* shift)
+    p_shift  = A' * (b .* shift)
     p_bus    = -B * va + p_shift
-    p_branch = -Bf * va - b .* shift
+    p_branch = -Bf * va + b .* shift
 """
 mutable struct DcData
     ptr::Ptr{Cvoid}
@@ -344,10 +379,10 @@ to_indices(d::DcData) = _dc_span(d, :pio_dc_data_to_indices, Int64, n_rows(d))
 """Branch susceptance per included row, PowerModels sign."""
 susceptance(d::DcData) = _dc_span(d, :pio_dc_data_susceptance, Float64, n_rows(d))
 
-"""Branch phase shift angle per included row, radians (the `shift` in `p_branch = -Bf * va - b .* shift`)."""
+"""Branch phase shift angle per included row, radians (the `shift` in `p_branch = -Bf * va + b .* shift`)."""
 shift(d::DcData) = _dc_span(d, :pio_dc_data_shift, Float64, n_rows(d))
 
-"""Phase shift bus injection `p_shift = -A' * (b .* shift)`, per bus."""
+"""Phase shift bus injection `p_shift = A' * (b .* shift)`, per bus."""
 shift_injection(d::DcData) = _dc_span(d, :pio_dc_data_shift_injection, Float64, n_buses(d))
 
 # Read a C string table (`const char *const *`): `sym` is the table itself,
@@ -405,8 +440,8 @@ end
 """
     branch_flow(d::DcData, va::AbstractVector{<:Real}) -> Vector{Float64}
 
-The complete affine branch flow `p_branch = -Bf * va - b .* shift`, per row
-`-b[e] * (va_from - va_to) - b[e] * shift[e]`, filled by the C library with
+The complete affine branch flow `p_branch = -Bf * va + b .* shift`, per row
+`-b[e] * (va_from - va_to) + b[e] * shift[e]`, filled by the C library with
 no intermediate vector beyond the result. The phase shift term is included
 in the returned values; [`shift`](@ref) is the per row `shift` the fill
 uses. `va` is per bus, radians.
@@ -562,7 +597,7 @@ end
     flow_matrix(d::DcData) -> SparseMatrixCSC{Float64,Int}
 
 The branch flow map `Bf = Diagonal(b) * A` (`m × n`), PowerModels sign, so
-`p_branch = -Bf * va - b .* shift`.
+`p_branch = -Bf * va + b .* shift`.
 """
 function flow_matrix(d::DcData)
     a = incidence_matrix(d)

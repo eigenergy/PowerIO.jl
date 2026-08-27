@@ -24,7 +24,7 @@
         # The recovered case carries a live handle: it serializes and re-parses.
         text = to_matpower(r.network)
         @test occursin("mpc.bus", text)
-        @test PowerIO.n_buses(parse_file(IOBuffer(text), "matpower")) == 14
+        @test PowerIO.n_buses(PowerIO.parse(IOBuffer(text); from="matpower", value_type=BalancedNetwork)) == 14
 
         # The NamedTuple is positionally unpackable, mirroring Python's GridfmRead.
         net, scen, warns = read_gridfm(single)

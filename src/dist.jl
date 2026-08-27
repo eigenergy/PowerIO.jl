@@ -230,8 +230,8 @@ _is_package_path(p) = endswith(lowercase(String(p)), ".pio.json")
 # per-phase detail, so the explicit package pass owns it.
 _cross_model_error(fname::AbstractString) = error(
     "PowerIO.$fname: no implicit conversion between the multiconductor and balanced " *
-    "models. Lower explicitly: to_package(net) |> lower_multiconductor_to_balanced " *
-    "|> from_package, then serialize the balanced result.")
+    "models. Lower explicitly: PowerIO.parse the case, lower_module_to_balanced " *
+    "the module, and as_network the balanced result before serializing.")
 
 # --- parse and materialize ------------------------------------------------
 

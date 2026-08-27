@@ -200,7 +200,8 @@ end
 
 
 """
-    parse_file(path; from=nothing) -> BalancedNetwork | MulticonductorNetwork
+    parse_file(BalancedNetwork, path; from=nothing) -> BalancedNetwork
+    parse_file(MulticonductorNetwork, path; from=nothing) -> MulticonductorNetwork
     parse_file(io::IO, format::AbstractString)
     parse_file(BalancedNetwork, path; from=nothing) -> BalancedNetwork
     parse_file(MulticonductorNetwork, path; from=nothing) -> MulticonductorNetwork
@@ -229,73 +230,26 @@ Accepted format tokens (case-insensitive): `"matpower"`/`"m"`,
 
 The type marker forms pin the model when the routed return type would be
 ambiguous to a reader: `parse_file(BalancedNetwork, path)` and
-`parse_file(MulticonductorNetwork, path)` — the `parse(T, x)` idiom.
+`parse_file(MulticonductorNetwork, path)` — the `parse(T, x)` idiom. The
+untyped entry is [`PowerIO.parse`](@ref), whose `value_type` narrows in the
+same call.
 """
-function parse_file(path::AbstractString; from=nothing)
-    if from !== nothing && _is_dist_format(from)
-        return parse_file(MulticonductorNetwork, path; from=from)
-    end
-    if from === nothing
-        _is_package_path(path) && return from_package(read_package(path))
-        _is_dss_path(path) && return parse_file(MulticonductorNetwork, path)
-        if lowercase(splitext(String(path))[2]) == ".json" && isfile(path)
-            text = read(path, String)
-            fam = _classify_family(text)
-            fam === :distribution && return parse_file(MulticonductorNetwork, path)
-            fam === :package && return from_package(read_package(path))
-            # Model JSON is not a case format, so the core's parser refuses it.
-            # Routing it here is the same convenience a package path gets.
-            fam === MODEL_JSON_FAMILY && return from_json(text)
-        end
-    end
-    h = _parse_handle(path; from=from)
-    return BalancedNetwork(h)
-end
-function parse_file(io::IO, from::AbstractString)
-    _is_dist_format(from) && return parse_str(MulticonductorNetwork, read(io, String), from)
-    h = _parse_handle_str(read(io, String), from)
-    return BalancedNetwork(h)
-end
-# Explicit transmission marker, symmetric with `parse_file(MulticonductorNetwork, ...)`:
-# bypasses the format routing, so it reaches the balanced parser no matter the
-# extension.
 function parse_file(::Type{BalancedNetwork}, path::AbstractString; from=nothing)
     h = _parse_handle(path; from=from)
     return BalancedNetwork(h)
 end
 
-"""
-    parse_str(text, from) -> BalancedNetwork | MulticonductorNetwork
-    parse_str(MulticonductorNetwork, text, from) -> MulticonductorNetwork
-
-Parse in-memory case text — the string sibling of `parse_file(io, from)`,
-matching the Rust, Python, and C interfaces. `from` is required: a string
-carries no extension to infer from. A distribution `from` token routes to the
-multiconductor parser, like the bare [`parse_file`](@ref).
-"""
-parse_str(text::AbstractString, from::AbstractString) =
-    parse_file(IOBuffer(String(text)), from)
-# Explicit transmission marker: bypasses the format routing, so it reaches the
-# balanced parser no matter the token (symmetric with parse_file(BalancedNetwork, ...)).
+# Explicit transmission marker for in-memory text, symmetric with
+# `parse_str(MulticonductorNetwork, ...)`.
 function parse_str(::Type{BalancedNetwork}, text::AbstractString, from::AbstractString)
     h = _parse_handle_str(String(text), from)
     return BalancedNetwork(h)
 end
 
-"""
-    parse_bytes(bytes, from) -> BalancedNetwork
-
-Parse in-memory case bytes under an explicit `from`. Accepts every
-[`parse_str`](@ref) token plus `"pwb"`: PowerWorld binary has no text form, so
-this is the only way to read one without a file on disk. Text formats must be
-UTF-8.
-"""
-function parse_bytes(bytes::AbstractVector{UInt8}, from::AbstractString)
+function parse_bytes(::Type{BalancedNetwork}, bytes::AbstractVector{UInt8}, from::AbstractString)
     h = _parse_handle_bytes(bytes, from)
     return BalancedNetwork(h)
 end
-parse_bytes(::Type{BalancedNetwork}, bytes::AbstractVector{UInt8}, from::AbstractString) =
-    parse_bytes(bytes, from)
 
 """
     from_json(text) -> BalancedNetwork
