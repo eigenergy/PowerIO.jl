@@ -33,14 +33,14 @@ egret = PowerIO.parse("grid.json"; from="egret", value_type=BalancedNetwork)
 
 ## Parsing
 
-[`parse_file`](@ref) reads a path or an `IO`; [`parse_str`](@ref) reads
-in-memory text (a `String` argument to `parse_file` is always a path);
-[`from_json`](@ref) rebuilds from the internal balanced JSON snapshot
-[`to_json`](@ref) writes.
+[`PowerIO.parse`](@ref) reads a path, in-memory bytes, or an `IO` into a
+[`StoredModule`](@ref); `value_type=BalancedNetwork` narrows to the live
+network handle in the same call. [`from_json`](@ref) rebuilds from the
+internal balanced JSON snapshot [`to_json`](@ref) writes.
 
 ```julia
+m   = PowerIO.parse("case14.m")
 net = PowerIO.parse("case14.m"; value_type=BalancedNetwork)
-net = parse_file(IOBuffer(text), "matpower")
 net = PowerIO.parse(IOBuffer(text); from="matpower", value_type=BalancedNetwork)
 net = from_json(to_json(net))
 ```

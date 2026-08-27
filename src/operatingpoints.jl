@@ -45,16 +45,13 @@ binding of the powerio Rust `OperatingPointSeries` (`powerio-pkg/src/operating.r
 network). This is more general and more compact than the dense, loads-only [`LoadSeries`](@ref):
 it carries changes to any field of any element, storing only what differs each period.
 
-Not yet functional as a typed Julia value. The powerio C ABI reads, attaches, and
-materializes a series at the JSON level (`pio_package_operating_points_json`,
-`pio_package_set_operating_points`, `pio_package_materialize_operating_point`) — from Julia
-that is [`package_operating_points`](@ref), [`set_operating_points`](@ref), and
-[`materialize_operating_point`](@ref) on a [`NetworkPackage`](@ref). What is still missing
-is a typed handle surface to back these structs directly, so the constructor and
-`materialize_operating_point_series` below throw until that binding lands; use
-[`set_operating_points`](@ref) with a JSON series, or [`LoadSeries`](@ref) for multiperiod
-bus loads. Unexported while it is a skeleton so a throwing constructor is not advertised
-as usable.
+Not yet functional as a typed Julia value. The stored module owns operating
+point state on the 1.0 surface ([`state_inventory`](@ref) lists the states a
+document carries, [`export_state`](@ref) selects one). What is still missing
+is a typed handle surface to back these structs directly, so the constructor
+and `materialize_operating_point_series` below throw until that binding lands;
+use [`LoadSeries`](@ref) for multiperiod bus loads. Unexported while it is a
+skeleton so a throwing constructor is not advertised as usable.
 """
 struct OperatingPointSeries
     time_axis::TimeAxis

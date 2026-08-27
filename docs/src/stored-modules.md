@@ -18,6 +18,11 @@ error naming what is wrong before any v6 ccall runs.
 
 ```@docs
 StoredModule
+PowerIO.parse
+parse_module_bytes
+as_network
+as_dist_network
+lowering_readiness
 read_module
 parse_module
 parse_module_str

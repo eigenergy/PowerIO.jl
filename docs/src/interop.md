@@ -8,7 +8,6 @@
 | PowerGridPlanning.jl | out | [`to_powermodels`](@ref), `PowerIO.build_ref`, and angle repair helpers |
 | stored `.pio.json` module | both | [`read_module`](@ref) / [`write_module`](@ref) / [`as_network`](@ref) / [`as_dist_network`](@ref) |
 | GridFM (gridfm-datakit Parquet) | in | [`read_gridfm`](@ref) / [`read_gridfm_scenarios`](@ref) |
-| GO Challenge 3 JSON | in | [`parse_goc3_json`](@ref) |
 | [PowerDiff.jl](https://github.com/grid-opt-alg-lab/PowerDiff.jl) | out | PowerDiff depends on PowerIO as its parser and data layer |
 | OpenDSS / PMD / IEEE BMOPF | both | `PowerIO.parse` / `to_format`; see [Distribution networks](distribution.md) |
 
@@ -83,7 +82,7 @@ data = PowerIO.to_powermodels(PowerIO.parse("case14.m"; value_type=PowerIO.Balan
 ref = PowerIO.build_ref(data)
 ```
 
-## `.pio.json` network packages
+## `.pio.json` stored modules
 
 Stored `.pio.json` modules carry one typed value beside the module's records
 (sources, source maps, diagnostics, history), over the native `pio_module_*`
@@ -118,10 +117,3 @@ to_matpower(r.network)                           # gridfm -> any classical forma
 reads = read_gridfm_scenarios("out/case14/raw")  # one result per scenario id
 ```
 
-## GO Challenge 3
-
-[`parse_goc3_json`](@ref) reads a GO Challenge 3 problem JSON into indexed
-lookups (bus, device, line, transformer tables plus time series);
-[`goc3_status_flags`](@ref) and [`goc3_add_status_flags!`](@ref) derive
-startup/shutdown flags from unit commitment on/off trajectories. Pure Julia;
-no C library needed.
