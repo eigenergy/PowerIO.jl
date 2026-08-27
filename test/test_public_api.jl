@@ -447,14 +447,17 @@ end
         @test info.powerio_version == schema_versions().powerio_version
 
         # `features` is what the library was compiled with, which is the same
-        # question `pio_has_feature` answers one name at a time. The C feature
-        # name is `pkg`; the Julia field name is `package`.
+        # question `pio_has_feature` answers one name at a time. The `pkg`
+        # feature exists on 0.9 era libraries and is gone once the stored
+        # module replaces the package surface; hold the report to the
+        # library's own answer either way.
         feats = info.features
-        for name in (:arrow, :matrix, :gridfm, :dist, :pkg, :prob)
+        for name in (:arrow, :matrix, :gridfm, :dist, :prob)
             @test haskey(feats, name)
             @test feats[name] isa Bool
             @test feats[name] == PowerIO.has_feature(String(name))
         end
+        haskey(feats, :pkg) && @test feats[:pkg] == PowerIO.has_feature("pkg")
 
         # The Julia predicates report "usable from Julia": symbol present and,
         # for dist, the feature handshake passed. Matrix tables also need arrow,
@@ -463,8 +466,11 @@ end
         @test f.arrow == feats.arrow
         @test f.gridfm == feats.gridfm
         @test f.dist == feats.dist
-        @test f.package == feats.pkg
-        @test f.prob == feats.prob
+        @test f.package == get(feats, :pkg, false)
+        # `prob` reports "usable from Julia": on a library whose prob feature
+        # no longer ships the SCOPF surface the probe answers false while the
+        # compiled feature reads true.
+        @test f.prob == (feats.prob && PowerIO.scopf_available())
         @test f.matrix == (feats.arrow && feats.matrix)
 
         # Foreign schema versions belong to whoever owns the schema, so they
