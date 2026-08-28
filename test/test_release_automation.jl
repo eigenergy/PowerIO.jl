@@ -292,7 +292,7 @@ end
     @test _parked_reason(_candidate(dist_abi=UInt32(2))) == "dist_abi_mismatch"
     no_prob = setdiff(
         copy(ArtifactUpdater.KNOWN_SYMBOLS),
-        Set((:pio_scopf_to_json_with_index_base,)),
+        Set((:pio_dc_data_build,)),
     )
     @test _parked_reason(_candidate(symbols=no_prob)) == "required_symbol_missing"
     @test _parked_reason(_candidate(schema=nothing)) == "schema_report_invalid"
