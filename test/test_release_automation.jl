@@ -12,18 +12,18 @@ function _git_at(dir, args...)
 end
 
 function _write_release_repo(dir; changelog=
-                             "# Changelog\n\n## 0.9.0\n\n" *
+                             "# Changelog\n\n## 0.10.0\n\n" *
                              "Breaking migration; see changelog.\n\n- Candidate.\n")
     mkpath(joinpath(dir, ".github"))
-    write(joinpath(dir, "Project.toml"), "name = \"PowerIO\"\nversion = \"0.9.0\"\n")
+    write(joinpath(dir, "Project.toml"), "name = \"PowerIO\"\nversion = \"0.10.0\"\n")
     write(joinpath(dir, "CHANGELOG.md"), changelog)
     write(joinpath(dir, "Artifacts.toml"), "old artifact\n")
     write(joinpath(dir, "source.jl"), "const X = 1\n")
     write(joinpath(dir, ".github", "powerio-release.toml"), """
           schema = 1
           state = "draft"
-          julia_version = "0.9.0"
-          powerio_tag = "v0.9.0"
+          julia_version = "0.10.0"
+          powerio_tag = "v0.10.0"
           source_digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
           """)
     _git_at(dir, "init", "-q")
@@ -33,8 +33,8 @@ function _write_release_repo(dir; changelog=
     _git_at(dir, "commit", "-qm", "initial")
 end
 
-function _write_intent(path; schema=1, state="draft", version="0.9.0",
-                       tag="v0.9.0", digest="sha256:" * repeat("0", 64))
+function _write_intent(path; schema=1, state="draft", version="0.10.0",
+                       tag="v0.10.0", digest="sha256:" * repeat("0", 64))
     open(path, "w") do io
         TOML.print(io, Dict(
             "schema" => schema,
@@ -47,7 +47,7 @@ function _write_intent(path; schema=1, state="draft", version="0.9.0",
     return path
 end
 
-function _release_json(path; tag="v0.9.0", draft=false, prerelease=false,
+function _release_json(path; tag="v0.10.0", draft=false, prerelease=false,
                        assets=collect(ReleaseState.REQUIRED_ASSETS))
     write(path, JSON3.write((;
         tag_name=tag,
@@ -71,7 +71,7 @@ end
 function _parked_reason(report)
     try
         ArtifactUpdater.validate_candidate(
-            report, "v0.9.0"; binding_abi=UInt32(5), binding_dist_abi=UInt32(1))
+            report, "v0.10.0"; binding_abi=UInt32(6))
         return nothing
     catch err
         err isa ArtifactUpdater.ParkedGate || rethrow()
@@ -79,14 +79,14 @@ function _parked_reason(report)
     end
 end
 
-function _candidate(; version="0.9.0", abi=UInt32(5), dist_abi=UInt32(1),
+function _candidate(; version="0.10.0", abi=UInt32(6),
                     features=Dict(name => true for name in ArtifactUpdater.REQUIRED_FEATURES),
                     symbols=copy(ArtifactUpdater.KNOWN_SYMBOLS), matrix_available=true,
-                    schema=Dict(:powerio_version => "0.9.0", :abi => 5,
+                    schema=Dict(:powerio_version => "0.10.0", :abi => 6,
                                 :bmopf_schema => "draft"),
                     build=Dict(
-                        :powerio_version => "0.9.0",
-                        :abi => 5,
+                        :powerio_version => "0.10.0",
+                        :abi => 6,
                         :features => Dict(Symbol(name) => true for name in
                                           ArtifactUpdater.REQUIRED_FEATURES),
                         :foreign_schemas => Dict(:bmopf => "draft"),
@@ -95,7 +95,7 @@ function _candidate(; version="0.9.0", abi=UInt32(5), dist_abi=UInt32(1),
                         :json_classes => ["model-json"],
                     ))
     ArtifactUpdater.CandidateReport(
-        version, abi, dist_abi, features, symbols, matrix_available, schema, build)
+        version, abi, features, symbols, matrix_available, schema, build)
 end
 
 @testset "invalid release intent" begin
@@ -152,7 +152,7 @@ end
         @test ReleaseState.evaluate_initial_state(
             "workflow_dispatch", ""; intent, root=dir).status == "ready"
 
-        general = _versions(joinpath(dir, "Versions.toml"), ["0.8.4"])
+        general = _versions(joinpath(dir, "Versions.toml"), ["0.8.4", "0.9.0"])
         @test ReleaseState.general_state(intent, general; root=dir).status == "unregistered"
         release = _release_json(joinpath(dir, "release.json"))
         @test ReleaseState.evaluate_release_state(
@@ -176,7 +176,7 @@ end
                 assets=vcat(collect(ReleaseState.REQUIRED_ASSETS), ["checksums.txt"]),
             ), 0, general; intent, root=dir)
 
-        registered = _versions(joinpath(dir, "Registered.toml"), ["0.8.4", "0.9.0"])
+        registered = _versions(joinpath(dir, "Registered.toml"), ["0.8.4", "0.9.0", "0.10.0"])
         @test ReleaseState.evaluate_release_state(
             nothing, 0, registered; intent, root=dir).status == "registered"
 
@@ -217,7 +217,7 @@ end
             path = joinpath(dir, ".github", "powerio-release.toml")
             ReleaseState.prepare_intent!(path; root=dir)
             intent = ReleaseState.read_intent(path)
-            general = _versions(joinpath(dir, "Versions.toml"), ["0.8.4"])
+            general = _versions(joinpath(dir, "Versions.toml"), ["0.8.4", "0.9.0"])
             @test_throws ErrorException ReleaseState.general_state(intent, general; root=dir)
             @test_throws ErrorException ReleaseState.general_state(
                 intent, joinpath(dir, "registry-outage.toml"); root=dir)
@@ -276,9 +276,9 @@ end
 
 @testset "artifact candidate gates" begin
     @test ArtifactUpdater.validate_candidate(
-        _candidate(), "v0.9.0"; binding_abi=UInt32(5), binding_dist_abi=UInt32(1)) isa
+        _candidate(), "v0.10.0"; binding_abi=UInt32(6)) isa
           ArtifactUpdater.CandidateReport
-    @test _parked_reason(_candidate(abi=UInt32(4))) == "core_abi_mismatch"
+    @test _parked_reason(_candidate(abi=UInt32(5))) == "core_abi_mismatch"
     @test _parked_reason(_candidate(version="0.8.3")) == "schema_version_mismatch"
 
     no_version = setdiff(copy(ArtifactUpdater.KNOWN_SYMBOLS), Set((:pio_version,)))
@@ -286,10 +286,6 @@ end
 
     no_feature = Dict(name => name != "prob" for name in ArtifactUpdater.REQUIRED_FEATURES)
     @test _parked_reason(_candidate(features=no_feature)) == "required_feature_missing"
-    no_dist_abi = setdiff(copy(ArtifactUpdater.KNOWN_SYMBOLS), Set((:pio_dist_abi_version,)))
-    @test _parked_reason(_candidate(symbols=no_dist_abi, dist_abi=nothing)) ==
-          "dist_abi_missing"
-    @test _parked_reason(_candidate(dist_abi=UInt32(2))) == "dist_abi_mismatch"
     no_prob = setdiff(
         copy(ArtifactUpdater.KNOWN_SYMBOLS),
         Set((:pio_dc_data_build,)),
@@ -297,7 +293,7 @@ end
     @test _parked_reason(_candidate(symbols=no_prob)) == "required_symbol_missing"
     @test _parked_reason(_candidate(schema=nothing)) == "schema_report_invalid"
     @test _parked_reason(_candidate(schema=Dict(
-        :powerio_version => "0.8.3", :abi => 5, :bmopf_schema => "draft"))) ==
+        :powerio_version => "0.8.3", :abi => 6, :bmopf_schema => "draft"))) ==
           "schema_version_mismatch"
     @test_throws ErrorException ArtifactUpdater._parse_report_json(
         "{not-json", :pio_schema_versions_json)
@@ -306,10 +302,10 @@ end
         artifact = joinpath(dir, "Artifacts.toml")
         status = joinpath(dir, "status.toml")
         write(artifact, "old")
-        @test ArtifactUpdater.install_ready!(artifact, status, "new", "v0.9.0")
+        @test ArtifactUpdater.install_ready!(artifact, status, "new", "v0.10.0")
         @test read(artifact, String) == "new"
         @test TOML.parsefile(status) ==
-              Dict("status" => "ready", "tag" => "v0.9.0", "changed" => true)
+              Dict("status" => "ready", "tag" => "v0.10.0", "changed" => true)
         @test !ArtifactUpdater.install_ready!(artifact, status, "new", "v0.9.0")
 
         blocker = joinpath(dir, "not-a-directory")

@@ -27,9 +27,9 @@ sources = [
 # (windows, no lib prefix, ships under bin/). `install_license` keeps AutoMerge happy.
 script = raw"""
 cd $WORKSPACE/srcdir/powerio
-# --features arrow ships pio_to_arrow; --features matrix ships the matrix COO
+# --features arrow ships pio_balanced_network_to_arrow; --features matrix ships the matrix COO
 # Arrow tables when the pinned source supports them; --features gridfm ships
-# pio_read_dir / pio_scenario_ids; --features dist ships pio_dist_*;
+# GridFM dataset parsing; --features dist ships the multiconductor family;
 # --features pkg ships pio_package_*; --features prob ships pio_scopf_*.
 features=arrow,gridfm,dist
 if grep -q '^matrix = ' powerio-capi/Cargo.toml; then
