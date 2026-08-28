@@ -37,13 +37,11 @@ local build; see [Binary distribution](binary.md).
   cases (OpenDSS, PowerModelsDistribution JSON, IEEE BMOPF JSON). See
   [Distribution networks](distribution.md).
 
-The two share the same verbs, and `PowerIO.parse` routes on the format: a
-`.m` path parses to a balanced module, a `.dss` path to a multiconductor one,
-and a `.pio.json` to whichever value the document stores; `value_type`
-narrows to the network handle in the same call. `to_format`, `convert_file`,
-and `warnings` dispatch on the network type; the type marker forms
-(`PowerIO.parse_file(BalancedNetwork, path)`,
-`PowerIO.parse_file(MulticonductorNetwork, path)`) pin a family explicitly.
+The two share the same verbs, and [`parse_file`](@ref) routes on the format:
+a `.m` path parses to a `PioModule{BalancedNetwork}`, a `.dss` path to a
+`PioModule{MulticonductorNetwork}`, and a `.pio.json` to whichever value the
+document stores. `m.value` is the typed network handle, and `to_format`,
+`convert_file`, and `warnings` dispatch on its type.
 
 ## Where to go
 
@@ -63,8 +61,8 @@ and `warnings` dispatch on the network type; the type marker forms
 
 At first use the binding checks the library's ABI version
 (`pio_abi_version`) against the version it targets and refuses a stale or
-mismatched library with an error stating both versions. Distribution calls
-also check `pio_dist_abi_version`. [`PowerIO.library_available`](@ref) probes
-without throwing, and [`PowerIO.features`](@ref) reports the optional Arrow,
-matrix, GridFM, distribution, package, and problem instance (`prob`) features. [`PowerIO.dist_capabilities`](@ref)
-reports finer distribution fidelity flags for downstream packages.
+mismatched library with an error stating both versions.
+[`PowerIO.library_available`](@ref) probes without throwing, and
+[`features`](@ref) reports the optional Arrow, matrix, GridFM, distribution,
+and problem instance (`prob`) features; [`schema_versions`](@ref) names the
+document schema vintages this build speaks.

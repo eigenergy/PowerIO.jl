@@ -2,12 +2,13 @@
 
 PowerIO.jl owns Rust memory only through these Julia objects:
 
-- `BalancedNetworkHandle`: owns a `PioNetwork *` and frees it with `pio_balanced_network_release`.
-- `MulticonductorNetworkHandle`: owns a `PioDistNetwork *` and frees it with `pio_multiconductor_network_release`.
-- `PackageHandle`: owns a `PioPackage *` and frees it with `pio_package_free`.
+- `BalancedNetworkHandle`: owns a `PioBalancedNetwork *` and frees it with `pio_balanced_network_release`.
+- `MulticonductorNetworkHandle`: owns a `PioMulticonductorNetwork *` and frees it with `pio_multiconductor_network_release`.
+- `StoredModule` (internal, behind [`PioModule`](@ref)): owns a `PioModule *` behind `pio_module_retain`/`pio_module_release`.
+- `DcData`: owns a `PioDcData *` behind `pio_dc_data_retain`/`pio_dc_data_release`.
 - `ArrowBuffers`: owns Arrow C Data Interface array and schema release callbacks.
 
-`BalancedNetwork`, `MulticonductorNetwork`, dense arrays, copied Arrow tables, and JSON values are Julia owned data. They do not borrow Rust memory. `StoredModule` and `DcData` own C handles behind `retain`/`release` finalizers.
+`BalancedNetwork`, `MulticonductorNetwork`, dense arrays, copied Arrow tables, and JSON values are Julia owned data. They do not borrow Rust memory.
 
 ## Audit Findings
 
@@ -23,17 +24,17 @@ No signature mismatch was found between the Julia `ccall` declarations and `powe
 
 ## C ABI Inventory
 
-Core balanced API: `pio_abi_version`, `pio_version`, `pio_classify_str`, `pio_parse_file`, `pio_parse_str`, `pio_balanced_network_from_json`, `pio_warnings`, `pio_balanced_network_to_json`, `pio_balanced_network_release`, `pio_schema_versions_json`, and `pio_string_release`.
+Handshake and identity: `pio_abi_version`, `pio_version`, `pio_has_feature`, `pio_build_info`, `pio_schema_versions_json`, `pio_classify_str`, and `pio_string_release`.
 
-Balanced transforms, converters, and dense tables: `pio_balanced_network_normalize`, `pio_to_format`, `pio_convert_file`, `pio_convert_str`, `pio_write_dir`, `pio_balanced_network_n_buses`, `pio_balanced_network_n_branches`, `pio_balanced_network_n_gens`, `pio_balanced_network_base_mva`, `pio_balanced_network_ref_bus_index`, `pio_balanced_network_ref_bus_indices`, `pio_balanced_network_n_islands`, `pio_balanced_network_is_radial`, `pio_balanced_network_bus_ids`, `pio_balanced_network_branches`, `pio_balanced_network_gens`, `pio_balanced_network_bus_demand`, and `pio_balanced_network_bus_shunt`.
+Parse and module API: `pio_parse_file`, `pio_parse_str`, `pio_parse_bytes`, `pio_module_read_json`, `pio_module_write_json`, `pio_module_write_str`, `pio_module_write_file`, `pio_module_kind`, `pio_module_diagnostics`, `pio_module_inspect_json`, `pio_module_state_inventory_json`, `pio_module_export_state`, `pio_module_lowering_readiness_json`, `pio_module_lower_to_balanced`, `pio_module_balanced_network`, `pio_module_multiconductor_network`, and the `pio_module_retain`/`pio_module_release` lifecycle. Failures cross as `PioError` handles (`pio_error_code`, `pio_error_message`, `pio_error_release`), and findings as `PioDiagnostics` lists with per field accessors.
 
-Arrow and matrix API: `pio_balanced_network_to_arrow`, `pio_matrix_available`, plus the Arrow array and schema release callbacks returned by the C Data Interface.
+Balanced network API: `pio_balanced_network_from_json`, `pio_balanced_network_to_json`, `pio_balanced_network_normalize`, `pio_convert_file`, `pio_convert_str`, the count and table extractors (`pio_balanced_network_n_buses`, `..._n_branches`, `..._n_gens`, `..._base_mva`, `..._ref_bus_index`, `..._ref_bus_indices`, `..._n_islands`, `..._is_radial`, `..._bus_ids`, `..._branches`, `..._gens`, `..._bus_demand`, `..._bus_shunt`), and the `pio_balanced_network_retain`/`pio_balanced_network_release` lifecycle.
 
-GridFM API: `pio_read_dir` and `pio_scenario_ids`.
+Arrow API: `pio_balanced_network_to_arrow` and `pio_arrow_catalog_json`, plus the Arrow array and schema release callbacks returned by the C Data Interface.
 
-Module API: `pio_module_read_json`, `pio_module_parse_file`, `pio_module_parse_str`, `pio_module_parse_bytes`, `pio_module_write_json`, `pio_module_as_network`, `pio_module_as_dist_network`, the inspection and selection entries, and the `pio_module_retain`/`pio_module_release` lifecycle.
+Distribution API: `pio_multiconductor_network_summary_json`, `pio_multiconductor_network_to_json`, `pio_multiconductor_network_graph_json`, and the `pio_multiconductor_network_retain`/`pio_multiconductor_network_release` lifecycle; parsing and conversion go through the one parse and convert family above.
 
-Distribution API: `pio_dist_abi_version`, `pio_dist_capabilities_json`, `pio_dist_parse_file`, `pio_dist_parse_str`, `pio_multiconductor_network_release`, `pio_dist_warnings`, `pio_multiconductor_network_summary_json`, `pio_multiconductor_network_to_json`, `pio_multiconductor_network_graph_json`, `pio_dist_to_format`, `pio_dist_convert_file`, and `pio_dist_convert_str`.
+DC data API: `pio_dc_data_build`, the span accessors (`pio_dc_data_susceptance`, `..._from_indices`, `..._to_indices`, `..._row_ids`, `..._bus_ids`, `..._shift`, `..._omitted_ids`, `..._omitted_reasons`), and the `pio_dc_data_retain`/`pio_dc_data_release` lifecycle.
 
 ## Guarantees
 
@@ -47,12 +48,12 @@ C strings returned by Rust are copied with `unsafe_string` before `pio_string_re
 
 The Arrow decoder validates the C Data Interface struct layout before dereferencing child or buffer pointers. A malformed successful Arrow return throws a Julia error instead of reading from null or inconsistent pointers.
 
-Concurrent reads through the same network handle use the C header's read only rules. Public package validation does not mutate a shared package handle; it parses the immutable JSON package into a temporary handle, validates that handle, and materializes a new JSON package.
+Concurrent reads through the same network handle use the C header's read only rules. Every handle is an independently owned reference over an immutable value; no public operation mutates a shared handle.
 
 ## Remaining Conditions
 
 Do not bypass the public API with `getfield(col, :data)` on an `ArrowColumn`. That field is an internal `unsafe_wrap` vector and does not carry the closed check by itself. Use normal indexing or `collect(col)`.
 
-Do not call `ccall` directly on `net.handle.ptr`, `pkg.handle.ptr`, or a distribution handle pointer. Raw pointer use is outside the public API.
+Do not call `ccall` directly on a network, module, or DC data handle pointer. Raw pointer use is outside the public API.
 
 Do not close an `ArrowTable` concurrently with reading one of its columns from another Julia thread and then depend on either operation winning. The implementation serializes the actual read and release, so it will either return a value from an open buffer or throw after close, but close is still a mutating operation.

@@ -12,22 +12,14 @@ library built with `--features dist` (the element tables also need `pkg`; both
 are on by default in the released binaries). [`dist_available`](@ref) reports
 whether the resolved library has it. The v0.6.1 release added the distribution
 foundation: OpenDSS generator and IBR/control data, transformer
-neutral impedance, core shunt and leakage data, and n-winding transformer
-structure where the target format can express it. v0.6.2 adds the BMOPF
-transformer, source, and diagnostic fidelity flags exposed through
-[`dist_capabilities`](@ref). v0.8 adds typed capacitor banks, line and
-generator ratings, per-sequence bus bounds, and the transformer extras
-relocation; the same capability document (schema 1.1.0) reports them, plus
-the writer's BMOPF schema vintage (`bmopf_schema_id` /
-`bmopf_schema_version`).
+neutral impedance, core shunt and leakage data, typed capacitor banks, line
+and generator ratings, per-sequence bus bounds, and n-winding transformer
+structure where the target format can express it.
 
-[`dist_capabilities`](@ref) reports finer BMOPF export capabilities.
-Downstream packages should use it instead of checking PowerIO version
-strings when they need version-specific distribution fidelity behavior. An
-empty optional table has two possible causes: the case has none, or the
-library predates the table. The capability flags tell the two apart — gate
-on `dist_capabilities().typed_capacitors` before you read
-`PowerIO.capacitors(net)`.
+[`features`](@ref) reports whether the resolved library carries distribution
+support, and [`schema_versions`](@ref) names the BMOPF schema vintage this
+build writes. Downstream packages should gate on those instead of checking
+PowerIO version strings.
 
 ## Formats
 
@@ -38,7 +30,7 @@ on `dist_capabilities().typed_capacitors` before you read
 | IEEE BMOPF Taskforce JSON | `"bmopf"` | `.json` |
 
 A `.pio.json` stored module is not a case format and has no token: read it
-with [`PowerIO.parse`](@ref) and open the handle with [`as_dist_network`](@ref).
+with [`parse_file`](@ref) and take `m.value`.
 
 A `.dss` path routes by extension. A bare `.json` routes by the same top level
 markers the core parsers use (the ENGINEERING `data_model` key means PMD, BMOPF
@@ -47,8 +39,8 @@ otherwise); `from` overrides.
 ## The same verbs, routed by format
 
 ```julia
-net = PowerIO.parse("feeder.dss"; value_type=MulticonductorNetwork)
-net = PowerIO.parse(IOBuffer(text); from="dss", value_type=MulticonductorNetwork)
+net = parse_file("feeder.dss").value            # ::MulticonductorNetwork
+net = parse_bytes(IOBuffer(text); format="dss").value
 text, warnings = to_format(net, "pmd")    # dispatches on the network type
 bmopf, _ = convert_file("feeder.dss", "bmopf")
 pmd, _   = convert_str(text, "pmd"; from="dss")
@@ -113,20 +105,20 @@ other tables are always present in a library payload; a missing one raises a
 
 Two JSON forms exist on purpose, and they carry the same model:
 
-- **`.pio.json` packages** carry a case between PowerIO consumers with
-  provenance, diagnostics, validation, operating points, and lowering history.
+- **`.pio.json` stored modules** carry a case between PowerIO consumers with
+  provenance, diagnostics, and descriptive history.
 - **BMOPF JSON** is the format for tools outside PowerIO.
 
-`PowerIO.parse("case.pio.json")` returns the stored module; [`as_network`](@ref)
-and [`as_dist_network`](@ref) hand back the typed handle it declares, with
-the module's retained source threaded on so a same format write still echoes
-the source bytes. Document JSON is not used by solver, matrix, dense, or
-Arrow fast paths; those read live network handles directly.
+`parse_file("case.pio.json")` returns the module it stores; `m.value` is the
+typed handle it declares, with the module's retained source threaded on so a
+same format write still echoes the source bytes. Document JSON is not used by
+solver, matrix, dense, or Arrow fast paths; those read live network handles
+directly.
 
 ```julia
-m = PowerIO.parse("feeder.dss")         # ::StoredModule, kind multiconductor_network
-write("feeder.pio.json", write_module(m))
-back = as_dist_network(read_module(read("feeder.pio.json", String)))
+m = parse_file("feeder.dss")            # ::PioModule{MulticonductorNetwork}
+write_file(m, "feeder.pio.json"; format="pio-json")
+back = parse_file("feeder.pio.json").value
 exchange, _ = to_format(back, "bmopf")  # for everything else
 ```
 
@@ -134,6 +126,6 @@ Supported multiconductor modules lower explicitly to balanced ones:
 
 ```julia
 report = lowering_readiness(m)          # what would lowering lose?
-lowered = lower_module_to_balanced(m)   # picks a base_mva
-net = as_network(lowered)               # ::BalancedNetwork
+lowered = lower_to_balanced(m)          # picks a base_mva
+net = lowered.value                     # ::BalancedNetwork
 ```
