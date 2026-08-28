@@ -189,7 +189,7 @@ end
 function _live_handle(net::BalancedNetwork, fname::AbstractString)
     h = getfield(net, :handle)
     h === nothing && error(
-        "PowerIO.$fname: this BalancedNetwork has no live network handle (produce it with parse_file, parse_str, or from_json).")
+        "PowerIO.$fname: this BalancedNetwork has no live network handle (produce it with parse_file, parse_bytes, or from_json).")
     h.ptr == C_NULL && error(
         "PowerIO.$fname: this BalancedNetwork's handle was finalized; access the data you need " *
         "(e.g. net.data, to_json(net)) before calling finalize(net.handle).")
