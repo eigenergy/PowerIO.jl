@@ -261,7 +261,7 @@ end
         return
     end
     case9 = joinpath(@__DIR__, "data", "case9.m")
-    m = parse_module(case9)
+    m = parse_file(case9)
     d = dc_data(m)
     rows = PowerIO.n_rows(d)
     buses = PowerIO.n_buses(d)
