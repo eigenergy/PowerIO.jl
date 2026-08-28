@@ -8,10 +8,20 @@
   >
 </p>
 
-Julia entry point for [PowerIO](https://github.com/eigenergy/powerio): parser,
-compiler package, and IR infrastructure for power system software. The Rust
-core reads case files, writes them back, converts between formats, and exposes
-the same model through Julia, Python, C/C++, and Rust.
+PowerIO 0.10 is the public beta of the 1.0 API. API corrections may land before 1.0.0 as downstream integrations exercise the new design.
+
+Julia binding of [PowerIO](https://github.com/eigenergy/powerio), the power
+system data compiler. One call parses any supported source into a typed
+module; the Rust core reads it, writes it back byte exact, converts between
+formats, and exposes the same values through Julia, Python, C/C++, and Rust.
+
+```julia
+using PowerIO
+case = parse_file("case14.m")       # PioModule{BalancedNetwork}
+n_buses(case.value)                 # 14
+diagnostics(case)                   # the reader's findings, native records
+write_file(case, "copy.m")          # byte exact same format echo
+```
 
 **Documentation: [eigenergy.github.io/PowerIO.jl](https://eigenergy.github.io/PowerIO.jl)**
 
@@ -33,10 +43,10 @@ Supported distribution formats:
 - PowerModelsDistribution ENGINEERING JSON
 - IEEE BMOPF JSON
 
-PowerIO package JSON (`.pio.json`) carries either model between PowerIO
-consumers with provenance and diagnostics. `to_json` / `from_json` expose the
-balanced model's internal JSON snapshot; use `.pio.json` packages or a named
-exchange format for files shared with other tools.
+The stored `.pio.json` document (`write_json`) carries any value kind between
+PowerIO consumers with its sources, findings, and history. `to_json` /
+`from_json` expose the balanced model's own JSON snapshot; files shared with
+other tools stay in the format the tool reads.
 
 Each classical exchange format reads and writes where the Rust core has a
 writer, so any supported pair converts. A same format round trip is byte exact;

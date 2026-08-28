@@ -1,17 +1,20 @@
 # PowerIO.jl
 
-Julia entry point for [PowerIO](https://github.com/eigenergy/powerio): parser,
-compiler package, and IR infrastructure for power system software. The Rust
-core reads case files, writes them back, converts between formats, and exposes
-the same model through Julia, Python, C/C++, and Rust.
+PowerIO 0.10 is the public beta of the 1.0 API. API corrections may land before 1.0.0 as downstream integrations exercise the new design.
+
+Julia binding of [PowerIO](https://github.com/eigenergy/powerio), the power
+system data compiler. One call parses any supported source into a typed
+module, and the type parameter drives ordinary dispatch in everything that
+follows.
 
 ```julia
 using PowerIO
 
-net = PowerIO.parse("case14.m"; value_type=BalancedNetwork)
-length(PowerIO.buses(net))              # 14
-m = PowerIO.parse("case14.m")           # StoredModule; module_kind names the value
-text, warnings = convert_file("case14.m", "psse")
+case = parse_file("case14.m")           # PioModule{BalancedNetwork}
+n_buses(case.value)                     # 14
+feeder = parse_file("feeder.dss")       # PioModule{MulticonductorNetwork}
+diagnostics(feeder)                     # native Diagnostic records
+text, findings = convert_file("case14.m", "psse")
 ```
 
 ## Install
