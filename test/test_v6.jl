@@ -14,20 +14,20 @@ _has_v6 = PowerIO.library_available() &&
     case9 = joinpath(@__DIR__, "data", "case9.m")
 
     @testset "module round trip and kind" begin
-        m = parse_module(case9)
-        @test module_kind(m) == "balanced_network"
-        doc = write_module(m)
+        m = PowerIO.parse_module(case9)
+        @test PowerIO.module_kind(m) == "balanced_network"
+        doc = PowerIO.write_module(m)
         @test occursin("\"powerio.module\"", doc)
-        back = read_module(doc)
-        @test module_kind(back) == "balanced_network"
-        inspection = inspect_module(back)
+        back = PowerIO.read_module(doc)
+        @test PowerIO.module_kind(back) == "balanced_network"
+        inspection = PowerIO.inspect_module(back)
         @test inspection.kind == "balanced_network"
         @test "diagnostics" in inspection.operations
     end
 
     @testset "structured refusals carry the code" begin
         err = try
-            parse_module_str("not a case"; format="matpower")
+            PowerIO.parse_module_str("not a case"; format="matpower")
             nothing
         catch e
             e
@@ -36,9 +36,9 @@ _has_v6 = PowerIO.library_available() &&
         @test occursin(".", err.code)
         @test !isempty(err.message)
 
-        m = parse_module(case9)
+        m = PowerIO.parse_module(case9)
         err = try
-            export_state(m; time_position=0)
+            PowerIO.export_state(m; time_position=0)
             nothing
         catch e
             e
@@ -48,7 +48,7 @@ _has_v6 = PowerIO.library_available() &&
     end
 
     @testset "DC data spans, mappings, and PowerModels values" begin
-        m = parse_module(case9)
+        m = PowerIO.parse_module(case9)
         d = dc_data(m)
         # The result is independently owned: drop the module first.
         finalize(m)
@@ -89,7 +89,7 @@ _has_v6 = PowerIO.library_available() &&
 
         # The borrowed view roots its owner: the spans survive a GC pass with
         # only the view live.
-        view = PowerIO.susceptance(dc_data(parse_module(case9)))
+        view = PowerIO.susceptance(dc_data(PowerIO.parse_module(case9)))
         GC.gc()
         @test length(view) == rows
         @test view[1] < 0
@@ -99,7 +99,7 @@ _has_v6 = PowerIO.library_available() &&
         # A released 0.9 package with operating points upgrades on read and
         # selects by time position. The document is hand authored: the 0.9
         # writer is gone, and the frozen layout is the upgrade specification.
-        network_json = JSON3.read(to_json(PowerIO.parse(case9; value_type=BalancedNetwork)))
+        network_json = JSON3.read(to_json(parse_file(case9).value))
         legacy = JSON3.write(Dict(
             "powerio_version" => "0.9.0",
             "producer" => Dict("tool" => "PowerIO.jl test", "version" => "0"),
@@ -123,22 +123,22 @@ _has_v6 = PowerIO.library_available() &&
                 ],
             ),
         ))
-        m = read_module(legacy)
-        @test module_kind(m) == "balanced_operating_point_time_series"
+        m = PowerIO.read_module(legacy)
+        @test PowerIO.module_kind(m) == "balanced_operating_point_time_series"
         inventory = state_inventory(m)
         @test inventory.keyed_by == "time_position"
         @test [p.label for p in inventory.time_points] == ["h0", "h1"]
-        exported = export_state(m; time_position=1)
-        @test module_kind(exported) == "balanced_network"
+        exported = PowerIO.export_state(m; time_position=1)
+        @test PowerIO.module_kind(exported) == "balanced_network"
         # time_position is zero based: position 1 selects the SECOND time
         # point ("h1"), whose update set pg to 95.0. Read it back off the
         # exported network's own generator so an off by one silently landing
         # on "h0" (pg unchanged) cannot pass.
-        exported_value = JSON3.read(write_module(exported)).value
+        exported_value = JSON3.read(PowerIO.write_module(exported)).value
         @test exported_value.kind == "balanced_network"
         exported_net = from_json(JSON3.write(exported_value.data))
         @test Float64(first(PowerIO.generators(exported_net)).pg) ≈ 95.0
-        @test occursin("export_selected_state", write_module(exported))
+        @test occursin("export_selected_state", PowerIO.write_module(exported))
     end
 end
 
@@ -155,9 +155,9 @@ end
     dss_text = "New Circuit.c basekv=12.47 bus1=src\n"
     for _ in 1:200
         GC.gc()
-        @test module_kind(parse_module_str(dss_text; format="dss")) == "multiconductor_network"
+        @test PowerIO.module_kind(PowerIO.parse_module_str(dss_text; format="dss")) == "multiconductor_network"
         GC.gc()
-        @test PowerIO.formula(PowerIO.dc_data(parse_module(case9))) == "series_susceptance"
+        @test PowerIO.formula(PowerIO.dc_data(PowerIO.parse_module(case9))) == "series_susceptance"
     end
 end
 
@@ -166,7 +166,7 @@ end
         @test_skip "the resolved library predates the ABI v6 entry points"
         return
     end
-    d = PowerIO.dc_data(parse_module(joinpath(@__DIR__, "data", "case9.m")))
+    d = PowerIO.dc_data(PowerIO.parse_module(joinpath(@__DIR__, "data", "case9.m")))
     v = PowerIO.susceptance(d)
     @test length(v) == PowerIO.n_rows(d)
     @test v[1] isa Float64
@@ -192,9 +192,9 @@ end
         return
     end
     case9 = joinpath(@__DIR__, "data", "case9.m")
-    @test module_kind(parse_module(case9)) == "balanced_network"
-    @test module_kind(parse_module_str(read(case9, String); format="matpower")) == "balanced_network"
-    @test module_kind(read_module(write_module(parse_module(case9)))) == "balanced_network"
+    @test PowerIO.module_kind(PowerIO.parse_module(case9)) == "balanced_network"
+    @test PowerIO.module_kind(PowerIO.parse_module_str(read(case9, String); format="matpower")) == "balanced_network"
+    @test PowerIO.module_kind(PowerIO.read_module(PowerIO.write_module(PowerIO.parse_module(case9)))) == "balanced_network"
 end
 
 @testset "read_module, parse_module, parse_module_str preflight the library" begin
@@ -206,9 +206,9 @@ end
         @test_skip "the resolved library already exports the ABI v6 entry points; needs one that predates them (e.g. the pinned ABI 5 artifact, POWERIO_CAPI unset) to exercise the missing-export path"
     else
         case9 = joinpath(@__DIR__, "data", "case9.m")
-        cases = ((:pio_module_read_json, () -> read_module("{}")),
-                 (:pio_parse_file, () -> parse_module(case9)),
-                 (:pio_parse_str, () -> parse_module_str("not a case"; format="matpower")))
+        cases = ((:pio_module_read_json, () -> PowerIO.read_module("{}")),
+                 (:pio_parse_file, () -> PowerIO.parse_module(case9)),
+                 (:pio_parse_str, () -> PowerIO.parse_module_str("not a case"; format="matpower")))
         for (sym, thunk) in cases
             err = try
                 thunk()
@@ -233,7 +233,7 @@ end
         return
     end
     case9 = joinpath(@__DIR__, "data", "case9.m")
-    m = parse_module(case9)
+    m = PowerIO.parse_module(case9)
 
     # Reachable through the public API: dc_data does not validate its
     # `formula` keyword or the module's value kind before the ccall.
@@ -246,7 +246,7 @@ end
     @test err isa PowerIOCError
     @test err.code == "REQUEST.CAPI.UNKNOWN_FORMULA"
 
-    mc = parse_module_str(
+    mc = PowerIO.parse_module_str(
         "Clear\nNew Circuit.tiny basekv=12.47 bus1=src\n" *
         "New Line.l1 bus1=src bus2=a length=1\nSet VoltageBases=[12.47]\n";
         format="dss")
@@ -282,4 +282,35 @@ end
     @test ptr == C_NULL
     @test err_ref[] != C_NULL
     @test PowerIO._v6_error(lib, err_ref[]).code == "REQUEST.CAPI.SELECTOR_CONFLICT"
+end
+
+@testset "parse_bytes(io::IO) and PowerIOCError carries native diagnostics" begin
+    if !_has_v6
+        @test_skip "the resolved library predates the ABI v6 entry points"
+        return
+    end
+    case9 = joinpath(@__DIR__, "data", "case9.m")
+
+    # The IO method reads once and parses the bytes; it must agree with a
+    # path parse of the same file.
+    io_module = open(case9) do io
+        parse_bytes(io; format="matpower")
+    end
+    @test io_module isa PioModule{BalancedNetwork}
+    @test kind(io_module) == "balanced_network"
+    @test PowerIO.n_buses(io_module.value) == PowerIO.n_buses(parse_file(case9).value)
+
+    # A malformed source refuses with a PowerIOCError whose diagnostics are
+    # native Diagnostic records, not JSON or strings.
+    err = try
+        parse_bytes(codeunits("not a case"); format="matpower")
+        nothing
+    catch e
+        e
+    end
+    @test err isa PowerIOCError
+    @test !isempty(err.code)
+    @test err.diagnostics isa Vector{Diagnostic}
+    @test !isempty(err.diagnostics)
+    @test all(d -> d isa Diagnostic && d.severity isa Symbol, err.diagnostics)
 end
