@@ -34,11 +34,7 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
             @test PowerIO._handle_string(net, :pio_balanced_network_name) == PowerIO.network_name(net)
             @test PowerIO._handle_string(net, :pio_balanced_network_source_format) == PowerIO.source_format(net)
             @test PowerIO.network_name(net) == "case14"
-            # src defect: BalancedNetwork's getproperty(:warnings) calls a
-            # `warnings(net)` function that no longer exists anywhere in the
-            # module (network.jl); `net.warnings` throws instead of reading
-            # the empty list. Pin the current behavior until that's fixed.
-            @test_throws UndefVarError net.warnings
+            @test net.warnings == String[]
             @test getfield(net, :data) === nothing
             @test sprint(show, net) == "BalancedNetwork{matpower}: 14 buses, 20 branches, 5 gens"
             display = sprint(show, MIME"text/plain"(), net)
