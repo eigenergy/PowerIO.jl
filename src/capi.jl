@@ -147,13 +147,10 @@ end
 
 const PIO_ABI_VERSION = UInt32(6)
 
-# The v5 surface this binding grew up on is unchanged in v6, so a v5 library
-# still serves every pre-v6 entry point. Constructing a stored module
-# (`read_module`, `parse_module`, `parse_module_str`) checks the ABI version
-# and the specific v6 export it is about to call before dispatching, so an out
-# of window library and a library missing the v6 entry points each raise a
-# directed error there instead of a raw ccall fault.
-const _ACCEPTED_ABI_VERSIONS = (UInt32(5), UInt32(6))
+# ABI 6 is the replacement surface this binding targets: the v5 entry points
+# it once called are gone from the library, so a v5 library cannot serve any
+# call here and the handshake refuses it with both versions named.
+const _ACCEPTED_ABI_VERSIONS = (UInt32(6),)
 const _ABI_OK = Ref{Bool}(false)
 const _ABI_OK_LIB = Ref{String}("")
 
@@ -233,7 +230,7 @@ end
 # (`pio_classify_str`, and `json_classes` in `pio_build_info`). The set is
 # closed and additive: a spelling is permanent and a new family appends.
 const MODEL_JSON_FAMILY = Symbol("model-json")
-const JSON_FAMILIES = (:transmission, :distribution, :package, MODEL_JSON_FAMILY,
+const JSON_FAMILIES = (:transmission, :distribution, :module, MODEL_JSON_FAMILY,
                        :ambiguous, :unknown)
 
 # Classify in-memory JSON by the core's cross-domain markers
@@ -254,67 +251,9 @@ function _classify_family(text::AbstractString)
     return Symbol(first(split(label, ':')))
 end
 
-const _ERRLEN = 512
-
-# ABI 5 hands the conversion's findings back through an out pointer as one
-# owned JSON array of diagnostic records, so there is nothing to size and
-# nothing to truncate. Before that this binding guessed 64 KiB and appended a
-# "may be truncated" marker when the fill came near the cap, which is the wrong
-# shape for an unbounded list: findings come one per lossy element, so a large
-# case always beat the guess.
-_diagref() = Ref{Ptr{UInt8}}(C_NULL)
-
-"""
-    Diagnostic <: AbstractString
-
-One finding from a conversion. `code`, `severity`, and `message` are always
-present; `stage`, `element_path`, `details`, `suggested_action`, and
-`safe_to_ignore` appear when the finding carries them, and `record` is the whole
-parsed record.
-
-A `Diagnostic` renders, compares, and hashes as the `CODE: message` line the
-conversion verbs return, so `occursin`, `split`, `join`, and `==` against a
-`String` all read it as that line. Branch on `d.code` rather than splitting it.
-Read them off [`to_format`](@ref), [`convert_file`](@ref), [`convert_str`](@ref),
-and [`write_pypsa_csv_folder`](@ref); [`warnings`](@ref) reports a handle's
-retained findings, which the C ABI carries as lines alone.
-"""
-struct Diagnostic <: AbstractString
-    line::String
-    record::JSON3.Object
-end
-
-Base.ncodeunits(d::Diagnostic) = ncodeunits(getfield(d, :line))
-Base.codeunit(::Diagnostic) = UInt8
-Base.codeunit(d::Diagnostic, i::Integer) = codeunit(getfield(d, :line), i)
-Base.isvalid(d::Diagnostic, i::Integer) = isvalid(getfield(d, :line), i)
-Base.iterate(d::Diagnostic) = iterate(getfield(d, :line))
-Base.iterate(d::Diagnostic, i::Integer) = iterate(getfield(d, :line), i)
-Base.String(d::Diagnostic) = getfield(d, :line)
-
-function Base.getproperty(d::Diagnostic, name::Symbol)
-    name === :line && return getfield(d, :line)
-    name === :record && return getfield(d, :record)
-    return getproperty(getfield(d, :record), name)
-end
-
-Base.propertynames(d::Diagnostic) = (:line, :record, propertynames(getfield(d, :record))...)
-
-# Take ownership of the out-param diagnostics document and keep each record
-# behind the `CODE: message` line the handle accessors return, so a conversion
-# and a read report the same way and a caller can still reach the fields. A NULL
-# out pointer means the conversion lost nothing.
-function _take_warnings(lib::AbstractString, ref::Ref{Ptr{UInt8}})
-    p = ref[]
-    p == C_NULL && return Diagnostic[]
-    document = _take_string(lib, Cstring(p))
-    isempty(document) && return Diagnostic[]
-    return [Diagnostic(string(r.code, ": ", r.message), r) for r in JSON3.read(document)]
-end
-
 # --- handle layer -------------------------------------------------------
 
-# The allocating library's `pio_network_free`, memoized per resolved path:
+# The allocating library's `pio_balanced_network_release`, memoized per resolved path:
 # resolving `_lib()` at finalization time would cross allocators after a
 # `set_library!` swap. The un-dlclosed handle deliberately pins the library so
 # the pointer stays valid for every outstanding finalizer.
@@ -323,7 +262,7 @@ end
 # resolving against two different libraries, handing one caller the other's
 # pointer.
 function _network_free_fn(lib::AbstractString=_lib())
-    return _library_symbol(String(lib), :pio_network_free)
+    return _library_symbol(String(lib), :pio_balanced_network_release)
 end
 
 """
@@ -384,81 +323,9 @@ function _feature_call_error(fname::AbstractString, sym::AbstractString,
           "`cargo build -p powerio-capi --release --features $feature`. Underlying: $e")
 end
 
-function _parse_handle(path::AbstractString; from=nothing)
-    lib = _lib()
-    _ensure_compatible(lib)
-    _network_free_fn(lib)
-    err = zeros(UInt8, _ERRLEN)
-    # Pass the format hint as a `String` (ccall roots it) or `C_NULL` for inference.
-    fromc = from === nothing ? C_NULL : String(from)
-    ptr = try
-        ccall(_library_symbol(lib, :pio_parse_file), Ptr{Cvoid},
-              (Cstring, Cstring, Ptr{UInt8}, Csize_t),
-              path, fromc, err, length(err))
-    catch
-        _lib_call_error()
-    end
-    ptr == C_NULL && error("PowerIO.parse_file: " * _cstr(err))
-    return BalancedNetworkHandle(ptr, lib)
-end
 
-# In-memory sibling of `_parse_handle`: parse `text` under an explicit `format`
-# (no path, so no extension to infer from) via `pio_parse_str`.
-function _parse_handle_str(text::AbstractString, format::AbstractString)
-    lib = _lib()
-    _ensure_compatible(lib)
-    _network_free_fn(lib)
-    err = zeros(UInt8, _ERRLEN)
-    ptr = try
-        ccall(_library_symbol(lib, :pio_parse_str), Ptr{Cvoid},
-              (Cstring, Cstring, Ptr{UInt8}, Csize_t),
-              String(text), String(format), err, length(err))
-    catch e
-        _lib_call_error(e)
-    end
-    ptr == C_NULL && error("PowerIO.parse_str: " * _cstr(err))
-    return BalancedNetworkHandle(ptr, lib)
-end
 
-# The byte sibling: `pio_parse_bytes` takes an explicit length, so the buffer
-# needs no NUL and may hold binary. It is the only in-memory route to the
-# PowerWorld `.pwb` reader. `GC.@preserve` roots the array for the call; the C
-# side copies whatever it retains before returning.
-function _parse_handle_bytes(bytes::AbstractVector{UInt8}, format::AbstractString)
-    lib = _lib()
-    _ensure_compatible(lib)
-    _network_free_fn(lib)
-    err = zeros(UInt8, _ERRLEN)
-    buf = bytes isa Vector{UInt8} ? bytes : Vector{UInt8}(bytes)
-    ptr = try
-        GC.@preserve buf begin
-            ccall(_library_symbol(lib, :pio_parse_bytes), Ptr{Cvoid},
-                  (Ptr{UInt8}, Csize_t, Cstring, Ptr{UInt8}, Csize_t),
-                  pointer(buf), length(buf), String(format), err, length(err))
-        end
-    catch e
-        _lib_call_error(e)
-    end
-    ptr == C_NULL && error("PowerIO.parse_bytes: " * _cstr(err))
-    return BalancedNetworkHandle(ptr, lib)
-end
 
-# `from_json` rebuilds from the canonical JSON snapshot `_to_json` writes.
-# The distinct label keeps the error pointed at `from_json`.
-function _from_json_handle(text::AbstractString)
-    lib = _lib()
-    _ensure_compatible(lib)
-    _network_free_fn(lib)
-    err = zeros(UInt8, _ERRLEN)
-    ptr = try
-        ccall(_library_symbol(lib, :pio_from_json), Ptr{Cvoid},
-              (Cstring, Ptr{UInt8}, Csize_t), String(text), err, length(err))
-    catch e
-        _lib_call_error(e)
-    end
-    ptr == C_NULL && error("PowerIO.from_json: " * _cstr(err))
-    return BalancedNetworkHandle(ptr, lib)
-end
 
 # `buf` must stay rooted across the unsafe_string read; without the preserve the
 # compiler may drop the buffer after `pointer(buf)` and a GC mid-copy dangles.
@@ -468,8 +335,8 @@ _cstr(buf::Vector{UInt8}) = GC.@preserve buf unsafe_string(pointer(buf))
 # buffer-sized parent).
 _nonempty_lines(s::AbstractString) = String.(filter(!isempty, split(s, '\n')))
 
-# One string over the cap/count convention (`pio_network_name`,
-# `pio_source_format`, and the joined text behind `_warnings_from`): the query
+# One string over the cap/count convention (`pio_balanced_network_name`,
+# `pio_balanced_network_source_format`, and the joined text behind `_warnings_from`): the query
 # returns the byte length excluding the NUL, so size with a null buffer,
 # allocate, fill exactly. `query(out, cap)` closes over the handle; the
 # caller's GC.@preserve covers both calls (the raw pointer never travels
@@ -497,32 +364,41 @@ end
 _json_float(x) = _json_float(Float64, x)
 
 # Take ownership of a Rust-allocated C string: copy it to a Julia String and
-# free the original with `pio_string_free`. The caller has already checked the
+# free the original with `pio_string_release`. The caller has already checked the
 # pointer for NULL (each call site owns its own directed error).
 function _take_string(lib::AbstractString, s::Cstring)
     text = unsafe_string(s)
-    ccall(_library_symbol(lib, :pio_string_free), Cvoid, (Cstring,), s)
+    ccall(_library_symbol(lib, :pio_string_release), Cvoid, (Cstring,), s)
     return text
 end
 
-# Fidelity warnings retained on a handle (`pio_warnings` / `pio_dist_warnings`):
-# the readers that return a handle and no per-call diagnostics channel
-# (`pio_read_dir`, the dist parsers) park their findings here, already rendered
-# as `CODE: message` lines. `_string_from` owns the size then fill
-# protocol, so the joined text always fits by construction — no cap marker.
-_warnings_from(query) = _nonempty_lines(_string_from(query))
 
-_handle_warnings(h::BalancedNetworkHandle) =
-    GC.@preserve h _warnings_from((out, cap) -> ccall(_library_symbol(getfield(h, :lib), :pio_warnings), Csize_t,
-                                  (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, out, cap))
 
 # The canonical JSON snapshot `BalancedNetwork` is built from and `from_json`
 # reads back.
 function _to_json(h::BalancedNetworkHandle)
     lib = getfield(h, :lib)
-    err = zeros(UInt8, _ERRLEN)
-    s = GC.@preserve h ccall(_library_symbol(lib, :pio_to_json), Cstring,
-                             (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
-    s == C_NULL && error("PowerIO: to_json failed: " * _cstr(err))
+    s = GC.@preserve h _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_balanced_network_to_json), Cstring,
+              (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), h.ptr, err)
+    end
     return _take_string(lib, s)
+end
+
+# The findings retained on a balanced network handle, as native records: wrap
+# the handle as a module sharing its records and read the module's
+# diagnostics.
+function _handle_diagnostics(h::BalancedNetworkHandle)
+    lib = getfield(h, :lib)
+    module_ptr = GC.@preserve h _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_module_of_balanced_network), Ptr{Cvoid},
+              (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), h.ptr, err)
+    end
+    handle = StoredModule(module_ptr, lib)
+    return GC.@preserve handle _diagnostics_of(lib) do _
+        _v6_call(lib) do err
+            ccall(_library_symbol(lib, :pio_module_diagnostics), Ptr{Cvoid},
+                  (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _module_ptr(handle), err)
+        end
+    end
 end

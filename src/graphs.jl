@@ -35,17 +35,17 @@ end
 Return the collapsed bus and terminal graph projection as a JSON3 object.
 Needs a live handle from [`parse_file`](@ref), [`parse_str`](@ref), or
 [`as_dist_network`](@ref), and a v0.6.2 or newer `powerio-capi` library
-exporting `pio_dist_graph_json`.
+exporting `pio_multiconductor_network_graph_json`.
 """
 function to_graph(net::MulticonductorNetwork)
     h = _live_dist_handle(net, "to_graph")
     lib = getfield(h, :lib)
     _ensure_dist_compatible(lib)
-    _exports_symbol(:pio_dist_graph_json, lib) || error(
+    _exports_symbol(:pio_multiconductor_network_graph_json, lib) || error(
         "PowerIO.to_graph: the C ABI at \"$lib\" does not export " *
-        "pio_dist_graph_json. Update the powerio-capi artifact or local library.")
+        "pio_multiconductor_network_graph_json. Update the powerio-capi artifact or local library.")
     err = zeros(UInt8, _ERRLEN)
-    s = GC.@preserve h ccall(_library_symbol(lib, :pio_dist_graph_json), Cstring,
+    s = GC.@preserve h ccall(_library_symbol(lib, :pio_multiconductor_network_graph_json), Cstring,
                              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
                              h.ptr, err, length(err))
     s == C_NULL && error("PowerIO.to_graph: " * _cstr(err))

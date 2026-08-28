@@ -18,28 +18,25 @@ the error handle's JSON array.
 struct PowerIOCError <: Exception
     code::String
     message::String
-    diagnostics::Any
+    diagnostics::Vector{Diagnostic}
 end
 
 function Base.showerror(io::IO, e::PowerIOCError)
     print(io, "PowerIOCError [", e.code, "]: ", e.message)
 end
 
-# Copy one v6 error handle into a Julia exception and release the handle.
+# Copy one v6 error handle into a Julia exception and release the handle. The
+# findings cross as native records through the structured diagnostics handle.
 function _v6_error(lib::AbstractString, err::Ptr{Cvoid})
     code = unsafe_string(ccall(_library_symbol(lib, :pio_error_code), Cstring,
                                (Ptr{Cvoid},), err))
     message = unsafe_string(ccall(_library_symbol(lib, :pio_error_message), Cstring,
                                   (Ptr{Cvoid},), err))
-    diagnostics_json = unsafe_string(ccall(_library_symbol(lib, :pio_error_diagnostics_json),
-                                           Cstring, (Ptr{Cvoid},), err))
-    ccall(_library_symbol(lib, :pio_error_release), Cvoid, (Ptr{Cvoid},), err)
-    diagnostics = try
-        JSON3.read(diagnostics_json)
-    catch e
-        @debug "PowerIO: could not decode v6 error diagnostics JSON" exception = (e, catch_backtrace())
-        JSON3.read("[]")
+    diagnostics = _diagnostics_of(lib) do e
+        ccall(_library_symbol(lib, :pio_error_diagnostics), Ptr{Cvoid},
+              (Ptr{Cvoid},), err)
     end
+    ccall(_library_symbol(lib, :pio_error_release), Cvoid, (Ptr{Cvoid},), err)
     return PowerIOCError(code, message, diagnostics)
 end
 
@@ -109,9 +106,9 @@ Parse a case file into a module of whichever family claims it.
 function parse_module(path::AbstractString; format::Union{AbstractString,Nothing}=nothing)
     lib = _lib()
     _ensure_compatible(lib)
-    _require_export("parse_module", :pio_module_parse_file, "powerio v1.0", lib)
+    _require_export("parse_module", :pio_parse_file, "powerio v1.0", lib)
     ptr = _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_parse_file), Ptr{Cvoid},
+        ccall(_library_symbol(lib, :pio_parse_file), Ptr{Cvoid},
               (Cstring, Cstring, Ref{Ptr{Cvoid}}), path,
               format === nothing ? C_NULL : format, err)
     end
@@ -124,13 +121,14 @@ end
 Parse in-memory case text into a module.
 """
 function parse_module_str(text::AbstractString;
+                          name::AbstractString="<memory>",
                           format::Union{AbstractString,Nothing}=nothing)
     lib = _lib()
     _ensure_compatible(lib)
-    _require_export("parse_module_str", :pio_module_parse_str, "powerio v1.0", lib)
+    _require_export("parse_module_str", :pio_parse_str, "powerio v1.0", lib)
     ptr = _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_parse_str), Ptr{Cvoid},
-              (Cstring, Cstring, Ref{Ptr{Cvoid}}), text,
+        ccall(_library_symbol(lib, :pio_parse_str), Ptr{Cvoid},
+              (Cstring, Cstring, Cstring, Ref{Ptr{Cvoid}}), name, text,
               format === nothing ? C_NULL : format, err)
     end
     return StoredModule(ptr, lib)
@@ -143,15 +141,16 @@ Parse in-memory case bytes into a module: the only in-memory way to read a
 binary format. Text formats must be UTF-8.
 """
 function parse_module_bytes(bytes::AbstractVector{UInt8};
+                            name::AbstractString="<memory>",
                             format::Union{AbstractString,Nothing}=nothing)
     lib = _lib()
     _ensure_compatible(lib)
-    _require_export("parse_module_bytes", :pio_module_parse_bytes, "powerio v1.0", lib)
+    _require_export("parse_module_bytes", :pio_parse_bytes, "powerio v1.0", lib)
     data = Vector{UInt8}(bytes)
     ptr = GC.@preserve data _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_parse_bytes), Ptr{Cvoid},
-              (Ptr{UInt8}, Csize_t, Cstring, Ref{Ptr{Cvoid}}), data, length(data),
-              format === nothing ? C_NULL : format, err)
+        ccall(_library_symbol(lib, :pio_parse_bytes), Ptr{Cvoid},
+              (Cstring, Ptr{UInt8}, Csize_t, Cstring, Ref{Ptr{Cvoid}}), name, data,
+              length(data), format === nothing ? C_NULL : format, err)
     end
     return StoredModule(ptr, lib)
 end
@@ -463,100 +462,3 @@ function branch_flow(d::DcData, va::AbstractVector{<:Real})
     return out
 end
 
-# ---- typed record access ----------------------------------------------------
-
-"""
-    ModuleDiagnostic
-
-One durable finding on a stored module: `code`, `severity`, `message`, and
-the optional `target` pointer into the value.
-"""
-struct ModuleDiagnostic
-    code::String
-    severity::String
-    message::String
-    target::Union{String,Nothing}
-end
-
-"""
-    ModuleHistoryEntry
-
-One structured, descriptive operation in a module's history: `id`, `kind`
-(`"parse"`, `"upgrade"`, `"transform"`, ...), `name`, and the stated
-`assumptions` and `losses`. History describes; it does not replay.
-"""
-struct ModuleHistoryEntry
-    id::String
-    kind::String
-    name::String
-    assumptions::Vector{String}
-    losses::Vector{String}
-end
-
-"""
-    ModuleSource
-
-One source a module was compiled from: module local `id`, display `name`,
-`byte_length`, and the optional stated `format`.
-"""
-struct ModuleSource
-    id::String
-    name::String
-    byte_length::Int
-    format::Union{String,Nothing}
-end
-
-# The stored document is the wire; decoding records from it reads exactly what
-# `write_module` states, no whole network re-serialization beyond that wire.
-function _stored_document(m::StoredModule)
-    return JSON3.read(write_module(m))
-end
-
-# An explicit JSON null reads like an absent key: the capi diagnostics
-# document writes "target": null where the DTO omits the key.
-function _record_string(row, key)
-    value = get(row, key, nothing)
-    return value === nothing ? nothing : String(value)
-end
-
-"""
-    module_diagnostics(m::StoredModule) -> Vector{ModuleDiagnostic}
-
-The module's durable findings, decoded from the stored document.
-"""
-function module_diagnostics(m::StoredModule)
-    document = _stored_document(m)
-    rows = get(document, :diagnostics, nothing)
-    rows === nothing && return ModuleDiagnostic[]
-    return [ModuleDiagnostic(String(row.code), String(row.severity), String(row.message),
-                             _record_string(row, :target)) for row in rows]
-end
-
-"""
-    module_history(m::StoredModule) -> Vector{ModuleHistoryEntry}
-
-The module's descriptive history, decoded from the stored document.
-"""
-function module_history(m::StoredModule)
-    document = _stored_document(m)
-    rows = get(document, :history, nothing)
-    rows === nothing && return ModuleHistoryEntry[]
-    return [ModuleHistoryEntry(
-                String(row.id), String(row.kind), String(row.name),
-                haskey(row, :assumptions) ? String.(row.assumptions) : String[],
-                haskey(row, :losses) ? String.(row.losses) : String[],
-            ) for row in rows]
-end
-
-"""
-    module_sources(m::StoredModule) -> Vector{ModuleSource}
-
-The sources the module was compiled from, decoded from the stored document.
-"""
-function module_sources(m::StoredModule)
-    document = _stored_document(m)
-    rows = get(document, :sources, nothing)
-    rows === nothing && return ModuleSource[]
-    return [ModuleSource(String(row.id), String(row.name), Int(row.byte_length),
-                         _record_string(row, :format)) for row in rows]
-end
