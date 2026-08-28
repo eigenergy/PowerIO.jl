@@ -202,7 +202,8 @@ use [`to_arrow`](@ref).
 """
 to_dense(net::BalancedNetwork) = _dense_from_handle(_live_handle(net, "to_dense"))
 function to_dense(path::AbstractString; from=nothing)
-    h = _parse_handle(path; from=from)
+    net = _parse_balanced(path; from=from)
+    h = _live_handle(net, "to_dense")
     try
         return _dense_from_handle(h)
     finally
