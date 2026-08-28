@@ -523,10 +523,20 @@ function _arrow_from_handle(h::BalancedNetworkHandle, table::Symbol, copy::Bool)
         _feature_call_error("to_arrow", "pio_balanced_network_to_arrow", "arrow", e)
     end
     rc == 0 || error("PowerIO.to_arrow: the export was refused")
-    # Zero copy: hand ownership to ArrowBuffers FIRST — from here its finalizer
-    # releases the producer even if decoding throws, then wrap each column so every
-    # column roots the owner on its own.
+    # Hand ownership to ArrowBuffers FIRST — from here its finalizer releases
+    # the producer even if decoding throws.
     buffers = ArrowBuffers(arr, sch)
+    if copy
+        # Owned columns: decode into ordinary Julia vectors and release the
+        # producer immediately; no lifetime rides on the result.
+        cols = try
+            _decode_arrow(arr, sch; copy=true, table=table)
+        finally
+            _release_buffers!(buffers)
+        end
+        return cols
+    end
+    # Zero copy: wrap each column so every column roots the owner on its own.
     cols = try
         _decode_arrow(arr, sch; copy=false, table=table)
     catch
