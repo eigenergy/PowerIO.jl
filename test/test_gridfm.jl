@@ -11,17 +11,10 @@
         @test r.network isa BalancedNetwork
         @test r.scenario == 0
         @test r.diagnostics isa Vector{Diagnostic}
-        # src defect: read_gridfm (gridfm.jl) returns
-        # `diagnostics(selected)` — the diagnostics of the per-scenario
-        # module select_state exports — but the reader's own findings (the
-        # "synthesized bus ids" note among them) are attached to the parent
-        # scenario-set module instead and do not carry over to the export.
-        # r.diagnostics is therefore always empty; the real findings are
-        # only reachable off the parent module directly. Pin both.
-        @test isempty(r.diagnostics)
-        parent_diagnostics = diagnostics(parse_file(single; format="gridfm"))
-        @test !isempty(parent_diagnostics)
-        @test any(d -> occursin("synthesized bus ids", d.message), parent_diagnostics)
+        # The result carries the reader's findings ahead of the scenario's
+        # own; the "synthesized bus ids" note is the reader's.
+        @test !isempty(r.diagnostics)
+        @test any(d -> occursin("synthesized bus ids", d.message), r.diagnostics)
         @test PowerIO.n_buses(r.network) == 14
         @test PowerIO.n_branches(r.network) == 20
         @test PowerIO.n_gens(r.network) == 5

@@ -82,11 +82,9 @@
             @test_throws ErrorException PowerIO.n_buses(net)
             @test_throws ErrorException to_json(net)
             @test_throws ErrorException sprint(show, net)
-            # src defect: `warnings` no longer exists anywhere in the module
-            # (network.jl's getproperty still calls it); `net.warnings` and
-            # `PowerIO.warnings(net)` both throw UndefVarError regardless of
-            # handle state. Pin the current behavior until that's fixed.
-            @test_throws UndefVarError net.warnings
+            # `warnings` reads the live handle, so a finalized handle is a
+            # directed error, like the other live reads above.
+            @test_throws ErrorException net.warnings
 
             # Finalizing *after* the first access leaves `data` cached, so the
             # payload-backed reads keep working.
