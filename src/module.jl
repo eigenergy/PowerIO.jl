@@ -331,7 +331,7 @@ Write the module as the named target format and return the text. Writing an
 unchanged parsed module back to its own source format returns the retained
 source bytes exactly; any other target serializes the typed value and
 reports what it cannot represent through the module's returned findings
-(read them with [`write_report`](@ref) when they matter).
+(read them with [`write_report_str`](@ref) when they matter).
 """
 write_str(m::PioModule; format::AbstractString) = first(write_report_str(m; format))
 
