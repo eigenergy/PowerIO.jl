@@ -18,28 +18,25 @@ the error handle's JSON array.
 struct PowerIOCError <: Exception
     code::String
     message::String
-    diagnostics::Any
+    diagnostics::Vector{Diagnostic}
 end
 
 function Base.showerror(io::IO, e::PowerIOCError)
     print(io, "PowerIOCError [", e.code, "]: ", e.message)
 end
 
-# Copy one v6 error handle into a Julia exception and release the handle.
+# Copy one v6 error handle into a Julia exception and release the handle. The
+# findings cross as native records through the structured diagnostics handle.
 function _v6_error(lib::AbstractString, err::Ptr{Cvoid})
     code = unsafe_string(ccall(_library_symbol(lib, :pio_error_code), Cstring,
                                (Ptr{Cvoid},), err))
     message = unsafe_string(ccall(_library_symbol(lib, :pio_error_message), Cstring,
                                   (Ptr{Cvoid},), err))
-    diagnostics_json = unsafe_string(ccall(_library_symbol(lib, :pio_error_diagnostics_json),
-                                           Cstring, (Ptr{Cvoid},), err))
-    ccall(_library_symbol(lib, :pio_error_release), Cvoid, (Ptr{Cvoid},), err)
-    diagnostics = try
-        JSON3.read(diagnostics_json)
-    catch e
-        @debug "PowerIO: could not decode v6 error diagnostics JSON" exception = (e, catch_backtrace())
-        JSON3.read("[]")
+    diagnostics = _diagnostics_of(lib) do e
+        ccall(_library_symbol(lib, :pio_error_diagnostics), Ptr{Cvoid},
+              (Ptr{Cvoid},), err)
     end
+    ccall(_library_symbol(lib, :pio_error_release), Cvoid, (Ptr{Cvoid},), err)
     return PowerIOCError(code, message, diagnostics)
 end
 
@@ -109,9 +106,9 @@ Parse a case file into a module of whichever family claims it.
 function parse_module(path::AbstractString; format::Union{AbstractString,Nothing}=nothing)
     lib = _lib()
     _ensure_compatible(lib)
-    _require_export("parse_module", :pio_module_parse_file, "powerio v1.0", lib)
+    _require_export("parse_module", :pio_parse_file, "powerio v1.0", lib)
     ptr = _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_parse_file), Ptr{Cvoid},
+        ccall(_library_symbol(lib, :pio_parse_file), Ptr{Cvoid},
               (Cstring, Cstring, Ref{Ptr{Cvoid}}), path,
               format === nothing ? C_NULL : format, err)
     end
@@ -124,13 +121,14 @@ end
 Parse in-memory case text into a module.
 """
 function parse_module_str(text::AbstractString;
+                          name::AbstractString="<memory>",
                           format::Union{AbstractString,Nothing}=nothing)
     lib = _lib()
     _ensure_compatible(lib)
-    _require_export("parse_module_str", :pio_module_parse_str, "powerio v1.0", lib)
+    _require_export("parse_module_str", :pio_parse_str, "powerio v1.0", lib)
     ptr = _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_parse_str), Ptr{Cvoid},
-              (Cstring, Cstring, Ref{Ptr{Cvoid}}), text,
+        ccall(_library_symbol(lib, :pio_parse_str), Ptr{Cvoid},
+              (Cstring, Cstring, Cstring, Ref{Ptr{Cvoid}}), name, text,
               format === nothing ? C_NULL : format, err)
     end
     return StoredModule(ptr, lib)
@@ -143,15 +141,16 @@ Parse in-memory case bytes into a module: the only in-memory way to read a
 binary format. Text formats must be UTF-8.
 """
 function parse_module_bytes(bytes::AbstractVector{UInt8};
+                            name::AbstractString="<memory>",
                             format::Union{AbstractString,Nothing}=nothing)
     lib = _lib()
     _ensure_compatible(lib)
-    _require_export("parse_module_bytes", :pio_module_parse_bytes, "powerio v1.0", lib)
+    _require_export("parse_module_bytes", :pio_parse_bytes, "powerio v1.0", lib)
     data = Vector{UInt8}(bytes)
     ptr = GC.@preserve data _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_parse_bytes), Ptr{Cvoid},
-              (Ptr{UInt8}, Csize_t, Cstring, Ref{Ptr{Cvoid}}), data, length(data),
-              format === nothing ? C_NULL : format, err)
+        ccall(_library_symbol(lib, :pio_parse_bytes), Ptr{Cvoid},
+              (Cstring, Ptr{UInt8}, Csize_t, Cstring, Ref{Ptr{Cvoid}}), name, data,
+              length(data), format === nothing ? C_NULL : format, err)
     end
     return StoredModule(ptr, lib)
 end

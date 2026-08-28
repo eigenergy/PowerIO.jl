@@ -12,8 +12,8 @@
         @test PowerIO.base_mva(net) == 100.0
         @test PowerIO.reference_bus_id(net) == 1
         @test getfield(net, :data) === nothing
-        has_scalar_helpers = PowerIO._exports_symbol(:pio_source_format) &&
-                             PowerIO._exports_symbol(:pio_network_name)
+        has_scalar_helpers = PowerIO._exports_symbol(:pio_balanced_network_source_format) &&
+                             PowerIO._exports_symbol(:pio_balanced_network_name)
         @test PowerIO.source_format(net) == "matpower"
         @test net.name == "case14"
         @test net.source_format == "matpower"
@@ -21,11 +21,11 @@
         @test net.base_frequency == 60.0
         @test getfield(net, :data) === nothing
         if has_scalar_helpers
-            # Drift canary: the v0.7 C string accessors (pio_network_name /
-            # pio_source_format) agree with the summary-backed public
+            # Drift canary: the v0.7 C string accessors (pio_balanced_network_name /
+            # pio_balanced_network_source_format) agree with the summary-backed public
             # accessors reading the same Rust fields.
-            @test PowerIO._handle_string(net, :pio_network_name) == PowerIO.network_name(net)
-            @test PowerIO._handle_string(net, :pio_source_format) == PowerIO.source_format(net)
+            @test PowerIO._handle_string(net, :pio_balanced_network_name) == PowerIO.network_name(net)
+            @test PowerIO._handle_string(net, :pio_balanced_network_source_format) == PowerIO.source_format(net)
             @test PowerIO.network_name(net) == "case14"
             @test net.warnings == String[]
             @test getfield(net, :data) === nothing

@@ -140,7 +140,7 @@ end
                 "mpc.gen = [\n];\nmpc.branch = [\n1 2 0.01 0.1 0 100 100 100 0 0 1 -30 30;\n];\n"
         @test_throws ErrorException to_normalized(PowerIO.parse(IOBuffer(noref); from="matpower", value_type=BalancedNetwork))
 
-        # The clamp rides `PioNormalizeOptions` on `pio_normalize`; the symbol is
+        # The clamp rides `PioNormalizeOptions` on `pio_balanced_network_normalize`; the symbol is
         # not feature gated, so a compatible library always has it.
         angle_net = PowerIO.parse(joinpath(data, "angle_bounds_clamp.m"); value_type=BalancedNetwork)
         clamped = to_normalized(angle_net; clamp_angle_bounds=true)
@@ -209,8 +209,8 @@ end
         # The v0.7 dense fields are present exactly when the resolved library
         # exports their extractors; a pre-0.7 ABI-4 library omits them. Each
         # surface gates on its own symbols, mirroring _dense_from_handle.
-        if PowerIO._exports_symbol(:pio_branch_charging)
-            # Terminal charging (pio_branch_charging): a MATPOWER line carries no
+        if PowerIO._exports_symbol(:pio_balanced_network_branch_charging)
+            # Terminal charging (pio_balanced_network_branch_charging): a MATPOWER line carries no
             # conductance and splits its total charging b evenly across terminals.
             @test d.branch.g_fr == zeros(20) && d.branch.g_to == zeros(20)
             @test d.branch.b_fr ≈ d.branch.b ./ 2
@@ -220,7 +220,7 @@ end
             @test_skip to_dense(joinpath(@__DIR__, "data", "case14.m")).branch.g_fr
         end
         if PowerIO._has_switch_extractors()
-            # No switches in case14 (pio_switches / pio_n_switches).
+            # No switches in case14 (pio_balanced_network_switches / pio_balanced_network_n_switches).
             @test d.ns == 0
             @test isempty(d.switch.from) && isempty(d.switch.closed)
 
@@ -243,7 +243,7 @@ end
             @test ds.switch.current_rating[1] == 0.0    # absent optional comes back 0.0
             row = findfirst(i -> ds.branch.from[i] == 1 && ds.branch.to[i] == 2, 1:ds.m)
             @test ds.branch.b[row] ≈ 0.05
-            PowerIO._exports_symbol(:pio_branch_charging) &&
+            PowerIO._exports_symbol(:pio_balanced_network_branch_charging) &&
                 @test ds.branch.b_fr[row] ≈ 0.02 && ds.branch.b_to[row] ≈ 0.03
         else
             @test !haskey(d, :ns) && !haskey(d, :switch)

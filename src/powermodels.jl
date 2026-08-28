@@ -113,7 +113,7 @@ function correct_voltage_angle_differences!(network_data::Dict{String,<:Any};
     branch_table = get(network_data, "branch", Dict{String,Any}())
     isempty(branch_table) && return network_data
     # The normalize route needs a live handle, so it needs a usable library. The
-    # ABI equality gate covers the symbol: `pio_normalize` is not feature gated,
+    # ABI equality gate covers the symbol: `pio_balanced_network_normalize` is not feature gated,
     # so there is nothing further to probe for.
     if !haskey(network_data, "baseMVA") || !haskey(network_data, "bus") ||
        !library_available()

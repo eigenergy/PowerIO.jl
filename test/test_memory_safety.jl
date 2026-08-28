@@ -126,9 +126,9 @@ end
     tasks = [Threads.@spawn begin
                  lib = paths[1 + (i % 2)]
                  got = PowerIO._network_free_fn(lib)
-                 want = PowerIO._library_symbol(lib, :pio_network_free)
+                 want = PowerIO._library_symbol(lib, :pio_balanced_network_release)
                  dist_got = PowerIO._dist_network_free_fn(lib)
-                 dist_want = PowerIO._library_symbol(lib, :pio_dist_network_free)
+                 dist_want = PowerIO._library_symbol(lib, :pio_multiconductor_network_release)
                  results[i] = (got == want ? C_NULL : got,
                                dist_got == dist_want ? C_NULL : dist_got)
              end for i in 1:64]

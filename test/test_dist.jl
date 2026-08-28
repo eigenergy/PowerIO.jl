@@ -132,7 +132,7 @@ end
     else
         dss = joinpath(@__DIR__, "data", "dist", "switch.dss")
         @test PowerIO.dist_abi_version() == PowerIO.PIO_DIST_ABI_VERSION
-        has_dist_summary = PowerIO._exports_symbol(:pio_dist_summary_json)
+        has_dist_summary = PowerIO._exports_symbol(:pio_multiconductor_network_summary_json)
 
         # The distribution case shares the transmission verbs: the entry points
         # take MulticonductorNetwork as a leading type marker (the parse(T, x) idiom),
@@ -363,11 +363,11 @@ end
         @test PowerIO.source_format(payload_round_trip) == PowerIO.source_format(routed)
         @test PowerIO.warnings(payload_round_trip) == PowerIO.warnings(bare)
 
-        if !PowerIO._exports_symbol(:pio_dist_from_json)
+        if !PowerIO._exports_symbol(:pio_multiconductor_network_from_json)
             @test_skip from_json(MulticonductorNetwork, JSON3.write(routed.data))
         else
             # from_json(MulticonductorNetwork, text) rebuilds a LIVE handle from
-            # the model JSON (the inverse of pio_dist_to_json), unlike the
+            # the model JSON (the inverse of pio_multiconductor_network_to_json), unlike the
             # payload-only constructor above, so handle transforms work on it.
             rebuilt = from_json(MulticonductorNetwork, JSON3.write(routed.data))
             @test rebuilt isa MulticonductorNetwork

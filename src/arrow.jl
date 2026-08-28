@@ -24,7 +24,7 @@
 
 # Columnar export over the Arrow C Data Interface.
 #
-# `pio_to_arrow` (powerio-capi built `--features arrow`) lends one raw or
+# `pio_balanced_network_to_arrow` (powerio-capi built `--features arrow`) lends one raw or
 # normalized solver table as an Arrow struct array across the C Data Interface.
 # The table is self-describing, the in-memory sibling of the JSON transport and
 # the dense extractors. Arrow.jl is an IPC-format reader and does not import the
@@ -512,38 +512,17 @@ function _arrow_from_handle(h::BalancedNetworkHandle, table::Symbol, copy::Bool)
         "PowerIO.to_arrow: unknown table $(repr(table)); expected one of $(keys(_ARROW_TABLE_IDS))"))
     arr = Ref(_zero(CArrowArray))
     sch = Ref(_zero(CArrowSchema))
-    err = zeros(UInt8, _ERRLEN)
     lib = getfield(h, :lib)
     rc = try
-        GC.@preserve h ccall(_library_symbol(lib, :pio_to_arrow), Cint,
-              (Ptr{Cvoid}, Cint, Ptr{CArrowArray}, Ptr{CArrowSchema}, Ptr{UInt8}, Csize_t),
-              h.ptr, id, arr, sch, err, length(err))
+        GC.@preserve h _v6_call(lib) do err
+            ccall(_library_symbol(lib, :pio_balanced_network_to_arrow), Cint,
+                  (Ptr{Cvoid}, Cint, Ptr{CArrowArray}, Ptr{CArrowSchema}, Ref{Ptr{Cvoid}}),
+                  h.ptr, id, arr, sch, err)
+        end
     catch e
-        _feature_call_error("to_arrow", "pio_to_arrow", "arrow", e)
+        _feature_call_error("to_arrow", "pio_balanced_network_to_arrow", "arrow", e)
     end
-    if rc != 0
-        msg = _cstr(err)
-        if occursin("unknown Arrow table id", msg)
-            error("PowerIO.to_arrow: the loaded C library does not support table " *
-                  "$(repr(table)) (id $(Int(id))). Rebuild powerio-capi from a " *
-                  "matching commit or repin the PowerIO.jl artifact.")
-        end
-        error("PowerIO.to_arrow: " * msg)
-    end
-    _require_release_callbacks!(arr, sch)
-    if copy
-        # The columns are owned copies: release the producer before returning, and
-        # on a decode error (unknown format code, child count
-        # mismatch) release too so the buffers don't leak.
-        cols = try
-            _decode_arrow(arr, sch; copy=true, table=table)
-        catch
-            _release_ffi!(arr, sch)
-            rethrow()
-        end
-        _release_ffi!(arr, sch)
-        return cols
-    end
+    rc == 0 || error("PowerIO.to_arrow: the export was refused")
     # Zero copy: hand ownership to ArrowBuffers FIRST — from here its finalizer
     # releases the producer even if decoding throws, then wrap each column so every
     # column roots the owner on its own.
@@ -591,14 +570,15 @@ function _matrix_arrow_from_handle(h::BalancedNetworkHandle, table::Symbol)
     expected = table == :ybus ? 4 : 3
     arr = Ref(_zero(CArrowArray))
     sch = Ref(_zero(CArrowSchema))
-    err = zeros(UInt8, _ERRLEN)
     lib = getfield(h, :lib)
     rc = try
-        GC.@preserve h ccall(_library_symbol(lib, :pio_to_arrow), Cint,
-              (Ptr{Cvoid}, Cint, Ptr{CArrowArray}, Ptr{CArrowSchema}, Ptr{UInt8}, Csize_t),
-              h.ptr, id, arr, sch, err, length(err))
+        GC.@preserve h _v6_call(lib) do err
+            ccall(_library_symbol(lib, :pio_balanced_network_to_arrow), Cint,
+                  (Ptr{Cvoid}, Cint, Ptr{CArrowArray}, Ptr{CArrowSchema}, Ref{Ptr{Cvoid}}),
+                  h.ptr, id, arr, sch, err)
+        end
     catch e
-        _feature_call_error("to_arrow", "pio_to_arrow", "arrow", e)
+        _feature_call_error("to_arrow", "pio_balanced_network_to_arrow", "arrow", e)
     end
     rc == 0 || error("PowerIO.to_arrow: " * _cstr(err))
     _require_release_callbacks!(arr, sch)
@@ -664,7 +644,10 @@ function to_arrow(net::BalancedNetwork, table::Symbol; copy::Bool=true)
     return _arrow_from_handle(_live_handle(net, "to_arrow"), table, copy)
 end
 function to_arrow(path::AbstractString, table::Symbol; from=nothing, copy::Bool=true)
-    h = _parse_handle(path; from=from)
+    m = parse_file(path; format=from === nothing ? nothing : String(from))
+    m isa PioModule{BalancedNetwork} ||
+        error("PowerIO.to_arrow: $path parsed as a $(kind(m)) module; the Arrow tables read a balanced network")
+    h = getfield(m.value, :handle)
     try
         return _arrow_from_handle(h, table, copy)
     finally
@@ -677,27 +660,20 @@ end
 """
     arrow_available() -> Bool
 
-True if the resolved C library exports `pio_to_arrow` (built `--features
+True if the resolved C library exports `pio_balanced_network_to_arrow` (built `--features
 arrow`). This checks the Arrow entry point, not that the loaded library supports
 every table selector this binding knows about.
 """
-arrow_available() = _exports_symbol(:pio_to_arrow)
+arrow_available() = _exports_symbol(:pio_balanced_network_to_arrow)
 
 """
     matrix_available() -> Bool
 
-True if the resolved C library exports `pio_to_arrow` and was built with the
-matrix Arrow table API.
+True if the resolved C library was built with the matrix Arrow table API.
 """
 function matrix_available()
     arrow_available() || return false
-    _exports_symbol(:pio_matrix_available) || return false
-    try
-        return ccall((:pio_matrix_available, _lib()), Cint, ()) != 0
-    catch e
-        @debug "PowerIO: pio_matrix_available probe failed" exception = (e, catch_backtrace())
-        return false
-    end
+    return has_feature("matrix")
 end
 
 """
@@ -715,9 +691,9 @@ function arrow_catalog()
     _ensure_compatible(lib)
     _require_export("arrow_catalog", :pio_arrow_catalog_json,
                     "powerio v0.7, `--features arrow`", lib)
-    err = zeros(UInt8, _ERRLEN)
-    s = ccall(_library_symbol(lib, :pio_arrow_catalog_json), Cstring,
-              (Ptr{UInt8}, Csize_t), err, length(err))
-    s == C_NULL && error("PowerIO.arrow_catalog: " * _cstr(err))
+    s = _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_arrow_catalog_json), Cstring,
+              (Ref{Ptr{Cvoid}},), err)
+    end
     return JSON3.read(_take_string(lib, s))
 end

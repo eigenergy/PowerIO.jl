@@ -207,8 +207,8 @@ end
     else
         case9 = joinpath(@__DIR__, "data", "case9.m")
         cases = ((:pio_module_read_json, () -> read_module("{}")),
-                 (:pio_module_parse_file, () -> parse_module(case9)),
-                 (:pio_module_parse_str, () -> parse_module_str("not a case"; format="matpower")))
+                 (:pio_parse_file, () -> parse_module(case9)),
+                 (:pio_parse_str, () -> parse_module_str("not a case"; format="matpower")))
         for (sym, thunk) in cases
             err = try
                 thunk()
