@@ -65,7 +65,7 @@ Base.show(io::IO, h::MulticonductorNetworkHandle) =
 """
     MulticonductorNetwork
 
-A parsed multiconductor distribution case. `parse_file` and `parse_str` keep a
+A parsed multiconductor distribution case. `parse_file` and `parse_bytes` keep a
 live Rust handle and leave `net.data` empty until first table access. The first
 `net.data` access reads the `pio-payload-multiconductor/1` JSON payload:
 `buses`, `linecodes`, `lines`, `switches`, `transformers`, `loads`,
@@ -263,7 +263,7 @@ function _live_dist_handle(net::MulticonductorNetwork, fname::AbstractString)
     h = getfield(net, :handle)
     h === nothing && error(
         "PowerIO.$fname: this MulticonductorNetwork has no live network handle " *
-        "(produce it with parse_file, parse_str, or as_dist_network).")
+        "(produce it with parse_file or parse_bytes).")
     h.ptr == C_NULL && error(
         "PowerIO.$fname: this MulticonductorNetwork's handle was finalized; access the data " *
         "you need (e.g. net.data) before calling finalize(net.handle).")

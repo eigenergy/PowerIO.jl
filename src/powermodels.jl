@@ -25,8 +25,9 @@ end
 Build a PowerIO [`BalancedNetwork`](@ref) from PowerModels network data. `data` may be a
 Julia dictionary / NamedTuple or a JSON string.
 """
-from_powermodels(data) = parse_str(BalancedNetwork, JSON3.write(data), "powermodels-json")
-from_powermodels(data::AbstractString) = parse_str(BalancedNetwork, data, "powermodels-json")
+from_powermodels(data) = from_powermodels(JSON3.write(data))
+from_powermodels(data::AbstractString) =
+    parse_bytes(codeunits(data); name="powermodels.json", format="powermodels-json").value
 
 # --- PowerModels reference utilities -------------------------------------
 #
