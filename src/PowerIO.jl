@@ -1,54 +1,39 @@
 """
     PowerIO
 
-Julia entry point for the PowerIO Rust core: parser, compiler package, and IR
-infrastructure for power system software. Parse MATPOWER, PSS/E, PowerWorld,
-PSLF EPC, PowerModels JSON, egret JSON, pandapower JSON, PyPSA CSV, Surge JSON,
-and PowerIO JSON cases, convert between supported pairs, and materialize a
-parsed `BalancedNetwork`, all through the `powerio-capi` C ABI.
+Julia binding of the PowerIO power system data compiler. One call parses a
+supported source into a typed module:
 
-Parse once with [`parse_file`](@ref) → [`BalancedNetwork`](@ref), then read or transform it,
-all over the same C ABI:
+```julia
+using PowerIO
+case = parse_file("case9.m")       # PioModule{BalancedNetwork}
+feeder = parse_file("feeder.dss")  # PioModule{MulticonductorNetwork}
+case.value                         # the typed network, shared native data
+diagnostics(case)                  # the reader's findings, native records
+write_file(case, "copy.m")         # byte exact same format echo
+```
 
-- the rich, lossless element tables via the JSON transport (every field + extras,
-  costs, storage, HVDC): the accessors and [`to_json`](@ref).
-- [`to_dense`](@ref): the numeric tables as dense typed arrays for matrix assembly,
-  straight from the C ABI extractors, no JSON.
-- [`to_arrow`](@ref): one table over the Arrow C Data Interface (owned columns by
-  default; zero copy with `copy=false`), including matrix COO selectors when the
-  matrix feature is present.
+The value kind is detected from the source: balanced network formats
+(MATPOWER, PSS/E, PowerWorld, PSLF EPC, PowerModels JSON, Egret JSON,
+pandapower JSON, PyPSA CSV, Surge JSON), multiconductor distribution formats
+(OpenDSS, PMD engineering JSON), calculation formats (DOE GO Challenge 3 →
+`AcScucInstance`, BMOPF → `McAcOpfInstance`, DeepMind OPFData →
+`AcOpfSolution`), time series and scenario profiles (PyPSA snapshot axes,
+Egret time keys, GridFM Parquet datasets), and the stored `.pio.json`
+document. The type parameter of [`PioModule`](@ref) drives ordinary Julia
+dispatch in everything that follows: matrices, conversion, inspection, state
+selection, and writing.
 
-[`to_normalized`](@ref) derives a per unit / radian / filtered copy that preserves
-source bus ids, and
-[`to_matpower`](@ref) / [`convert_file`](@ref) serialize back out.
+The binding rides the `powerio-capi` C ABI (version 6): every handle keeps
+its owning library, borrowed numerical views root their owner, and failures
+carry structured [`Diagnostic`](@ref) records through
+[`PowerIOCError`](@ref). At first use the binding checks the library's ABI
+version and refuses a stale or mismatched library with both versions named.
 
-[`read_gridfm`](@ref) / [`read_gridfm_scenarios`](@ref) read a gridfm-datakit Parquet
-dataset back into a `BalancedNetwork` (the ML→classical return leg; lossy but complete
-enough for power flow, needs powerio-capi built `--features gridfm`).
-
-Multiconductor distribution cases are a separate model, [`MulticonductorNetwork`](@ref),
-with the same handle plus cached payload pattern as the balanced side
-(`net.data`). The bare verbs route on the format — `parse_file("feeder.dss")`,
-`convert_file("feeder.dss", "bmopf")`, `parse_file("case.pio.json")` — and the
-type marker forms (`parse_file(MulticonductorNetwork, path)`) stay as the
-explicit spelling. OpenDSS, PowerModelsDistribution JSON, and IEEE BMOPF JSON
-read and write (experimental; needs powerio-capi built `--features dist`, plus
-`pkg` for the element tables).
-
-`.pio.json` network packages use the `pio_package_*` C ABI API. They can
-wrap balanced and multiconductor handles, run package validation, expose
-structured diagnostics, and explicitly lower supported multiconductor packages
-to balanced packages.
-
-At first use the binding checks the library's ABI version (`pio_abi_version`)
-against the version it targets (`PIO_ABI_VERSION`) and refuses a stale or
-mismatched library with an error stating both versions. Distribution calls also
-check `pio_dist_abi_version` against `PIO_DIST_ABI_VERSION`.
-
-The C library resolves automatically: the bundled lazy artifact, or a sibling
+The C library resolves automatically: the bundled artifact, or a sibling
 powerio build during development. Point at a custom build with
-[`set_library!`](@ref), the `POWERIO_CAPI` environment variable, or a persisted
-Preferences.jl override.
+[`set_library!`](@ref), the `POWERIO_CAPI` environment variable, or a
+persisted Preferences.jl override.
 """
 module PowerIO
 
@@ -58,67 +43,72 @@ using Preferences: @load_preference, load_preference, set_preferences!
 import Libdl
 import SparseArrays
 
-# Parsing and the parsed models
-export BalancedNetwork, MulticonductorNetwork, from_json
+# The typed module surface: the ordinary path after `using PowerIO`.
+export PioModule, parse_file, parse_bytes, kind, diagnostics,
+       write_file, write_str, write_json, inspect, source_format,
+       state_inventory, select_state, lower_to_balanced, lowering_readiness
 
-# Conversion and serialization. `Diagnostic` is the element type of the fidelity
-# findings the conversion verbs return.
+# The value families a module can hold.
+export BalancedNetwork, MulticonductorNetwork, TimeSeries, ScenarioSet,
+       OperatingPoint, UnknownValue,
+       DcPfInstance, AcPfInstance, DcOpfInstance, AcOpfInstance,
+       McAcPfInstance, McAcOpfInstance, AcScucInstance,
+       DcPfSolution, AcPfSolution, DcOpfSolution, AcOpfSolution,
+       McAcPfSolution, McAcOpfSolution, AcScucSolution
+
+# Structured findings and failures.
+export Diagnostic, SourceSpan, PowerIOCError
+
+# Conversion and serialization over networks.
 export convert_file, convert_str, to_format, to_normalized,
-       to_json, to_matpower, write_pypsa_csv_folder, Diagnostic
+       to_json, from_json, to_matpower, write_pypsa_csv_folder
 
-# Reading a parsed network. The rest of the element and scalar accessors stay
-# unexported: their names collide with the ecosystem packages a consumer loads
-# beside this one. These two do not, and the docs name them unqualified.
-export warnings, n_buses
+# Reading a parsed network. The element and scalar accessors stay
+# unexported: their names collide with the ecosystem packages a consumer
+# loads beside this one. `n_buses` does not, and the docs name it
+# unqualified.
+export n_buses
 
-# C library resolution, named unqualified by the module docstring and the errors
-# that tell a caller how to point at a local build.
+# C library resolution.
 export set_library!, clear_library!
-# ABI v6: the stored module surface and DC branch data. Span accessors
-# (PowerIO.susceptance, PowerIO.row_ids, ...) stay qualified: their names are
-# the cross language vocabulary, too generic to claim as exports.
-export StoredModule, read_module, parse_module, parse_module_str,
-    parse_module_bytes, write_module, module_kind, inspect_module,
-    state_inventory, export_state, lowering_readiness, lower_module_to_balanced,
-    as_network, as_dist_network, DcData, dc_data, BorrowedVector,
-    PowerIOCError, branch_flow, ModuleDiagnostic, ModuleHistoryEntry,
-    ModuleSource, module_diagnostics, module_history, module_sources,
-    incidence_matrix, susceptance_laplacian, flow_matrix, bus_injection
+# The module's descriptive records: typed history and source rows.
+export ModuleHistoryEntry, ModuleSource, history, sources
 
-# Materialized numeric views
+# Assembled DC matrices over the DC data spans.
+export incidence_matrix, susceptance_laplacian, flow_matrix, bus_injection
+
+# DC branch data and borrowed numerical views.
+export DcData, dc_data, BorrowedVector, branch_flow
+
+# Materialized numeric views.
 export to_dense, to_arrow, ArrowTable, release_c_data, arrow_catalog
 
-# Sparse system matrices (Rust matrix feature)
+# Sparse system matrices (Rust matrix feature).
 export calc_admittance_matrix, calc_susceptance_matrix, calc_incidence_matrix,
        calc_bprime_matrix, calc_bdoubleprime_matrix
 
-# Ecosystem bridges (PowerModels, ExaModels, gridfm). `to_powerdata`/`parse_ac_power_data`
-# and the `LoadSeries` multiperiod-load surface are ExaModels-facing convenience bridges
-# (documented as interim where they will be superseded by the Rust-backed series).
+# Ecosystem bridges (PowerModels, ExaModels, gridfm).
 export to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
-       LoadSeries, read_load_series, n_periods, demands_mw,
        read_gridfm, read_gridfm_scenarios
 
-# Multiconductor distribution
-export dist_available, dist_abi_version, dist_capabilities
+# Distribution availability and feature probes.
+export dist_available, to_graph, features, has_feature, schema_versions,
+       build_info, arrow_available, gridfm_available, matrix_available
 
-# Graph projection and feature probes
-export to_graph, features, has_feature, schema_versions, build_info,
-       arrow_available, gridfm_available, matrix_available
-
-include("capi.jl")        # library resolution, ABI handshake, BalancedNetworkHandle, buffer helpers
-include("v6.jl")         # ABI v6: error handles, stored modules, DC branch data
-include("network.jl")     # BalancedNetwork and the parse / convert / serialize verbs
+include("capi.jl")        # library resolution, ABI handshake, handle types
+include("diagnostics.jl") # native Diagnostic records over the structured C list
+include("v6.jl")          # error handles, stored module handles, DC branch data
+include("network.jl")     # BalancedNetwork and the convert / serialize verbs
 include("accessors.jl")   # element tables and scalar accessors
-include("dense.jl")       # to_dense: numeric tables straight from the C ABI extractors
+include("dense.jl")       # to_dense: numeric tables straight from the C extractors
 include("powermodels.jl") # PowerModels.jl network data bridge
-include("exa.jl")         # ExaModels bridge: to_powerdata / parse_ac_power_data / LoadSeries
-include("operatingpoints.jl") # OperatingPointSeries skeleton (reserved; not yet functional)
+include("exa.jl")         # ExaModels bridge: to_powerdata / parse_ac_power_data
 include("arrow.jl")       # Arrow C Data Interface export (feature arrow)
 include("matrix.jl")      # sparse matrices computed by the Rust matrix API
-include("gridfm.jl")      # gridfm-datakit Parquet reader (feature gridfm)
+include("gridfm.jl")      # GridFM Parquet datasets through the module surface
 include("dist.jl")        # MulticonductorNetwork distribution API (feature dist)
-include("parse.jl")       # PowerIO.parse and the module to network narrowing
+include("parse.jl")       # the typed value accessors behind PioModule wrapping
+include("module.jl")      # PioModule{T}, parse_file, and the module operations
 include("display.jl")     # compact and multiline display for parsed networks
 include("graphs.jl")      # graph projections for balanced and multiconductor models
 include("features.jl")    # public feature probe summary

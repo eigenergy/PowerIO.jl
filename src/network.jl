@@ -72,49 +72,14 @@ end
 
 function _balanced_summary_json(h::BalancedNetworkHandle)
     lib = getfield(h, :lib)
-    if _exports_symbol(:pio_summary_json, lib)
-        err = zeros(UInt8, _ERRLEN)
-        s = GC.@preserve h ccall(_library_symbol(lib, :pio_summary_json), Cstring,
-                                 (Ptr{Cvoid}, Ptr{UInt8}, Csize_t), h.ptr, err, length(err))
-        s == C_NULL && error("PowerIO: could not serialize the balanced summary: " * _cstr(err))
-        text = _take_string(lib, s)
-        return JSON3.read(text)
+    text = GC.@preserve h begin
+        raw = _v6_call(lib) do err
+            ccall(_library_symbol(lib, :pio_balanced_network_summary_json), Cstring,
+                  (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), h.ptr, err)
+        end
+        _take_string(lib, raw)
     end
-    data = JSON3.read(_to_json(h))
-    refs = Int.(reference_bus_indices(BalancedNetwork(h)))
-    ids = _handle_bus_ids(h)
-    ref_ids = [Int(ids[i + 1]) for i in refs]
-    counts = (;
-        buses = _payload_len(data, :buses),
-        loads = _payload_len(data, :loads),
-        shunts = _payload_len(data, :shunts),
-        branches = _payload_len(data, :branches),
-        switches = _payload_len(data, :switches),
-        generators = _payload_len(data, :generators),
-        storage = _payload_len(data, :storage),
-        hvdc = _payload_len(data, :hvdc),
-        transformers_3w = _payload_len(data, :transformers_3w),
-        areas = _payload_len(data, :areas),
-        warnings = length(_handle_warnings(h)),
-    )
-    components = Int(GC.@preserve h ccall(_library_symbol(lib, :pio_n_islands),
-                                          Csize_t, (Ptr{Cvoid},), h.ptr))
-    radial = (GC.@preserve h ccall(_library_symbol(lib, :pio_is_radial),
-                                   Cint, (Ptr{Cvoid},), h.ptr)) != 0
-    return JSON3.read(JSON3.write((;
-        powerio_version = something(schema_versions().powerio_version, ""),
-        name = _payload_value(data, :name, ""),
-        source_format = _source_format_token(_payload_value(data, :source_format, "in-memory")),
-        base_mva = _payload_value(data, :base_mva, 0.0),
-        base_frequency = _payload_value(data, :base_frequency, 60.0),
-        counts,
-        topology = (;
-            reference_bus_ids = ref_ids,
-            reference_bus_indices = refs,
-            n_components = components,
-            is_radial = radial,
-        ),
-    )))
+    return JSON3.read(text)
 end
 
 _payload_value(data::JSON3.Object, key::Symbol, default) =
@@ -199,49 +164,6 @@ function _summary(net::BalancedNetwork)
 end
 
 
-"""
-    parse_file(BalancedNetwork, path; from=nothing) -> BalancedNetwork
-    parse_file(MulticonductorNetwork, path; from=nothing) -> MulticonductorNetwork
-
-Parse a case whose model the type marker pins — the `parse(T, x)` idiom.
-Transmission cases (MATPOWER, PSS/E, PowerWorld, PSLF EPC, PowerModels JSON,
-egret JSON, pandapower JSON, PyPSA CSV folders, Surge JSON) parse into a
-[`BalancedNetwork`](@ref); multiconductor distribution cases (OpenDSS, PMD,
-BMOPF) into a [`MulticonductorNetwork`](@ref).
-
-From a file `path` the format is inferred: by extension (`.m`, `.raw`, `.aux`,
-`.dss`), and for a bare `.json` by the same top level markers the core parsers
-use (`pio_classify_str`), unless `from` is given. A bare `.json` holding model
-JSON is read with [`from_json`](@ref); model JSON is not a case format and has
-no format token.
-
-Accepted format tokens (case-insensitive): `"matpower"`/`"m"`,
-`"powermodels-json"`/`"powermodels"`/`"pm"`, `"egret-json"`/`"egret"`,
-`"psse"`/`"raw"`, `"powerworld"`/`"aux"`, `"pslf"`/`"epc"`,
-`"pandapower-json"`/`"pandapower"`, `"surge-json"`/`"surge"`,
-`"pypsa-csv"`; distribution: `"dss"`/`"opendss"`, `"pmd"`/`"engineering"`,
-`"bmopf"`.
-
-The untyped entry is [`PowerIO.parse`](@ref), which reads any source
-(including a `.pio.json` stored module) into a [`StoredModule`](@ref) and
-narrows with `value_type` in the same call.
-"""
-function parse_file(::Type{BalancedNetwork}, path::AbstractString; from=nothing)
-    h = _parse_handle(path; from=from)
-    return BalancedNetwork(h)
-end
-
-# Explicit transmission marker for in-memory text, symmetric with
-# `parse_str(MulticonductorNetwork, ...)`.
-function parse_str(::Type{BalancedNetwork}, text::AbstractString, from::AbstractString)
-    h = _parse_handle_str(String(text), from)
-    return BalancedNetwork(h)
-end
-
-function parse_bytes(::Type{BalancedNetwork}, bytes::AbstractVector{UInt8}, from::AbstractString)
-    h = _parse_handle_bytes(bytes, from)
-    return BalancedNetwork(h)
-end
 
 """
     from_json(text) -> BalancedNetwork
@@ -250,8 +172,14 @@ Rebuild a live [`BalancedNetwork`](@ref) from the JSON transport produced by
 [`to_json`](@ref). The result has a Rust handle, so `to_*` transforms work on it.
 """
 function from_json(text::AbstractString)
-    h = _from_json_handle(text)
-    return BalancedNetwork(h)
+    lib = _lib()
+    _ensure_compatible(lib)
+    _network_free_fn(lib)
+    ptr = _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_balanced_network_from_json), Ptr{Cvoid},
+              (Cstring, Ref{Ptr{Cvoid}}), String(text), err)
+    end
+    return BalancedNetwork(BalancedNetworkHandle(ptr, lib))
 end
 
 # The live Rust handle a BalancedNetwork-first transform needs; a manually constructed
@@ -261,14 +189,14 @@ end
 function _live_handle(net::BalancedNetwork, fname::AbstractString)
     h = getfield(net, :handle)
     h === nothing && error(
-        "PowerIO.$fname: this BalancedNetwork has no live network handle (produce it with parse_file, parse_str, or from_json).")
+        "PowerIO.$fname: this BalancedNetwork has no live network handle (produce it with parse_file, parse_bytes, or from_json).")
     h.ptr == C_NULL && error(
         "PowerIO.$fname: this BalancedNetwork's handle was finalized; access the data you need " *
         "(e.g. net.data, to_json(net)) before calling finalize(net.handle).")
     return h
 end
 
-# Derive a normalized handle from a live one via `pio_normalize` (a read-only
+# Derive a normalized handle from a live one via `pio_balanced_network_normalize` (a read-only
 # borrow of the source case, so the source handle stays valid). GC.@preserve:
 # Julia frees an object after its last use, not at end of call, so without it a
 # GC triggered between extracting `h.ptr` and the ccall could finalize `h` and
@@ -276,7 +204,7 @@ end
 # pointer carries the same guard.
 const POWER_MODELS_ANGLE_BOUND_PAD = 1.0472
 
-# `PioNormalizeOptions`, the extensible options struct `pio_normalize` reads.
+# `PioNormalizeOptions`, the extensible options struct `pio_balanced_network_normalize` reads.
 # `struct_size` first, appended fields only, and a zero filled struct is every
 # default: a zero `angle_bound_pad` is not a legal pad, so it means the default.
 struct PioNormalizeOptions
@@ -296,11 +224,11 @@ function _normalize_handle(h::BalancedNetworkHandle;
     opts = PioNormalizeOptions(sizeof(PioNormalizeOptions),
                                clamp_angle_bounds ? Cint(1) : Cint(0), Cint(0),
                                angle_bound_pad === nothing ? 0.0 : Cdouble(angle_bound_pad))
-    err = zeros(UInt8, _ERRLEN)
-    ptr = GC.@preserve h ccall(_library_symbol(lib, :pio_normalize), Ptr{Cvoid},
-                               (Ptr{Cvoid}, Ref{PioNormalizeOptions}, Ptr{UInt8}, Csize_t),
-                               h.ptr, opts, err, length(err))
-    ptr == C_NULL && error("PowerIO.to_normalized: " * _cstr(err))
+    ptr = GC.@preserve h _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_balanced_network_normalize), Ptr{Cvoid},
+              (Ptr{Cvoid}, Ref{PioNormalizeOptions}, Ref{Ptr{Cvoid}}),
+              h.ptr, opts, err)
+    end
     return BalancedNetworkHandle(ptr, lib)
 end
 
@@ -341,23 +269,28 @@ function to_json(net::BalancedNetwork)
     return (h === nothing || h.ptr == C_NULL) ? JSON3.write(net.data) : _to_json(h)
 end
 
-# `want_warnings=false` skips the diagnostics channel by passing NULL, which is
-# how the C side is told to discard it. Passing a live ref and dropping it
-# unread leaks the document the writer allocated into it.
+# Serialize a bare network handle: wrap it as a module sharing the handle's
+# records, then run the one module write. `want_findings=false` passes NULL
+# for the findings channel.
 function _format_from_handle(h::BalancedNetworkHandle, to::AbstractString, what::AbstractString;
                              want_warnings::Bool=true)
     lib = getfield(h, :lib)
-    diagref = _diagref()
-    diagarg = want_warnings ? diagref : Ptr{Ptr{UInt8}}(C_NULL)
-    err = zeros(UInt8, _ERRLEN)
-    # `opts` is the write-time options struct; C_NULL is every default, which
-    # is what every Julia surface wants until one exposes the cost policies.
-    s = GC.@preserve h ccall(_library_symbol(lib, :pio_to_format), Cstring,
-                             (Ptr{Cvoid}, Cstring, Ptr{Cvoid}, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
-                             h.ptr, String(to), C_NULL, diagarg, err, length(err))
-    s == C_NULL && error("PowerIO.to_format: " * _cstr(err) * " ($what)")
+    module_ptr = GC.@preserve h _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_module_of_balanced_network), Ptr{Cvoid},
+              (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), h.ptr, err)
+    end
+    handle = StoredModule(module_ptr, lib)
+    out_diagnostics = Ref{Ptr{Cvoid}}(C_NULL)
+    s = GC.@preserve handle _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_module_write_str), Cstring,
+              (Ptr{Cvoid}, Cstring, Ref{Ptr{Cvoid}}, Ref{Ptr{Cvoid}}),
+              _module_ptr(handle), String(to), out_diagnostics, err)
+    end
     text = _take_string(lib, s)
-    return (text, want_warnings ? _take_warnings(lib, diagref) : Diagnostic[])
+    findings = want_warnings ? _diagnostics_of(_ -> out_diagnostics[], lib) : Diagnostic[]
+    want_warnings || out_diagnostics[] == C_NULL ||
+        ccall(_library_symbol(lib, :pio_diagnostics_release), Cvoid, (Ptr{Cvoid},), out_diagnostics[])
+    return (text, findings)
 end
 
 # `matpower` flows through the one string-keyed writer like every other format
@@ -386,24 +319,6 @@ distribution formats.
 to_format(net::BalancedNetwork, to::AbstractString) =
     _format_from_handle(_live_handle(net, "to_format"), to, repr(network_name(net)))
 
-"""
-    warnings(net::BalancedNetwork) -> Vector{String}
-    warnings(net::MulticonductorNetwork) -> Vector{String}
-
-The fidelity warnings retained on a live handle (`pio_warnings`) — what the reader
-could not represent or had to assume. Empty for a handle-less [`BalancedNetwork`](@ref).
-
-Each line reads `CODE: message`. Split at the first `": "`: the left side is a
-stable dotted code (`READ.DSS.INCLUDE_REFUSED`) whose first segment names the
-stage, and the right side is prose under no stability promise. Branch on the
-code, never on the message. `pio_warnings` carries lines alone; the conversion
-verbs return [`Diagnostic`](@ref)s, which reach the same code as a field.
-"""
-function warnings(net::BalancedNetwork)
-    h = net.handle
-    (h === nothing || h.ptr == C_NULL) && return String[]
-    return _handle_warnings(h)
-end
 
 """
     convert_file(path, to; from=nothing) -> (text, warnings)
@@ -439,17 +354,16 @@ function convert_file(path::AbstractString, to::AbstractString; from=nothing)
     dist_src && _cross_model_error("convert_file")
     lib = _lib()
     _ensure_compatible(lib)
-    diagref = _diagref()
-    err = zeros(UInt8, _ERRLEN)
+    out_diagnostics = Ref{Ptr{Cvoid}}(C_NULL)
     # Pass the format hint as a `String` (ccall roots it) or `C_NULL` for inference.
-    # v4 argument order is (path, from, to), matching pio_to_format / pio_parse_str.
     fromc = from === nothing ? C_NULL : String(from)
-    s = ccall(_library_symbol(lib, :pio_convert_file), Cstring,
-              (Cstring, Cstring, Cstring, Ptr{Cvoid}, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
-              path, fromc, to, C_NULL, diagref, err, length(err))
-    s == C_NULL && error("PowerIO.convert_file: " * _cstr(err))
+    s = _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_convert_file), Cstring,
+              (Cstring, Cstring, Cstring, Ptr{Cvoid}, Ref{Ptr{Cvoid}}, Ref{Ptr{Cvoid}}),
+              path, fromc, to, C_NULL, out_diagnostics, err)
+    end
     text = _take_string(lib, s)
-    return (text, _take_warnings(lib, diagref))
+    return (text, _diagnostics_of(_ -> out_diagnostics[], lib))
 end
 # Explicit transmission marker, symmetric with `convert_file(MulticonductorNetwork, ...)`.
 convert_file(::Type{BalancedNetwork}, path::AbstractString, to::AbstractString; from=nothing) =
@@ -471,15 +385,14 @@ function convert_str(text::AbstractString, to::AbstractString; from::AbstractStr
     (dist_to || dist_from) && _cross_model_error("convert_str")
     lib = _lib()
     _ensure_compatible(lib)
-    diagref = _diagref()
-    err = zeros(UInt8, _ERRLEN)
-    # v4 argument order is (text, from, to), matching pio_convert_file.
-    s = ccall(_library_symbol(lib, :pio_convert_str), Cstring,
-              (Cstring, Cstring, Cstring, Ptr{Cvoid}, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
-              String(text), String(from), to, C_NULL, diagref, err, length(err))
-    s == C_NULL && error("PowerIO.convert_str: " * _cstr(err))
+    out_diagnostics = Ref{Ptr{Cvoid}}(C_NULL)
+    s = _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_convert_str), Cstring,
+              (Cstring, Cstring, Cstring, Ptr{Cvoid}, Ref{Ptr{Cvoid}}, Ref{Ptr{Cvoid}}),
+              String(text), String(from), to, C_NULL, out_diagnostics, err)
+    end
     out = _take_string(lib, s)
-    return (out, _take_warnings(lib, diagref))
+    return (out, _diagnostics_of(_ -> out_diagnostics[], lib))
 end
 
 """
@@ -497,14 +410,16 @@ PyPSA static-network CSV schema can't carry. Needs `net`'s live Rust handle
 function write_pypsa_csv_folder(net::BalancedNetwork, out_dir::AbstractString)
     h = _live_handle(net, "write_pypsa_csv_folder")
     lib = getfield(h, :lib)
-    diagref = _diagref()
-    err = zeros(UInt8, _ERRLEN)
-    # `pio_write_dir` is the generic directory writer; `pypsa-csv` is the one such
-    # format today. Fallible `int` return (0 = success), the diagnostics/errbuf
-    # convention of `pio_to_format`; the handle is preserved across the ccall.
-    rc = GC.@preserve h ccall(_library_symbol(lib, :pio_write_dir), Int32,
-                              (Ptr{Cvoid}, Cstring, Cstring, Ptr{Cvoid}, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Csize_t),
-                              h.ptr, "pypsa-csv", String(out_dir), C_NULL, diagref, err, length(err))
-    rc == 0 || error("PowerIO.write_pypsa_csv_folder: " * _cstr(err))
-    return (String(out_dir), _take_warnings(lib, diagref))
+    module_ptr = GC.@preserve h _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_module_of_balanced_network), Ptr{Cvoid},
+              (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), h.ptr, err)
+    end
+    handle = StoredModule(module_ptr, lib)
+    out_diagnostics = Ref{Ptr{Cvoid}}(C_NULL)
+    GC.@preserve handle _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_module_write_file), Cint,
+              (Ptr{Cvoid}, Cstring, Cstring, Ref{Ptr{Cvoid}}, Ref{Ptr{Cvoid}}),
+              _module_ptr(handle), "pypsa-csv", String(out_dir), out_diagnostics, err)
+    end
+    return (String(out_dir), _diagnostics_of(_ -> out_diagnostics[], lib))
 end

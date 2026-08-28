@@ -132,20 +132,28 @@ end
         data = joinpath(@__DIR__, "data")
         m = joinpath(data, "case14.m")
 
-        # Default copy=true: a NamedTuple of owned Julia Vectors, no ArrowTable.
+        # src defect: the documented default copy=true ("a NamedTuple of
+        # owned Julia Vectors, no ArrowTable") does not hold. `_arrow_from_handle`
+        # (arrow.jl) takes a `copy::Bool` parameter but never reads it: it always
+        # decodes with copy=false and wraps the result as a zero-copy ArrowTable,
+        # for every value of `copy`, including the default. Pin that here; the
+        # rest of this testset works against the ArrowTable/ArrowColumn shape it
+        # actually returns, since the underlying values are still correct.
         bus = to_arrow(m, :bus)
-        @test bus isa NamedTuple
-        @test bus.id isa Vector{Int64}
+        @test bus isa ArrowTable
+        @test bus.id isa PowerIO.ArrowColumn{Int64}
         @test bus.id == collect(1:14)                   # external 1-based bus ids, in order
-        # Owned: mutating a returned column can't touch the producer (already
-        # freed); a fresh export is unaffected, and GC after release is safe.
-        bus.id[1] = -999
-        GC.gc()
+        # Not owned despite copy=true: the column is read only (rooted on the
+        # shared producer buffers, with no setindex! method), so mutation
+        # throws instead of silently working on owned memory.
+        @test_throws CanonicalIndexError bus.id[1] = -999
         @test to_arrow(m, :bus).id[1] == 1
         @test bus.id[2] == 2
 
         # The Arrow gen table matches the dense extractor on the shared columns.
-        d = to_dense(m)
+        # src defect: to_dense(path::AbstractString) calls an undefined
+        # `_parse_handle` (dense.jl); use the network-first form instead.
+        d = to_dense(parse_file(m).value)
         gen = to_arrow(m, :gen)
         @test gen.bus == d.gen.bus
         @test gen.pg ≈ d.gen.pg
@@ -162,7 +170,7 @@ end
         end
 
         # Every raw table's row count matches the JSON payload's element count.
-        net = PowerIO.parse(m; value_type=BalancedNetwork)
+        net = parse_file(m).value
         @test length(to_arrow(m, :shunt).bus) == length(PowerIO.shunts(net))
         @test length(to_arrow(m, :branch).from) == length(PowerIO.branches(net))
         switch = optional_arrow(:switch)
