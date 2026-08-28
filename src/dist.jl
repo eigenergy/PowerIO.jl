@@ -230,8 +230,7 @@ _is_package_path(p) = endswith(lowercase(String(p)), ".pio.json")
 # per-phase detail, so the explicit package pass owns it.
 _cross_model_error(fname::AbstractString) = error(
     "PowerIO.$fname: no implicit conversion between the multiconductor and balanced " *
-    "models. Lower explicitly: to_package(net) |> lower_multiconductor_to_balanced " *
-    "|> from_package, then serialize the balanced result.")
+    "models. Lower explicitly on the 1.0 module surface, then serialize the balanced result.")
 
 # --- parse and materialize ------------------------------------------------
 
@@ -334,7 +333,7 @@ function _live_dist_handle(net::MulticonductorNetwork, fname::AbstractString)
     h = getfield(net, :handle)
     h === nothing && error(
         "PowerIO.$fname: this MulticonductorNetwork has no live network handle " *
-        "(produce it with parse_file, parse_str, or from_package).")
+        "(produce it with parse_file or parse_str).")
     h.ptr == C_NULL && error(
         "PowerIO.$fname: this MulticonductorNetwork's handle was finalized; access the data " *
         "you need (e.g. net.data) before calling finalize(net.handle).")

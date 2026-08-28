@@ -10,16 +10,6 @@
                 :to_powermodels, :from_powermodels, :to_powerdata,
                 :parse_ac_power_data, :LoadSeries, :read_load_series, :n_periods,
                 :demands_mw, :read_gridfm, :read_gridfm_scenarios,
-                :parse_goc3_json, :goc3_scopf_data, :ScopfInstance,
-                :goc3_status_flags, :goc3_add_status_flags!, :goc3_interval_bounds,
-                :parse_scopf, :scopf_available,
-                :NetworkPackage, :to_package, :from_package, :read_package,
-                :write_package, :package_model_kind, :package_available,
-                :validate_package, :package_validation, :package_diagnostics,
-                :package_operating_points, :package_study, :set_operating_points,
-                :materialize_operating_point, :materialize_study_commit,
-                :multiconductor_to_balanced_preflight,
-                :lower_multiconductor_to_balanced,
                 :arrow_available, :gridfm_available, :matrix_available, :features,
                 :has_feature, :schema_versions, :build_info, :arrow_catalog,
                 :MulticonductorNetwork, :dist_available, :dist_abi_version,
@@ -56,11 +46,9 @@
     # LoadSeries is the exported ExaModelsPower multiperiod-load bridge; the general
     # OperatingPointSeries name is reserved for the coming format-neutral series.
     @test :LoadSeries ∈ names(PowerIO)
-    @test :goc3_scopf_data ∈ names(PowerIO)
-    @test :ScopfInstance ∈ names(PowerIO)
-    @test :DeviceClassLayout ∈ names(PowerIO)
-    # The Julia GOC3 projection is retired: the Rust core projects the instance
-    # and goc3_scopf_data types its rows. Nothing internal survives to leak.
+    # The GOC3 and SCOPF surfaces are withdrawn with this head's ABI raise.
+    @test :goc3_scopf_data ∉ names(PowerIO)
+    @test :ScopfInstance ∉ names(PowerIO)
     for sym in (:_goc3_static_data, :_goc3_energy_windows, :_goc3_price_blocks,
                 :_goc3_ac_contingency_survivors, :_goc3_dc_contingency_flows,
                 :_uidnum)

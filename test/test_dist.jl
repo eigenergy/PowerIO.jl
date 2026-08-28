@@ -183,78 +183,7 @@ end
         @test PowerIO.warnings(pmd_net) isa Vector{String}
         @test getfield(pmd_net, :data) === nothing
 
-        if package_available()
-            multi_pkg = to_package(net)
-            @test multi_pkg isa NetworkPackage
-            @test package_model_kind(multi_pkg) == :multiconductor
-
-            z3 = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
-            r3 = [[0.01, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0, 0.0, 0.01]]
-            x3 = [[0.10, 0.0, 0.0], [0.0, 0.10, 0.0], [0.0, 0.0, 0.10]]
-            # Stamp the package schema the loaded library speaks, so the
-            # fixture survives version skew in both directions; the binding
-            # constant covers a library that predates the report.
-            ready_pkg = NetworkPackage(JSON3.write((
-                powerio_version = something(schema_versions().powerio_version,),
-                producer = (tool = "PowerIO.jl test", version = "0"),
-                model_kind = "multiconductor",
-                model = (
-                    kind = "multiconductor",
-                    multiconductor_network = (
-                        name = nothing,
-                        base_frequency = 60.0,
-                        buses = [
-                            (id = "sourcebus", terminals = ["1", "2", "3"], grounded = String[],
-                             v_min = nothing, v_max = nothing, vpn_min = nothing, vpn_max = nothing,
-                             vpp_min = nothing, vpp_max = nothing, vpos_min = nothing,
-                             vpos_max = nothing, vneg_max = nothing, vzero_max = nothing,
-                             vn_max = nothing, extras = (;)),
-                            (id = "loadbus", terminals = ["1", "2", "3"], grounded = String[],
-                             v_min = nothing, v_max = nothing, vpn_min = nothing, vpn_max = nothing,
-                             vpp_min = nothing, vpp_max = nothing, vpos_min = nothing,
-                             vpos_max = nothing, vneg_max = nothing, vzero_max = nothing,
-                             vn_max = nothing, extras = (;)),
-                        ],
-                        linecodes = [(
-                            name = "lc", n_conductors = 3, r_series = r3, x_series = x3,
-                            g_from = z3, b_from = z3, g_to = z3, b_to = z3,
-                            i_max = nothing, s_max = nothing, extras = (;),
-                        )],
-                        lines = [(
-                            name = "l1", bus_from = "sourcebus", bus_to = "loadbus",
-                            terminal_map_from = ["1", "2", "3"],
-                            terminal_map_to = ["1", "2", "3"],
-                            linecode = "lc", length = 1.0, extras = (;),
-                        )],
-                        switches = [], transformers = [], loads = [], generators = [],
-                        shunts = [],
-                        sources = [(
-                            name = "source", bus = "sourcebus", terminal_map = ["1", "2", "3"],
-                            v_magnitude = [240.0, 240.0, 240.0],
-                            v_angle = [0.0, -2.0 * pi / 3.0, 2.0 * pi / 3.0],
-                            extras = (;),
-                        )],
-                        untyped = [], commands = [], options = [], warnings = String[],
-                        source_format = nothing, extras = (;),
-                    ),
-                ),
-                origin = (kind = "in_memory",),
-                validation = (
-                    status = "ok",
-                    counts = (fatal = 0, error = 0, warning = 0, info = 0, debug = 0),
-                ),
-            )))
-            report = multiconductor_to_balanced_preflight(ready_pkg; base_mva = 50.0)
-            @test report.status == "ok"
-            @test report.base_mva == 50.0
-            lowered = lower_multiconductor_to_balanced(ready_pkg; base_mva = 75.0)
-            @test package_model_kind(lowered) == :balanced
-            @test lowered.model.balanced_network.base_mva == 75.0
-            @test lowered.lowering_history[1].pass == "multiconductor-to-balanced"
-            @test PowerIO.n_buses(from_package(ready_pkg)) == 2
-        else
-            @test_skip to_package(net)
-        end
+        @test !PowerIO.package_available()  # package surface withdrawn at ABI 6
 
         # The in-memory parser matches the file parser on the round trip.
         net_str = parse_str(MulticonductorNetwork, read(dss, String), "dss")
@@ -385,7 +314,7 @@ end
         # explicit BalancedNetwork marker bypasses routing to the balanced
         # parser, whose error names the distribution API.
         @test_throws ErrorException convert_file(dss, "matpower")
-        @test occursin("lower_multiconductor_to_balanced",
+        @test occursin("Lower explicitly on the 1.0 module surface",
                        try convert_file(dss, "matpower"); "" catch e; sprint(showerror, e) end)
         @test_throws ErrorException convert_file(joinpath(@__DIR__, "data", "case14.m"), "bmopf")
         @test_throws ErrorException convert_str(dss_text, "matpower"; from="dss")
@@ -426,30 +355,9 @@ end
             @test first(to_format(rebuilt, "bmopf")) == first(to_format(routed, "bmopf"))
             @test_throws ErrorException from_json(MulticonductorNetwork, "not json")
         end
-        if package_available()
-            @test_throws ErrorException to_package(bare)
-        end
+        @test !PowerIO.package_available()  # package surface withdrawn at ABI 6
 
-        if package_available()
-            # from_package returns the model the package holds; the rebuilt
-            # handle serializes (fresh serialization, no echo expectation).
-            back = from_package(to_package(routed))
-            @test back isa MulticonductorNetwork
-            @test getfield(back, :data) === nothing
-            @test PowerIO.n_buses(back) == PowerIO.n_buses(routed)
-            has_dist_summary && @test getfield(back, :data) === nothing
-            @test first(to_format(back, "bmopf")) == first(to_format(routed, "bmopf"))
-            has_dist_summary && @test getfield(back, :data) === nothing
-            # A .pio.json path routes through the package reader to the right
-            # model, for both kinds.
-            dir = mktempdir()
-            mpath = joinpath(dir, "feeder.pio.json")
-            write_package(mpath, routed)
-            @test parse_file(mpath) isa MulticonductorNetwork
-            bpath = joinpath(dir, "case14.pio.json")
-            write_package(bpath, parse_file(joinpath(@__DIR__, "data", "case14.m")))
-            @test parse_file(bpath) isa BalancedNetwork
-        end
+        @test !PowerIO.package_available()  # package surface withdrawn at ABI 6
 
         # A distribution flavored bare .json routes automatically off the
         # core's classifier (pio_classify_str).

@@ -35,10 +35,8 @@ explicit spelling. OpenDSS, PowerModelsDistribution JSON, and IEEE BMOPF JSON
 read and write (experimental; needs powerio-capi built `--features dist`, plus
 `pkg` for the element tables).
 
-`.pio.json` network packages use the `pio_package_*` C ABI API. They can
-wrap balanced and multiconductor handles, run package validation, expose
-structured diagnostics, and explicitly lower supported multiconductor packages
-to balanced packages.
+`.pio.json` stored modules belong to the 1.0 module surface; this ABI 6
+transitional binding does not decode them.
 
 At first use the binding checks the library's ABI version (`pio_abi_version`)
 against the version it targets (`PIO_ABI_VERSION`) and refuses a stale or
@@ -89,23 +87,8 @@ export to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
        LoadSeries, read_load_series, n_periods, demands_mw,
        read_gridfm, read_gridfm_scenarios
 
-# GO Challenge 3 (general, format-neutral SCOPF input data). `goc3_scopf_data` is the
-# single entry point: the Rust core projects the instance and it types the rows.
-# `parse_scopf` returns the same projection as its versioned JSON document;
-# `parse_goc3_json` stays for raw-document and unit-commitment utilities.
-export parse_goc3_json, goc3_scopf_data, ScopfInstance, DeviceClassLayout,
-       goc3_status_flags, goc3_add_status_flags!, goc3_interval_bounds,
-       parse_scopf, scopf_available
-
-# .pio.json network packages (Rust pkg feature)
-export NetworkPackage, to_package, from_package, read_package, write_package,
-       package_model_kind, package_available, validate_package, package_validation,
-       package_diagnostics, package_operating_points, package_study,
-       set_operating_points, materialize_operating_point, materialize_study_commit
-
 # Multiconductor distribution
-export multiconductor_to_balanced_preflight, lower_multiconductor_to_balanced,
-       dist_available, dist_abi_version, dist_capabilities
+export dist_available, dist_abi_version, dist_capabilities
 
 # Graph projection and feature probes
 export to_graph, features, has_feature, schema_versions, build_info,
@@ -124,9 +107,6 @@ include("gridfm.jl")      # gridfm-datakit Parquet reader (feature gridfm)
 include("dist.jl")        # MulticonductorNetwork distribution API (feature dist)
 include("display.jl")     # compact and multiline display for parsed networks
 include("graphs.jl")      # graph projections for balanced and multiconductor models
-include("package.jl")     # .pio.json network packages (feature pkg)
-include("scopf.jl")       # native SCOPF problem instance JSON (feature prob)
 include("features.jl")    # public feature probe summary (reads scopf.jl's probe)
-include("goc3.jl")        # GO Challenge 3 JSON helpers (pure Julia)
 
 end # module

@@ -1,3 +1,11 @@
+# The package surface is withdrawn at ABI 6; the probe answers false so the
+# feature report and the gated tests state the absence uniformly.
+package_available() = false
+
+# The SCOPF surface is withdrawn at ABI 6 with the package surface; the probe
+# answers false uniformly.
+scopf_available() = false
+
 # One "usable from Julia" probe per optional cargo feature. `features()` and
 # `has_feature`'s pre-0.7 fallback both read this table, so adding a feature is
 # one entry and the two can never disagree.
