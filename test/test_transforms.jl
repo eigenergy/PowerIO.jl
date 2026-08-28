@@ -130,7 +130,7 @@ end
         end
         try
             parse_bytes(IOBuffer("not a MATPOWER case"); format="matpower").value
-            error("expected parse_str to fail")
+            error("expected parse_bytes to fail")
         catch e
             @test occursin("PARSE.", sprint(showerror, e))
         end

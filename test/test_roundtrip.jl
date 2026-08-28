@@ -82,8 +82,8 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         @test PowerIO.n_buses(net_from_json) == 14
         @test PowerIO.source_format(net_from_json) == "matpower"
 
-        # Model JSON is not a case format, so parse_str refuses it and names
-        # from_json. A clean MATPOWER parse keeps no handle warnings.
+        # Model JSON is not a case format, so a forced case parse refuses it
+        # and names from_json. A clean MATPOWER parse keeps no handle warnings.
         @test_throws PowerIOCError parse_bytes(IOBuffer(to_json(net)); format="model-json").value
         @test isempty(_diag_messages(net))
 
@@ -160,11 +160,8 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         @test pm_warnings isa Vector{Diagnostic}
         pm_dict = to_powermodels(net)
         @test haskey(pm_dict, "bus")
-        # src defect: from_powermodels calls a bare `parse_str(BalancedNetwork,
-        # text, format)` that does not exist anywhere in the module
-        # (powermodels.jl); only `PowerIO.parse_module_str` exists now. Pin
-        # the current behavior until that's fixed.
-        @test_throws UndefVarError from_powermodels(pm_dict)
+        pm_net = from_powermodels(pm_dict)
+        @test PowerIO.n_buses(pm_net) == PowerIO.n_buses(net)
 
         pdata = to_powerdata(net)
         @test pdata.baseMVA == 100.0
@@ -315,7 +312,7 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         # (`NonFiniteSusceptance`); the bridge now agrees with it.
         inf_x = replace(pv_noref, "0.01 0.1" => "0.01 Inf")
         inf_x_err = try
-            to_powerdata(PowerIO.parse_str(BalancedNetwork, inf_x, "matpower"))
+            to_powerdata(parse_bytes(codeunits(inf_x); format="matpower").value)
             nothing
         catch e
             e
@@ -323,7 +320,7 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         @test inf_x_err isa ArgumentError
         @test occursin("nonfinite field `br_x`", sprint(showerror, inf_x_err))
         # And the same case through the other entry point.
-        @test_throws ArgumentError parse_ac_power_data(PowerIO.parse_str(BalancedNetwork, inf_x, "matpower"))
+        @test_throws ArgumentError parse_ac_power_data(parse_bytes(codeunits(inf_x); format="matpower").value)
 
         # A voltage bound is a limit but no format spells it unlimited, so it
         # reads as a real: this is the case the 0.9 relaxation swept in with
@@ -331,7 +328,7 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         inf_vmax = replace(pv_noref, "1 1.1 0.9;" => "1 Inf 0.9;")
         if inf_vmax != pv_noref
             inf_vmax_err = try
-                to_powerdata(PowerIO.parse_str(BalancedNetwork, inf_vmax, "matpower"))
+                to_powerdata(parse_bytes(codeunits(inf_vmax); format="matpower").value)
                 nothing
             catch e
                 e
