@@ -300,7 +300,7 @@ end
         return
     end
     case9 = joinpath(@__DIR__, "data", "case9.m")
-    d = dc_data(parse_module(case9))
+    d = dc_data(parse_file(case9))
     dense = to_dense(case9)
     b = PowerIO.susceptance(d)
     from = PowerIO.from_indices(d)
