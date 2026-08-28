@@ -860,7 +860,7 @@ With `filtered=true` the normalize pass runs inside this call, so its findings a
 re-emitted as `@warn`, one per distinct diagnostic code. A case with no generator
 cost data warns `CANONICALIZE.NORMALIZE.GEN_COST_ABSENT`: the rows build, and any
 cost objective built from them is identically zero. Read them off the network
-itself with [`warnings`](@ref)`(`[`to_normalized`](@ref)`(net))`.
+itself with `PowerIO.warnings(`[`to_normalized`](@ref)`(net))`.
 
 A field reads as finite unless it is a bound a source format spells as
 unlimited. `±Inf` passes on the generator and storage reactive and active

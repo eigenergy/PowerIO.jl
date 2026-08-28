@@ -53,9 +53,9 @@ end
     StoredModule
 
 One runtime module: a typed value with its common records, behind an owned
-ABI v6 handle. Read stored `.pio.json` text with [`read_module`](@ref), parse
-a case with [`parse_module`](@ref), and write the stored version 1 document
-with [`write_module`](@ref). The handle's finalizer releases it; every
+ABI v6 handle. Internal: [`PioModule`](@ref) wraps it, and the public
+surface reads and writes it through [`parse_file`](@ref), [`parse_bytes`](@ref),
+and [`write_json`](@ref). The handle's finalizer releases it; every
 retained child (an exported module, DC data) is independently owned, so
 releasing this module never invalidates them.
 """
