@@ -9,10 +9,10 @@ end
 
 @testset "LoadSeries" begin
     if !PowerIO.library_available()
-        @test_skip PowerIO.LoadSeries(PowerIO.parse("case14.m"; value_type=BalancedNetwork), [1.0])
+        @test_skip PowerIO.LoadSeries(parse_file("case14.m").value, [1.0])
     else
         m = joinpath(@__DIR__, "data", "case14.m")
-        net = PowerIO.parse(m; value_type=BalancedNetwork)
+        net = parse_file(m).value
         live = Val(:live)
         data = parse_ac_power_data(net)
         path_data = parse_ac_power_data(m, Float32)
@@ -47,7 +47,7 @@ end
         @test s.qd[:, 3] ≈ 0.9 .* base_qd atol = 1e-10
 
         # demands_mw inverts the per-unit conversion for MW interfaces
-        mw = demands_mw(s)
+        mw = PowerIO.demands_mw(s)
         @test mw.pd ≈ pd_mw atol = 1e-8
         @test mw.qd ≈ qd_mw atol = 1e-8
 
@@ -156,7 +156,7 @@ end
             2 0 0 3 0.01 20 0;
         ];
         """
-        dnet = PowerIO.parse(IOBuffer(drops); from="matpower", value_type=BalancedNetwork)
+        dnet = parse_bytes(IOBuffer(drops); format="matpower").value
         dref = to_powerdata(dnet)
         @test dref == to_powerdata(dnet; filtered=true)
         @test length(to_powerdata(dnet; filtered=false).bus) == 3

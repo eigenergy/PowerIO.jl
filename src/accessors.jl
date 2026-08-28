@@ -31,14 +31,14 @@ function _maybe_live_handle(net::BalancedNetwork)
     return (h === nothing || h.ptr == C_NULL) ? nothing : h
 end
 
-# One count off an already-resolved live handle (`pio_n_switches`): the
+# One count off an already-resolved live handle (`pio_balanced_network_n_switches`): the
 # pointer-lifetime incantation for a `size_t(handle)` C accessor in one place.
 _handle_count(h::BalancedNetworkHandle, sym::Symbol) =
     Int(GC.@preserve h ccall(_library_symbol(getfield(h, :lib), sym),
                              Csize_t, (Ptr{Cvoid},), h.ptr))
 
-# The binding of the v0.7 scalar string accessors (`pio_network_name`,
-# `pio_source_format`), or `nothing` when there is no live handle or the
+# The binding of the v0.7 scalar string accessors (`pio_balanced_network_name`,
+# `pio_balanced_network_source_format`), or `nothing` when there is no live handle or the
 # resolved library lacks `sym`. The public `network_name` / `source_format`
 # stay summary-backed (the summary is cached and its strings come from the
 # same Rust fields), so this is the C surface itself; the drift canary in
@@ -55,7 +55,7 @@ end
 
 function _handle_bus_ids(h::BalancedNetworkHandle)
     lib = getfield(h, :lib)
-    n = Int(GC.@preserve h ccall(_library_symbol(lib, :pio_n_buses), Csize_t, (Ptr{Cvoid},), h.ptr))
+    n = Int(GC.@preserve h ccall(_library_symbol(lib, :pio_balanced_network_n_buses), Csize_t, (Ptr{Cvoid},), h.ptr))
     return _handle_bus_ids(h, n)
 end
 
@@ -63,9 +63,9 @@ function _handle_bus_ids(h::BalancedNetworkHandle, n::Integer)
     lib = getfield(h, :lib)
     ids = Vector{Int64}(undef, n)
     GC.@preserve h begin
-        got = ccall(_library_symbol(lib, :pio_bus_ids), Csize_t,
+        got = ccall(_library_symbol(lib, :pio_balanced_network_bus_ids), Csize_t,
                     (Ptr{Cvoid}, Ptr{Int64}, Csize_t), h.ptr, ids, n)
-        _check_filled(got, Int(n), "pio_bus_ids")
+        _check_filled(got, Int(n), "pio_balanced_network_bus_ids")
     end
     return ids
 end
@@ -111,7 +111,7 @@ hvdc(net::BalancedNetwork) = net.data.hvdc::JSON3.Array
 """
     n_gens(net) -> Int
 
-Number of generator rows (one per machine; `bus` repeats). Matches `pio_n_gens`:
+Number of generator rows (one per machine; `bus` repeats). Matches `pio_balanced_network_n_gens`:
 every row, not in-service-filtered.
 """
 function n_gens(net::BalancedNetwork)
@@ -124,7 +124,7 @@ end
 Number of switch rows (two-terminal ideal switches; PowerModels JSON carries
 them). Summary-backed like its count siblings — both summary builders always
 emit `counts.switches`, so a missing key is a schema skew and errors loudly.
-The dense fast path reads `pio_n_switches` directly (see `to_dense`).
+The dense fast path reads `pio_balanced_network_n_switches` directly (see `to_dense`).
 """
 function n_switches(net::BalancedNetwork)
     return Int(_summary(net).counts.switches)
@@ -149,7 +149,7 @@ end
 
 The 1-based id of the reference (slack) bus, or `nothing` unless exactly one bus
 has `kind == "REF"`. This mirrors the "exactly one" rule of the C ABI's
-`pio_ref_bus_index` (which returns a dense 0-based index, not an id), but returns
+`pio_balanced_network_ref_bus_index` (which returns a dense 0-based index, not an id), but returns
 the 1-based id space the other accessors use.
 """
 function reference_bus_id(net::BalancedNetwork)
@@ -171,14 +171,14 @@ Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
 function reference_bus_indices(net::BalancedNetwork)
     h = _live_handle(net, "reference_bus_indices")
     lib = getfield(h, :lib)
-    # v4 folds the count and fill into one `pio_ref_bus_indices(net, out, cap)`
+    # v4 folds the count and fill into one `pio_balanced_network_ref_bus_indices(net, out, cap)`
     # (writes up to `cap`, returns the total): size with a null buffer, then fill.
     return GC.@preserve h begin
-        n = Int(ccall(_library_symbol(lib, :pio_ref_bus_indices), Csize_t,
+        n = Int(ccall(_library_symbol(lib, :pio_balanced_network_ref_bus_indices), Csize_t,
                       (Ptr{Cvoid}, Ptr{Int64}, Csize_t), h.ptr, C_NULL, 0))
         out = Vector{Int64}(undef, n)
-        _check_filled(ccall(_library_symbol(lib, :pio_ref_bus_indices), Csize_t,
-                            (Ptr{Cvoid}, Ptr{Int64}, Csize_t), h.ptr, out, n), n, "pio_ref_bus_indices")
+        _check_filled(ccall(_library_symbol(lib, :pio_balanced_network_ref_bus_indices), Csize_t,
+                            (Ptr{Cvoid}, Ptr{Int64}, Csize_t), h.ptr, out, n), n, "pio_balanced_network_ref_bus_indices")
         Vector{Int}(out)
     end
 end
@@ -187,7 +187,7 @@ end
     n_components(net) -> Int
 
 Number of connected components of the in-service topology, as the C ABI computes it
-(`pio_n_islands`). The same quantity as `to_dense(net).n_components`, without
+(`pio_balanced_network_n_islands`). The same quantity as `to_dense(net).n_components`, without
 building dense tables. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
 """
 function n_components(net::BalancedNetwork)
@@ -200,7 +200,7 @@ end
     is_radial(net) -> Bool
 
 Whether the in-service topology is radial (a forest), as the C ABI computes it
-(`pio_is_radial`). The same quantity as `to_dense(net).is_radial`, without building
+(`pio_balanced_network_is_radial`). The same quantity as `to_dense(net).is_radial`, without building
 dense tables. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
 """
 function is_radial(net::BalancedNetwork)

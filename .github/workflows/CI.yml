@@ -83,9 +83,6 @@ jobs:
         # they land, this job exercises them.
         run: |
           features=arrow,gridfm,dist
-          if grep -q '^pkg = ' powerio/powerio-capi/Cargo.toml; then
-            features="$features,pkg"
-          fi
           if grep -q '^matrix = ' powerio/powerio-capi/Cargo.toml; then
             features="$features,matrix"
           fi
