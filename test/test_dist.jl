@@ -156,14 +156,8 @@ end
         @test occursin("  buses: 4", display)
         @test occursin("  data: not materialized", display)
         @test getfield(net, :data) === nothing
-        # src defect: to_graph(net::MulticonductorNetwork) unconditionally
-        # calls `_ensure_dist_compatible` and references `_ERRLEN` at the top
-        # of its body (graphs.jl), and neither exists anywhere in the module.
-        # It throws UndefVarError before ever checking whether the graph
-        # entry point (`pio_multiconductor_network_graph_json`) is available,
-        # so it is broken the same way regardless of
-        # `PowerIO._dist_graph_available()`. Pin the current behavior.
-        @test_throws UndefVarError to_graph(net)
+        g = to_graph(net)
+        @test !isempty(g.buses)
 
         # Same-format write echoes the source byte for byte and finds nothing.
         echo, echo_findings = to_format(net, "dss")
@@ -213,19 +207,15 @@ end
         @test first(to_format(net_str, "dss")) == read(dss, String)
         @test getfield(net_str, :data) === nothing
 
-        # src defect: convert_file(MulticonductorNetwork, path, to)/convert_str
-        # (both the explicit marker and the bare, routed forms) call
-        # `pio_convert_file`/`pio_convert_str` directly, and that C entry
-        # point now refuses every distribution target token, including a
-        # trivial same-format dss -> dss — REQUEST.FORMAT.UNKNOWN regardless
-        # of the token. Pin all four call shapes once here; `to_format` on a
-        # parsed module (a different C entry point, `pio_module_write_str`)
-        # is unaffected and is what the rest of this testset uses instead.
-        @test_throws PowerIOCError convert_file(MulticonductorNetwork, dss, "bmopf")
-        @test_throws PowerIOCError convert_file(MulticonductorNetwork, dss, "dss")
-        @test_throws PowerIOCError convert_str(MulticonductorNetwork, read(dss, String), "pmd"; from="dss")
-        @test_throws PowerIOCError convert_file(dss, "bmopf")
-        @test_throws PowerIOCError convert_str(read(dss, String), "pmd"; from="dss")
+        # The one-shot conversion family covers distribution targets: a
+        # same format conversion echoes and cross format targets convert,
+        # through both the explicit marker and the bare routed forms.
+        echo_conv, _ = convert_file(MulticonductorNetwork, dss, "dss")
+        @test echo_conv == read(dss, String)
+        @test !isempty(first(convert_file(MulticonductorNetwork, dss, "bmopf")))
+        @test !isempty(first(convert_str(MulticonductorNetwork, read(dss, String), "pmd"; from="dss")))
+        @test !isempty(first(convert_file(dss, "bmopf")))
+        @test !isempty(first(convert_str(read(dss, String), "pmd"; from="dss")))
 
         bmopf, bmopf_findings = to_format(net, "bmopf")
         @test !isempty(bmopf)

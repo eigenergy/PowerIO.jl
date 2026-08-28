@@ -66,10 +66,7 @@
                 # (dist_abi_version/dist_capabilities/PIO_DIST_ABI_VERSION)
                 # is gone from the C ABI itself, not just this binding.
                 :as_network, :as_dist_network, :dist_abi_version,
-                :dist_capabilities, :PIO_DIST_ABI_VERSION,
-                # warnings(net) is gone for both models; diagnostics(m) on
-                # the module is what replaced it.
-                :warnings)
+                :dist_capabilities, :PIO_DIST_ABI_VERSION)
         @test !isdefined(PowerIO, sym)
     end
     @test :parse ∉ names(PowerIO)  # call it as PowerIO.parse_module, beside Base.parse
@@ -239,11 +236,9 @@ end
     one_ref = mk([(id = 4, kind = "PQ"), (id = 7, kind = "REF"), (id = 9, kind = "PV")])
     @test PowerIO.reference_bus_id(one_ref) == 7
     @test :warnings in propertynames(one_ref)
-    # src defect: BalancedNetwork's getproperty(:warnings) calls a
-    # `warnings(net)` function that no longer exists anywhere in the module
-    # (network.jl); `net.warnings` throws instead of reading the empty list.
-    # Pin the current behavior until that's fixed.
-    @test_throws UndefVarError one_ref.warnings
+    # `warnings` reads the live handle; an in-memory network has none, so
+    # the read is a directed error like the other live reads.
+    @test_throws ErrorException one_ref.warnings
     @test sprint(show, one_ref) == "BalancedNetwork{in-memory}: 3 buses, 0 branches, 0 gens"
     balanced_display = sprint(show, MIME"text/plain"(), one_ref)
     @test occursin("BalancedNetwork{in-memory}", balanced_display)
