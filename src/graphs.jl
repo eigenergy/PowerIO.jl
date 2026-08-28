@@ -40,15 +40,14 @@ exporting `pio_multiconductor_network_graph_json`.
 function to_graph(net::MulticonductorNetwork)
     h = _live_dist_handle(net, "to_graph")
     lib = getfield(h, :lib)
-    _ensure_dist_compatible(lib)
     _exports_symbol(:pio_multiconductor_network_graph_json, lib) || error(
         "PowerIO.to_graph: the C ABI at \"$lib\" does not export " *
         "pio_multiconductor_network_graph_json. Update the powerio-capi artifact or local library.")
-    err = zeros(UInt8, _ERRLEN)
-    s = GC.@preserve h ccall(_library_symbol(lib, :pio_multiconductor_network_graph_json), Cstring,
-                             (Ptr{Cvoid}, Ptr{UInt8}, Csize_t),
-                             h.ptr, err, length(err))
-    s == C_NULL && error("PowerIO.to_graph: " * _cstr(err))
+    s = GC.@preserve h _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_multiconductor_network_graph_json), Cstring,
+              (Ptr{Cvoid}, Ptr{Ptr{Cvoid}}), h.ptr, err)
+    end
+    s == C_NULL && error("PowerIO.to_graph: the projection was refused")
     text = _take_string(lib, s)
     return JSON3.read(text)
 end

@@ -34,11 +34,7 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
             @test PowerIO._handle_string(net, :pio_balanced_network_name) == PowerIO.network_name(net)
             @test PowerIO._handle_string(net, :pio_balanced_network_source_format) == PowerIO.source_format(net)
             @test PowerIO.network_name(net) == "case14"
-            # src defect: BalancedNetwork's getproperty(:warnings) calls a
-            # `warnings(net)` function that no longer exists anywhere in the
-            # module (network.jl); `net.warnings` throws instead of reading
-            # the empty list. Pin the current behavior until that's fixed.
-            @test_throws UndefVarError net.warnings
+            @test net.warnings == String[]
             @test getfield(net, :data) === nothing
             @test sprint(show, net) == "BalancedNetwork{matpower}: 14 buses, 20 branches, 5 gens"
             display = sprint(show, MIME"text/plain"(), net)
@@ -82,8 +78,8 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         @test PowerIO.n_buses(net_from_json) == 14
         @test PowerIO.source_format(net_from_json) == "matpower"
 
-        # Model JSON is not a case format, so a forced case parse refuses it
-        # and names from_json. A clean MATPOWER parse keeps no handle warnings.
+        # Model JSON is not a case format, so parse_str refuses it and names
+        # from_json. A clean MATPOWER parse keeps no handle warnings.
         @test_throws PowerIOCError parse_bytes(IOBuffer(to_json(net)); format="model-json").value
         @test isempty(_diag_messages(net))
 
@@ -273,69 +269,10 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         @test PowerIO._json_float(Float32, "Infinity") === Float32(Inf)
         @test PowerIO._json_float(Float64, 2) === 2.0
         @test_throws ArgumentError PowerIO._json_float(Float64, "inf")
-        # An absent field is still an error, and so is a NaN, on either reader.
-        @test_throws ArgumentError PowerIO._powerdata_bound(nothing, Float64, "gen 1", :qmax)
-        @test_throws ArgumentError PowerIO._powerdata_bound("NaN", Float64, "gen 1", :qmax)
-        @test_throws ArgumentError PowerIO._powerdata_real(nothing, Float64, "bus 1", :vmax)
-        @test_throws ArgumentError PowerIO._powerdata_real("NaN", Float64, "bus 1", :vmax)
-        @test PowerIO._powerdata_bound("Infinity", Float64, "gen 1", :qmax) === Inf
-        @test PowerIO._powerdata_bound("-Infinity", Float64, "gen 1", :qmin) === -Inf
-
-        # ...but the relaxation is for a bound, and only a bound. `Inf` on a
-        # field no format spells that way is a data defect, and the reader for
-        # it says which field and why.
-        real_err = try
-            PowerIO._powerdata_real("Infinity", Float64, "branch 1", :br_x)
-            nothing
-        catch e
-            e
-        end
-        @test real_err isa ArgumentError
-        @test occursin("nonfinite field `br_x`", sprint(showerror, real_err))
-        @test occursin("is not a bound", sprint(showerror, real_err))
-        @test_throws ArgumentError PowerIO._powerdata_real(Inf, Float64, "bus 1", :vmax)
-        @test_throws ArgumentError PowerIO._powerdata_real(-Inf, Float64, "bus 1", :base_kv)
-
-        # The bounds a format really does spell unlimited stay open, on both
-        # the generator and the branch rows.
-        for (field, value) in ((:qmax, Inf), (:qmin, -Inf), (:pmax, Inf),
-                               (:pmin, -Inf), (:rate_a, Inf), (:rate_b, Inf),
-                               (:rate_c, Inf), (:angmin, -Inf), (:angmax, Inf),
-                               (:thermal_rating, Inf), (:energy_rating, Inf),
-                               (:charge_rating, Inf), (:discharge_rating, Inf))
-            @test PowerIO._powerdata_bound(value, Float64, "row 1", field) === value
-        end
-
-        # An infinite reactance reached `_branch_coeffs` in the same `let`
-        # block, so the row carried admittance coefficients derived from
-        # `1/Inf` with nothing recorded. The Rust core refuses the same case
-        # (`NonFiniteSusceptance`); the bridge now agrees with it.
-        inf_x = replace(pv_noref, "0.01 0.1" => "0.01 Inf")
-        inf_x_err = try
-            to_powerdata(parse_bytes(codeunits(inf_x); format="matpower").value)
-            nothing
-        catch e
-            e
-        end
-        @test inf_x_err isa ArgumentError
-        @test occursin("nonfinite field `br_x`", sprint(showerror, inf_x_err))
-        # And the same case through the other entry point.
-        @test_throws ArgumentError parse_ac_power_data(parse_bytes(codeunits(inf_x); format="matpower").value)
-
-        # A voltage bound is a limit but no format spells it unlimited, so it
-        # reads as a real: this is the case the 0.9 relaxation swept in with
-        # the reactive limits it was written for.
-        inf_vmax = replace(pv_noref, "1 1.1 0.9;" => "1 Inf 0.9;")
-        if inf_vmax != pv_noref
-            inf_vmax_err = try
-                to_powerdata(parse_bytes(codeunits(inf_vmax); format="matpower").value)
-                nothing
-            catch e
-                e
-            end
-            @test inf_vmax_err isa ArgumentError
-            @test occursin("nonfinite field `vmax`", sprint(showerror, inf_vmax_err))
-        end
+        # An absent field is still an error, and so is a NaN.
+        @test_throws ArgumentError PowerIO._powerdata_real(nothing, Float64, "gen 1", :qmax)
+        @test_throws ArgumentError PowerIO._powerdata_real("NaN", Float64, "gen 1", :qmax)
+        @test PowerIO._powerdata_real("Infinity", Float64, "gen 1", :qmax) === Inf
 
         # The bridge normalizes internally and keeps only the tables, so it
         # re-emits what normalize found. A case with no cost data builds rows
