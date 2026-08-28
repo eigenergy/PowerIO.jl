@@ -130,7 +130,7 @@ end
         end
         try
             parse_bytes(IOBuffer("not a MATPOWER case"); format="matpower").value
-            error("expected parse_str to fail")
+            error("expected parse_bytes to fail")
         catch e
             @test occursin("PARSE.", sprint(showerror, e))
         end
@@ -171,11 +171,11 @@ end
     if !PowerIO.library_available()
         @test_skip to_dense("case14.m")
     else
-        # src defect: to_dense(path::AbstractString) calls an undefined
-        # `_parse_handle` (dense.jl); pin it once here and use the
-        # network-first form (unaffected) for the rest of this testset.
-        @test_throws UndefVarError to_dense(joinpath(@__DIR__, "data", "case14.m"))
+        # The path form parses through the module and frees the handle
+        # after the copy; it agrees with the network-first form.
+        d_path = to_dense(joinpath(@__DIR__, "data", "case14.m"))
         d = to_dense(parse_file(joinpath(@__DIR__, "data", "case14.m")).value)
+        @test d_path.bus_ids == d.bus_ids && d_path.n == d.n
         @test (d.n, d.m, d.ng) == (14, 20, 5)
         @test d.base_mva == 100.0
         @test d.bus_ids == collect(1:14)                # case14 buses are 1..14
