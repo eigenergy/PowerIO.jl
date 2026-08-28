@@ -1,8 +1,10 @@
 # Changelog
 
-## 1.0.0
+## 0.10.0
 
-PowerIO.jl 1.0.0 binds powerio 1.0.0 over C ABI 6. The 0.9 surfaces are gone; `PowerIO.parse` and the stored module replace them.
+PowerIO 0.10 is the public beta of the 1.0 API. API corrections may land before 1.0.0 as downstream integrations exercise the new design.
+
+PowerIO.jl 0.10.0 binds powerio 0.10.0 over C ABI 6. The 0.9 surfaces are gone; `PowerIO.parse` and the stored module replace them.
 
 - `PowerIO.parse(source; from, value_type)` is the one entry: a path, an `IO`, or in-memory bytes parses to a `StoredModule` of whichever family claims it, and `value_type` narrows to `BalancedNetwork` or `MulticonductorNetwork` in the same call. The narrowing threads the module's provenance, so a same format write still echoes the source bytes.
 - The stored module surface binds ABI v6 end to end: `read_module` / `write_module` (a released 0.9 package upgrades one way on read), `parse_module_bytes`, `inspect_module`, typed state selection and export, `lowering_readiness` with `lower_module_to_balanced`, structured `PowerIOCError` failures, and the typed record readers.
