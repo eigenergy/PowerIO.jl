@@ -417,6 +417,14 @@ The time point or scenario inventory of a series or scenario set module.
 state_inventory(m::PioModule) = state_inventory(getfield(m, :handle))
 
 """
+    dc_data(m::PioModule; formula="series_susceptance") -> DcData
+
+The module's DC branch data as independently owned spans; see [`DcData`](@ref).
+"""
+dc_data(m::PioModule; formula::AbstractString="series_susceptance") =
+    dc_data(getfield(m, :handle); formula)
+
+"""
     select_state(m::PioModule; time=nothing, scenario=nothing) -> PioModule
 
 Select one time point (one based, matching every other Julia axis) or one
