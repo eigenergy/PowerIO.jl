@@ -43,6 +43,17 @@ function _materialized_data(net::BalancedNetwork)
     return data
 end
 
+"""
+    warnings(net::BalancedNetwork) -> Vector{String}
+
+The reader's findings as rendered `CODE: message` lines, the convenience
+twin of the typed records on [`diagnostics`](@ref). Needs a live handle.
+"""
+function warnings(net::BalancedNetwork)
+    h = _live_handle(net, "warnings")
+    return String[string(d.code, ": ", d.message) for d in _handle_diagnostics(h)]
+end
+
 function Base.getproperty(net::BalancedNetwork, name::Symbol)
     name === :data && return _materialized_data(net)
     name === :name && return network_name(net)

@@ -132,28 +132,19 @@ end
         data = joinpath(@__DIR__, "data")
         m = joinpath(data, "case14.m")
 
-        # src defect: the documented default copy=true ("a NamedTuple of
-        # owned Julia Vectors, no ArrowTable") does not hold. `_arrow_from_handle`
-        # (arrow.jl) takes a `copy::Bool` parameter but never reads it: it always
-        # decodes with copy=false and wraps the result as a zero-copy ArrowTable,
-        # for every value of `copy`, including the default. Pin that here; the
-        # rest of this testset works against the ArrowTable/ArrowColumn shape it
-        # actually returns, since the underlying values are still correct.
+        # The default copy=true returns owned Julia vectors: mutating the
+        # result never touches producer memory, and a fresh export is
+        # unaffected.
         bus = to_arrow(m, :bus)
-        @test bus isa ArrowTable
-        @test bus.id isa PowerIO.ArrowColumn{Int64}
+        @test bus isa NamedTuple
+        @test bus.id isa Vector{Int64}
         @test bus.id == collect(1:14)                   # external 1-based bus ids, in order
-        # Not owned despite copy=true: the column is read only (rooted on the
-        # shared producer buffers, with no setindex! method), so mutation
-        # throws instead of silently working on owned memory.
-        @test_throws CanonicalIndexError bus.id[1] = -999
+        bus.id[1] = -999
         @test to_arrow(m, :bus).id[1] == 1
         @test bus.id[2] == 2
 
         # The Arrow gen table matches the dense extractor on the shared columns.
-        # src defect: to_dense(path::AbstractString) calls an undefined
-        # `_parse_handle` (dense.jl); use the network-first form instead.
-        d = to_dense(parse_file(m).value)
+        d = to_dense(m)
         gen = to_arrow(m, :gen)
         @test gen.bus == d.gen.bus
         @test gen.pg ≈ d.gen.pg

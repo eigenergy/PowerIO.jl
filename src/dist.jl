@@ -323,7 +323,7 @@ ibrs(net::MulticonductorNetwork) = _mc_table(net, :ibrs)
 control_profiles(net::MulticonductorNetwork) = _mc_table(net, :control_profiles)
 "Shunts, each with a `terminal_map` and conductance/susceptance matrices."
 shunts(net::MulticonductorNetwork) = _mc_table(net, :shunts)
-"Rated capacitor banks (nameplate `q_rated` var, `v_nom` V). Empty when the case has none; `dist_capabilities().typed_capacitors` reports library support."
+"Rated capacitor banks (nameplate `q_rated` var, `v_nom` V). Empty when the case has none or the library predates the table."
 capacitors(net::MulticonductorNetwork) = _mc_table(net, :capacitors)
 "Voltage sources, each with a `terminal_map` and per-terminal magnitude/angle."
 sources(net::MulticonductorNetwork) = _mc_table(net, :sources)

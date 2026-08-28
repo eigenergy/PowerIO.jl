@@ -28,8 +28,10 @@ function read_gridfm(dir::AbstractString; scenario::Integer=0)
     selected = select_state(m; scenario=string(scenario))
     selected isa PioModule{BalancedNetwork} || error(
         "PowerIO.read_gridfm: scenario $scenario selected a $(kind(selected)) module")
+    # The reader's findings live on the scenario set; the exported scenario
+    # carries its own. Both matter to the caller, reader first.
     return (; network = selected.value, scenario = Int(scenario),
-            diagnostics = diagnostics(selected))
+            diagnostics = vcat(diagnostics(m), diagnostics(selected)))
 end
 
 """

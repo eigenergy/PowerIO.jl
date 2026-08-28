@@ -8,17 +8,13 @@ using SparseArrays
     else
         net = parse_file(m).value
 
-        # src defect: calc_*_matrix(path::AbstractString) shares
-        # `_matrix_from_path`, which calls a bare `parse(path; from=,
-        # value_type=)` (matrix.jl). That resolves to Base.parse, which has
-        # no such method, so every path-string form throws MethodError
-        # instead of building the matrix. Pin it once here; the rest of this
-        # testset uses the network-first form, which is unaffected.
-        @test_throws MethodError calc_admittance_matrix(m)
-        @test_throws MethodError calc_susceptance_matrix(m)
-        @test_throws MethodError calc_incidence_matrix(m)
-        @test_throws MethodError calc_bprime_matrix(m)
-        @test_throws MethodError calc_bdoubleprime_matrix(m)
+        # The path forms parse through the module and agree with the
+        # network-first forms.
+        @test calc_admittance_matrix(m).matrix == calc_admittance_matrix(net).matrix
+        @test calc_susceptance_matrix(m).matrix == calc_susceptance_matrix(net).matrix
+        @test calc_incidence_matrix(m).matrix == calc_incidence_matrix(net).matrix
+        @test calc_bprime_matrix(m).matrix == calc_bprime_matrix(net).matrix
+        @test calc_bdoubleprime_matrix(m).matrix == calc_bdoubleprime_matrix(net).matrix
 
         if try
             to_arrow(m, :ybus)
