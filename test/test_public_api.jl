@@ -36,6 +36,8 @@
         :calc_bprime_matrix, :calc_bdoubleprime_matrix,
         # The module's descriptive records: typed history and source rows.
         :ModuleHistoryEntry, :ModuleSource, :history, :sources,
+        # Assembled DC matrices over the DC data spans.
+        :incidence_matrix, :susceptance_laplacian, :flow_matrix, :bus_injection,
         # Ecosystem bridges.
         :to_powermodels, :from_powermodels, :to_powerdata, :parse_ac_power_data,
         :read_gridfm, :read_gridfm_scenarios,

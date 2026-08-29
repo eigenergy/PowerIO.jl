@@ -108,3 +108,12 @@ PowerIO.bus_ids
 PowerIO.omitted
 PowerIO.formula
 ```
+
+## Assembled matrices
+
+```@docs
+incidence_matrix
+susceptance_laplacian
+flow_matrix
+bus_injection
+```

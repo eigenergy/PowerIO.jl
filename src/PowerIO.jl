@@ -74,6 +74,9 @@ export set_library!, clear_library!
 # The module's descriptive records: typed history and source rows.
 export ModuleHistoryEntry, ModuleSource, history, sources
 
+# Assembled DC matrices over the DC data spans.
+export incidence_matrix, susceptance_laplacian, flow_matrix, bus_injection
+
 # DC branch data and borrowed numerical views.
 export DcData, dc_data, BorrowedVector, branch_flow
 
