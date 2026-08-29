@@ -33,15 +33,15 @@ with [`parse_file`](@ref) and take `m.value`.
 
 A `.dss` path routes by extension. A bare `.json` routes by the same top level
 markers the core parsers use (the ENGINEERING `data_model` key means PMD, BMOPF
-otherwise); `from` overrides.
+otherwise); `format` overrides.
 
 ## The same verbs, routed by format
 
 ```julia
-net = parse_file("feeder.dss").value            # ::MulticonductorNetwork
+net = parse_file("switch.dss").value            # ::MulticonductorNetwork
 net = parse_bytes(IOBuffer(text); format="dss").value
 text, warnings = to_format(net, "pmd")    # dispatches on the network type
-bmopf, _ = convert_file("feeder.dss", "bmopf")
+bmopf, _ = convert_file("switch.dss", "bmopf")
 pmd, _   = convert_str(text, "pmd"; from="dss")
 
 net.warnings            # parse warnings, retained on the handle
@@ -50,11 +50,13 @@ net.warnings            # parse warnings, retained on the handle
 Writing back to the format the case was parsed from echoes the source byte for
 byte; a cross-format write reports every fidelity loss in `warnings`.
 
-The type marker forms remain the explicit spelling when you want to pin the
-model: `parse_file(MulticonductorNetwork, path)` routes nowhere, and
-`parse_file(BalancedNetwork, path)` reaches the balanced parser no matter the
-extension. Cross-model requests (`convert_file("feeder.dss", "matpower")`) are
-a directed error: lowering is explicit, through the package pass below.
+Pin the parser explicitly with `format` when you want to pin the model
+instead of routing on the extension: `parse_file(path; format="pmd")` and
+`parse_file(path; format="bmopf")` reach their multiconductor parsers no
+matter the extension, and the balanced format tokens reach the balanced
+parsers the same way. Cross-model requests
+(`convert_file("switch.dss", "matpower")`) are a directed error: lowering is
+explicit, through `lower_to_balanced` below.
 
 ## Inspecting a case
 
@@ -116,7 +118,7 @@ solver, matrix, dense, or Arrow fast paths; those read live network handles
 directly.
 
 ```julia
-m = parse_file("feeder.dss")            # ::PioModule{MulticonductorNetwork}
+m = parse_file("switch.dss")            # ::PioModule{MulticonductorNetwork}
 write_file(m, "feeder.pio.json"; format="pio-json")
 back = parse_file("feeder.pio.json").value
 exchange, _ = to_format(back, "bmopf")  # for everything else

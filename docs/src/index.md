@@ -11,7 +11,7 @@ using PowerIO
 
 case = parse_file("case14.m")           # PioModule{BalancedNetwork}
 n_buses(case.value)                     # 14
-feeder = parse_file("feeder.dss")       # PioModule{MulticonductorNetwork}
+feeder = parse_file("switch.dss")       # PioModule{MulticonductorNetwork}
 diagnostics(feeder)                     # native Diagnostic records
 text, findings = convert_file("case14.m", "psse")
 ```

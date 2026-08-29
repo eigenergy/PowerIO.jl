@@ -119,7 +119,7 @@ features()                         # optional C ABI features
 Distribution cases share the verbs, routed by format:
 
 ```julia
-dn = parse_file("feeder.dss").value  # ::MulticonductorNetwork, live handle
+dn = parse_file("switch.dss").value  # ::MulticonductorNetwork, live handle
 PowerIO.buses(dn), PowerIO.lines(dn), PowerIO.transformers(dn)
 dn.warnings
 PowerIO.to_graph(dn)

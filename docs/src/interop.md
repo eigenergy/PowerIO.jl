@@ -109,10 +109,10 @@ and lower explicitly; see [Distribution networks](distribution.md).
 `BalancedNetwork` — the ML to classical return leg (needs `--features
 gridfm`; [`gridfm_available`](@ref) reports it). The read is lossy but
 complete enough for power flow; what the schema can't round trip comes back
-in `warnings`.
+in `diagnostics`.
 
 ```julia
-r = read_gridfm("out/case14/raw")                # (; network, scenario, warnings)
+r = read_gridfm("out/case14/raw")                # (; network, scenario, diagnostics)
 to_matpower(r.network)                           # gridfm -> any classical format
 reads = read_gridfm_scenarios("out/case14/raw")  # one result per scenario id
 ```
