@@ -91,7 +91,10 @@
         info = PowerIO.build_info()
         classes = info === nothing ? nothing : get(info, :json_classes, nothing)
         if classes !== nothing
-            @test Symbol.(classes) == collect(PowerIO.JSON_FAMILIES)
+            # 0.10 libraries label the stored family `module`; the binding
+            # normalizes it to this layer's `package` vocabulary.
+            normalized = [c == :module ? :package : c for c in Symbol.(classes)]
+            @test normalized == collect(PowerIO.JSON_FAMILIES)
         end
 
         # EGRET and PowerModels both use .json (fixtures produced by convert_file).

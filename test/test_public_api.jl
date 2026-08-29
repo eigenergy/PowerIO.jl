@@ -476,9 +476,11 @@ end
         cats = info.error_categories
         @test cats isa AbstractVector
         @test all(c -> c isa AbstractString && !isempty(c), cats)
-        for token in ("io", "unknown_format", "parse", "data", "output")
+        for token in ("io", "parse", "data", "output")
             @test token in cats
         end
+        # 0.10 libraries fold the unknown-format category into `request`.
+        @test ("unknown_format" in cats) || ("request" in cats)
         @test allunique(cats)
     end
 end

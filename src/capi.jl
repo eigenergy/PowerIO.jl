@@ -243,7 +243,10 @@ function _classify_family(text::AbstractString)
     label = _string_from((out, cap) -> ccall(fn, Csize_t,
                                              (Cstring, Ptr{UInt8}, Csize_t), json, out, cap))
     isempty(label) && return :unknown
-    return Symbol(first(split(label, ':')))
+    family = Symbol(first(split(label, ':')))
+    # 0.10 libraries label the stored family `module`; this layer's routing
+    # vocabulary stays `package`.
+    return family === :module ? :package : family
 end
 
 const _ERRLEN = 512
