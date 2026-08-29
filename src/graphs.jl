@@ -33,9 +33,8 @@ end
     to_graph(net::MulticonductorNetwork)
 
 Return the collapsed bus and terminal graph projection as a JSON3 object.
-Needs a live handle from [`parse_file`](@ref), [`parse_bytes`](@ref), or
-[`as_dist_network`](@ref), and a v0.6.2 or newer `powerio-capi` library
-exporting `pio_multiconductor_network_graph_json`.
+Needs a live handle from [`parse_file`](@ref) or [`parse_bytes`](@ref), and a
+library exporting `pio_multiconductor_network_graph_json`.
 """
 function to_graph(net::MulticonductorNetwork)
     h = _live_dist_handle(net, "to_graph")
