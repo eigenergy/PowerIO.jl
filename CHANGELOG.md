@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.0
+
+PowerIO 0.10 is the public beta of the 1.0 API. API corrections may land before 1.0.0 as downstream integrations exercise the new design.
+
+PowerIO.jl 0.10.0 binds powerio 0.10.0 over C ABI 6.
+
+Breaking: `parse_file` and `parse_bytes` return a `PioModule{T}`, not the bare `T` network they returned through 0.9. `m.value` is the typed network; every 0.9 call site built directly on the parse result now reads through `.value`, or switches to the module level operations (`diagnostics`, `write_file`, `state_inventory`, `select_state`) that only `PioModule` provides.
+
+- `parse_file` (a path) and `parse_bytes` (named in-memory bytes or an `IO`) detect the source format and value kind together and wrap the native module once in a `PioModule{T}`: nothing reparses, serializes, or copies a network to give the module its type. `T` is one of twenty value families the module surface knows: the two network kinds (`BalancedNetwork`, `MulticonductorNetwork`), the calculation instances and solutions (`DcPfInstance` through `AcScucSolution`), the `TimeSeries`, `ScenarioSet`, and `OperatingPoint` series carriers, or `UnknownValue` for a kind a newer library added after this binding shipped.
+- Matrix and conversion functions (`calc_admittance_matrix`, `to_format`, `to_json`, ...) dispatch on `m.value`'s type, matching 0.9. Inspection (`inspect`, `kind`, `diagnostics`), state selection (`state_inventory`, `select_state`), and writing (`write_file`, `write_str`, `write_json`) take the module itself.
+- `parse_file` / `parse_bytes` read a stored `.pio.json` document the same way as any other source, and `write_json` writes it: a released 0.9 package upgrades one way on read, and a same format write off an unchanged module still echoes the source bytes.
+- Multiconductor modules lower explicitly to balanced ones with `lower_to_balanced`, after `lowering_readiness` reports what the pass would lose without transforming.
+- The DC branch data serves the corrected equations, `p_shift = A' (b .* shift)` and `p_branch = -Bf va + b .* shift`, with the incidence, Laplacian, flow matrix, and bus injection assembled from the same spans and pinned elementwise on a shifted fixture.
+- `features()` reports `arrow`, `matrix`, `gridfm`, `dist`, and `prob`; the `prob` probe reads the DC data surface.
+
 ## 0.9.0
 
 **One GOC3 SCOPF implementation.** `goc3_scopf_data` takes the document text and types the Rust core's instance (`pio_scopf_parse_str`, the projection `parse_scopf` serializes; the native library with the `prob` feature is now required for it). The wire document uses the language-neutral `powerio.scopf` schema. The pure Julia projection is retired, so every language consumes the same rows and every ordinal comes from document-order enumeration. `ScopfInstance` replaces `producers_first::Bool` with `device_class_layout::DeviceClassLayout` (`:contiguous` with `producers_first`, or `:interleaved`) and gains `dt`; device rows carry `j_dev` (position within the class), `j_sdd` (position in the canonical producers-then-consumers stacking), and `u_0` (the document's `initial_status.on_status`, also on AC line and transformer rows); reserve membership rows carry the member device's ordinals. `goc3_add_status_flags!` gains a method taking the typed rows, so no consumer reads raw lookups for initial status. The interleaved-classes warning is deleted because no ordinal depends on a uid. The Rust projection costs ~13 ms on a 340 KB case against ~1.4 ms for the retired Julia one — a one-time per-case load cost; per-field C accessors are the recorded escape hatch if a workload ever cares.

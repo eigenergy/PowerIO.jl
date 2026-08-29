@@ -36,18 +36,20 @@ const CORE_SYMBOLS = Set((
     :pio_has_feature,
     :pio_schema_versions_json,
     :pio_build_info,
-    :pio_string_free,
+    :pio_string_release,
+    :pio_parse_file,
+    :pio_module_release,
+    :pio_module_diagnostics,
 ))
 const REPRESENTATIVE_SYMBOLS = Dict(
-    "arrow" => (:pio_to_arrow, :pio_arrow_catalog_json),
-    "matrix" => (:pio_matrix_available,),
-    "gridfm" => (:pio_read_dir, :pio_scenario_ids),
-    "dist" => (:pio_dist_parse_str, :pio_dist_to_json),
+    "arrow" => (:pio_balanced_network_to_arrow, :pio_arrow_catalog_json),
+    "matrix" => (),
+    "gridfm" => (),
+    "dist" => (:pio_module_multiconductor_network, :pio_multiconductor_network_to_json),
     "prob" => (:pio_dc_data_build, :pio_dc_data_release),
 )
 const KNOWN_SYMBOLS = union(
     CORE_SYMBOLS,
-    Set((:pio_dist_abi_version,)),
     Set(Iterators.flatten(values(REPRESENTATIVE_SYMBOLS))),
 )
 
@@ -65,7 +67,6 @@ _park(reason::AbstractString, detail::AbstractString) =
 struct CandidateReport
     version::String
     abi::UInt32
-    dist_abi::Union{Nothing,UInt32}
     features::Dict{String,Bool}
     symbols::Set{Symbol}
     matrix_available::Bool
@@ -85,7 +86,6 @@ function _binding_const(name::AbstractString, files)
 end
 
 _binding_abi() = _binding_const("PIO_ABI_VERSION", ("capi.jl", "PowerIO.jl"))
-_binding_dist_abi() = _binding_const("PIO_DIST_ABI_VERSION", ("dist.jl", "PowerIO.jl"))
 
 function _lookup(obj, key::Symbol, default=nothing)
     obj === nothing && return default
@@ -120,8 +120,7 @@ function _nonempty_collection(value)
 end
 
 function validate_candidate(report::CandidateReport, tag::AbstractString;
-                            binding_abi::UInt32=_binding_abi(),
-                            binding_dist_abi::UInt32=_binding_dist_abi())
+                            binding_abi::UInt32=_binding_abi())
     missing_core = sort!(collect(setdiff(CORE_SYMBOLS, report.symbols)); by=string)
     isempty(missing_core) || _park(
         "required_symbol_missing", "missing core symbol $(first(missing_core))")
@@ -137,20 +136,12 @@ function validate_candidate(report::CandidateReport, tag::AbstractString;
         get(report.features, feature, false) || _park(
             "required_feature_missing", "binary does not report feature $feature")
     end
-    :pio_dist_abi_version in report.symbols || _park(
-        "dist_abi_missing", "binary does not expose pio_dist_abi_version")
-    report.dist_abi === nothing && _park(
-        "dist_abi_missing", "binary did not report a distribution ABI")
-    report.dist_abi == binding_dist_abi || _park(
-        "dist_abi_mismatch",
-        "binary distribution ABI $(report.dist_abi), binding ABI $binding_dist_abi")
-
     for feature in REQUIRED_FEATURES, symbol in REPRESENTATIVE_SYMBOLS[feature]
         symbol in report.symbols || _park(
             "required_symbol_missing", "feature $feature is missing symbol $symbol")
     end
     report.matrix_available || _park(
-        "required_feature_missing", "pio_matrix_available reports false")
+        "required_feature_missing", "the matrix feature reports false")
 
     _object_like(report.schema) || _park(
         "schema_report_invalid", "pio_schema_versions_json is not an object")
@@ -205,7 +196,7 @@ function _owned_json(handle, symbol::Symbol)
     ptr = ccall(Libdl.dlsym(handle, symbol), Cstring, ())
     ptr == C_NULL && return nothing
     text = unsafe_string(ptr)
-    ccall(Libdl.dlsym(handle, :pio_string_free), Cvoid, (Cstring,), ptr)
+    ccall(Libdl.dlsym(handle, :pio_string_release), Cvoid, (Cstring,), ptr)
     return _parse_report_json(text, symbol)
 end
 
@@ -239,14 +230,11 @@ function _inspect_library(unpack::AbstractString, triplet::AbstractString,
         features = Dict(feature =>
             ccall(Libdl.dlsym(handle, :pio_has_feature), Cint,
                   (Cstring,), feature) == 1 for feature in REQUIRED_FEATURES)
-        dist_abi = :pio_dist_abi_version in symbols ?
-            ccall(Libdl.dlsym(handle, :pio_dist_abi_version), UInt32, ()) : nothing
-        matrix_available = :pio_matrix_available in symbols &&
-            ccall(Libdl.dlsym(handle, :pio_matrix_available), Cint, ()) == 1
+        matrix_available = get(features, "matrix", false)
         schema = _owned_json(handle, :pio_schema_versions_json)
         build = _owned_json(handle, :pio_build_info)
         report = CandidateReport(
-            version, abi, dist_abi, features, symbols, matrix_available, schema, build)
+            version, abi, features, symbols, matrix_available, schema, build)
         return validate_candidate(report, tag)
     finally
         Libdl.dlclose(handle)

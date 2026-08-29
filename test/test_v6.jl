@@ -371,7 +371,7 @@ end
     bf = flow_matrix(d)
     @test size(bf) == (rows, buses)
 
-    # p_branch = -Bf va (- b .* shift, zero here) agrees with the C fill, and
+    # p_branch = -Bf va (+ b .* shift, zero here) agrees with the C fill, and
     # p_bus = -B va + p_shift agrees with A' applied to that flow.
     va = collect(range(0.0, 0.08; length=buses))
     flow = branch_flow(d, va)
@@ -386,6 +386,32 @@ end
     b = PowerIO.susceptance(d)
     for e in 1:rows
         @test b_matrix[from[e] + 1, to[e] + 1] ≈ -b[e] atol=1e-12
+    end
+end
+
+@testset "DC data agrees with an independent susceptance computation" begin
+    if !_has_v6
+        @test_skip "the resolved library predates the ABI v6 entry points"
+        return
+    end
+    case9 = joinpath(@__DIR__, "data", "case9.m")
+    d = dc_data(parse_file(case9))
+    dense = to_dense(case9)
+    b = PowerIO.susceptance(d)
+    from = PowerIO.from_indices(d)
+    to = PowerIO.to_indices(d)
+    branch = dense.branch
+    ids = PowerIO.bus_ids(d)
+    @test length(b) == length(branch.r)
+    for e in 1:length(b)
+        r = branch.r[e]
+        x = branch.x[e]
+        # series susceptance with the PowerModels sign: imag(1/(r + ix)),
+        # negative for an inductive branch.
+        @test b[e] ≈ imag(inv(complex(r, x))) atol=1e-12
+        # The incidence columns map back to the bus IDs the raw table names.
+        @test ids[from[e] + 1] == string(branch.from[e])
+        @test ids[to[e] + 1] == string(branch.to[e])
     end
 end
 

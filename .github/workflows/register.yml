@@ -111,7 +111,7 @@ jobs:
             PowerIO.library_available() || error("artifact failed the core ABI handshake")
             f = PowerIO.features()
             all(values(f)) || error("artifact is missing a usable feature: $f")
-            for name in ("arrow", "matrix", "gridfm", "dist", "pkg", "prob")
+            for name in ("arrow", "matrix", "gridfm", "dist", "prob")
                 PowerIO.has_feature(name) || error("artifact does not report feature $name")
             end
             PowerIO.schema_versions().powerio_version == version ||

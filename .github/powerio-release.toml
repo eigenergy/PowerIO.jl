@@ -2,6 +2,6 @@
 # invalidates source_digest and parks the release.
 schema = 1
 state = "ready"
-julia_version = "0.9.0"
-powerio_tag = "v0.9.0"
-source_digest = "sha256:95725d4cea05a25f501609ad813797b9200932e7e531b856ed6f6880641330a6"
+julia_version = "0.10.0"
+powerio_tag = "v0.10.0"
+source_digest = "sha256:966f527e3029ef21960550f5794e0ae2f298b62e18ce9c76c873c947170b969f"

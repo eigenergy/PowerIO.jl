@@ -19,12 +19,10 @@
 # carries cases between PowerIO consumers with their metadata, BMOPF JSON is the
 # exchange format for everything else.
 #
-# EXPERIMENTAL: the `pio_dist_*` signatures carry their own
-# `PIO_DIST_ABI_VERSION` starting with powerio v0.3.1. PowerIO.jl requires that
-# version before calling distribution entry points. The functions ship only
-# with the dist feature (on by default in the released binaries), and full data
-# materialization additionally needs the pkg feature; `dist_available()` checks
-# the symbol and the reported dist ABI version.
+# EXPERIMENTAL: the `pio_dist_*` functions ship only with the dist feature
+# (on by default in the released binaries). The single `pio_abi_version`
+# handshake covers them too; there is no separate dist ABI version any
+# more. `dist_available()` checks the symbol.
 
 # `pio_multiconductor_network_release`, memoized per resolved path — the `_network_free_fn`
 # story for distribution handles (a `set_library!` swap must not free across

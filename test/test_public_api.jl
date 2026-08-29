@@ -51,7 +51,7 @@
     # surfaces, and the reserved OperatingPointSeries skeleton are all gone
     # at 1.0.0. The typed family entries stay, unexported (StoredModule
     # level: PowerIO.parse_module, PowerIO.module_kind, ...).
-    for sym in (:Network, :DistNetwork, :dist_graph, :NetworkPackage, :read_package,
+    retired_names = (:Network, :DistNetwork, :dist_graph, :NetworkPackage, :read_package,
                 :to_package, :from_package, :ScopfInstance, :parse_scopf,
                 :parse_goc3_json, :goc3_scopf_data, :NetworkHandle,
                 :CompilerPackage, :to_normalized_with_options,
@@ -67,9 +67,45 @@
                 # is gone from the C ABI itself, not just this binding.
                 :as_network, :as_dist_network, :dist_abi_version,
                 :dist_capabilities, :PIO_DIST_ABI_VERSION)
+    for sym in retired_names
         @test !isdefined(PowerIO, sym)
     end
     @test :parse ∉ names(PowerIO)  # call it as PowerIO.parse_module, beside Base.parse
+
+    # C level symbol names retired from the generated header, not from this
+    # binding, so they were never candidates for the isdefined loop above.
+    # `pio_dist_abi_version` contains `dist_abi_version` as a substring, but
+    # `_` is a word character, so "pio_dist_abi_version" has no boundary
+    # before "dist" and the retired_names scan below would not catch a
+    # README mention of the full C name — hence a separate entry rather
+    # than relying on the shorter Julia name to match inside it.
+    retired_prose_tokens = ("pio_dist_abi_version", "pio_dist_capabilities_json")
+
+    # The same names must not survive into user facing prose either: a docs
+    # page or the README naming one as if it were still callable is the
+    # exact bug class this guard exists to catch (dist_capabilities() and
+    # to_package/from_package/read_package/write_package once did, in both
+    # places). A word boundary keeps a compound identifier like
+    # BalancedNetwork from matching the bare :Network. Two pages are the
+    # legitimate exception: opf-backends.md's own retirement paragraph
+    # names the SCOPF family in past tense while explaining what replaced
+    # it, and migration-0.10.md exists specifically to name every removed
+    # 0.9 entry point beside its replacement.
+    root = dirname(@__DIR__)
+    excluded_pages = ("opf-backends.md", "migration-0.10.md")
+    doc_files = [joinpath(root, "README.md")]
+    for f in readdir(joinpath(root, "docs", "src"); join=true)
+        endswith(f, ".md") && basename(f) ∉ excluded_pages && push!(doc_files, f)
+    end
+    for f in doc_files
+        text = read(f, String)
+        hits = [String(sym) for sym in retired_names
+                if occursin(Regex("\\b" * String(sym) * "\\b"), text)]
+        append!(hits, [tok for tok in retired_prose_tokens if occursin(tok, text)])
+        @testset "$(basename(f))" begin
+            @test isempty(hits)
+        end
+    end
 
     # The accessor API the ecosystem bridges read must exist. It stays
     # unexported because the names collide with the packages a consumer

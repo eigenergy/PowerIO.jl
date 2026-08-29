@@ -4,15 +4,14 @@ PowerIO 0.10 is the public beta of the 1.0 API. API corrections may land before 
 
 Julia binding of [PowerIO](https://github.com/eigenergy/powerio), the power
 system data compiler. One call parses any supported source into a typed
-module, and the type parameter drives ordinary dispatch in everything that
-follows.
+module; `m.value` is the typed network the rest of the API dispatches on.
 
 ```julia
 using PowerIO
 
 case = parse_file("case14.m")           # PioModule{BalancedNetwork}
 n_buses(case.value)                     # 14
-feeder = parse_file("feeder.dss")       # PioModule{MulticonductorNetwork}
+feeder = parse_file("switch.dss")       # PioModule{MulticonductorNetwork}
 diagnostics(feeder)                     # native Diagnostic records
 text, findings = convert_file("case14.m", "psse")
 ```
