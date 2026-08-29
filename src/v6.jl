@@ -341,11 +341,12 @@ end
 
 Build the DC branch data of the module's balanced network value. Formulas:
 `series_susceptance` (`imag(inv(r + im*x))` with the PowerModels sign),
-`tap_adjusted_reactance` (`1/(x*tap)`), `reactance_only` (`1/x`).
+`tap_adjusted_reactance` (`-1/(x*tap)`), `reactance_only` (`-1/x`); all
+three are negative for an inductive branch.
 """
 function dc_data(m::StoredModule; formula::AbstractString="series_susceptance")
     lib = getfield(m, :lib)
-    _require_export("dc_data", :pio_dc_data_build, "powerio v1.0 with the prob feature", lib)
+    _require_export("dc_data", :pio_dc_data_build, "powerio v1.0", lib)
     ptr = GC.@preserve m _v6_call(lib) do err
         ccall(_library_symbol(lib, :pio_dc_data_build), Ptr{Cvoid},
               (Ptr{Cvoid}, Cstring, Ref{Ptr{Cvoid}}), _module_ptr(m), formula, err)

@@ -93,6 +93,13 @@ _has_v6 = PowerIO.library_available() &&
         GC.gc()
         @test length(view) == rows
         @test view[1] < 0
+
+        # Every formula carries the PowerModels sign: negative susceptance
+        # for an inductive branch, exactly as the docstring states.
+        for f in ("series_susceptance", "tap_adjusted_reactance", "reactance_only")
+            vals = PowerIO.susceptance(dc_data(PowerIO.parse_module(case9); formula=f))
+            @test all(<(0.0), vals)
+        end
     end
 
     @testset "series values inventory and export over the module surface" begin
