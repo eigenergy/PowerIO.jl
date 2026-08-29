@@ -134,7 +134,8 @@ reader, and GO Challenge 3 helpers.
 
 At first use the binding checks `pio_abi_version` against the core ABI version
 it targets and refuses a stale or mismatched library with an error stating both
-versions. Distribution entry points also check `pio_dist_abi_version`.
+versions. Distribution entry points are covered by the same handshake; there
+is no separate ABI check for them.
 
 ## Interop
 
