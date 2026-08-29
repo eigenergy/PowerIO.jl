@@ -6,10 +6,10 @@
 | BMOPFTools.jl | both | PowerIO backed OpenDSS / BMOPF conversion |
 | ExaModelsPower.jl / ExaPowerIO.jl | out | [`to_powerdata`](@ref) / [`parse_ac_power_data`](@ref) |
 | PowerGridPlanning.jl | out | [`to_powermodels`](@ref), `PowerIO.build_ref`, and angle repair helpers |
-| `.pio.json` stored modules | in | [`PowerIO.parse`](@ref) / [`parse_module_bytes`](@ref) / [`as_network`](@ref) |
+| stored `.pio.json` module | both | [`parse_file`](@ref) / [`write_json`](@ref) / `m.value` |
 | GridFM (gridfm-datakit Parquet) | in | [`read_gridfm`](@ref) / [`read_gridfm_scenarios`](@ref) |
 | [PowerDiff.jl](https://github.com/grid-opt-alg-lab/PowerDiff.jl) | out | PowerDiff depends on PowerIO as its parser and data layer |
-| OpenDSS / PMD / IEEE BMOPF | both | format-routed `PowerIO.parse` / `to_format`; see [Distribution networks](distribution.md) |
+| OpenDSS / PMD / IEEE BMOPF | both | [`parse_file`](@ref) / `to_format`; see [Distribution networks](distribution.md) |
 
 ## PowerModels.jl
 
@@ -18,7 +18,7 @@ data dictionary — the post-parse `Dict{String,Any}` layout PowerModels.jl
 consumes. [`from_powermodels`](@ref) reads one back.
 
 ```julia
-net = PowerIO.parse("case14.m"; value_type=BalancedNetwork)
+net = parse_file("case14.m").value
 data = to_powermodels(net)      # Dict{String,Any} with "bus", "branch", "gen", ...
 net2 = from_powermodels(data)
 ```
@@ -27,7 +27,7 @@ PowerIO also exposes the reference dict helpers that several PowerModels style
 packages need:
 
 ```julia
-data = to_powermodels(PowerIO.parse("case14.m"; value_type=BalancedNetwork))
+data = to_powermodels(parse_file("case14.m").value)
 PowerIO.correct_voltage_angle_differences!(data)
 ref = PowerIO.build_ref(data)
 ```
@@ -78,23 +78,28 @@ PowerIO.
 using PowerGridPlanning
 
 network = PowerGridPlanning.load_network("case14.m")
-data = PowerIO.to_powermodels(PowerIO.parse("case14.m"; value_type=PowerIO.BalancedNetwork))
+data = PowerIO.to_powermodels(PowerIO.parse_file("case14.m").value)
 ref = PowerIO.build_ref(data)
 ```
 
 ## `.pio.json` stored modules
 
-A `.pio.json` document is a stored module: a typed value with provenance,
-validation, and diagnostics. [`PowerIO.parse`](@ref) reads one from a path or
-bytes ([`parse_module_bytes`](@ref) is the explicit byte entry), and
-[`as_network`](@ref) / [`as_dist_network`](@ref) open the live handle for a
-network-valued module.
+Stored `.pio.json` modules carry one typed value beside the module's records
+(sources, source maps, diagnostics, history), over the native `pio_module_*`
+C ABI surface.
 
 ```julia
-m = PowerIO.parse("case14.pio.json")
-module_kind(m)                           # "balanced_network"
-net = as_network(m)                      # live BalancedNetwork
+m = parse_file("case14.m")               # ::PioModule{BalancedNetwork}
+doc = write_json(m)                      # the stored version 1 document
+net = parse_bytes(codeunits(doc); name="case.pio.json").value
+
+kind(m)                                  # "balanced_network"
+diagnostics(m)                           # structured diagnostic records
 ```
+
+A released 0.9 document upgrades one way on read; a nonempty legacy study is
+refused with the materialize instruction. Multiconductor modules preflight
+and lower explicitly; see [Distribution networks](distribution.md).
 
 ## GridFM
 

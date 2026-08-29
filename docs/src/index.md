@@ -1,16 +1,20 @@
 # PowerIO.jl
 
-Julia entry point for [PowerIO](https://github.com/eigenergy/powerio): parser,
-compiler package, and IR infrastructure for power system software. The Rust
-core reads case files, writes them back, converts between formats, and exposes
-the same model through Julia, Python, C/C++, and Rust.
+PowerIO 0.10 is the public beta of the 1.0 API. API corrections may land before 1.0.0 as downstream integrations exercise the new design.
+
+Julia binding of [PowerIO](https://github.com/eigenergy/powerio), the power
+system data compiler. One call parses any supported source into a typed
+module, and the type parameter drives ordinary dispatch in everything that
+follows.
 
 ```julia
 using PowerIO
 
-net = parse_file("case14.m")            # BalancedNetwork
-length(PowerIO.buses(net))              # 14
-text, warnings = convert_file("case14.m", "psse")
+case = parse_file("case14.m")           # PioModule{BalancedNetwork}
+n_buses(case.value)                     # 14
+feeder = parse_file("feeder.dss")       # PioModule{MulticonductorNetwork}
+diagnostics(feeder)                     # native Diagnostic records
+text, findings = convert_file("case14.m", "psse")
 ```
 
 ## Install
@@ -33,12 +37,11 @@ local build; see [Binary distribution](binary.md).
   cases (OpenDSS, PowerModelsDistribution JSON, IEEE BMOPF JSON). See
   [Distribution networks](distribution.md).
 
-The two share the same verbs, and the bare verbs route on the format:
-`parse_file("case14.m")` returns a `BalancedNetwork`, `parse_file("feeder.dss")`
-a `MulticonductorNetwork`, and `parse_file("case.pio.json")` whichever model
-the package holds. `to_format`, `convert_file`, and `warnings` dispatch on the
-network type; the type marker forms (`parse_file(BalancedNetwork, path)`,
-`parse_file(MulticonductorNetwork, path)`) pin a model explicitly.
+The two share the same verbs, and [`parse_file`](@ref) routes on the format:
+a `.m` path parses to a `PioModule{BalancedNetwork}`, a `.dss` path to a
+`PioModule{MulticonductorNetwork}`, and a `.pio.json` to whichever value the
+document stores. `m.value` is the typed network handle, and `to_format`,
+`convert_file`, and `warnings` dispatch on its type.
 
 ## Where to go
 
@@ -58,8 +61,8 @@ network type; the type marker forms (`parse_file(BalancedNetwork, path)`,
 
 At first use the binding checks the library's ABI version
 (`pio_abi_version`) against the version it targets and refuses a stale or
-mismatched library with an error stating both versions. Distribution calls
-also check `pio_dist_abi_version`. [`PowerIO.library_available`](@ref) probes
-without throwing, and [`PowerIO.features`](@ref) reports the optional Arrow,
-matrix, GridFM, distribution, package, and problem instance (`prob`) features. [`PowerIO.dist_capabilities`](@ref)
-reports finer distribution fidelity flags for downstream packages.
+mismatched library with an error stating both versions.
+[`PowerIO.library_available`](@ref) probes without throwing, and
+[`features`](@ref) reports the optional Arrow, matrix, GridFM, distribution,
+and problem instance (`prob`) features; [`schema_versions`](@ref) names the
+document schema vintages this build speaks.
