@@ -501,8 +501,9 @@ end
     ModuleHistoryEntry
 
 One structured, descriptive operation in a module's history: `id`, `kind`
-(`"parse"`, `"upgrade"`, `"transform"`, ...), `name`, and the stated
-`assumptions` and `losses`. History describes; it does not replay.
+(`"upgrade"`, `"transform"`, `"repair"`; a plain parse contributes no
+entry), `name`, and the stated `assumptions` and `losses`. History
+describes; it does not replay.
 """
 struct ModuleHistoryEntry
     id::String
