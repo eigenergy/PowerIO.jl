@@ -590,7 +590,7 @@ function _matrix_arrow_from_handle(h::BalancedNetworkHandle, table::Symbol)
     catch e
         _feature_call_error("to_arrow", "pio_balanced_network_to_arrow", "arrow", e)
     end
-    rc == 0 || error("PowerIO.to_arrow: " * _cstr(err))
+    rc == 0 || error("PowerIO.to_arrow: the export was refused")
     _require_release_callbacks!(arr, sch)
     try
         a, s = arr[], sch[]

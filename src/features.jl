@@ -60,37 +60,47 @@ function has_feature(feature::AbstractString)
     # and the probes come from the same table features() reads, so the two
     # cannot drift.
     library_available() || return false
-    probe = get(_FEATURE_PROBES, feature == "pkg" ? :package : Symbol(feature), nothing)
+    probe = get(_FEATURE_PROBES, Symbol(feature), nothing)
     probe === nothing && return false
     return probe()
 end
 
 
-const _DOCUMENT_VERSION_FIELDS = (:powerio_version, :abi, :bmopf_schema)
+const _DOCUMENT_VERSION_FIELDS = (:powerio_version, :abi, :bmopf_schema, :module_schema)
 
 """
     schema_versions() -> NamedTuple
 
 Return the versions the resolved library reports through
-`pio_schema_versions_json` (powerio v0.9).
+`pio_schema_versions_json` (powerio v1.0).
 
-The fields are `powerio_version`, `abi`, and `bmopf_schema`. Every document
-powerio authors states one version, the release that wrote it, so the
-per-document lineages this used to report (`package`, `arrow`) are gone.
-`bmopf_schema` names a foreign schema the IEEE task force owns, which is why it
-stays separate. A field the document does not carry is `nothing`. A library
-without the entry point reports every field `nothing`; a missing report never
-raises an error.
+The fields are `powerio_version`, `abi`, `bmopf_schema`, and `module_schema`.
+Every document powerio authors states one version, the release that wrote
+it, so the per-document lineages this used to report (`package`, `arrow`)
+are gone. `bmopf_schema` names a foreign schema the IEEE task force owns,
+which is why it stays separate. `module_schema` is the stored `.pio.json`
+document schema, `(; name, version)`. A field the document does not carry
+is `nothing`. A library without the entry point reports every field
+`nothing`; a missing report never raises an error.
 """
 function schema_versions()
     lib = _lib()
     _exports_symbol(:pio_schema_versions_json, lib) ||
-        return NamedTuple{_DOCUMENT_VERSION_FIELDS}((nothing, nothing, nothing))
+        return NamedTuple{_DOCUMENT_VERSION_FIELDS}(map(_ -> nothing, _DOCUMENT_VERSION_FIELDS))
     _ensure_compatible(lib)
     s = ccall(_library_symbol(lib, :pio_schema_versions_json), Cstring, ())
     s == C_NULL && error("PowerIO.schema_versions: pio_schema_versions_json returned null")
     obj = JSON3.read(_take_string(lib, s))
-    return NamedTuple{_DOCUMENT_VERSION_FIELDS}(map(k -> get(obj, k, nothing), _DOCUMENT_VERSION_FIELDS))
+    return NamedTuple{_DOCUMENT_VERSION_FIELDS}(map(k -> _schema_version_field(obj, k), _DOCUMENT_VERSION_FIELDS))
+end
+
+# `module_schema` nests `{name, version}`; every other field is a plain
+# scalar the report carries directly.
+_schema_version_field(obj, k::Symbol) = k === :module_schema ? _module_schema(obj) : get(obj, k, nothing)
+
+function _module_schema(obj)
+    m = get(obj, :module_schema, nothing)
+    return m === nothing ? nothing : (; name = String(m.name), version = Int(m.version))
 end
 
 """

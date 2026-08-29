@@ -147,6 +147,94 @@ _has_v6 = PowerIO.library_available() &&
         @test Float64(first(PowerIO.generators(exported_net)).pg) ≈ 95.0
         @test occursin("export_selected_state", PowerIO.write_module(exported))
     end
+
+    @testset "select_state and state_inventory are one based on the module surface" begin
+        # Same legacy 0.9 upgrade fixture as above, wrapped as the typed
+        # PioModule surface select_state and state_inventory serve.
+        network_json = JSON3.read(to_json(parse_file(case9).value))
+        legacy = JSON3.write(Dict(
+            "powerio_version" => "0.9.0",
+            "producer" => Dict("tool" => "PowerIO.jl test", "version" => "0"),
+            "model_kind" => "balanced",
+            "model" => Dict("kind" => "balanced", "balanced_network" => network_json),
+            "origin" => Dict("kind" => "in_memory"),
+            "validation" => Dict("status" => "ok",
+                                 "counts" => Dict("fatal" => 0, "error" => 0,
+                                                  "warning" => 0, "info" => 0,
+                                                  "debug" => 0)),
+            "operating_points" => Dict(
+                "time_axis" => Dict("periods" => 2, "duration_hours" => [1.0, 1.0],
+                                    "labels" => ["h0", "h1"]),
+                "points" => [
+                    Dict("index" => 0, "updates" => Any[]),
+                    Dict("index" => 1, "updates" => [Dict(
+                        "element" => Dict("table" => "generators",
+                                           "source_uid" => "generators:0"),
+                        "fields" => Dict("pg" => 95.0),
+                    )]),
+                ],
+            ),
+        ))
+        pio = PowerIO._wrap_module(PowerIO.read_module(legacy))
+        @test pio isa PioModule{TimeSeries{OperatingPoint{BalancedNetwork}}}
+
+        inventory = state_inventory(pio)
+        @test [p.position for p in inventory.time_points] == [1, 2]
+        @test first(inventory.time_points).position == 1
+
+        # select_state(time=<inventory position>) selects the point the
+        # inventory names, with no off by one against export_state's own
+        # zero based time_position.
+        selected = select_state(pio; time=first(inventory.time_points).position)
+        @test kind(selected) == "balanced_network"
+
+        # An out of range time restates the position in one based terms: the
+        # caller's own `time`, not the zero based export_state offset.
+        err = try
+            select_state(pio; time=99)
+            nothing
+        catch e
+            e
+        end
+        @test err isa PowerIOCError
+        @test err.code == "REQUEST.STATE.OUT_OF_RANGE"
+        @test occursin("99", err.message)
+        @test count(err.code, sprint(showerror, err)) == 1
+    end
+
+    @testset "select_state refuses a multiconductor operating point series" begin
+        # A multiconductor time series selects and reads in place; static
+        # materialization is not implemented, and the refusal must name the
+        # one based `time` the caller passed, same as the balanced case.
+        dss_text = "Clear\nNew Circuit.c basekv=12.47 bus1=src\n"
+        mc_data = JSON3.read(PowerIO.write_module(PowerIO.parse_module_str(dss_text; format="dss"))).value.data
+        doc = JSON3.write(Dict(
+            "schema" => "powerio.module",
+            "version" => 1,
+            "producer" => Dict("name" => "powerio", "version" => "0"),
+            "value" => Dict(
+                "kind" => "multiconductor_operating_point_time_series",
+                "data" => Dict(
+                    "network" => mc_data,
+                    "time_points" => [
+                        Dict("label" => "h0", "duration" => Dict("secs" => 3600, "nanos" => 0)),
+                        Dict("label" => "h1", "duration" => Dict("secs" => 3600, "nanos" => 0)),
+                    ],
+                    "quantities" => Dict(),
+                ),
+            ),
+        ))
+        pio = PowerIO._wrap_module(PowerIO.read_module(doc))
+        @test pio isa PioModule{TimeSeries{OperatingPoint{MulticonductorNetwork}}}
+        err = try
+            select_state(pio; time=1)
+            nothing
+        catch e
+            e
+        end
+        @test err isa PowerIOCError
+        @test err.code == "REQUEST.STATE.UNBOUND_EXPORT"
+    end
 end
 
 @testset "DC data string and span lengths agree with their count accessors (3W bus table)" begin
@@ -443,6 +531,22 @@ end
     end
     @test err isa PowerIOCError
     @test err.code == "REQUEST.CAPI.NOT_A_BALANCED_NETWORK"
+    # This class of refusal does not code-prefix its message; showerror must
+    # still render the code exactly once.
+    @test count(err.code, sprint(showerror, err)) == 1
+
+    # REQUEST.FORMAT.UNKNOWN does code-prefix its message ("CODE: text");
+    # showerror must strip that prefix rather than render the code twice.
+    format_err = try
+        PowerIO.parse_module_str("not a case"; format="totally-unknown-format")
+        nothing
+    catch e
+        e
+    end
+    @test format_err isa PowerIOCError
+    @test format_err.code == "REQUEST.FORMAT.UNKNOWN"
+    @test startswith(format_err.message, format_err.code * ":")
+    @test count(format_err.code, sprint(showerror, format_err)) == 1
 
     # BIND.CAPI.NULL_HANDLE (a NULL module handle) and
     # REQUEST.CAPI.SELECTOR_CONFLICT (export_state given both or neither
