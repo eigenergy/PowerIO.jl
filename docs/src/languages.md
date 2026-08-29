@@ -2,7 +2,7 @@
 
 The cross language naming table (Rust, Python, Julia, C ABI) lives in the
 powerio repository:
-[docs/languages.md](https://github.com/eigenergy/powerio/blob/main/docs/languages.md).
+[docs/src/languages.md](https://github.com/eigenergy/powerio/blob/main/docs/src/languages.md).
 
 Julia-specific notes:
 
