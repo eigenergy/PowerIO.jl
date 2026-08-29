@@ -287,7 +287,9 @@ parse_file(path::AbstractString; format::Union{AbstractString,Nothing}=nothing) 
 Parse an in-memory source into a typed module: the only way to read a binary
 format without a file, and the byte carrier behind stream input (an `IO`
 reads once and parses the bytes). `name` labels the buffer for diagnostics
-and format detection.
+and format detection from its extension; the default `"<memory>"` has none,
+so an ambiguous source needs either an explicit `format` or a `name` ending
+in a recognized extension (e.g. `name="case.m"`).
 """
 parse_bytes(bytes::AbstractVector{UInt8};
             name::AbstractString="<memory>",
@@ -413,8 +415,30 @@ end
     state_inventory(m::PioModule)
 
 The time point or scenario inventory of a series or scenario set module.
+Time point positions are one based, matching [`select_state`](@ref)'s `time`
+keyword: the first time point has `position == 1`.
 """
-state_inventory(m::PioModule) = state_inventory(getfield(m, :handle))
+function state_inventory(m::PioModule)
+    raw = state_inventory(getfield(m, :handle))
+    haskey(raw, :time_points) || return raw
+    return _one_based_time_points(raw)
+end
+
+# The raw v6 report is zero based, matching the C ABI (`export_state`'s
+# `time_position`); this wrapper and `select_state`'s `time` keyword are one
+# based, matching every other Julia axis, so positions are bumped by one on
+# the way out. Scenario entries carry no position, so they pass through
+# `haskey(raw, :time_points)` above untouched.
+function _one_based_time_points(raw)
+    points = map(raw.time_points) do p
+        entry = Dict{Symbol,Any}(pairs(p))
+        entry[:position] += 1
+        entry
+    end
+    entry = Dict{Symbol,Any}(pairs(raw))
+    entry[:time_points] = points
+    return JSON3.read(JSON3.write(entry))
+end
 
 """
     dc_data(m::PioModule; formula="series_susceptance") -> DcData
@@ -430,6 +454,10 @@ dc_data(m::PioModule; formula::AbstractString="series_susceptance") =
 Select one time point (one based, matching every other Julia axis) or one
 named scenario as an independent static module. The selection shares the
 base network's native data; nothing reparses or copies numerical tables.
+
+A `TimeSeries{OperatingPoint{MulticonductorNetwork}}` module refuses with
+`REQUEST.STATE.UNBOUND_EXPORT`: a multiconductor operating point selects and
+reads in place, and static materialization is not implemented yet.
 """
 function select_state(m::PioModule;
                       time::Union{Integer,Nothing}=nothing,
@@ -439,19 +467,38 @@ function select_state(m::PioModule;
     if time !== nothing
         time >= 1 || error("PowerIO.select_state: time is one based; got $time")
     end
-    handle = export_state(getfield(m, :handle);
-                          time_position=time === nothing ? nothing : time - 1,
-                          scenario)
+    handle = try
+        export_state(getfield(m, :handle);
+                     time_position=time === nothing ? nothing : time - 1,
+                     scenario)
+    catch err
+        (time !== nothing && err isa PowerIOCError && err.code == "REQUEST.STATE.OUT_OF_RANGE") ||
+            rethrow()
+        _rebase_out_of_range(err, time)
+    end
     return _wrap_module(handle)
+end
+
+# `err`'s message names the zero-based `time_position` this function passed
+# to `export_state`, not the one-based `time` the caller passed to us;
+# restate it in the caller's own terms. The code is unchanged so callers
+# still branch on it.
+function _rebase_out_of_range(err::PowerIOCError, time::Integer)
+    axis = match(r"outside the (\d+) point axis", err.message)
+    message = axis === nothing ?
+        "time = $time is outside the time point axis" :
+        "time = $time (the $(axis[1]) point axis accepts 1:$(axis[1]))"
+    throw(PowerIOCError(err.code, message, err.diagnostics))
 end
 
 """
     lower_to_balanced(m::PioModule{MulticonductorNetwork}; base_mva=100.0) -> PioModule{BalancedNetwork}
 
 The explicit lossy lowering from the multiconductor value to its balanced
-equivalent. Records and source ownership carry over; the pass appends its
-findings and one Transform history entry. [`lowering_readiness`](@ref)
-reports the losses first without transforming.
+equivalent. The pass appends its findings and one Transform history entry;
+the source descriptors carry over, but not the retained bytes, so a later
+write in the original format cannot echo the source exactly.
+[`lowering_readiness`](@ref) reports the losses first without transforming.
 """
 lower_to_balanced(m::PioModule{MulticonductorNetwork}; base_mva::Real=100.0) =
     _wrap_module(lower_module_to_balanced(getfield(m, :handle); base_mva))
@@ -489,10 +536,14 @@ function Base.show(io::IO, ::MIME"text/plain", m::PioModule{T}) where {T}
         nothing
     end
     report === nothing && return
-    counts = get(report, :counts, nothing)
-    counts === nothing && return
-    print(io, "\n  ")
-    join(io, ("$(v) $(k)" for (k, v) in pairs(counts)), ", ")
+    values = get(report, :value, nothing)
+    if values isa JSON3.Object && !isempty(values)
+        print(io, "\n  ", join(("$(v) $(k)" for (k, v) in pairs(values)), ", "))
+    end
+    records = get(report, :records, nothing)
+    records isa JSON3.Object || return
+    nonzero = [(k, v) for (k, v) in pairs(records) if v isa Integer && v > 0]
+    isempty(nonzero) || print(io, "\n  ", join(("$(v) $(k)" for (k, v) in nonzero), ", "))
 end
 
 # ---- descriptive records: history and sources -------------------------------

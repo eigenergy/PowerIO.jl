@@ -480,6 +480,20 @@ end
                                             0, 0, C_NULL, C_NULL, C_NULL, C_NULL)
         @test_throws ErrorException PowerIO._matrix_axis_metadata(bad_meta_sch)
     end
+
+    # _matrix_arrow_from_handle's silent-refusal check (`rc == 0 ||
+    # error(...)`) used to read `_cstr(err)`, where `err` was the ccall's
+    # `do err ... end` parameter a few lines above, already out of scope by
+    # that line: an UndefVarError instead of a useful message, the one time
+    # it ever ran. The Rust side sets the error handle on every failure
+    # path `pio_balanced_network_to_arrow` has, so the branch is
+    # unreachable through the public API; pin the source text directly and
+    # reproduce the same do-block scoping against the real `_v6_call`.
+    @test !occursin("_cstr(err)", read(joinpath(@__DIR__, "..", "src", "arrow.jl"), String))
+    rc = PowerIO._v6_call("") do err
+        1  # a ccall return code; the do-block's `err` is never touched
+    end
+    @test_throws ErrorException (rc == 0 || error("PowerIO.to_arrow: the export was refused"))
 end
 
 @testset "arrow catalog" begin
