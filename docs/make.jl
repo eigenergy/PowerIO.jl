@@ -16,6 +16,7 @@ makedocs(;
     ),
     pages = [
         "Home" => "index.md",
+        "Migrating from 0.9" => "migration-0.10.md",
         "Modules" => "modules.md",
         "Transmission networks" => "transmission.md",
         "Matrices" => "matrices.md",
