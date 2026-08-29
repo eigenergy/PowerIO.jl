@@ -6,9 +6,10 @@
 # different model on its own handle, parsed from and written to OpenDSS
 # (`"dss"`), PowerModelsDistribution ENGINEERING JSON (`"pmd"`), and the IEEE
 # BMOPF Taskforce JSON (`"bmopf"`). The two share the verbs: the bare verbs
-# route on the format (see `parse_file`), the type marker forms
-# (`parse_file(MulticonductorNetwork, path)`) stay as the explicit spelling,
-# and `to_format` / `warnings` dispatch on the network type.
+# route on the format (see `parse_file`, pinned explicitly with its `format`
+# keyword), `convert_file` / `convert_str` keep their type marker forms
+# (`convert_file(MulticonductorNetwork, path, to)`), and `to_format` /
+# `warnings` dispatch on the network type.
 #
 # Like `BalancedNetwork`, a parsed `MulticonductorNetwork` keeps a live Rust
 # handle and leaves the element tables (`net.data`) unmaterialized until first
@@ -76,7 +77,7 @@ when they are empty; the accessors read a missing one as an empty table.
 String bus ids, ordered string terminal names, SI units, radians.
 
 Build one with [`parse_file`](@ref)`("feeder.dss")` (the bare verb routes on
-the format) or the explicit `parse_file(MulticonductorNetwork, path)`. A
+the format) or `parse_file(path; format="dss")` to pin the parser explicitly. A
 `MulticonductorNetwork` constructed from a bare payload object has
 `handle === nothing`; the accessors work on it, but the handle transforms
 ([`to_format`](@ref)) error. JSON carry with provenance is the stored module
@@ -396,7 +397,7 @@ end
 
 Convert distribution case `path` to format `to` (`"dss"`, `"pmd"`, `"bmopf"`)
 in one shot — the explicit form of the format-routed [`convert_file`](@ref).
-`from` overrides extension inference (see `parse_file(MulticonductorNetwork, ...)`).
+`from` overrides extension inference; [`parse_file`](@ref) pins the same way with its `format` keyword.
 Returns the converted text and the findings (the reader's plus the writer's
 fidelity losses, since there is no handle to query).
 """

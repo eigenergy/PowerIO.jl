@@ -5,7 +5,7 @@
 
 function _module_balanced_network(m::StoredModule)
     lib = getfield(m, :lib)
-    ptr = _v6_call(lib) do err
+    ptr = GC.@preserve m _v6_call(lib) do err
         ccall(_library_symbol(lib, :pio_module_balanced_network), Ptr{Cvoid},
               (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _module_ptr(m), err)
     end
@@ -14,7 +14,7 @@ end
 
 function _module_multiconductor_network(m::StoredModule)
     lib = getfield(m, :lib)
-    ptr = _v6_call(lib) do err
+    ptr = GC.@preserve m _v6_call(lib) do err
         ccall(_library_symbol(lib, :pio_module_multiconductor_network), Ptr{Cvoid},
               (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _module_ptr(m), err)
     end
