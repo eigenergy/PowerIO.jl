@@ -7,7 +7,7 @@ supported source into a typed module:
 ```julia
 using PowerIO
 case = parse_file("case9.m")       # PioModule{BalancedNetwork}
-feeder = parse_file("feeder.dss")  # PioModule{MulticonductorNetwork}
+feeder = parse_file("switch.dss")  # PioModule{MulticonductorNetwork}
 case.value                         # the typed network, shared native data
 diagnostics(case)                  # the reader's findings, native records
 write_file(case, "copy.m")         # byte exact same format echo

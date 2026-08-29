@@ -196,7 +196,7 @@ the module its type.
 
 ```julia
 using PowerIO
-case = parse_file("feeder.dss")
+case = parse_file("switch.dss")
 case isa PioModule{MulticonductorNetwork}  # true
 case.value                                 # the multiconductor network
 diagnostics(case)                          # the reader's findings
@@ -273,7 +273,7 @@ ambiguous or mislabeled input without changing the returned abstraction.
 
 ```julia
 case = parse_file("case9.m")      # PioModule{BalancedNetwork}
-feeder = parse_file("feeder.dss") # PioModule{MulticonductorNetwork}
+feeder = parse_file("switch.dss") # PioModule{MulticonductorNetwork}
 scuc = parse_file("scenario.json") # e.g. PioModule{AcScucInstance}
 ```
 """

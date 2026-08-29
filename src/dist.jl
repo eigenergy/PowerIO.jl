@@ -76,7 +76,7 @@ live Rust handle and leave `net.data` empty until first table access. The first
 when they are empty; the accessors read a missing one as an empty table.
 String bus ids, ordered string terminal names, SI units, radians.
 
-Build one with [`parse_file`](@ref)`("feeder.dss")` (the bare verb routes on
+Build one with [`parse_file`](@ref)`("switch.dss")` (the bare verb routes on
 the format) or `parse_file(path; format="dss")` to pin the parser explicitly. A
 `MulticonductorNetwork` constructed from a bare payload object has
 `handle === nothing`; the accessors work on it, but the handle transforms
