@@ -16,8 +16,7 @@ export ReleaseIntent, ReleaseDecision, INTENT_PATH, REQUIRED_ASSETS,
 
 const ROOT = normpath(joinpath(@__DIR__, ".."))
 const INTENT_PATH = joinpath(ROOT, ".github", "powerio-release.toml")
-const DIGEST_EXCLUDES = Set(("Artifacts.toml", ".github/powerio-release.toml",
-                              ".github/powerio-companion"))  # candidate CI routing, not release source
+const DIGEST_EXCLUDES = Set(("Artifacts.toml", ".github/powerio-release.toml"))
 const REQUIRED_ASSETS = Set([
     "libpowerio_capi.x86_64-linux-gnu.tar.gz",
     "libpowerio_capi.aarch64-linux-gnu.tar.gz",

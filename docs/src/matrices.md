@@ -1,11 +1,11 @@
 # Matrices
 
-PowerIO returns native Julia sparse matrices backed by Rust matrix construction.
-Matrix builders are a core API, not a transmission guide footnote.
+PowerIO constructs sparse matrices in Rust and returns Julia
+`SparseMatrixCSC` values.
 
 The PowerIO C ABI transports common power system matrix entries as Arrow COO
-tables. Julia materializes those entries as `SparseMatrixCSC` values and stores
-matrix metadata in wrappers that are familiar to PowerModels users.
+tables. Julia keeps each sparse matrix with its bus row mapping in a
+[`BusMappedMatrix`](@ref).
 
 The shipped matrix API supports [`BalancedNetwork`](@ref). Distribution system
 matrices belong in this API family once Rust exposes distribution matrix
@@ -15,7 +15,7 @@ constructors.
 ```julia
 net = parse_file("case14.m").value
 
-ybus = calc_admittance_matrix(net)       # PowerIO.AdmittanceMatrix{ComplexF64}
+ybus = calc_admittance_matrix(net)       # BusMappedMatrix{ComplexF64}
 Y = ybus.matrix
 
 sm = calc_susceptance_matrix(net)     # NOTE: PowerModels sign convention
@@ -28,7 +28,7 @@ Bpp = calc_bdoubleprime_matrix(net).matrix
 
 ## Structure
 
-All five `calc_*` functions return `PowerIO.AdmittanceMatrix`, which carries:
+All five `calc_*` functions return `BusMappedMatrix`, which carries:
 
 - `idx_to_bus`: row index to external bus id.
 - `bus_to_idx`: external bus id to row index.
@@ -38,10 +38,8 @@ The row and column index space is the dense matrix row index chosen by Rust.
 Use `idx_to_bus` and `bus_to_idx` when you need to translate between matrix
 rows and external bus ids.
 
-`calc_incidence_matrix` is the one whose columns are branches rather than buses,
-so only its rows go through the bus maps. It returns the same wrapper as the
-other four so the maps travel with the matrix; the type name reads oddly for a
-bus-by-branch matrix, and renaming it is a 1.0 question.
+`calc_incidence_matrix` has branch columns rather than bus columns, so only its
+rows use the bus maps.
 
 ## Sign Convention
 

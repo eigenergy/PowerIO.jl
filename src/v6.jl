@@ -94,7 +94,7 @@ one way.
 function read_module(text::AbstractString)
     lib = _lib()
     _ensure_compatible(lib)
-    _require_export("read_module", :pio_module_read_json, "powerio v1.0", lib)
+    _require_export("read_module", :pio_module_read_json, "a PowerIO ABI 6 library", lib)
     ptr = _v6_call(lib) do err
         ccall(_library_symbol(lib, :pio_module_read_json), Ptr{Cvoid},
               (Cstring, Ref{Ptr{Cvoid}}), text, err)
@@ -110,7 +110,7 @@ Parse a case file into a module of whichever family claims it.
 function parse_module(path::AbstractString; format::Union{AbstractString,Nothing}=nothing)
     lib = _lib()
     _ensure_compatible(lib)
-    _require_export("parse_module", :pio_parse_file, "powerio v1.0", lib)
+    _require_export("parse_module", :pio_parse_file, "a PowerIO ABI 6 library", lib)
     ptr = _v6_call(lib) do err
         ccall(_library_symbol(lib, :pio_parse_file), Ptr{Cvoid},
               (Cstring, Cstring, Ref{Ptr{Cvoid}}), path,
@@ -129,7 +129,7 @@ function parse_module_str(text::AbstractString;
                           format::Union{AbstractString,Nothing}=nothing)
     lib = _lib()
     _ensure_compatible(lib)
-    _require_export("parse_module_str", :pio_parse_str, "powerio v1.0", lib)
+    _require_export("parse_module_str", :pio_parse_str, "a PowerIO ABI 6 library", lib)
     ptr = _v6_call(lib) do err
         ccall(_library_symbol(lib, :pio_parse_str), Ptr{Cvoid},
               (Cstring, Cstring, Cstring, Ref{Ptr{Cvoid}}), name, text,
@@ -149,7 +149,7 @@ function parse_module_bytes(bytes::AbstractVector{UInt8};
                             format::Union{AbstractString,Nothing}=nothing)
     lib = _lib()
     _ensure_compatible(lib)
-    _require_export("parse_module_bytes", :pio_parse_bytes, "powerio v1.0", lib)
+    _require_export("parse_module_bytes", :pio_parse_bytes, "a PowerIO ABI 6 library", lib)
     data = Vector{UInt8}(bytes)
     ptr = GC.@preserve data _v6_call(lib) do err
         ccall(_library_symbol(lib, :pio_parse_bytes), Ptr{Cvoid},
@@ -351,7 +351,7 @@ three are negative for an inductive branch.
 """
 function dc_data(m::StoredModule; formula::AbstractString="series_susceptance")
     lib = getfield(m, :lib)
-    _require_export("dc_data", :pio_dc_data_build, "powerio v1.0", lib)
+    _require_export("dc_data", :pio_dc_data_build, "a PowerIO ABI 6 library", lib)
     ptr = GC.@preserve m _v6_call(lib) do err
         ccall(_library_symbol(lib, :pio_dc_data_build), Ptr{Cvoid},
               (Ptr{Cvoid}, Cstring, Ref{Ptr{Cvoid}}), _module_ptr(m), formula, err)

@@ -56,7 +56,7 @@ using SparseArrays
             ybus_coo = to_arrow(m, :ybus)
             ybus_expected = sparse_from_coo(ybus_coo, ybus_coo.g .+ im .* ybus_coo.b)
             ybus = calc_admittance_matrix(net)
-            @test ybus isa PowerIO.AdmittanceMatrix{ComplexF64}
+            @test ybus isa BusMappedMatrix{ComplexF64}
             @test ybus.matrix == ybus_expected
             @test getfield(net, :data) === nothing
             axis_maps = matrix_bus_maps_if_available(net)
@@ -71,14 +71,14 @@ using SparseArrays
             bprime_coo = to_arrow(m, :bprime)
             bprime_expected = sparse_from_coo(bprime_coo, bprime_coo.value)
             bprime = calc_bprime_matrix(net)
-            @test bprime isa PowerIO.AdmittanceMatrix{Float64}
+            @test bprime isa BusMappedMatrix{Float64}
             @test bprime.matrix == bprime_expected
             @test getfield(net, :data) === nothing
             @test bprime.idx_to_bus == idx_to_bus
             @test bprime.bus_to_idx == bus_to_idx
 
             susceptance = calc_susceptance_matrix(net)
-            @test susceptance isa PowerIO.AdmittanceMatrix{Float64}
+            @test susceptance isa BusMappedMatrix{Float64}
             @test susceptance.matrix == -bprime.matrix
             @test getfield(net, :data) === nothing
             @test susceptance.idx_to_bus == idx_to_bus
@@ -87,7 +87,7 @@ using SparseArrays
             bdoubleprime_coo = to_arrow(m, :bdoubleprime)
             bdoubleprime_expected = sparse_from_coo(bdoubleprime_coo, bdoubleprime_coo.value)
             bdoubleprime = calc_bdoubleprime_matrix(net)
-            @test bdoubleprime isa PowerIO.AdmittanceMatrix{Float64}
+            @test bdoubleprime isa BusMappedMatrix{Float64}
             @test bdoubleprime.matrix == bdoubleprime_expected
             @test getfield(net, :data) === nothing
 
@@ -98,12 +98,13 @@ using SparseArrays
             incidence = calc_incidence_matrix(net)
             # Wrapped like its four siblings, so the bus id maps travel with it. The
             # columns are branches, which the wrapper does not name.
-            @test incidence isa PowerIO.AdmittanceMatrix{Float64}
+            @test incidence isa BusMappedMatrix{Float64}
             @test incidence.matrix isa SparseMatrixCSC{Float64,Int}
             @test size(incidence.matrix) == (incidence_coo.row_count, incidence_coo.col_count)
             @test incidence.matrix == incidence_expected
             @test incidence.idx_to_bus == collect(1:14)
             @test incidence.bus_to_idx[7] == 7
+            @test occursin("BusMappedMatrix", sprint(show, incidence))
             @test getfield(net, :data) === nothing
         end
     end

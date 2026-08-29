@@ -4,7 +4,7 @@ PowerIO 0.10 is the public beta of the 1.0 API. API corrections may land before 
 
 Julia binding of [PowerIO](https://github.com/eigenergy/powerio), the power
 system data compiler. One call parses any supported source into a typed
-module; `m.value` is the typed network the rest of the API dispatches on.
+module; `m.value` is the typed value.
 
 ```julia
 using PowerIO
@@ -36,11 +36,11 @@ local build; see [Binary distribution](binary.md).
   cases (OpenDSS, PowerModelsDistribution JSON, IEEE BMOPF JSON). See
   [Distribution networks](distribution.md).
 
-The two share the same verbs, and [`parse_file`](@ref) routes on the format:
+The two network types share the same verbs, and [`parse_file`](@ref) routes on the format:
 a `.m` path parses to a `PioModule{BalancedNetwork}`, a `.dss` path to a
 `PioModule{MulticonductorNetwork}`, and a `.pio.json` to whichever value the
-document stores. `m.value` is the typed network handle, and `to_format`,
-`convert_file`, and `warnings` dispatch on its type.
+document stores. Calculation sources can instead produce an instance or
+solution; supported datasets can produce a time series or scenario set.
 
 ## Where to go
 
@@ -51,7 +51,7 @@ document stores. `m.value` is the typed network handle, and `to_format`,
 - [Distribution networks](distribution.md) — the `MulticonductorNetwork`
   API: parse and convert OpenDSS, PMD, and BMOPF cases.
 - [Ecosystem interop](interop.md) — the bridges: PowerModels.jl,
-  ExaModelsPower.jl, `.pio.json` packages, GridFM, GO Challenge 3.
+  ExaModelsPower.jl, `.pio.json` modules, GridFM, and DOE GO Challenge 3.
 - [Memory safety](memory-safety.md) — FFI ownership, lifetime guarantees,
   and remaining conditions.
 - [API reference](api.md) — every docstring, grouped by area.
@@ -61,7 +61,7 @@ document stores. `m.value` is the typed network handle, and `to_format`,
 At first use the binding checks the library's ABI version
 (`pio_abi_version`) against the version it targets and refuses a stale or
 mismatched library with an error stating both versions.
-[`PowerIO.library_available`](@ref) probes without throwing, and
+[`library_available`](@ref) probes without throwing, and
 [`features`](@ref) reports the optional Arrow, matrix, GridFM, distribution,
 and problem instance (`prob`) features; [`schema_versions`](@ref) names the
 document schema vintages this build speaks.

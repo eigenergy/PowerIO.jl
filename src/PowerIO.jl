@@ -8,7 +8,7 @@ supported source into a typed module:
 using PowerIO
 case = parse_file("case9.m")       # PioModule{BalancedNetwork}
 feeder = parse_file("switch.dss")  # PioModule{MulticonductorNetwork}
-case.value                         # the typed network, shared native data
+case.value                         # the typed value; clones share its native allocation
 diagnostics(case)                  # the reader's findings, native records
 write_file(case, "copy.m")         # byte exact same format echo
 ```
@@ -20,11 +20,11 @@ pandapower JSON, PyPSA CSV, Surge JSON), multiconductor distribution formats
 `AcScucInstance`, BMOPF → `McAcOpfInstance`, DeepMind OPFData →
 `AcOpfSolution`), time series and scenario profiles (PyPSA snapshot axes,
 Egret time keys, GridFM Parquet datasets), and the stored `.pio.json`
-document. `m.value` is the typed network: matrix and conversion functions
-dispatch on its type, while inspection, state selection, and writing take
-the module itself.
+document. `m.value` is the typed value. Matrix and conversion functions
+dispatch on network values, while inspection, state selection, and writing
+take the module itself.
 
-The binding rides the `powerio-capi` C ABI (version 6): every handle keeps
+The binding uses the `powerio-capi` C ABI (version 6): every handle keeps
 its owning library, borrowed numerical views root their owner, and failures
 carry structured [`Diagnostic`](@ref) records through
 [`PowerIOCError`](@ref). At first use the binding checks the library's ABI
@@ -63,14 +63,17 @@ export Diagnostic, SourceSpan, PowerIOCError
 export convert_file, convert_str, to_format, to_normalized,
        to_json, from_json, to_matpower, write_pypsa_csv_folder
 
-# Reading a parsed network. The element and scalar accessors stay
-# unexported: their names collide with the ecosystem packages a consumer
-# loads beside this one. `n_buses` does not, and the docs name it
-# unqualified.
-export n_buses
+# Reading a parsed network.
+export warnings, buses, branches, generators, loads, shunts, storage, hvdc,
+       lines, linecodes, switches, transformers, ibrs, control_profiles,
+       capacitors, untyped,
+       n_buses, n_branches, n_gens, n_switches, base_mva, base_frequency,
+       network_name, reference_bus_id, reference_bus_indices, n_components,
+       is_radial, bus_type_code
 
 # C library resolution.
-export set_library!, clear_library!
+export set_library!, clear_library!, abi_version, library_version,
+       library_available, prob_available
 # The module's descriptive records: typed history and source rows.
 export ModuleHistoryEntry, ModuleSource, history, sources
 
@@ -78,22 +81,28 @@ export ModuleHistoryEntry, ModuleSource, history, sources
 export incidence_matrix, susceptance_laplacian, flow_matrix, bus_injection
 
 # DC branch data and borrowed numerical views.
-export DcData, dc_data, BorrowedVector, branch_flow
+export DcData, dc_data, BorrowedVector, branch_flow,
+       n_rows, from_indices, to_indices, susceptance, shift,
+       shift_injection, row_ids, bus_ids, omitted, formula
 
 # Materialized numeric views.
 export to_dense, to_arrow, ArrowTable, release_c_data, arrow_catalog
 
 # Sparse system matrices (Rust matrix feature).
 export calc_admittance_matrix, calc_susceptance_matrix, calc_incidence_matrix,
-       calc_bprime_matrix, calc_bdoubleprime_matrix
+       calc_bprime_matrix, calc_bdoubleprime_matrix, BusMappedMatrix
 
 # Ecosystem bridges (PowerModels, ExaModels, gridfm).
 export to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
-       read_gridfm, read_gridfm_scenarios
+       read_gridfm, read_gridfm_scenarios, build_powermodels_ref,
+       repair_powermodels_angle_bounds!
 
 # Distribution availability and feature probes.
 export dist_available, to_graph, features, has_feature, schema_versions,
        build_info, arrow_available, gridfm_available, matrix_available
+
+# Writer findings use the same structured Diagnostic records as parsing.
+export write_report_str
 
 include("capi.jl")        # library resolution, ABI handshake, handle types
 include("diagnostics.jl") # native Diagnostic records over the structured C list

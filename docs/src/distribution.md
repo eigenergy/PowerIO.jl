@@ -7,13 +7,9 @@ unbalanced and per phase, so the two models never merge: string bus ids,
 ordered terminal names, explicit grounding, SI units, and radians stay on the
 multiconductor side, while the verbs are shared and route on the format.
 
-The distribution API is experimental while the IEEE BMOPF schema is a draft, and needs the
-library built with `--features dist` (on by default in the released binaries). [`dist_available`](@ref) reports
-whether the resolved library has it. The v0.6.1 release added the distribution
-foundation: OpenDSS generator and IBR/control data, transformer
-neutral impedance, core shunt and leakage data, typed capacitor banks, line
-and generator ratings, per-sequence bus bounds, and n-winding transformer
-structure where the target format can express it.
+The IEEE BMOPF schema remains a draft. Distribution parsing needs a library
+built with `--features dist`, which released binaries include.
+[`dist_available`](@ref) reports whether the resolved library has it.
 
 [`features`](@ref) reports whether the resolved library carries distribution
 support, and [`schema_versions`](@ref) names the BMOPF schema vintage this
@@ -60,10 +56,9 @@ explicit, through `lower_to_balanced` below.
 
 ## Inspecting a case
 
-The element tables mirror the core's multiconductor model (the
-`pio-payload-multiconductor/1` payload) and work without the library once
-materialized. `PowerIO.n_buses`, `PowerIO.base_frequency`, `PowerIO.network_name`,
-`PowerIO.source_format`, `net.warnings`, and REPL display read from the live
+The element tables mirror the core's multiconductor model and work without the library once
+materialized. `n_buses`, `base_frequency`, `network_name`, `source_format`,
+`net.warnings`, and REPL display read from the live
 handle without forcing `net.data` when the C library exports
 `pio_multiconductor_network_summary_json`. Metadata properties do the same; element table
 properties materialize `net.data`. The multiline REPL display prints counts,
@@ -73,27 +68,27 @@ base frequency, warnings, and whether `net.data` has been materialized.
 net.source_format
 net.base_frequency
 net.warnings
-net.buses                 # same as PowerIO.buses(net)
+net.buses                 # same as buses(net)
 
-PowerIO.buses(net)          # string ids, ordered terminals, explicit grounding
-PowerIO.lines(net)          # terminal_map_from / terminal_map_to, linecode, length
-PowerIO.linecodes(net)      # per-unit-length impedance and shunt matrices (SI)
-PowerIO.transformers(net)   # windings with terminal maps and connection kinds
-PowerIO.loads(net)          # terminal_map plus a voltage model
-PowerIO.generators(net)
-PowerIO.shunts(net)
-PowerIO.switches(net)
-PowerIO.sources(net)        # per-terminal magnitude / angle
-PowerIO.ibrs(net)           # inverter-based resources
-PowerIO.control_profiles(net)
-PowerIO.capacitors(net)     # rated banks: q_rated (var), v_nom (V); powerio v0.8
-PowerIO.untyped(net)        # elements kept verbatim, no typed slot
+buses(net)                # string ids, ordered terminals, explicit grounding
+lines(net)                # terminal maps, linecode, length
+linecodes(net)            # per unit length impedance and shunt matrices (SI)
+transformers(net)         # windings with terminal maps and connection kinds
+loads(net)                # terminal map plus a voltage model
+generators(net)
+shunts(net)
+switches(net)
+sources(net)              # per terminal magnitude and angle
+ibrs(net)                 # inverter based resources
+control_profiles(net)
+capacitors(net)           # rated banks: q_rated (var), v_nom (V)
+untyped(net)              # elements retained without a typed slot
 
-PowerIO.n_buses(net)
-PowerIO.base_frequency(net)     # Hz
-PowerIO.network_name(net)       # Union{String,Nothing}
-PowerIO.source_format(net)      # "dss", "pmd-json", "bmopf-json", or nothing
-PowerIO.to_graph(net)           # collapsed bus / terminal graph projection
+n_buses(net)
+base_frequency(net)       # Hz
+network_name(net)         # Union{String,Nothing}
+source_format(net)        # "dss", "pmd-json", "bmopf-json", or nothing
+to_graph(net)             # collapsed bus and terminal graph
 build_info().features.dist          # true when this build carries distribution support
 build_info().foreign_schemas.bmopf  # the BMOPF schema vintage this build writes
 ```
@@ -108,7 +103,7 @@ other tables are always present in a library payload; a missing one raises a
 Two JSON forms exist on purpose, and they carry the same model:
 
 - **`.pio.json` stored modules** carry a case between PowerIO consumers with
-  provenance, diagnostics, and descriptive history.
+  sources, source maps, diagnostics, and history.
 - **BMOPF JSON** is the format for tools outside PowerIO.
 
 `parse_file("case.pio.json")` returns the module it stores; `m.value` is the

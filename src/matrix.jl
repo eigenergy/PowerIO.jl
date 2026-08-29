@@ -1,24 +1,29 @@
 # Sparse matrix helpers over the Rust matrix API. The C ABI transports
 # matrix entries as Arrow COO tables; this file turns them into Julia sparse
-# matrices and PowerModels compatible wrappers.
+# matrices and wrappers that retain the bus row mapping.
 
 """
-    PowerIO.AdmittanceMatrix{T}
+    BusMappedMatrix{T}
 
-Sparse bus matrix plus the bus id mapping used by the matrix rows and columns.
-The layout matches PowerModels' `AdmittanceMatrix`: `idx_to_bus[i]` is the
+Sparse matrix plus the bus id mapping used by its rows. `idx_to_bus[i]` is the
 external bus id at sparse row `i`, `bus_to_idx[id]` is the row for a bus id,
-and `matrix` holds the sparse values.
+and `matrix` holds the sparse values. Square bus matrices use the same mapping
+for columns. The incidence matrix uses branch columns.
 """
-struct AdmittanceMatrix{T}
+struct BusMappedMatrix{T}
     idx_to_bus::Vector{Int}
     bus_to_idx::Dict{Int,Int}
     matrix::SparseArrays.SparseMatrixCSC{T,Int}
 end
 
-Base.show(io::IO, x::AdmittanceMatrix{<:Number}) =
-    print(io, "AdmittanceMatrix(", length(x.idx_to_bus), " buses, ",
+Base.show(io::IO, x::BusMappedMatrix{<:Number}) =
+    print(io, "BusMappedMatrix(", length(x.idx_to_bus), " bus rows, ",
           SparseArrays.nnz(x.matrix), " entries)")
+
+# Source compatibility for code that used the 0.9 wrapper name. The alias is
+# deliberately unexported because it describes the incidence matrix poorly and
+# collides with PowerModels.
+const AdmittanceMatrix = BusMappedMatrix
 
 function _matrix_from_path(f, path::AbstractString, fname::AbstractString; from=nothing)
     net = _parse_balanced(path; from=from)
@@ -97,7 +102,7 @@ function _wrapped_real_matrix(net::BalancedNetwork, table::Symbol)
     h = _live_handle(net, String(table))
     coo = _matrix_arrow_from_handle(h, table)
     idx_to_bus, bus_to_idx = _matrix_bus_maps(h, coo.row_count)
-    return AdmittanceMatrix(idx_to_bus, bus_to_idx, _sparse_from_owned_coo!(coo, coo.value))
+    return BusMappedMatrix(idx_to_bus, bus_to_idx, _sparse_from_owned_coo!(coo, coo.value))
 end
 
 """
@@ -105,7 +110,7 @@ end
     calc_admittance_matrix(path; from=nothing)
 
 Return the Rust computed bus admittance matrix `Ybus` as a
-`PowerIO.AdmittanceMatrix{ComplexF64}`. Matrix rows and columns use the dense
+`BusMappedMatrix{ComplexF64}`. Matrix rows and columns use the dense
 row index chosen by Rust; `idx_to_bus` maps those rows back to external bus ids.
 """
 function calc_admittance_matrix(net::BalancedNetwork)
@@ -113,7 +118,7 @@ function calc_admittance_matrix(net::BalancedNetwork)
     coo = _matrix_arrow_from_handle(h, :ybus)
     idx_to_bus, bus_to_idx = _matrix_bus_maps(h, coo.row_count)
     values = complex.(coo.g, coo.b)
-    return AdmittanceMatrix(idx_to_bus, bus_to_idx, _sparse_from_owned_coo!(coo, values))
+    return BusMappedMatrix(idx_to_bus, bus_to_idx, _sparse_from_owned_coo!(coo, values))
 end
 
 calc_admittance_matrix(path::AbstractString; from=nothing) =
@@ -123,7 +128,7 @@ calc_admittance_matrix(path::AbstractString; from=nothing) =
     calc_bprime_matrix(net::BalancedNetwork)
     calc_bprime_matrix(path; from=nothing)
 
-Return Rust's FDPF `B'` matrix as a `PowerIO.AdmittanceMatrix{Float64}`. This
+Return Rust's FDPF `B'` matrix as a `BusMappedMatrix{Float64}`. This
 preserves Rust's positive Laplacian convention.
 """
 calc_bprime_matrix(net::BalancedNetwork) = _wrapped_real_matrix(net, :bprime)
@@ -135,7 +140,7 @@ calc_bprime_matrix(path::AbstractString; from=nothing) =
     calc_bdoubleprime_matrix(net::BalancedNetwork)
     calc_bdoubleprime_matrix(path; from=nothing)
 
-Return Rust's FDPF `B''` matrix as a `PowerIO.AdmittanceMatrix{Float64}`.
+Return Rust's FDPF `B''` matrix as a `BusMappedMatrix{Float64}`.
 """
 calc_bdoubleprime_matrix(net::BalancedNetwork) = _wrapped_real_matrix(net, :bdoubleprime)
 
@@ -147,7 +152,7 @@ calc_bdoubleprime_matrix(path::AbstractString; from=nothing) =
     calc_susceptance_matrix(path; from=nothing)
 
 Return a PowerModels sign convention susceptance matrix as a
-`PowerIO.AdmittanceMatrix{Float64}`. This is the sign adjusted form of Rust's
+`BusMappedMatrix{Float64}`. This is the sign adjusted form of Rust's
 `B'` matrix: `calc_susceptance_matrix(net).matrix == -calc_bprime_matrix(net).matrix`.
 
 `B'` is the fast decoupled power flow matrix, so a phase shifting branch folds
@@ -184,7 +189,7 @@ methods, so:
 """
 function calc_susceptance_matrix(net::BalancedNetwork)
     bp = calc_bprime_matrix(net)
-    return AdmittanceMatrix(bp.idx_to_bus, bp.bus_to_idx, -bp.matrix)
+    return BusMappedMatrix(bp.idx_to_bus, bp.bus_to_idx, -bp.matrix)
 end
 
 calc_susceptance_matrix(path::AbstractString; from=nothing) =
@@ -195,21 +200,16 @@ calc_susceptance_matrix(path::AbstractString; from=nothing) =
     calc_incidence_matrix(path; from=nothing)
 
 Return the Rust computed signed incidence matrix as a
-`PowerIO.AdmittanceMatrix{Float64}`, the wrapper the four other `calc_*` matrices
-return, so the bus id maps travel with the matrix rather than the caller
-rebuilding them. Rows use the `matrix_bus` axis and `idx_to_bus` / `bus_to_idx`
-map them to external bus ids; columns use the `matrix_branch` axis, which the
-wrapper does not name.
-
-`AdmittanceMatrix` reads oddly for a rectangular bus-by-branch matrix. Returning
-what its siblings return is worth more than the name today; renaming the wrapper
-is a 1.0 question.
+`BusMappedMatrix{Float64}`, so the bus id maps travel with the matrix
+rather than the caller rebuilding them. Rows use the `matrix_bus` axis and
+`idx_to_bus` / `bus_to_idx` map them to external bus ids. Columns use the
+`matrix_branch` axis.
 """
 function calc_incidence_matrix(net::BalancedNetwork)
     h = _live_handle(net, "calc_incidence_matrix")
     coo = _matrix_arrow_from_handle(h, :incidence)
     idx_to_bus, bus_to_idx = _matrix_bus_maps(h, coo.row_count)
-    return AdmittanceMatrix(idx_to_bus, bus_to_idx, _sparse_from_owned_coo!(coo, coo.value))
+    return BusMappedMatrix(idx_to_bus, bus_to_idx, _sparse_from_owned_coo!(coo, coo.value))
 end
 
 calc_incidence_matrix(path::AbstractString; from=nothing) =

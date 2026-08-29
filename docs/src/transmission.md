@@ -48,7 +48,7 @@ net = from_json(to_json(net))
 
 Whatever the reader could not represent or had to assume is retained on the
 module; read it as typed records with [`diagnostics`](@ref), or as rendered
-lines on the network handle with `PowerIO.warnings(net)`.
+lines on the network handle with `warnings(net)`.
 
 ## Inspecting a case
 
@@ -64,23 +64,23 @@ and whether `net.data` has been materialized.
 net.name
 net.source_format
 net.base_mva
-net.buses                 # same as PowerIO.buses(net)
+net.buses                 # same as buses(net)
 
-PowerIO.buses(net)          # id, kind, vm, va (deg), base_kv, vmax, vmin, ...
-PowerIO.generators(net)     # bus, pg, qg, limits, cost, caps, in_service
-PowerIO.branches(net)       # from, to, r, x, b, rates, tap, shift (deg), ...
-PowerIO.loads(net)          # bus, p (MW), q (MVAr), in_service
-PowerIO.shunts(net)
-PowerIO.storage(net)
-PowerIO.hvdc(net)
+buses(net)                # id, kind, vm, va (deg), base_kv, vmax, vmin, ...
+generators(net)           # bus, pg, qg, limits, cost, caps, in_service
+branches(net)             # from, to, r, x, b, rates, tap, shift (deg), ...
+loads(net)                # bus, p (MW), q (MVAr), in_service
+shunts(net)
+storage(net)
+hvdc(net)
 
-PowerIO.n_buses(net), PowerIO.n_branches(net), PowerIO.n_gens(net)
-PowerIO.base_mva(net)
-PowerIO.source_format(net)      # "matpower", "psse", ...
-PowerIO.reference_bus_id(net)   # the slack bus id, or nothing
-PowerIO.n_components(net)       # connected components of the in-service topology
-PowerIO.is_radial(net)
-PowerIO.to_graph(net)           # all buses, in-service branch edges
+n_buses(net), n_branches(net), n_gens(net)
+base_mva(net)
+source_format(net)        # "matpower", "psse", ...
+reference_bus_id(net)     # the slack bus id, or nothing
+n_components(net)         # connected components of the in-service topology
+is_radial(net)
+to_graph(net)             # all buses, in-service branch edges
 ```
 
 ## Normalizing
@@ -91,7 +91,7 @@ source bus ids preserved, bus types inferred.
 
 ```julia
 norm = to_normalized(net)
-PowerIO.source_format(norm)   # "normalized"
+source_format(norm)   # "normalized"
 
 norm = to_normalized(net; clamp_angle_bounds=true, angle_bound_pad=pi / 3)
 ```
@@ -113,8 +113,7 @@ write_pypsa_csv_folder(net, "out/") # the one directory writer
 ## Dense numeric arrays
 
 [`to_dense`](@ref) pulls the numeric tables as dense typed arrays straight
-from the C ABI extractors, skipping JSON entirely — the fast path for matrix
-assembly:
+from the C ABI extractors without passing through JSON:
 
 ```julia
 d = to_dense(net)              # or to_dense("case14.m")

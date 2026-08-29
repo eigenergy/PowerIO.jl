@@ -1,10 +1,9 @@
 """
     prob_available() -> Bool
 
-True when the resolved library exports the problem data surface behind the
-`prob` cargo feature (`pio_dc_data_build`).
+True when the resolved library was compiled with the `prob` cargo feature.
 """
-prob_available() = _exports_symbol(:pio_dc_data_build)
+prob_available() = has_feature("prob")
 
 # One "usable from Julia" probe per optional cargo feature. `features()` and
 # `has_feature`'s pre-0.7 fallback both read this table, so adding a feature is
@@ -60,6 +59,7 @@ function has_feature(feature::AbstractString)
     # and the probes come from the same table features() reads, so the two
     # cannot drift.
     library_available() || return false
+    feature == "prob" && return _exports_symbol(:pio_dc_data_build, lib)
     probe = get(_FEATURE_PROBES, Symbol(feature), nothing)
     probe === nothing && return false
     return probe()
@@ -72,7 +72,7 @@ const _DOCUMENT_VERSION_FIELDS = (:powerio_version, :abi, :bmopf_schema, :module
     schema_versions() -> NamedTuple
 
 Return the versions the resolved library reports through
-`pio_schema_versions_json` (powerio v1.0).
+`pio_schema_versions_json` (PowerIO ABI 6).
 
 The fields are `powerio_version`, `abi`, `bmopf_schema`, and `module_schema`.
 Every document powerio authors states one version, the release that wrote

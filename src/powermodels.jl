@@ -33,10 +33,10 @@ from_powermodels(data::AbstractString) =
 #
 # Helpers for the `Dict{String,Any}` network data returned by
 # `to_powermodels`, matching the semantics of their PowerModels.jl namesakes
-# so a formulation ports without PowerModels as a dependency. Deliberately
-# unexported: PowerModels exports every non-underscore symbol, so exporting
-# these four would make `using PowerModels, PowerIO` ambiguous on exactly the
-# names a migrating consumer calls. Use them qualified: `PowerIO.build_ref`.
+# so a formulation ports without PowerModels as a dependency. The helpers that
+# copy PowerModels names remain unexported. The public wrappers
+# below use PowerIO specific names, so `using PowerModels, PowerIO` does not add
+# avoid ambiguities.
 
 """
     PowerIO.calc_branch_t(branch::Dict) -> (Real, Real)
@@ -140,6 +140,15 @@ function correct_voltage_angle_differences!(network_data::Dict{String,<:Any};
     return network_data
 end
 
+"""
+    repair_powermodels_angle_bounds!(network_data::Dict; default_pad=1.0472)
+
+Repair PowerModels branch angle bounds in place. This is the public PowerIO
+name for the compatibility helper `correct_voltage_angle_differences!`.
+"""
+repair_powermodels_angle_bounds!(network_data::Dict{String,<:Any}; kwargs...) =
+    correct_voltage_angle_differences!(network_data; kwargs...)
+
 # Integer-keyed copy of one component table. Only `:branch` needs its rows
 # copied (build_ref corrects angle bounds on them); the other tables share
 # their row dicts with `network_data`.
@@ -228,3 +237,13 @@ function build_ref(network_data::Dict{String,<:Any})
 
     return ref
 end
+
+
+"""
+    build_powermodels_ref(network_data::Dict) -> Dict{Symbol,Any}
+
+Build the PowerModels compatible reference dictionary documented by
+[`to_powermodels`](@ref). The shorter compatibility name `build_ref` remains
+available as `PowerIO.build_ref` but is not exported.
+"""
+build_powermodels_ref(network_data::Dict{String,<:Any}) = build_ref(network_data)
