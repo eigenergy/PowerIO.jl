@@ -76,7 +76,7 @@ PowerIO.hvdc(net)
 
 PowerIO.n_buses(net), PowerIO.n_branches(net), PowerIO.n_gens(net)
 PowerIO.base_mva(net)
-PowerIO.source_format(net)      # "Matpower", "Psse", ...
+PowerIO.source_format(net)      # "matpower", "psse", ...
 PowerIO.reference_bus_id(net)   # the slack bus id, or nothing
 PowerIO.n_components(net)       # connected components of the in-service topology
 PowerIO.is_radial(net)
@@ -91,7 +91,7 @@ source bus ids preserved, bus types inferred.
 
 ```julia
 norm = to_normalized(net)
-PowerIO.source_format(norm)   # "Normalized"
+PowerIO.source_format(norm)   # "normalized"
 
 norm = to_normalized(net; clamp_angle_bounds=true, angle_bound_pad=pi / 3)
 ```

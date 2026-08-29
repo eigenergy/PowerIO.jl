@@ -20,7 +20,7 @@ using PowerIO
 case = parse_file("case14.m")       # PioModule{BalancedNetwork}
 n_buses(case.value)                 # 14
 diagnostics(case)                   # the reader's findings, native records
-write_file(case, "copy.m")          # byte exact same format echo
+write_file(case, "copy.m"; format="matpower")  # byte exact same format echo
 ```
 
 **Documentation: [eigenergy.github.io/PowerIO.jl](https://eigenergy.github.io/PowerIO.jl)**
@@ -80,21 +80,21 @@ build; see Develop below.
 ```julia
 using PowerIO
 
-net = parse_file("case14.m")
-net isa BalancedNetwork
-PowerIO.buses(net)             # raw bus table
-net.buses                      # property form; materializes the cached JSON payload
-net.name, net.source_format    # summary backed metadata; leaves net.data unset
-length(PowerIO.buses(net))     # bus count
-PowerIO.n_buses(net)           # summary backed count
+m = parse_file("case14.m")     # ::PioModule{BalancedNetwork}
+net = m.value
+PowerIO.buses(net)              # raw bus table
+net.buses                       # property form; materializes the cached JSON payload
+net.name, net.source_format     # summary backed metadata; leaves net.data unset
+length(PowerIO.buses(net))      # bus count
+PowerIO.n_buses(net)            # summary backed count
 PowerIO.n_gens(net), PowerIO.base_mva(net)
-PowerIO.source_format(net)        # "Matpower"
+PowerIO.source_format(net)        # "matpower"
 PowerIO.reference_bus_id(net)     # the slack bus id (or nothing)
 
 text, warnings = convert_file("case14.m", "psse")
 
-# egret and PowerModels both use .json; pass `from` to disambiguate:
-egret = parse_file("grid.json"; from="egret")
+# egret and PowerModels both use .json; pass `format` to disambiguate:
+egret = parse_file("grid.json"; format="egret")
 ```
 
 The main transforms off a parsed network:
@@ -113,15 +113,13 @@ to_matpower(net)                   # byte exact when the input was MATPOWER
 to_format(net, "powermodels-json") # (text, warnings)
 to_powermodels(net)                # PowerModels.jl network data Dict
 to_powerdata(net)                  # ExaPowerIO PowerData NamedTuple
-to_package(net)                    # .pio.json compiler package
 features()                         # optional C ABI features
-dist_capabilities()                # BMOPF distribution fidelity flags
 ```
 
 Distribution cases share the verbs, routed by format:
 
 ```julia
-dn = parse_file("feeder.dss")        # ::MulticonductorNetwork, live handle
+dn = parse_file("feeder.dss").value  # ::MulticonductorNetwork, live handle
 PowerIO.buses(dn), PowerIO.lines(dn), PowerIO.transformers(dn)
 dn.warnings
 PowerIO.to_graph(dn)
@@ -131,7 +129,7 @@ text, warnings = to_format(dn, "pmd")
 The [transmission](https://eigenergy.github.io/PowerIO.jl/transmission/),
 [distribution](https://eigenergy.github.io/PowerIO.jl/distribution/), and
 [interop](https://eigenergy.github.io/PowerIO.jl/interop/) guides cover the
-full API: accessors, Arrow export, `.pio.json` packages, the gridfm
+full API: accessors, Arrow export, `.pio.json` modules, the gridfm
 reader, and GO Challenge 3 helpers.
 
 At first use the binding checks `pio_abi_version` against the core ABI version
@@ -146,7 +144,7 @@ versions. Distribution entry points also check `pio_dist_abi_version`.
 | BMOPFTools.jl | both | PowerIO backed OpenDSS / BMOPF conversion |
 | ExaPowerIO.jl / ExaModelsPower.jl | out | `to_powerdata` / `parse_ac_power_data` feeding `build_polar_opf` / `build_rect_opf` / `build_dcopf` |
 | PowerGridPlanning.jl | out | `to_powermodels`, `build_ref`, and angle repair helpers |
-| powerio-pkg `.pio.json` | both models | `to_package` / `from_package` / `read_package` / `write_package` |
+| stored `.pio.json` module | both | `parse_file` / `write_json` / `m.value` |
 | [PowerDiff.jl](https://github.com/grid-opt-alg-lab/PowerDiff.jl) | out | PowerDiff depends on PowerIO as its parser and data layer |
 | MATPOWER / PSS/E / PowerWorld / PSLF / PowerModels JSON / egret / pandapower / PyPSA / Surge | file | `parse_file` / `convert_file` |
 | GridFM (gridfm-datakit Parquet) | in | `read_gridfm` / `read_gridfm_scenarios` |
@@ -163,7 +161,7 @@ before the released artifact:
 
 ```
 # in the sibling powerio checkout:
-cargo build -p powerio-capi --release --features arrow,matrix,gridfm,dist,pkg,prob
+cargo build -p powerio-capi --release --features arrow,matrix,gridfm,dist,prob
 ```
 
 For a non-sibling layout, point Julia at the library explicitly:
@@ -184,9 +182,9 @@ The artifact pipeline behind released versions is described in
 Each PowerIO.jl release pins one powerio release. `Artifacts.toml` records
 the exact pinned tag, and each CHANGELOG section names the C ABI pair it
 keeps. The released artifacts enable the Arrow, matrix, GridFM, distribution,
-package, and problem instance features. The Julia package stays thin around
+and problem instance features. The Julia package stays thin around
 the C ABI while owning stable Julia entry points for parsing, conversion,
-packages, dense tables, Arrow tables, distribution networks, GridFM, and
+modules, dense tables, Arrow tables, distribution networks, GridFM, and
 ecosystem interop.
 `PowerIO_jll` remains the later distribution cleanup. Version history is in
 [CHANGELOG.md](CHANGELOG.md).

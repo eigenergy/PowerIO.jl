@@ -93,7 +93,8 @@ PowerIO.base_frequency(net)     # Hz
 PowerIO.network_name(net)       # Union{String,Nothing}
 PowerIO.source_format(net)      # "dss", "pmd-json", "bmopf-json", or nothing
 PowerIO.to_graph(net)           # collapsed bus / terminal graph projection
-PowerIO.dist_capabilities()     # fidelity flags and BMOPF schema vintage
+build_info().features.dist          # true when this build carries distribution support
+build_info().foreign_schemas.bmopf  # the BMOPF schema vintage this build writes
 ```
 
 The writer omits `ibrs`, `control_profiles`, and `capacitors` when they are

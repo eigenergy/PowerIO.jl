@@ -4,12 +4,15 @@
 
 PowerIO 0.10 is the public beta of the 1.0 API. API corrections may land before 1.0.0 as downstream integrations exercise the new design.
 
-PowerIO.jl 0.10.0 binds powerio 0.10.0 over C ABI 6. The 0.9 surfaces are gone; `PowerIO.parse` and the stored module replace them.
+PowerIO.jl 0.10.0 binds powerio 0.10.0 over C ABI 6.
 
-- `PowerIO.parse(source; from, value_type)` is the one entry: a path, an `IO`, or in-memory bytes parses to a `StoredModule` of whichever family claims it, and `value_type` narrows to `BalancedNetwork` or `MulticonductorNetwork` in the same call. The narrowing threads the module's provenance, so a same format write still echoes the source bytes.
-- The stored module surface binds ABI v6 end to end: `read_module` / `write_module` (a released 0.9 package upgrades one way on read), `parse_module_bytes`, `inspect_module`, typed state selection and export, `lowering_readiness` with `lower_module_to_balanced`, structured `PowerIOCError` failures, and the typed record readers.
+Breaking: `parse_file` and `parse_bytes` return a `PioModule{T}`, not the bare `T` network they returned through 0.9. `m.value` is the typed network; every 0.9 call site built directly on the parse result now reads through `.value`, or switches to the module level operations (`diagnostics`, `write_file`, `state_inventory`, `select_state`) that only `PioModule` provides.
+
+- `parse_file` (a path) and `parse_bytes` (named in-memory bytes or an `IO`) detect the source format and value kind together and wrap the native module once in a `PioModule{T}`: nothing reparses, serializes, or copies a network to give the module its type. `T` is one of twenty value families the module surface knows: the two network kinds (`BalancedNetwork`, `MulticonductorNetwork`), the calculation instances and solutions (`DcPfInstance` through `AcScucSolution`), the `TimeSeries`, `ScenarioSet`, and `OperatingPoint` series carriers, or `UnknownValue` for a kind a newer library added after this binding shipped.
+- Matrix and conversion functions (`calc_admittance_matrix`, `to_format`, `to_json`, ...) dispatch on `m.value`'s type, matching 0.9. Inspection (`inspect`, `kind`, `diagnostics`), state selection (`state_inventory`, `select_state`), and writing (`write_file`, `write_str`, `write_json`) take the module itself.
+- `parse_file` / `parse_bytes` read a stored `.pio.json` document the same way as any other source, and `write_json` writes it: a released 0.9 package upgrades one way on read, and a same format write off an unchanged module still echoes the source bytes.
+- Multiconductor modules lower explicitly to balanced ones with `lower_to_balanced`, after `lowering_readiness` reports what the pass would lose without transforming.
 - The DC branch data serves the corrected equations, `p_shift = A' (b .* shift)` and `p_branch = -Bf va + b .* shift`, with the incidence, Laplacian, flow matrix, and bus injection assembled from the same spans and pinned elementwise on a shifted fixture.
-- Removed: the untyped `parse_file` / `parse_str` / `parse_bytes` (the typed family entries stay as `PowerIO.parse_file(T, ...)`), `NetworkPackage` with the package readers and study and operating point accessors, `ScopfInstance` with `parse_scopf` and the GOC3 projection helpers, and the retired 0.9 solver row Arrow tables.
 - `features()` reports `arrow`, `matrix`, `gridfm`, `dist`, and `prob`; the `prob` probe reads the DC data surface.
 
 ## 0.9.0
