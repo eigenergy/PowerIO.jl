@@ -545,3 +545,73 @@ function Base.show(io::IO, ::MIME"text/plain", m::PioModule{T}) where {T}
     nonzero = [(k, v) for (k, v) in pairs(records) if v isa Integer && v > 0]
     isempty(nonzero) || print(io, "\n  ", join(("$(v) $(k)" for (k, v) in nonzero), ", "))
 end
+
+# ---- descriptive records: history and sources -------------------------------
+
+"""
+    ModuleHistoryEntry
+
+One structured, descriptive operation in a module's history: `id`, `kind`
+(`"upgrade"`, `"transform"`, `"repair"`; a plain parse contributes no
+entry), `name`, and the stated `assumptions` and `losses`. History
+describes; it does not replay.
+"""
+struct ModuleHistoryEntry
+    id::String
+    kind::String
+    name::String
+    assumptions::Vector{String}
+    losses::Vector{String}
+end
+
+"""
+    ModuleSource
+
+One source a module was compiled from: module local `id`, display `name`,
+`byte_length`, and the optional stated `format`.
+"""
+struct ModuleSource
+    id::String
+    name::String
+    byte_length::Int
+    format::Union{String,Nothing}
+end
+
+# The stored document is the wire; decoding records from it reads exactly
+# what `write_json` states, no whole network re-serialization beyond that
+# wire.
+_stored_document(m::PioModule) = JSON3.read(write_json(m))
+
+# An explicit JSON null reads like an absent key: the capi document writes
+# "format": null where the DTO omits the key.
+function _record_string(row, key)
+    value = get(row, key, nothing)
+    return value === nothing ? nothing : String(value)
+end
+
+"""
+    history(m::PioModule) -> Vector{ModuleHistoryEntry}
+
+The module's descriptive history, decoded from the stored document.
+"""
+function history(m::PioModule)
+    rows = get(_stored_document(m), :history, nothing)
+    rows === nothing && return ModuleHistoryEntry[]
+    return [ModuleHistoryEntry(
+                String(row.id), String(row.kind), String(row.name),
+                haskey(row, :assumptions) ? String.(row.assumptions) : String[],
+                haskey(row, :losses) ? String.(row.losses) : String[],
+            ) for row in rows]
+end
+
+"""
+    sources(m::PioModule) -> Vector{ModuleSource}
+
+The sources the module was compiled from, decoded from the stored document.
+"""
+function sources(m::PioModule)
+    rows = get(_stored_document(m), :sources, nothing)
+    rows === nothing && return ModuleSource[]
+    return [ModuleSource(String(row.id), String(row.name), Int(row.byte_length),
+                         _record_string(row, :format)) for row in rows]
+end

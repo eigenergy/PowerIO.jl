@@ -63,6 +63,15 @@ McAcOpfSolution
 AcScucSolution
 ```
 
+## Typed records
+
+```@docs
+ModuleHistoryEntry
+ModuleSource
+history
+sources
+```
+
 ## DC branch data
 
 The public equations and signs match PowerModels directly:

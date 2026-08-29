@@ -71,6 +71,8 @@ export n_buses
 
 # C library resolution.
 export set_library!, clear_library!
+# The module's descriptive records: typed history and source rows.
+export ModuleHistoryEntry, ModuleSource, history, sources
 
 # DC branch data and borrowed numerical views.
 export DcData, dc_data, BorrowedVector, branch_flow

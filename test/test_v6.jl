@@ -237,6 +237,40 @@ _has_v6 = PowerIO.library_available() &&
     end
 end
 
+@testset "typed module records" begin
+    if !_has_v6
+        @test_skip "the resolved library predates the ABI v6 entry points"
+        return
+    end
+    case9 = joinpath(@__DIR__, "data", "case9.m")
+    m = parse_file(case9)
+    rows = sources(m)
+    @test length(rows) == 1
+    @test endswith(rows[1].name, "case9.m")
+    @test rows[1].byte_length > 0
+
+    lowered = lower_to_balanced(parse_bytes(
+        codeunits("New Circuit.c basekv=12.47 bus1=src\n");
+        name="inline.dss", format="dss"))
+    lowered_history = history(lowered)
+    @test any(e -> e.kind == "transform" && e.name == "lower_multiconductor_to_balanced",
+              lowered_history)
+    entry = only(filter(e -> e.kind == "transform", lowered_history))
+    @test any(a -> occursin("power base", a), entry.assumptions)
+
+    # A source row decodes whether `format` is stated, stated as an explicit
+    # null (the capi JSON spelling), or absent (the DTO spelling).
+    for (row, want) in (
+        (JSON3.read("""{"id":"h0","name":"case9.m","byte_length":9,"format":"matpower"}"""), "matpower"),
+        (JSON3.read("""{"id":"h0","name":"case9.m","byte_length":9,"format":null}"""), nothing),
+        (JSON3.read("""{"id":"h0","name":"case9.m","byte_length":9}"""), nothing),
+    )
+        record = ModuleSource(String(row.id), String(row.name), Int(row.byte_length),
+                              PowerIO._record_string(row, :format))
+        @test record.format == want
+    end
+end
+
 @testset "module_kind and formula outlive their GC.@preserve scope" begin
     if !_has_v6
         @test_skip "the resolved library predates the ABI v6 entry points"

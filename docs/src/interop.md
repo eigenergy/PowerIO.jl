@@ -95,6 +95,8 @@ net = parse_bytes(codeunits(doc); name="case.pio.json").value
 
 kind(m)                                  # "balanced_network"
 diagnostics(m)                           # structured diagnostic records
+history(m)                               # descriptive history entries
+sources(m)                               # source descriptors
 ```
 
 A released 0.9 document upgrades one way on read; a nonempty legacy study is

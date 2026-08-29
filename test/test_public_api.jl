@@ -34,6 +34,8 @@
         # Sparse system matrices.
         :calc_admittance_matrix, :calc_susceptance_matrix, :calc_incidence_matrix,
         :calc_bprime_matrix, :calc_bdoubleprime_matrix,
+        # The module's descriptive records: typed history and source rows.
+        :ModuleHistoryEntry, :ModuleSource, :history, :sources,
         # Ecosystem bridges.
         :to_powermodels, :from_powermodels, :to_powerdata, :parse_ac_power_data,
         :read_gridfm, :read_gridfm_scenarios,
