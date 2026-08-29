@@ -3,7 +3,7 @@
 # (`parse_file(dir; format="gridfm")`), and each scenario selects out as an
 # independent balanced module. Needs powerio-capi built `--features gridfm`.
 """
-    read_gridfm(dir; scenario=0) -> (; network::BalancedNetwork, scenario::Int, warnings::Vector{String})
+    read_gridfm(dir; scenario=0) -> (; network::BalancedNetwork, scenario::Int, diagnostics::Vector{Diagnostic})
 
 Read one `scenario` of a gridfm-datakit Parquet dataset back into a [`BalancedNetwork`](@ref) —
 the inverse of the gridfm writer. `dir` resolves leniently: the `raw/` directory holding
@@ -15,7 +15,7 @@ The read is lossy but complete enough for power flow: it recovers bus types, vol
 nodal load and shunt totals, generator dispatch and bounds, branch
 `r/x/b/tap/shift/rate_a`/angle-limits, and `base_mva` — enough to write a runnable case —
 but not original bus ids (synthesized `1..n`), per-element load/shunt granularity,
-piecewise/cubic costs, or HVDC/storage. What it can't recover is listed in `warnings`.
+piecewise/cubic costs, or HVDC/storage. What it can't recover is listed in `diagnostics`.
 
 The returned `network` carries a live Rust handle, so the `to_*` transforms work on it.
 Needs powerio-capi built `--features gridfm`; see [`gridfm_available`](@ref). For every

@@ -382,6 +382,43 @@ end
     end
 end
 
+@testset "write_file's default format echoes the parsed source" begin
+    if !PowerIO.library_available()
+        @test_skip "library unavailable"
+    else
+        data = joinpath(@__DIR__, "data")
+        m = parse_file(joinpath(data, "case9.m"))
+
+        # inspect_json only started carrying source_format partway through
+        # 1.0 development; skip cleanly against an older artifact instead
+        # of failing on a fix this suite predates.
+        if source_format(m) === nothing
+            @test_skip "the resolved library's inspect report predates source_format"
+        else
+            @test source_format(m) == "matpower"
+            @test occursin("matpower", sprint(show, m))
+            tmp = tempname() * ".m"
+            write_file(m, tmp)  # no format keyword: the module's own source
+            @test read(tmp, String) == read(joinpath(data, "case9.m"), String)
+            rm(tmp; force=true)
+
+            dist_fixture = joinpath(data, "dist", "switch.dss")
+            if PowerIO.dist_available() && isfile(dist_fixture)
+                dn = parse_file(dist_fixture)
+                @test source_format(dn) == "dss"
+                @test occursin("dss", sprint(show, dn))
+                tmp_dss = tempname() * ".dss"
+                write_file(dn, tmp_dss)
+                # DSS writes as a directory (one file inside, name not
+                # pinned here) rather than a flat file at the given path.
+                written = isdir(tmp_dss) ? only(readdir(tmp_dss; join=true)) : tmp_dss
+                @test read(written, String) == read(dist_fixture, String)
+                rm(tmp_dss; force=true, recursive=true)
+            end
+        end
+    end
+end
+
 @testset "parse_bytes" begin
     if !PowerIO.library_available()
         @test_skip parse_bytes(UInt8[])
@@ -550,13 +587,22 @@ end
             @test sv.powerio_version == doc.powerio_version
             @test sv.abi == doc.abi
             @test sv.bmopf_schema == get(doc, :bmopf_schema, nothing)
-            @test sv.module_schema == (; name = doc.module_schema.name, version = doc.module_schema.version)
-            @test sv.module_schema.version == 1
+            # module_schema is newer than the entry point itself; an older
+            # library can report schema_versions() without it yet.
+            if haskey(doc, :module_schema)
+                @test sv.module_schema == (; name = doc.module_schema.name, version = doc.module_schema.version)
+                @test sv.module_schema.version == 1
+            else
+                @test sv.module_schema === nothing
+            end
 
             # Every top level key the raw report carries has a matching
             # field on the returned NamedTuple, so a future key the C side
             # adds is caught here instead of silently missing its accessor.
-            @test Set(keys(doc)) == Set(PowerIO._DOCUMENT_VERSION_FIELDS)
+            # A subset, not equality: an older library's report can carry
+            # fewer of the fields this binding knows, which schema_versions()
+            # already reports as `nothing`.
+            @test issubset(Set(keys(doc)), Set(PowerIO._DOCUMENT_VERSION_FIELDS))
         end
     end
 end
