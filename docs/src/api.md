@@ -6,7 +6,12 @@
 PowerIO.PowerIO
 ```
 
-## Parsing, conversion, serialization
+## Modules and parsing
+
+[`parse_file`](@ref), [`PioModule`](@ref), the diagnostic records, and the
+module operations are documented on [Modules](modules.md).
+
+## Networks, conversion, serialization
 
 ```@autodocs
 Modules = [PowerIO]
@@ -62,13 +67,6 @@ Modules = [PowerIO]
 Pages = ["exa.jl"]
 ```
 
-## Operating point series
-
-```@autodocs
-Modules = [PowerIO]
-Pages = ["operatingpoints.jl"]
-```
-
 ## Distribution networks
 
 ```@autodocs
@@ -76,11 +74,10 @@ Modules = [PowerIO]
 Pages = ["dist.jl"]
 ```
 
-## Stored modules and typed values
+## Modules and typed values
 
-[`PowerIO.parse`](@ref), [`StoredModule`](@ref), the typed narrowing entries,
-and the DC branch data surface are documented on
-[Stored modules](stored-modules.md).
+[`parse_file`](@ref), [`PioModule`](@ref), the typed records, and the DC
+branch data surface are documented on [Modules](modules.md).
 
 ## GridFM reader
 

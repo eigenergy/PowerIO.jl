@@ -8,6 +8,7 @@ using PowerIO
 makedocs(;
     sitename = "PowerIO.jl",
     modules = [PowerIO],
+    checkdocs = :exports,
     doctest = false,
     format = Documenter.HTML(;
         canonical = "https://eigenergy.github.io/PowerIO.jl",
@@ -15,6 +16,7 @@ makedocs(;
     ),
     pages = [
         "Home" => "index.md",
+        "Modules" => "modules.md",
         "Transmission networks" => "transmission.md",
         "Matrices" => "matrices.md",
         "OPF instance backends" => "opf-backends.md",
@@ -22,7 +24,6 @@ makedocs(;
         "Ecosystem interop" => "interop.md",
         "Binary distribution" => "binary.md",
         "Memory safety" => "memory-safety.md",
-        "Stored modules (ABI v6)" => "stored-modules.md",
         "Language APIs" => "languages.md",
         "API reference" => "api.md",
     ],

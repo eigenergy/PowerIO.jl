@@ -27,26 +27,28 @@ The format is inferred from the extension unless `from` is given. egret and
 PowerModels both use `.json`, so those two need the hint:
 
 ```julia
-net   = PowerIO.parse("case14.m"; value_type=BalancedNetwork)
-egret = PowerIO.parse("grid.json"; from="egret", value_type=BalancedNetwork)
+net   = parse_file("case14.m").value
+egret = parse_file("grid.json"; format="egret").value
 ```
 
 ## Parsing
 
-[`PowerIO.parse`](@ref) reads a path, in-memory bytes, or an `IO` into a
-[`StoredModule`](@ref); `value_type=BalancedNetwork` narrows to the live
-network handle in the same call. [`from_json`](@ref) rebuilds from the
-internal balanced JSON snapshot [`to_json`](@ref) writes.
+[`parse_file`](@ref) reads a path and [`parse_bytes`](@ref) reads named
+in-memory bytes or an `IO` into a [`PioModule`](@ref); the type parameter
+states the detected kind, and `m.value` is the typed value — a live
+[`BalancedNetwork`](@ref) handle for a transmission case. [`from_json`](@ref)
+rebuilds from the internal balanced JSON snapshot [`to_json`](@ref) writes.
 
 ```julia
-m   = PowerIO.parse("case14.m")
-net = PowerIO.parse("case14.m"; value_type=BalancedNetwork)
-net = PowerIO.parse(codeunits(text); from="matpower", value_type=BalancedNetwork)
+m   = parse_file("case14.m")     # ::PioModule{BalancedNetwork}
+net = m.value
+net = parse_bytes(IOBuffer(text); format="matpower").value
 net = from_json(to_json(net))
 ```
 
 Whatever the reader could not represent or had to assume is retained on the
-handle; read it with [`PowerIO.warnings`](@ref).
+module; read it as typed records with [`diagnostics`](@ref), or as rendered
+lines on the network handle with `PowerIO.warnings(net)`.
 
 ## Inspecting a case
 
