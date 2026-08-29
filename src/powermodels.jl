@@ -25,8 +25,9 @@ end
 Build a PowerIO [`BalancedNetwork`](@ref) from PowerModels network data. `data` may be a
 Julia dictionary / NamedTuple or a JSON string.
 """
-from_powermodels(data) = parse_str(JSON3.write(data), "powermodels-json")
-from_powermodels(data::AbstractString) = parse_str(data, "powermodels-json")
+from_powermodels(data) = from_powermodels(JSON3.write(data))
+from_powermodels(data::AbstractString) =
+    parse_bytes(codeunits(data); name="powermodels.json", format="powermodels-json").value
 
 # --- PowerModels reference utilities -------------------------------------
 #
@@ -113,7 +114,7 @@ function correct_voltage_angle_differences!(network_data::Dict{String,<:Any};
     branch_table = get(network_data, "branch", Dict{String,Any}())
     isempty(branch_table) && return network_data
     # The normalize route needs a live handle, so it needs a usable library. The
-    # ABI equality gate covers the symbol: `pio_normalize` is not feature gated,
+    # ABI equality gate covers the symbol: `pio_balanced_network_normalize` is not feature gated,
     # so there is nothing further to probe for.
     if !haskey(network_data, "baseMVA") || !haskey(network_data, "bus") ||
        !library_available()
@@ -145,7 +146,7 @@ end
 function _pm_component_dict(network_data::Dict{String,<:Any}, name::String;
                             copy_rows::Bool=false)
     raw = get(network_data, name, Dict{String,Any}())
-    return Dict(parse(Int, string(k)) => (copy_rows ? deepcopy(v) : v)
+    return Dict(Base.parse(Int, string(k)) => (copy_rows ? deepcopy(v) : v)
                 for (k, v) in raw)
 end
 

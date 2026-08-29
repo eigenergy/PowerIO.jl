@@ -6,7 +6,12 @@
 PowerIO.PowerIO
 ```
 
-## Parsing, conversion, serialization
+## Modules and parsing
+
+[`parse_file`](@ref), [`PioModule`](@ref), the diagnostic records, and the
+module operations are documented on [Modules](modules.md).
+
+## Networks, conversion, serialization
 
 ```@autodocs
 Modules = [PowerIO]
@@ -62,13 +67,6 @@ Modules = [PowerIO]
 Pages = ["exa.jl"]
 ```
 
-## Operating point series
-
-```@autodocs
-Modules = [PowerIO]
-Pages = ["operatingpoints.jl"]
-```
-
 ## Distribution networks
 
 ```@autodocs
@@ -76,32 +74,16 @@ Modules = [PowerIO]
 Pages = ["dist.jl"]
 ```
 
-## `.pio.json` packages
+## Modules and typed values
 
-```@autodocs
-Modules = [PowerIO]
-Pages = ["package.jl"]
-```
+[`parse_file`](@ref), [`PioModule`](@ref), the typed records, and the DC
+branch data surface are documented on [Modules](modules.md).
 
 ## GridFM reader
 
 ```@autodocs
 Modules = [PowerIO]
 Pages = ["gridfm.jl"]
-```
-
-## GO Challenge 3 helpers
-
-```@autodocs
-Modules = [PowerIO]
-Pages = ["goc3.jl"]
-```
-
-## Native SCOPF problem instances
-
-```@autodocs
-Modules = [PowerIO]
-Pages = ["scopf.jl"]
 ```
 
 ## Feature probes

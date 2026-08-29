@@ -8,6 +8,7 @@ using PowerIO
 makedocs(;
     sitename = "PowerIO.jl",
     modules = [PowerIO],
+    checkdocs = :exports,
     doctest = false,
     format = Documenter.HTML(;
         canonical = "https://eigenergy.github.io/PowerIO.jl",
@@ -15,6 +16,7 @@ makedocs(;
     ),
     pages = [
         "Home" => "index.md",
+        "Modules" => "modules.md",
         "Transmission networks" => "transmission.md",
         "Matrices" => "matrices.md",
         "OPF instance backends" => "opf-backends.md",

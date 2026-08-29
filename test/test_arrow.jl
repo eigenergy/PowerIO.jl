@@ -117,8 +117,8 @@ end
             @test_skip "C compiler unavailable for Arrow layout probe"
         else
             lines = split(readchomp(Cmd([exe])), '\n')
-            @test parse(Int, lines[1]) == sizeof(PowerIO.CArrowSchema)
-            @test parse(Int, lines[2]) == sizeof(PowerIO.CArrowArray)
+            @test Base.parse(Int, lines[1]) == sizeof(PowerIO.CArrowSchema)
+            @test Base.parse(Int, lines[2]) == sizeof(PowerIO.CArrowArray)
             schema_offsets = parse.(Int, split(lines[3]))
             array_offsets = parse.(Int, split(lines[4]))
             @test schema_offsets == [fieldoffset(PowerIO.CArrowSchema, i) for i in 1:fieldcount(PowerIO.CArrowSchema)]
@@ -132,15 +132,14 @@ end
         data = joinpath(@__DIR__, "data")
         m = joinpath(data, "case14.m")
 
-        # Default copy=true: a NamedTuple of owned Julia Vectors, no ArrowTable.
+        # The default copy=true returns owned Julia vectors: mutating the
+        # result never touches producer memory, and a fresh export is
+        # unaffected.
         bus = to_arrow(m, :bus)
         @test bus isa NamedTuple
         @test bus.id isa Vector{Int64}
         @test bus.id == collect(1:14)                   # external 1-based bus ids, in order
-        # Owned: mutating a returned column can't touch the producer (already
-        # freed); a fresh export is unaffected, and GC after release is safe.
         bus.id[1] = -999
-        GC.gc()
         @test to_arrow(m, :bus).id[1] == 1
         @test bus.id[2] == 2
 
@@ -162,7 +161,7 @@ end
         end
 
         # Every raw table's row count matches the JSON payload's element count.
-        net = parse_file(m)
+        net = parse_file(m).value
         @test length(to_arrow(m, :shunt).bus) == length(PowerIO.shunts(net))
         @test length(to_arrow(m, :branch).from) == length(PowerIO.branches(net))
         switch = optional_arrow(:switch)
@@ -172,65 +171,9 @@ end
             @test isempty(switch.from)
         end
 
-        # Normalized solver tables use dense 0-based indices and per unit/radian values.
-        solver_bus = optional_arrow(:solver_bus)
-        if solver_bus === nothing
-            @test_skip to_arrow(m, :solver_bus)
-        else
-            @test solver_bus.index == collect(0:13)
-            @test solver_bus.bus_id == collect(1:14)
-            @test solver_bus.source_row[2] == 1
-            @test solver_bus.pd[2] ≈ 21.7 / 100.0
-            @test solver_bus.is_reference[1] == 0x01
-
-            solver_branch = to_arrow(m, :solver_branch)
-            @test length(solver_branch.index) == 20
-            @test solver_branch.from_bus_index[1] == 0
-            @test solver_branch.to_bus_index[1] == 1
-
-            solver_arc = to_arrow(m, :solver_arc)
-            @test length(solver_arc.index) == 40
-            @test solver_arc.branch_index[1:2] == [0, 0]
-            @test solver_arc.terminal[1:2] == [0, 1]
-
-            # solver_bus grew area and zone at the end of its column list.
-            @test solver_bus.area == fill(1, 14)
-            @test solver_bus.zone == fill(1, 14)
-
-            solver_gen = to_arrow(m, :solver_gen)
-            @test solver_gen.bus_index == [0, 1, 2, 5, 7]
-
-            # One cost header row per generator, slicing the coefficient table.
-            cost = to_arrow(m, :solver_gen_cost)
-            coeff = to_arrow(m, :solver_gen_cost_coeff)
-            @test cost.index == solver_gen.index
-            @test all(==(2), cost.model)
-            @test cost.ncost == fill(3, 5)
-            @test cost.coeff_count == fill(3, 5)
-            @test cost.coeff_offset == collect(0:3:12)
-            @test length(coeff.value) == sum(cost.coeff_count)
-            @test coeff.gen_index[1:3] == fill(0, 3)
-            @test coeff.position[1:3] == collect(0:2)
-            # Position i of a k term polynomial scales by base^(k-1-i).
-            @test coeff.value[1] ≈ 0.0430292599 * 100.0^2
-            @test coeff.value[2] ≈ 20.0 * 100.0
-            @test coeff.value[3] ≈ 0.0
-
-            # The cost tables carry the MVA base their per unit values sit on, so
-            # a consumer converts to currency per MWh off this call alone.
-            @test cost.base_mva === 100.0
-            @test coeff.base_mva === 100.0
-            @test cost.table == "solver_gen_cost"
-            @test coeff.group_column == "gen_index"
-            @test cost.powerio_version == schema_versions().powerio_version
-            # A table the producer attaches no metadata to decodes to columns alone.
-            @test propertynames(to_arrow(m, :solver_gen)) == propertynames(solver_gen)
-            @test !hasproperty(to_arrow(m, :bus), :base_mva)
-
-            @test isempty(to_arrow(m, :solver_storage).index)
-            @test isempty(to_arrow(m, :solver_hvdc).index)
-            @test isempty(to_arrow(m, :solver_switch).index)
-        end
+        # The 0.9 solver row tables are retired: the selector is unknown.
+        @test_throws ArgumentError to_arrow(m, :solver_bus)
+        @test_throws ArgumentError to_arrow(m, :solver_gen_cost)
 
         matrix_bus = optional_arrow(:matrix_bus)
         if matrix_bus === nothing
@@ -537,6 +480,20 @@ end
                                             0, 0, C_NULL, C_NULL, C_NULL, C_NULL)
         @test_throws ErrorException PowerIO._matrix_axis_metadata(bad_meta_sch)
     end
+
+    # _matrix_arrow_from_handle's silent-refusal check (`rc == 0 ||
+    # error(...)`) used to read `_cstr(err)`, where `err` was the ccall's
+    # `do err ... end` parameter a few lines above, already out of scope by
+    # that line: an UndefVarError instead of a useful message, the one time
+    # it ever ran. The Rust side sets the error handle on every failure
+    # path `pio_balanced_network_to_arrow` has, so the branch is
+    # unreachable through the public API; pin the source text directly and
+    # reproduce the same do-block scoping against the real `_v6_call`.
+    @test !occursin("_cstr(err)", read(joinpath(@__DIR__, "..", "src", "arrow.jl"), String))
+    rc = PowerIO._v6_call("") do err
+        1  # a ccall return code; the do-block's `err` is never touched
+    end
+    @test_throws ErrorException (rc == 0 || error("PowerIO.to_arrow: the export was refused"))
 end
 
 @testset "arrow catalog" begin

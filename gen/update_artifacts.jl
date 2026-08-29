@@ -29,7 +29,7 @@ const PLATFORMS = [
     ("x86_64-w64-mingw32", ["arch = \"x86_64\"", "os = \"windows\""]),
 ]
 
-const REQUIRED_FEATURES = ("arrow", "matrix", "gridfm", "dist", "pkg", "prob")
+const REQUIRED_FEATURES = ("arrow", "matrix", "gridfm", "dist", "prob")
 const CORE_SYMBOLS = Set((
     :pio_version,
     :pio_abi_version,
@@ -43,13 +43,7 @@ const REPRESENTATIVE_SYMBOLS = Dict(
     "matrix" => (:pio_matrix_available,),
     "gridfm" => (:pio_read_dir, :pio_scenario_ids),
     "dist" => (:pio_dist_parse_str, :pio_dist_to_json),
-    "pkg" => (:pio_package_parse_str, :pio_package_to_json),
-    "prob" => (
-        :pio_scopf_parse_str,
-        :pio_scopf_to_json,
-        :pio_scopf_to_json_with_index_base,
-        :pio_scopf_instance_free,
-    ),
+    "prob" => (:pio_dc_data_build, :pio_dc_data_release),
 )
 const KNOWN_SYMBOLS = union(
     CORE_SYMBOLS,

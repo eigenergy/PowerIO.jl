@@ -15,6 +15,15 @@ function _powerdata_real(x, ::Type{T}, element::AbstractString,
     return y
 end
 
+# Parse `path` and take its balanced network value, with a directed error
+# naming the detected kind on a mismatch.
+function _parse_balanced(path::AbstractString; from=nothing)
+    m = parse_file(String(path); format=from === nothing ? nothing : String(from))
+    m isa PioModule{BalancedNetwork} || error(
+        "PowerIO: $path parsed as a $(kind(m)) module; this operation reads a balanced network")
+    return m.value
+end
+
 function _powerdata_real(x::Union{Float64,Int64}, ::Type{T},
                          element::AbstractString, field::Symbol) where {T<:Real}
     y = T(x)
@@ -600,7 +609,7 @@ _powerdata_input(h::BalancedNetworkHandle) = JSON3.parse(_to_json(h), _Powerdata
 # Julia's trim verifier even when the caller has just parsed a live network.
 function _normalized_powerdata_input_live(net::BalancedNetwork)
     h = _live_handle(net, "to_powerdata")
-    format = _handle_string(net, :pio_source_format)
+    format = _handle_string(net, :pio_balanced_network_source_format)
     if format === nothing
         # ABI-compatible development builds can predate this additive scalar
         # accessor. Keep their behavior without making every current call parse
@@ -612,12 +621,11 @@ function _normalized_powerdata_input_live(net::BalancedNetwork)
     end
     norm = to_normalized(net)
     normalized_handle = _live_handle(norm, "to_powerdata")
-    seen = Set{SubString{String}}()
-    for line in _handle_warnings(normalized_handle)
-        code = first(split(line, ": "; limit=2))
-        code in seen && continue
-        push!(seen, code)
-        @warn line
+    seen = Set{String}()
+    for finding in _handle_diagnostics(normalized_handle)
+        finding.code in seen && continue
+        push!(seen, finding.code)
+        @warn string(finding)
     end
     return _powerdata_input(normalized_handle)
 end
@@ -817,7 +825,7 @@ With `filtered=true` the normalize pass runs inside this call, so its findings a
 re-emitted as `@warn`, one per distinct diagnostic code. A case with no generator
 cost data warns `CANONICALIZE.NORMALIZE.GEN_COST_ABSENT`: the rows build, and any
 cost objective built from them is identically zero. Read them off the network
-itself with [`warnings`](@ref)`(`[`to_normalized`](@ref)`(net))`.
+itself with `PowerIO.warnings(`[`to_normalized`](@ref)`(net))`.
 
 This is an ExaModels-facing bridge (a Julia sibling of [`to_powermodels`](@ref)):
 the returned row schema is the field set ExaModelsPower's model builders read. It is
@@ -1047,11 +1055,11 @@ to_powerdata(path::AbstractString; from=nothing,
 
 to_powerdata(path::AbstractString, ::Type{T}; from=nothing,
              filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real} =
-    to_powerdata(parse_file(path; from=from), T; filtered=filtered)
+    to_powerdata(_parse_balanced(path; from=from), T; filtered=filtered)
 
 to_powerdata(path::AbstractString, ::Type{T}, live::Val{:live}; from=nothing,
              filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real} =
-    to_powerdata(parse_file(BalancedNetwork, path; from=from), T, live;
+    to_powerdata(_parse_balanced(path; from=from), T, live;
                  filtered=filtered)
 
 """
@@ -1085,7 +1093,7 @@ end
 function parse_ac_power_data(path::AbstractString, ::Type{T}, live::Val{:live};
                              from=nothing,
                              filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real}
-    net = parse_file(BalancedNetwork, path; from=from)
+    net = _parse_balanced(path; from=from)
     return parse_ac_power_data(net, T, live; filtered=filtered)
 end
 
@@ -1402,7 +1410,7 @@ function _read_load_file(path::AbstractString)
     for (lineno, line) in enumerate(eachline(path))
         fields = split(line)
         isempty(fields) && continue
-        vals = Float64[parse(Float64, f) for f in fields]
+        vals = Float64[Base.parse(Float64, f) for f in fields]
         ncol == -1 && (ncol = length(vals))
         length(vals) == ncol ||
             throw(DimensionMismatch(

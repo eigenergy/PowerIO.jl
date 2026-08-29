@@ -24,7 +24,7 @@
 
 # Columnar export over the Arrow C Data Interface.
 #
-# `pio_to_arrow` (powerio-capi built `--features arrow`) lends one raw or
+# `pio_balanced_network_to_arrow` (powerio-capi built `--features arrow`) lends one raw or
 # normalized solver table as an Arrow struct array across the C Data Interface.
 # The table is self-describing, the in-memory sibling of the JSON transport and
 # the dense extractors. Arrow.jl is an IPC-format reader and does not import the
@@ -108,6 +108,8 @@ end
 # package.jl); gen/update_artifacts.jl checks it against the library's
 # `pio_schema_versions_json` report before it pins binaries.
 
+# Ids 6 to 14, 21, and 22 carried the retired 0.9 solver row projection and
+# stay burned: a new table takes the next unused id, never a retired one.
 const _ARROW_TABLE_IDS = (
     bus = Cint(0),
     branch = Cint(1),
@@ -115,23 +117,12 @@ const _ARROW_TABLE_IDS = (
     load = Cint(3),
     shunt = Cint(4),
     switch = Cint(5),
-    solver_bus = Cint(6),
-    solver_load = Cint(7),
-    solver_shunt = Cint(8),
-    solver_branch = Cint(9),
-    solver_switch = Cint(10),
-    solver_arc = Cint(11),
-    solver_gen = Cint(12),
-    solver_storage = Cint(13),
-    solver_hvdc = Cint(14),
     ybus = Cint(15),
     incidence = Cint(16),
     bprime = Cint(17),
     bdoubleprime = Cint(18),
     matrix_bus = Cint(19),
     matrix_branch = Cint(20),
-    solver_gen_cost = Cint(21),
-    solver_gen_cost_coeff = Cint(22),
 )
 
 const _MATRIX_ARROW_TABLES = Set((:ybus, :incidence, :bprime, :bdoubleprime))
@@ -407,9 +398,9 @@ function _matrix_axis_metadata(s::CArrowSchema)
         vlen = _metadata_len(ptr, offset, "value length", _ARROW_METADATA_MAX_BYTES)
         offset += sizeof(Int32)
         if is_row_count
-            row_count = parse(Int, unsafe_string(ptr + offset, vlen))
+            row_count = Base.parse(Int, unsafe_string(ptr + offset, vlen))
         elseif is_col_count
-            col_count = parse(Int, unsafe_string(ptr + offset, vlen))
+            col_count = Base.parse(Int, unsafe_string(ptr + offset, vlen))
         elseif is_row_axis
             row_axis = unsafe_string(ptr + offset, vlen)
         elseif is_col_axis
@@ -448,8 +439,8 @@ function _with_matrix_metadata(cols::NamedTuple, table::Symbol,
     format = get(metadata, "powerio.format", "coo")
     row_axis = get(metadata, "powerio.row_axis", "solver_bus")
     col_axis = get(metadata, "powerio.col_axis", table == :incidence ? "solver_branch" : "solver_bus")
-    row_count = parse(Int, metadata["powerio.row_count"])
-    col_count = parse(Int, metadata["powerio.col_count"])
+    row_count = Base.parse(Int, metadata["powerio.row_count"])
+    col_count = Base.parse(Int, metadata["powerio.col_count"])
     return (; cols..., table=reported, powerio_version, format, row_axis, col_axis,
             row_count, col_count)
 end
@@ -461,7 +452,7 @@ const _ARROW_METADATA_NUMERIC = Dict(:base_mva => Float64)
 
 _arrow_metadata_value(name::Symbol, value::AbstractString) =
     haskey(_ARROW_METADATA_NUMERIC, name) ?
-    parse(_ARROW_METADATA_NUMERIC[name], value) : value
+    Base.parse(_ARROW_METADATA_NUMERIC[name], value) : value
 
 # Every table's schema metadata rides back as extra fields, named by the metadata
 # key with the `powerio.` prefix dropped (`powerio.version` reads
@@ -521,42 +512,31 @@ function _arrow_from_handle(h::BalancedNetworkHandle, table::Symbol, copy::Bool)
         "PowerIO.to_arrow: unknown table $(repr(table)); expected one of $(keys(_ARROW_TABLE_IDS))"))
     arr = Ref(_zero(CArrowArray))
     sch = Ref(_zero(CArrowSchema))
-    err = zeros(UInt8, _ERRLEN)
     lib = getfield(h, :lib)
     rc = try
-        GC.@preserve h ccall(_library_symbol(lib, :pio_to_arrow), Cint,
-              (Ptr{Cvoid}, Cint, Ptr{CArrowArray}, Ptr{CArrowSchema}, Ptr{UInt8}, Csize_t),
-              h.ptr, id, arr, sch, err, length(err))
-    catch e
-        _feature_call_error("to_arrow", "pio_to_arrow", "arrow", e)
-    end
-    if rc != 0
-        msg = _cstr(err)
-        if occursin("unknown Arrow table id", msg)
-            error("PowerIO.to_arrow: the loaded C library does not support table " *
-                  "$(repr(table)) (id $(Int(id))). Rebuild powerio-capi from a " *
-                  "matching commit or repin the PowerIO.jl artifact.")
+        GC.@preserve h _v6_call(lib) do err
+            ccall(_library_symbol(lib, :pio_balanced_network_to_arrow), Cint,
+                  (Ptr{Cvoid}, Cint, Ptr{CArrowArray}, Ptr{CArrowSchema}, Ref{Ptr{Cvoid}}),
+                  h.ptr, id, arr, sch, err)
         end
-        error("PowerIO.to_arrow: " * msg)
+    catch e
+        _feature_call_error("to_arrow", "pio_balanced_network_to_arrow", "arrow", e)
     end
-    _require_release_callbacks!(arr, sch)
+    rc == 0 || error("PowerIO.to_arrow: the export was refused")
+    # Hand ownership to ArrowBuffers FIRST — from here its finalizer releases
+    # the producer even if decoding throws.
+    buffers = ArrowBuffers(arr, sch)
     if copy
-        # The columns are owned copies: release the producer before returning, and
-        # on a decode error (unknown format code, child count
-        # mismatch) release too so the buffers don't leak.
+        # Owned columns: decode into ordinary Julia vectors and release the
+        # producer immediately; no lifetime rides on the result.
         cols = try
             _decode_arrow(arr, sch; copy=true, table=table)
-        catch
-            _release_ffi!(arr, sch)
-            rethrow()
+        finally
+            _release_buffers!(buffers)
         end
-        _release_ffi!(arr, sch)
         return cols
     end
-    # Zero copy: hand ownership to ArrowBuffers FIRST — from here its finalizer
-    # releases the producer even if decoding throws, then wrap each column so every
-    # column roots the owner on its own.
-    buffers = ArrowBuffers(arr, sch)
+    # Zero copy: wrap each column so every column roots the owner on its own.
     cols = try
         _decode_arrow(arr, sch; copy=false, table=table)
     catch
@@ -600,16 +580,17 @@ function _matrix_arrow_from_handle(h::BalancedNetworkHandle, table::Symbol)
     expected = table == :ybus ? 4 : 3
     arr = Ref(_zero(CArrowArray))
     sch = Ref(_zero(CArrowSchema))
-    err = zeros(UInt8, _ERRLEN)
     lib = getfield(h, :lib)
     rc = try
-        GC.@preserve h ccall(_library_symbol(lib, :pio_to_arrow), Cint,
-              (Ptr{Cvoid}, Cint, Ptr{CArrowArray}, Ptr{CArrowSchema}, Ptr{UInt8}, Csize_t),
-              h.ptr, id, arr, sch, err, length(err))
+        GC.@preserve h _v6_call(lib) do err
+            ccall(_library_symbol(lib, :pio_balanced_network_to_arrow), Cint,
+                  (Ptr{Cvoid}, Cint, Ptr{CArrowArray}, Ptr{CArrowSchema}, Ref{Ptr{Cvoid}}),
+                  h.ptr, id, arr, sch, err)
+        end
     catch e
-        _feature_call_error("to_arrow", "pio_to_arrow", "arrow", e)
+        _feature_call_error("to_arrow", "pio_balanced_network_to_arrow", "arrow", e)
     end
-    rc == 0 || error("PowerIO.to_arrow: " * _cstr(err))
+    rc == 0 || error("PowerIO.to_arrow: the export was refused")
     _require_release_callbacks!(arr, sch)
     try
         a, s = arr[], sch[]
@@ -645,15 +626,11 @@ end
 Export one network table over the Arrow C Data Interface. Raw table selectors are
 `:bus`, `:branch`, `:gen`, `:load`, `:shunt`, and `:switch`; those columns are
 the parsed network fields with 1-based (external) bus ids, the same id space as
-[`to_dense`](@ref). Normalized solver table selectors are `:solver_bus`,
-`:solver_load`, `:solver_shunt`, `:solver_branch`, `:solver_switch`,
-`:solver_arc`, `:solver_gen`, `:solver_storage`, and `:solver_hvdc`; those
-columns use dense 0-based row ids and per unit/radian values. Matrix selectors
-are `:ybus`, `:incidence`, `:bprime`, and `:bdoubleprime`; they return COO
-columns plus schema metadata. Matrix axis selectors are `:matrix_bus` and
-`:matrix_branch`; they map dense matrix rows and incidence columns back to source
-bus and branch rows. Generator cost selectors are `:solver_gen_cost` and
-`:solver_gen_cost_coeff`.
+[`to_dense`](@ref). Matrix selectors are `:ybus`, `:incidence`, `:bprime`, and
+`:bdoubleprime`; they return COO columns plus schema metadata. Matrix axis
+selectors are `:matrix_bus` and `:matrix_branch`; they map dense matrix rows
+and incidence columns back to source bus and branch rows. The 0.9 solver row
+tables are retired; their ids stay burned.
 
 Whatever schema metadata a table carries rides back as extra fields named by the
 metadata key without its `powerio.` prefix. The cost tables carry `base_mva`, the
@@ -677,7 +654,10 @@ function to_arrow(net::BalancedNetwork, table::Symbol; copy::Bool=true)
     return _arrow_from_handle(_live_handle(net, "to_arrow"), table, copy)
 end
 function to_arrow(path::AbstractString, table::Symbol; from=nothing, copy::Bool=true)
-    h = _parse_handle(path; from=from)
+    m = parse_file(path; format=from === nothing ? nothing : String(from))
+    m isa PioModule{BalancedNetwork} ||
+        error("PowerIO.to_arrow: $path parsed as a $(kind(m)) module; the Arrow tables read a balanced network")
+    h = getfield(m.value, :handle)
     try
         return _arrow_from_handle(h, table, copy)
     finally
@@ -690,27 +670,20 @@ end
 """
     arrow_available() -> Bool
 
-True if the resolved C library exports `pio_to_arrow` (built `--features
+True if the resolved C library exports `pio_balanced_network_to_arrow` (built `--features
 arrow`). This checks the Arrow entry point, not that the loaded library supports
 every table selector this binding knows about.
 """
-arrow_available() = _exports_symbol(:pio_to_arrow)
+arrow_available() = _exports_symbol(:pio_balanced_network_to_arrow)
 
 """
     matrix_available() -> Bool
 
-True if the resolved C library exports `pio_to_arrow` and was built with the
-matrix Arrow table API.
+True if the resolved C library was built with the matrix Arrow table API.
 """
 function matrix_available()
     arrow_available() || return false
-    _exports_symbol(:pio_matrix_available) || return false
-    try
-        return ccall((:pio_matrix_available, _lib()), Cint, ()) != 0
-    catch e
-        @debug "PowerIO: pio_matrix_available probe failed" exception = (e, catch_backtrace())
-        return false
-    end
+    return has_feature("matrix")
 end
 
 """
@@ -728,9 +701,9 @@ function arrow_catalog()
     _ensure_compatible(lib)
     _require_export("arrow_catalog", :pio_arrow_catalog_json,
                     "powerio v0.7, `--features arrow`", lib)
-    err = zeros(UInt8, _ERRLEN)
-    s = ccall(_library_symbol(lib, :pio_arrow_catalog_json), Cstring,
-              (Ptr{UInt8}, Csize_t), err, length(err))
-    s == C_NULL && error("PowerIO.arrow_catalog: " * _cstr(err))
+    s = _v6_call(lib) do err
+        ccall(_library_symbol(lib, :pio_arrow_catalog_json), Cstring,
+              (Ref{Ptr{Cvoid}},), err)
+    end
     return JSON3.read(_take_string(lib, s))
 end

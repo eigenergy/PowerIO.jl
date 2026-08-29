@@ -6,15 +6,15 @@
         single = joinpath(data, "case14_gridfm", "raw")
 
         # Read one scenario back into a BalancedNetwork: counts, base_mva, and
-        # source_format match the source, and the lossy read reports warnings.
+        # source_format match the source.
         r = read_gridfm(single)
         @test r.network isa BalancedNetwork
         @test r.scenario == 0
-        @test r.warnings isa Vector{String}
-        @test !isempty(r.warnings)
-        # The lossy read's warnings attach to the handle (v4 pio_warnings), not
-        # a per-call buffer: the synthesized-bus-ids note is the signature one.
-        @test any(w -> occursin("synthesized bus ids", w), r.warnings)
+        @test r.diagnostics isa Vector{Diagnostic}
+        # The result carries the reader's findings ahead of the scenario's
+        # own; the "synthesized bus ids" note is the reader's.
+        @test !isempty(r.diagnostics)
+        @test any(d -> occursin("synthesized bus ids", d.message), r.diagnostics)
         @test PowerIO.n_buses(r.network) == 14
         @test PowerIO.n_branches(r.network) == 20
         @test PowerIO.n_gens(r.network) == 5
@@ -24,13 +24,13 @@
         # The recovered case carries a live handle: it serializes and re-parses.
         text = to_matpower(r.network)
         @test occursin("mpc.bus", text)
-        @test PowerIO.n_buses(parse_file(IOBuffer(text), "matpower")) == 14
+        @test PowerIO.n_buses(parse_bytes(IOBuffer(text); format="matpower").value) == 14
 
         # The NamedTuple is positionally unpackable, mirroring Python's GridfmRead.
-        net, scen, warns = read_gridfm(single)
+        net, scen, diags = read_gridfm(single)
         @test net isa BalancedNetwork
         @test scen == 0
-        @test warns isa Vector{String}
+        @test diags isa Vector{Diagnostic}
 
         # A batch dataset rebuilds one BalancedNetwork per scenario id, ascending; a
         # specific scenario can be selected.
@@ -40,7 +40,7 @@
         @test all(x -> PowerIO.n_buses(x.network) == 14, reads)
         @test read_gridfm(batch; scenario = 1).scenario == 1
 
-        # A nonexistent dataset directory returns a Julia error, not a fault.
-        @test_throws ErrorException read_gridfm(joinpath(data, "no_such_gridfm"))
+        # A nonexistent dataset directory refuses with a structured error.
+        @test_throws PowerIOCError read_gridfm(joinpath(data, "no_such_gridfm"))
     end
 end

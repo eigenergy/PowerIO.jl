@@ -1,15 +1,9 @@
-# gridfm-datakit Parquet reader over the C ABI.
-#
-# `pio_read_dir` with `from = "gridfm"` (powerio-capi built `--features gridfm`) reads a
-# gridfm-datakit Parquet dataset back into a network handle — the inverse of the gridfm
-# writer, the ML→classical return leg. The reader itself lives in powerio-matrix, so it
-# ships only when the C ABI is built with the gridfm feature; `gridfm_available()` probes
-# the symbol (the mirror of `arrow_available`). The read is lossy but complete enough for power flow;
-# unlike the old per-call warn buffer, v4 parks what the schema couldn't round-trip on the
-# returned handle, read back with `_handle_warnings` (`pio_warnings`).
-
+# GridFM Parquet dataset reading: the dataset parses through the universal
+# module surface as one scenario set over shared element identities
+# (`parse_file(dir; format="gridfm")`), and each scenario selects out as an
+# independent balanced module. Needs powerio-capi built `--features gridfm`.
 """
-    read_gridfm(dir; scenario=0) -> (; network::BalancedNetwork, scenario::Int, warnings::Vector{String})
+    read_gridfm(dir; scenario=0) -> (; network::BalancedNetwork, scenario::Int, diagnostics::Vector{Diagnostic})
 
 Read one `scenario` of a gridfm-datakit Parquet dataset back into a [`BalancedNetwork`](@ref) —
 the inverse of the gridfm writer. `dir` resolves leniently: the `raw/` directory holding
@@ -21,29 +15,23 @@ The read is lossy but complete enough for power flow: it recovers bus types, vol
 nodal load and shunt totals, generator dispatch and bounds, branch
 `r/x/b/tap/shift/rate_a`/angle-limits, and `base_mva` — enough to write a runnable case —
 but not original bus ids (synthesized `1..n`), per-element load/shunt granularity,
-piecewise/cubic costs, or HVDC/storage. What it can't recover is listed in `warnings`.
+piecewise/cubic costs, or HVDC/storage. What it can't recover is listed in `diagnostics`.
 
 The returned `network` carries a live Rust handle, so the `to_*` transforms work on it.
 Needs powerio-capi built `--features gridfm`; see [`gridfm_available`](@ref). For every
 scenario in a batch use [`read_gridfm_scenarios`](@ref).
 """
 function read_gridfm(dir::AbstractString; scenario::Integer=0)
-    lib = _lib()
-    _ensure_compatible(lib)
-    _network_free_fn(lib)
-    err = zeros(UInt8, _ERRLEN)
-    ptr = try
-        ccall(_library_symbol(lib, :pio_read_dir), Ptr{Cvoid},
-              (Cstring, Cstring, Int64, Ptr{UInt8}, Csize_t),
-              String(dir), "gridfm", Int64(scenario), err, length(err))
-    catch e
-        _feature_call_error("read_gridfm", "pio_read_dir", "gridfm", e)
-    end
-    ptr == C_NULL && error("PowerIO.read_gridfm: " * _cstr(err))
-    h = BalancedNetworkHandle(ptr, lib)
-    net = BalancedNetwork(h)
-    return (; network = net, scenario = Int(scenario),
-            warnings = _handle_warnings(h))
+    m = parse_file(String(dir); format="gridfm")
+    m isa PioModule{ScenarioSet{BalancedNetwork}} || error(
+        "PowerIO.read_gridfm: $dir parsed as a $(kind(m)) module")
+    selected = select_state(m; scenario=string(scenario))
+    selected isa PioModule{BalancedNetwork} || error(
+        "PowerIO.read_gridfm: scenario $scenario selected a $(kind(selected)) module")
+    # The reader's findings live on the scenario set; the exported scenario
+    # carries its own. Both matter to the caller, reader first.
+    return (; network = selected.value, scenario = Int(scenario),
+            diagnostics = vcat(diagnostics(m), diagnostics(selected)))
 end
 
 """
@@ -55,43 +43,21 @@ rebuilt independently, so two may differ in branch status, bus types, and refere
 See [`read_gridfm`](@ref) for the lenient directory resolution and fidelity notes.
 """
 function read_gridfm_scenarios(dir::AbstractString)
-    _ensure_compatible()
-    return [read_gridfm(dir; scenario = id) for id in _gridfm_scenario_ids(dir)]
+    return [read_gridfm(dir; scenario=id) for id in _gridfm_scenario_ids(dir)]
 end
 
-# The dataset's distinct scenario ids (ascending), via `pio_scenario_ids` with
-# `from = "gridfm"`: a zero-capacity probe returns the count, then a second call fills
-# the buffer (the count / caller-buffer pattern the dense extractors use).
+# The dataset's distinct scenario ids (ascending), from the scenario set
+# module's own inventory.
 function _gridfm_scenario_ids(dir::AbstractString)
-    lib = _lib()
-    err = zeros(UInt8, _ERRLEN)
-    d = String(dir)
-    count = try
-        ccall(_library_symbol(lib, :pio_scenario_ids), Cptrdiff_t,
-              (Cstring, Cstring, Ptr{Int64}, Csize_t, Ptr{UInt8}, Csize_t),
-              d, "gridfm", C_NULL, 0, err, length(err))
-    catch e
-        _feature_call_error("read_gridfm_scenarios", "pio_scenario_ids", "gridfm", e)
-    end
-    count < 0 && error("PowerIO.read_gridfm_scenarios: " * _cstr(err))
-    ids = Vector{Int64}(undef, count)
-    if count > 0
-        n = ccall(_library_symbol(lib, :pio_scenario_ids), Cptrdiff_t,
-                  (Cstring, Cstring, Ptr{Int64}, Csize_t, Ptr{UInt8}, Csize_t),
-                  d, "gridfm", ids, length(ids), err, length(err))
-        n < 0 && error("PowerIO.read_gridfm_scenarios: " * _cstr(err))
-        # Unlike the dense extractors' immutable handle, both calls re-read the
-        # filesystem, so the count genuinely can change between probe and fill —
-        # and a short fill would leave heap garbage in the tail of `ids`.
-        Int(n) == count || error("PowerIO.read_gridfm_scenarios: scenario count " *
-                                 "changed between probe and fill ($n vs $count)")
-    end
-    return ids
+    m = parse_file(String(dir); format="gridfm")
+    inventory = state_inventory(m)
+    ids = [Base.parse(Int64, String(s.id)) for s in inventory.scenarios]
+    return sort!(ids)
 end
 
 """
     gridfm_available() -> Bool
 
-True if the resolved C library exports `pio_read_dir` (built `--features gridfm`).
+True if the resolved C library was built with the gridfm feature.
 """
-gridfm_available() = _exports_symbol(:pio_read_dir)
+gridfm_available() = library_available() && has_feature("gridfm")

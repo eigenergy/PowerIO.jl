@@ -51,6 +51,12 @@ jobs:
           if git ls-remote --exit-code --heads "$remote" "$POWERIO_BRANCH" >/dev/null 2>&1; then
             echo "ref=$POWERIO_BRANCH" >> "$GITHUB_OUTPUT"
             echo "Using eigenergy/powerio branch $POWERIO_BRANCH"
+          elif [ -f .github/powerio-companion ] && \
+               companion="$(tr -d '[:space:]' < .github/powerio-companion)" && \
+               [ -n "$companion" ] && \
+               git ls-remote --exit-code --heads "$remote" "$companion" >/dev/null 2>&1; then
+            echo "ref=$companion" >> "$GITHUB_OUTPUT"
+            echo "Using eigenergy/powerio branch $companion (.github/powerio-companion); no branch named $POWERIO_BRANCH exists"
           else
             echo "ref=main" >> "$GITHUB_OUTPUT"
             echo "Using eigenergy/powerio main; no branch named $POWERIO_BRANCH exists"
@@ -76,7 +82,7 @@ jobs:
         # the v0.6.1 Rust PRs merge, matrix and normalize options tests skip; once
         # they land, this job exercises them.
         run: |
-          features=arrow,gridfm,dist,pkg
+          features=arrow,gridfm,dist
           if grep -q '^matrix = ' powerio/powerio-capi/Cargo.toml; then
             features="$features,matrix"
           fi

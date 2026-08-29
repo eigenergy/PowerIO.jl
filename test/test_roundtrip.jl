@@ -1,10 +1,17 @@
+
+# `warnings(net)` is gone: a bare BalancedNetwork's own findings are read by
+# wrapping its handle as a module and reading the module's diagnostics, the
+# same private helper `to_powerdata`'s live path uses to re-emit them as `@warn`.
+_diag_messages(net) = [d.message for d in PowerIO._handle_diagnostics(getfield(net, :handle))]
+_diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :handle))]
+
 @testset "C ABI round trip" begin
     if !PowerIO.library_available()
         @info "libpowerio_capi not found (set POWERIO_CAPI to a local build); skipping ccall tests"
-        @test_skip parse_file("case14.m")
+        @test_skip parse_file("case14.m").value
     else
         data = joinpath(@__DIR__, "data")
-        net = parse_file(joinpath(data, "case14.m"))
+        net = parse_file(joinpath(data, "case14.m")).value
         @test getfield(net, :data) === nothing
         @test PowerIO.n_buses(net) == 14
         @test PowerIO.n_branches(net) == 20
@@ -12,8 +19,8 @@
         @test PowerIO.base_mva(net) == 100.0
         @test PowerIO.reference_bus_id(net) == 1
         @test getfield(net, :data) === nothing
-        has_scalar_helpers = PowerIO._exports_symbol(:pio_source_format) &&
-                             PowerIO._exports_symbol(:pio_network_name)
+        has_scalar_helpers = PowerIO._exports_symbol(:pio_balanced_network_source_format) &&
+                             PowerIO._exports_symbol(:pio_balanced_network_name)
         @test PowerIO.source_format(net) == "matpower"
         @test net.name == "case14"
         @test net.source_format == "matpower"
@@ -21,11 +28,11 @@
         @test net.base_frequency == 60.0
         @test getfield(net, :data) === nothing
         if has_scalar_helpers
-            # Drift canary: the v0.7 C string accessors (pio_network_name /
-            # pio_source_format) agree with the summary-backed public
+            # Drift canary: the v0.7 C string accessors (pio_balanced_network_name /
+            # pio_balanced_network_source_format) agree with the summary-backed public
             # accessors reading the same Rust fields.
-            @test PowerIO._handle_string(net, :pio_network_name) == PowerIO.network_name(net)
-            @test PowerIO._handle_string(net, :pio_source_format) == PowerIO.source_format(net)
+            @test PowerIO._handle_string(net, :pio_balanced_network_name) == PowerIO.network_name(net)
+            @test PowerIO._handle_string(net, :pio_balanced_network_source_format) == PowerIO.source_format(net)
             @test PowerIO.network_name(net) == "case14"
             @test net.warnings == String[]
             @test getfield(net, :data) === nothing
@@ -39,7 +46,7 @@
             @test occursin("  data: not materialized", display)
             @test getfield(net, :data) === nothing
         end
-        @test isempty(PowerIO.warnings(net))
+        @test isempty(_diag_messages(net))
         @test getfield(net, :data) === nothing
         dense = PowerIO.to_dense(net)
         @test dense.n == 14
@@ -59,11 +66,11 @@
         @test isempty(PowerIO.hvdc(net))
 
         # `from` hint threads through to pio_parse_file.
-        net_hinted = parse_file(joinpath(data, "case14.m"); from = "matpower")
+        net_hinted = parse_file(joinpath(data, "case14.m"); format="matpower").value
         @test PowerIO.n_buses(net_hinted) == 14
 
         text_in = read(joinpath(data, "case14.m"), String)
-        net_from_text = parse_str(text_in, "matpower")
+        net_from_text = parse_bytes(IOBuffer(text_in); format="matpower").value
         @test PowerIO.n_buses(net_from_text) == 14
         @test PowerIO.source_format(net_from_text) == "matpower"
 
@@ -73,8 +80,8 @@
 
         # Model JSON is not a case format, so parse_str refuses it and names
         # from_json. A clean MATPOWER parse keeps no handle warnings.
-        @test_throws ErrorException parse_str(to_json(net), "model-json")
-        @test isempty(PowerIO.warnings(net))
+        @test_throws PowerIOCError parse_bytes(IOBuffer(to_json(net)); format="model-json").value
+        @test isempty(_diag_messages(net))
 
         # The core classifies it as its own family, and a bare .json holding
         # one routes through from_json rather than a case reader.
@@ -82,7 +89,7 @@
         let dir = mktempdir()
             mjson = joinpath(dir, "case14.json")
             write(mjson, to_json(net))
-            @test PowerIO.n_buses(parse_file(mjson)) == 14
+            @test PowerIO.n_buses(parse_file(mjson).value) == 14
         end
 
         # One vocabulary: the families this binding knows are the ones the
@@ -98,14 +105,14 @@
         # The positive cases confirm each fixture parses under its own format; the
         # negative cases prove `from` overrides inference, since forcing the wrong
         # reader on a well-formed file fails.
-        egret = parse_file(joinpath(data, "case14.egret.json"); from = "egret")
+        egret = parse_file(joinpath(data, "case14.egret.json"); format="egret").value
         @test PowerIO.n_buses(egret) == 14
         @test PowerIO.source_format(egret) == "egret-json"
-        pm = parse_file(joinpath(data, "case14.pm.json"); from = "powermodels")
+        pm = parse_file(joinpath(data, "case14.pm.json"); format="powermodels").value
         @test PowerIO.n_buses(pm) == 14
         @test PowerIO.source_format(pm) == "powermodels-json"
-        @test_throws ErrorException parse_file(joinpath(data, "case14.pm.json"); from = "egret")
-        @test_throws ErrorException parse_file(joinpath(data, "case14.egret.json"); from = "powermodels")
+        @test_throws PowerIOCError parse_file(joinpath(data, "case14.pm.json"); format="egret").value
+        @test_throws PowerIOCError parse_file(joinpath(data, "case14.egret.json"); format="powermodels").value
 
         # Same-format conversion is byte-exact and warning-free.
         text, warnings = convert_file(joinpath(data, "case14.m"), "matpower")
@@ -115,44 +122,42 @@
         # A cross-format target exercises a second writer and the warnings vector.
         psse_text, psse_warnings = convert_file(joinpath(data, "case14.m"), "psse")
         @test !isempty(psse_text)
-        @test psse_warnings isa AbstractVector{<:AbstractString}
+        @test psse_warnings isa Vector{Diagnostic}
 
-        # Every warning line leads with its code: split at the first ": " and
-        # the left side is a dotted code whose first segment names the stage.
-        # A consumer branches on that, never on the prose after it.
+        # Every finding carries a dotted code whose first segment names the
+        # stage, so a consumer branches on `.code` directly, never on prose.
         @test !isempty(psse_warnings)
-        for line in psse_warnings
-            parts = split(line, ": "; limit = 2)
-            @test length(parts) == 2
-            @test occursin(r"^[A-Z][A-Z0-9_]*(\.[A-Z0-9_]+)+$", parts[1])
-            @test split(parts[1], '.')[1] in
+        for d in psse_warnings
+            @test occursin(r"^[A-Z][A-Z0-9_]*(\.[A-Z0-9_]+)+$", d.code)
+            @test split(d.code, '.')[1] in
                   ("PARSE", "READ", "CANONICALIZE", "VALIDATE", "LOWER", "BUILD",
                    "EMIT", "BIND", "PARTNER", "REQUEST")
         end
 
-        # An error message carries the same identity a warning line does, so a
-        # test can name the failure mode without matching prose.
+        # An error carries the same code identity a warning does, so a test
+        # can name the failure mode without matching prose.
         failure = try
             convert_file(joinpath(data, "case14.m"), "no-such-format")
             nothing
         catch e
-            sprint(showerror, e)
+            e
         end
-        @test failure !== nothing
-        @test occursin("REQUEST.FORMAT.UNKNOWN: ", failure)
+        @test failure isa PowerIOCError
+        @test failure.code == "REQUEST.FORMAT.UNKNOWN"
 
         # convert_str is the in-memory sibling of convert_file (v4 pio_convert_str);
         # matpower -> psse matches the file conversion byte for byte.
         cs_text, cs_warnings = convert_str(read(joinpath(data, "case14.m"), String), "psse"; from = "matpower")
         @test cs_text == psse_text
-        @test cs_warnings isa AbstractVector{<:AbstractString}
+        @test cs_warnings isa Vector{Diagnostic}
 
         pm_text, pm_warnings = to_format(net, "powermodels-json")
         @test JSON3.read(pm_text).baseMVA == 100.0
-        @test pm_warnings isa AbstractVector{<:AbstractString}
+        @test pm_warnings isa Vector{Diagnostic}
         pm_dict = to_powermodels(net)
         @test haskey(pm_dict, "bus")
-        @test PowerIO.n_buses(from_powermodels(pm_dict)) == 14
+        pm_net = from_powermodels(pm_dict)
+        @test PowerIO.n_buses(pm_net) == PowerIO.n_buses(net)
 
         pdata = to_powerdata(net)
         @test pdata.baseMVA == 100.0
@@ -189,127 +194,28 @@
         @test to_powerdata(routed_model_path) == pdata
         @test parse_ac_power_data(routed_model_path) == ac
 
-        if !package_available()
-            @test_skip to_package(net)
-        else
-            pkg = to_package(net)
-            @test pkg isa NetworkPackage
-            @test pkg isa NetworkPackage
-            @test package_model_kind(pkg) == :balanced
-            @test package_operating_points(pkg) === nothing
-            @test package_study(pkg) === nothing
-            pkg_doc = JSON3.read(to_json(pkg))
-            # Hold the envelope to the package schema the loaded library
-            # reports. A library that predates the report is held to the
-            # binding's major only, its own pre-0.8 acceptance rule; an
-            # exact-minor check against the binding constant would break
-            # on every lockstep window (pinned binaries one envelope
-            # minor behind the binding).
-            # The document states the powerio release that wrote it, and the
-            # library reports the same value, so the two must agree exactly.
-            lib_version = schema_versions().powerio_version
-            @test haskey(pkg_doc, :powerio_version)
-            if lib_version !== nothing
-                @test String(pkg_doc.powerio_version) == String(lib_version)
-            end
-            @test pkg_doc.model_kind == "balanced"
-            @test pkg_doc.model.kind == "balanced"
-            @test pkg_doc.model.balanced_network.base_mva == 100.0
-            @test package_validation(pkg).status == "ok"
-            @test isempty(package_diagnostics(pkg))
-            validated = validate_package(pkg)
-            @test package_validation(validated).status == "ok"
-            @test any(p -> p.name == "balanced.structure", package_validation(validated).passes)
-            from_pkg = from_package(pkg)
-            @test from_pkg isa BalancedNetwork
-            @test PowerIO.n_buses(from_pkg) == 14
-            @test PowerIO.to_dense(from_pkg).gen.bus == PowerIO.to_dense(net).gen.bus
+        # The stored module replaces the 0.9 package: the document round trips
+        # through read_module/write_module, and the balanced value comes back
+        # with provenance threaded on.
+        m = PowerIO.parse_module(joinpath(data, "case14.m"))
+        @test PowerIO.module_kind(m) == "balanced_network"
+        doc = JSON3.read(PowerIO.write_module(m))
+        @test doc.schema == "powerio.module"
+        @test doc.version == 1
+        @test doc.value.kind == "balanced_network"
+        # as_network is gone: the public round trip back to a typed value is
+        # parse_bytes/parse_file on the stored document, the same path a
+        # consumer reading a `.pio.json` file takes.
+        back = parse_bytes(codeunits(PowerIO.write_module(m)); name="case14.pio.json").value
+        @test back isa BalancedNetwork
+        @test PowerIO.n_buses(back) == 14
+        @test PowerIO.to_dense(back).gen.bus == PowerIO.to_dense(net).gen.bus
 
-            pkg_path = joinpath(mktempdir(), "case14.pio.json")
-            @test write_package(pkg_path, pkg) == pkg_path
-            @test package_model_kind(read_package(pkg_path)) == :balanced
-            @test PowerIO.n_branches(from_package(read(pkg_path, String))) == 20
-            @test to_powerdata(pkg_path) == pdata
-            @test parse_ac_power_data(pkg_path) == ac
-
-            pkg_with_solver = to_package(net; include_solver_metadata=true)
-            meta = pkg_with_solver.derived.normalized_solver_tables
-            @test meta.pass == "balanced-to-normalized-solver-tables"
-            @test meta.row_counts.buses == 14
-            @test meta.row_counts.arcs == 40
-            @test meta.bus_ids == collect(1:14)
-
-            study_doc = PowerIO._json_plain(JSON3.read(to_json(pkg)))
-            study_doc["study"] = Dict(
-                "label" => "binding study",
-                "commits" => [
-                    Dict(
-                        "label" => "load step",
-                        "edits" => [
-                            Dict(
-                                "kind" => "demand_delta",
-                                "bus" => Dict("table" => "buses", "source_uid" => "buses:0"),
-                                "p_mw" => 7.0,
-                                "q_mvar" => 3.0,
-                            ),
-                        ],
-                    ),
-                ],
-            )
-            study_pkg = NetworkPackage(JSON3.write(study_doc))
-            @test package_study(study_pkg).label == "binding study"
-            materialized_study = materialize_study_commit(study_pkg, 0)
-            @test package_study(materialized_study) === nothing
-            @test package_operating_points(materialized_study) === nothing
-            materialized_net = from_package(materialized_study)
-            @test any(PowerIO.loads(materialized_net)) do load
-                uid = get(load, :uid, nothing)
-                uid !== nothing &&
-                    String(uid) == "study:load:buses:0" &&
-                    isapprox(Float64(load.p), 7.0; atol=1e-12, rtol=0) &&
-                    isapprox(Float64(load.q), 3.0; atol=1e-12, rtol=0)
-            end
-
-            if !PowerIO._exports_symbol(:pio_package_set_operating_points)
-                @test_skip set_operating_points(pkg, nothing)
-            else
-                # set_operating_points attaches a series (any JSON-able value or
-                # JSON text), materialize applies a point, nothing clears it.
-                series = (;
-                    time_axis = (; periods = 1, duration_hours = [1.0]),
-                    points = [(;
-                        index = 0,
-                        updates = [(;
-                            element = (; table = "generators", source_uid = "generators:0"),
-                            fields = (; pg = 123.25),
-                        )],
-                    )],
-                )
-                with_series = set_operating_points(pkg, series)
-                @test with_series isa NetworkPackage
-                @test package_operating_points(pkg) === nothing  # input package untouched
-                echoed = package_operating_points(with_series)
-                @test echoed.time_axis.periods == 1
-                @test echoed.points[1].updates[1].fields.pg == 123.25
-                materialized_point = materialize_operating_point(with_series, 0)
-                @test package_operating_points(materialized_point) === nothing
-                point_net = from_package(materialized_point)
-                @test Float64(first(PowerIO.generators(point_net)).pg) ≈ 123.25
-                # JSON text and `nothing` spellings: text attaches, nothing clears.
-                from_text = set_operating_points(pkg, JSON3.write(series))
-                @test package_operating_points(from_text).time_axis.periods == 1
-                cleared = set_operating_points(with_series, nothing)
-                @test package_operating_points(cleared) === nothing
-                @test package_validation(cleared).status == "ok"
-                # A malformed series is a directed error naming the function.
-                try
-                    set_operating_points(pkg, "not json")
-                    error("expected set_operating_points to fail")
-                catch e
-                    @test occursin("PowerIO.set_operating_points:", sprint(showerror, e))
-                end
-            end
-        end
+        module_path = joinpath(mktempdir(), "case14.pio.json")
+        write(module_path, PowerIO.write_module(m))
+        @test PowerIO.module_kind(PowerIO.read_module(read(module_path, String))) == "balanced_network"
+        @test to_powerdata(module_path) == pdata
+        @test parse_ac_power_data(module_path) == ac
 
         pv_noref = """
         function mpc = pv_noref
@@ -329,13 +235,13 @@
             2 0 0 3 0.01 20 0;
         ];
         """
-        pv_ac = parse_ac_power_data(parse_str(pv_noref, "matpower"))
+        pv_ac = parse_ac_power_data(parse_bytes(IOBuffer(pv_noref); format="matpower").value)
         @test pv_ac.ref_buses == [1]
         @test pv_ac.bus[1].type == 3
 
         bad_branch = replace(pv_noref, "0.01 0.1" => "NaN 0.1")
         bad_err = try
-            to_powerdata(parse_str(bad_branch, "matpower"))
+            to_powerdata(parse_bytes(IOBuffer(bad_branch); format="matpower").value)
             nothing
         catch e
             e
@@ -348,7 +254,7 @@
         # carries it on seven generators.
         inf_q = replace(pv_noref, "1 50 0 50 -50 1 100 1 100 0;" =>
                                   "1 50 0 Inf -Inf 1 100 1 100 0;")
-        inf_net = parse_str(inf_q, "matpower")
+        inf_net = parse_bytes(IOBuffer(inf_q); format="matpower").value
         @test PowerIO.generators(inf_net)[1].qmax == "Infinity"
         @test PowerIO.generators(inf_net)[1].qmin == "-Infinity"
         inf_ac = parse_ac_power_data(inf_net)
@@ -374,14 +280,13 @@
         # that objective is the one who needs to know.
         costless = replace(read(joinpath(data, "case9.m"), String),
                            r"(?s)mpc\.gencost.*?\];" => "")
-        costless_net = parse_str(costless, "matpower")
-        @test occursin("GEN_COST_ABSENT",
-                       join(PowerIO.warnings(to_normalized(costless_net)), "\n"))
+        costless_net = parse_bytes(IOBuffer(costless); format="matpower").value
+        @test any(occursin("GEN_COST_ABSENT", c) for c in _diag_codes(to_normalized(costless_net)))
         @test_logs (:warn, r"CANONICALIZE\.NORMALIZE\.GEN_COST_ABSENT") match_mode = :any parse_ac_power_data(costless_net)
         @test_logs (:warn, r"CANONICALIZE\.NORMALIZE\.GEN_COST_ABSENT") match_mode = :any to_powerdata(costless_net)
         @test_logs (:warn, r"CANONICALIZE\.NORMALIZE\.GEN_COST_ABSENT") match_mode = :any PowerIO.LoadSeries(costless_net, [1.0])
         # A costed case has nothing to report.
-        costed_net = parse_file(joinpath(data, "case9.m"))
+        costed_net = parse_file(joinpath(data, "case9.m")).value
         live = Val(:live)
         @test_logs min_level = Logging.Warn parse_ac_power_data(costed_net)
         @test_logs min_level = Logging.Warn to_powerdata(costed_net)
@@ -480,7 +385,7 @@
             1 0.0 0.0 0.50 200.0 100.0 100.0 0.95 0.9 500 -500 500 0.2 0.02 0 0 0;
         ];
         """
-        storage_net = parse_str(storage_text, "matpower")
+        storage_net = parse_bytes(IOBuffer(storage_text); format="matpower").value
         storage_raw_pd = to_powerdata(storage_net; filtered=false)
         # Nonempty storage rows carry the declared storage row type (order/field drift guard).
         @test eltype(storage_raw_pd.storage) === PowerIO._powerdata_storage_row_type(Float64)
@@ -499,8 +404,8 @@
         @test storage_pd.storage[1].energy_rating == 6.0
 
         # library_available() is true here, so the ABI handshake passed: the
-        # library's ABI version must equal the one this binding targets.
-        @test PowerIO.abi_version() == PowerIO.PIO_ABI_VERSION
+        # library reports a version this binding accepts.
+        @test PowerIO.abi_version() in PowerIO._ACCEPTED_ABI_VERSIONS
         @test !isempty(PowerIO.library_version())
     end
 end

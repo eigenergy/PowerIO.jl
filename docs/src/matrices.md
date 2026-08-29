@@ -13,7 +13,7 @@ constructors.
 
 ## Usage
 ```julia
-net = parse_file("case14.m")
+net = parse_file("case14.m").value
 
 ybus = calc_admittance_matrix(net)       # PowerIO.AdmittanceMatrix{ComplexF64}
 Y = ybus.matrix
