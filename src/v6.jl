@@ -22,7 +22,11 @@ struct PowerIOCError <: Exception
 end
 
 function Base.showerror(io::IO, e::PowerIOCError)
-    print(io, "PowerIOCError [", e.code, "]: ", e.message)
+    # The C side already prefixes `message` with `code:` for some failure
+    # classes and leaves it off for others; strip the prefix when present so
+    # the code renders exactly once.
+    message = lstrip(chopprefix(e.message, e.code * ":"))
+    print(io, "PowerIOCError [", e.code, "]: ", message)
 end
 
 # Copy one v6 error handle into a Julia exception and release the handle. The
@@ -248,9 +252,10 @@ end
 """
     lower_module_to_balanced(m::StoredModule; base_mva=100.0) -> StoredModule
 
-Explicitly lower a multiconductor module to a balanced module. Records and
-source ownership carry over; the pass appends its findings and one Transform
-history entry.
+Explicitly lower a multiconductor module to a balanced module. The pass
+appends its findings and one Transform history entry; the source
+descriptors carry over, but not the retained bytes, so a later write in the
+original format cannot echo the source exactly.
 """
 function lower_module_to_balanced(m::StoredModule; base_mva::Real=100.0)
     lib = getfield(m, :lib)

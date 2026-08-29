@@ -320,6 +320,14 @@ end
         @test d isa Vector{Diagnostic}
         @test all(x -> x.severity isa Symbol, d)
 
+        # The multiline text/plain form adds the module's own element counts
+        # beyond the single line compact form.
+        compact = sprint(show, balanced)
+        multiline = sprint(show, MIME"text/plain"(), balanced)
+        @test multiline != compact
+        @test startswith(multiline, compact)
+        @test occursin("buses", multiline)
+
         # select_state is one based, matching every other Julia axis
         # (StoredModule's export_state, the C ABI, and every other language
         # binding are zero based instead). Build a genuine
@@ -423,6 +431,7 @@ end
     # powerio checkout the C library was built from instead of vendoring them:
     # POWERIO_CAPI points at <root>/target/release/libpowerio_capi.<ext>.
     capi = get(ENV, "POWERIO_CAPI", "")
+    custom_target_dir = haskey(ENV, "CARGO_TARGET_DIR")
     root = isempty(capi) ? "" : dirname(dirname(dirname(capi)))
     dir = isempty(root) ? "" : joinpath(root, "tests", "data", "powerworld")
     pwb_path = joinpath(dir, "ACTIVSg200.pwb")
@@ -430,11 +439,13 @@ end
     mat_path = joinpath(dir, "case_ACTIVSg200.m")
     found = !isempty(dir) && all(isfile, (pwb_path, aux_path, mat_path))
     # CI builds the library inside a powerio checkout, so a miss there is lost
-    # coverage rather than a missing sibling checkout. Assert it rather than skip.
-    isempty(capi) || @test found
+    # coverage rather than a missing sibling checkout. Assert it rather than
+    # skip — unless CARGO_TARGET_DIR redirected the build tree, in which case
+    # the <root> guess three parents above the dylib need not land there.
+    isempty(capi) || custom_target_dir || @test found
 
     if !(found && PowerIO.library_available())
-        @info "PowerWorld fixtures not found next to POWERIO_CAPI; skipping the byte path tests"
+        @info "PowerWorld fixtures not found next to POWERIO_CAPI; skipping the byte path tests" custom_target_dir
         @test_skip "PowerWorld fixtures unavailable"
     else
         pwb = parse_bytes(read(pwb_path); format="pwb").value
@@ -539,6 +550,13 @@ end
             @test sv.powerio_version == doc.powerio_version
             @test sv.abi == doc.abi
             @test sv.bmopf_schema == get(doc, :bmopf_schema, nothing)
+            @test sv.module_schema == (; name = doc.module_schema.name, version = doc.module_schema.version)
+            @test sv.module_schema.version == 1
+
+            # Every top level key the raw report carries has a matching
+            # field on the returned NamedTuple, so a future key the C side
+            # adds is caught here instead of silently missing its accessor.
+            @test Set(keys(doc)) == Set(PowerIO._DOCUMENT_VERSION_FIELDS)
         end
     end
 end

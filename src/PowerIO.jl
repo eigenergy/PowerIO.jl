@@ -20,9 +20,9 @@ pandapower JSON, PyPSA CSV, Surge JSON), multiconductor distribution formats
 `AcScucInstance`, BMOPF → `McAcOpfInstance`, DeepMind OPFData →
 `AcOpfSolution`), time series and scenario profiles (PyPSA snapshot axes,
 Egret time keys, GridFM Parquet datasets), and the stored `.pio.json`
-document. The type parameter of [`PioModule`](@ref) drives ordinary Julia
-dispatch in everything that follows: matrices, conversion, inspection, state
-selection, and writing.
+document. `m.value` is the typed network: matrix and conversion functions
+dispatch on its type, while inspection, state selection, and writing take
+the module itself.
 
 The binding rides the `powerio-capi` C ABI (version 6): every handle keeps
 its owning library, borrowed numerical views root their owner, and failures
