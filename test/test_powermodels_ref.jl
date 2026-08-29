@@ -23,29 +23,29 @@
 
         # Branch-only callers keep the PowerModels helper semantics.
         wide = mk(-2pi, 2pi)
-        PowerIO.correct_voltage_angle_differences!(wide)
+        repair_powermodels_angle_bounds!(wide)
         @test wide["branch"]["1"]["angmin"] == -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
         @test wide["branch"]["1"]["angmax"] == PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
 
         zero_pad = mk(0.0, 0.0)
-        PowerIO.correct_voltage_angle_differences!(zero_pad)
+        repair_powermodels_angle_bounds!(zero_pad)
         @test zero_pad["branch"]["1"]["angmin"] == -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
         @test zero_pad["branch"]["1"]["angmax"] == PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
 
         ok = mk(-0.4, 0.3)
-        PowerIO.correct_voltage_angle_differences!(ok)
+        repair_powermodels_angle_bounds!(ok)
         @test ok["branch"]["1"]["angmin"] == -0.4
         @test ok["branch"]["1"]["angmax"] == 0.3
 
         branch_custom = mk(-2pi, 2pi)
-        PowerIO.correct_voltage_angle_differences!(branch_custom; default_pad=0.5)
+        repair_powermodels_angle_bounds!(branch_custom; default_pad=0.5)
         @test branch_custom["branch"]["1"]["angmin"] == -0.5
 
         # A dict without branches is a no-op, not an error.
-        @test PowerIO.correct_voltage_angle_differences!(Dict{String,Any}()) == Dict{String,Any}()
+        @test repair_powermodels_angle_bounds!(Dict{String,Any}()) == Dict{String,Any}()
 
         pm = to_powermodels(parse_file(joinpath(@__DIR__, "data", "angle_bounds_clamp.m")).value)
-        PowerIO.correct_voltage_angle_differences!(pm)
+        repair_powermodels_angle_bounds!(pm)
         @test pm["branch"]["1"]["angmin"] == -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
         @test pm["branch"]["1"]["angmax"] == PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
         @test pm["branch"]["2"]["angmin"] == -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
@@ -54,7 +54,7 @@
         @test pm["branch"]["3"]["angmax"] ≈ pi / 6
 
         custom = to_powermodels(parse_file(joinpath(@__DIR__, "data", "angle_bounds_clamp.m")).value)
-        PowerIO.correct_voltage_angle_differences!(custom; default_pad=0.5)
+        repair_powermodels_angle_bounds!(custom; default_pad=0.5)
         @test custom["branch"]["1"]["angmin"] == -0.5
         @test custom["branch"]["1"]["angmax"] == 0.5
 
@@ -62,7 +62,7 @@
         dropped["branch"]["2"]["br_status"] = 0
         dropped["branch"]["3"]["angmin"] = -2pi
         dropped["branch"]["3"]["angmax"] = 2pi
-        PowerIO.correct_voltage_angle_differences!(dropped)
+        repair_powermodels_angle_bounds!(dropped)
         @test dropped["branch"]["1"]["angmin"] == -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
         @test dropped["branch"]["2"]["angmin"] == -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
         @test dropped["branch"]["3"]["angmin"] == -PowerIO.POWER_MODELS_ANGLE_BOUND_PAD
@@ -76,7 +76,7 @@
 
             # case14 through to_powermodels: counts, arcs, slack, adjacency.
             pm = to_powermodels(parse_file(joinpath(data, "case14.m")).value)
-            ref = PowerIO.build_ref(pm)
+            ref = build_powermodels_ref(pm)
             @test length(ref[:bus]) == 14
             @test length(ref[:gen]) == 5
             @test length(ref[:branch]) == 20
@@ -101,7 +101,7 @@
             # norm_tiny: bus 8 is ISOLATED (bus_type 4) and two branches are
             # out of service or dangle onto the dropped bus; the ref filters
             # all of them and keeps the non-contiguous source ids.
-            tiny = PowerIO.build_ref(to_powermodels(parse_file(joinpath(data, "norm_tiny.m")).value))
+            tiny = build_powermodels_ref(to_powermodels(parse_file(joinpath(data, "norm_tiny.m")).value))
             @test sort(collect(keys(tiny[:bus]))) == [1, 3, 5]
             @test length(tiny[:branch]) == 2
             @test all(br["f_bus"] in keys(tiny[:bus]) && br["t_bus"] in keys(tiny[:bus])

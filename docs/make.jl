@@ -16,17 +16,19 @@ makedocs(;
     ),
     pages = [
         "Home" => "index.md",
-        "Migrating from 0.9" => "migration-0.10.md",
         "Modules" => "modules.md",
-        "Transmission networks" => "transmission.md",
+        "Networks" => "transmission.md",
         "Matrices" => "matrices.md",
-        "OPF instance backends" => "opf-backends.md",
-        "Distribution networks" => "distribution.md",
-        "Ecosystem interop" => "interop.md",
-        "Binary distribution" => "binary.md",
-        "Memory safety" => "memory-safety.md",
-        "Language APIs" => "languages.md",
-        "API reference" => "api.md",
+        "OPF" => "opf-backends.md",
+        "Distribution" => "distribution.md",
+        "Interop" => "interop.md",
+        "Developer Guides" => [
+            "Migrating from 0.9" => "migration-0.10.md",
+            "Binary distribution" => "binary.md",
+            "Memory safety" => "memory-safety.md",
+            "Language map" => "languages.md",
+            "API reference" => "api.md",
+        ],
     ],
 )
 

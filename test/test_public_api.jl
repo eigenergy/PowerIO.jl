@@ -23,29 +23,67 @@
         # Conversion and serialization over networks.
         :convert_file, :convert_str, :to_format, :to_normalized,
         :to_json, :from_json, :to_matpower, :write_pypsa_csv_folder,
-        # The one exported bridge accessor.
-        :n_buses,
+        # Network tables, counts, and metadata.
+        :warnings, :buses, :branches, :generators, :loads, :shunts, :storage,
+        :hvdc, :lines, :linecodes, :switches, :transformers, :ibrs,
+        :control_profiles, :capacitors, :untyped,
+        :n_buses, :n_branches, :n_gens, :n_switches, :base_mva,
+        :base_frequency, :network_name, :reference_bus_id,
+        :reference_bus_indices, :n_components, :is_radial, :bus_type_code,
         # C library resolution.
-        :set_library!, :clear_library!,
+        :set_library!, :clear_library!, :abi_version, :library_version,
+        :library_available, :prob_available,
         # DC branch data and borrowed numerical views.
         :DcData, :dc_data, :BorrowedVector, :branch_flow,
+        :n_rows, :from_indices, :to_indices, :susceptance, :shift,
+        :shift_injection, :row_ids, :bus_ids, :omitted, :formula,
         # Materialized numeric views.
         :to_dense, :to_arrow, :ArrowTable, :release_c_data, :arrow_catalog,
         # Sparse system matrices.
         :calc_admittance_matrix, :calc_susceptance_matrix, :calc_incidence_matrix,
-        :calc_bprime_matrix, :calc_bdoubleprime_matrix,
+        :calc_bprime_matrix, :calc_bdoubleprime_matrix, :BusMappedMatrix,
         # The module's descriptive records: typed history and source rows.
         :ModuleHistoryEntry, :ModuleSource, :history, :sources,
         # Assembled DC matrices over the DC data spans.
         :incidence_matrix, :susceptance_laplacian, :flow_matrix, :bus_injection,
         # Ecosystem bridges.
         :to_powermodels, :from_powermodels, :to_powerdata, :parse_ac_power_data,
-        :read_gridfm, :read_gridfm_scenarios,
+        :read_gridfm, :read_gridfm_scenarios, :build_powermodels_ref,
+        :repair_powermodels_angle_bounds!,
         # Distribution availability and feature probes.
         :dist_available, :to_graph, :features, :has_feature, :schema_versions,
         :build_info, :arrow_available, :gridfm_available, :matrix_available,
+        :write_report_str,
     ))
     @test Set(names(PowerIO)) == exported
+
+    # Current user examples use the namespace that `using PowerIO` exports.
+    # Qualified calls remain appropriate only in Developer Guides that show
+    # `import PowerIO` or document compatibility internals.
+    root = dirname(@__DIR__)
+    current_guides = (
+        joinpath(root, "README.md"),
+        joinpath(root, "docs", "src", "index.md"),
+        joinpath(root, "docs", "src", "modules.md"),
+        joinpath(root, "docs", "src", "transmission.md"),
+        joinpath(root, "docs", "src", "matrices.md"),
+        joinpath(root, "docs", "src", "opf-backends.md"),
+        joinpath(root, "docs", "src", "distribution.md"),
+        joinpath(root, "docs", "src", "interop.md"),
+    )
+    for file in current_guides
+        text = read(file, String)
+        julia_blocks = [m.captures[1] for m in eachmatch(r"```julia\n(.*?)```"s, text)]
+        bad_blocks = [block for block in julia_blocks
+                      if occursin("PowerIO.", block) && !occursin("import PowerIO", block)]
+        @testset "unqualified examples in $(basename(file))" begin
+            @test isempty(bad_blocks)
+        end
+        @test !occursin("PowerIO.parse(", text)
+        for vague in (r"\benvelope\b"i, r"\bprovenance\b"i, r"\bstudy\b"i)
+            @test !occursin(vague, text)
+        end
+    end
 
     # The 0.3.0 compatibility bindings, the 0.9 package/SCOPF/untyped parse
     # surfaces, and the reserved OperatingPointSeries skeleton are all gone
@@ -91,7 +129,6 @@
     # names the SCOPF family in past tense while explaining what replaced
     # it, and migration-0.10.md exists specifically to name every removed
     # 0.9 entry point beside its replacement.
-    root = dirname(@__DIR__)
     excluded_pages = ("opf-backends.md", "migration-0.10.md")
     doc_files = [joinpath(root, "README.md")]
     for f in readdir(joinpath(root, "docs", "src"); join=true)
@@ -107,9 +144,7 @@
         end
     end
 
-    # The accessor API the ecosystem bridges read must exist. It stays
-    # unexported because the names collide with the packages a consumer
-    # loads beside this one; `n_buses` is the one exported exception.
+    # The ordinary accessor API is exported after `using PowerIO`.
     for sym in (:n_buses, :n_branches, :n_gens, :n_switches, :base_mva, :network_name,
                 :source_format, :reference_bus_id, :reference_bus_indices,
                 :n_components, :is_radial, :bus_type_code,
@@ -119,9 +154,21 @@
                 :base_frequency,
                 :abi_version, :library_version, :library_available)
         @test isdefined(PowerIO, sym)
+        @test sym in names(PowerIO)
     end
     @test isdefined(PowerIO, :AdmittanceMatrix)
     @test :AdmittanceMatrix ∉ names(PowerIO)
+    @test PowerIO.AdmittanceMatrix === BusMappedMatrix
+
+    # PowerModels spelling compatibility remains qualified; the public names
+    # avoid adding collisions to `using PowerModels, PowerIO`.
+    for sym in (:build_ref, :correct_voltage_angle_differences!,
+                :calc_branch_t, :calc_branch_y)
+        @test isdefined(PowerIO, sym)
+        @test sym ∉ names(PowerIO)
+    end
+    @test :build_powermodels_ref in names(PowerIO)
+    @test :repair_powermodels_angle_bounds! in names(PowerIO)
 
     # LoadSeries is the ExaModelsPower multiperiod-load bridge: still present,
     # now unexported (its whole family — n_periods, demands_mw,
@@ -168,6 +215,7 @@
     @test f.gridfm == PowerIO.gridfm_available()
     @test f.dist == PowerIO.dist_available()
     @test f.prob == PowerIO.prob_available()
+    @test f.prob == PowerIO.has_feature("prob")
     # pio_has_feature reports what the library was compiled with, an unknown
     # feature name is false, never an error.
     @test PowerIO.has_feature("no-such-feature") == false

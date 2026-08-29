@@ -1,8 +1,8 @@
 # Modules
 
 PowerIO 0.10 parses every source into a [`PioModule`](@ref): one typed value
-with its records — the retained source, the reader's findings, and the
-descriptive history — serialized as `.pio.json` version 1. This binding
+with its retained source, diagnostics, source map, and history. A `.pio.json`
+version 1 document serializes the value and durable records. This binding
 wraps the ABI v6 handle surface: structured error handles, the module entry
 points, and the DC branch data with borrowed array views.
 
@@ -27,7 +27,7 @@ inspect
 source_format
 write_file
 write_str
-PowerIO.write_report_str
+write_report_str
 write_json
 state_inventory
 select_state
@@ -88,8 +88,8 @@ p_branch = -Bf * va + b .* shift
 
 Numeric spans surface as [`BorrowedVector`](@ref) read only views that keep
 their owner handle alive; `copy` returns an ordinary mutable Julia array.
-The stable element mappings (`PowerIO.row_ids`, `PowerIO.bus_ids`,
-`PowerIO.omitted`) interpret every row without another network extraction.
+The stable element mappings (`row_ids`, `bus_ids`, and `omitted`) interpret
+every row without another network extraction.
 
 ```@docs
 DcData

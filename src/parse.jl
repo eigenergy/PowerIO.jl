@@ -1,5 +1,5 @@
 # The typed value accessors behind `PioModule` wrapping: each hands back an
-# owned network whose provenance is threaded on, so a same format write still
+# owned network with its retained source attached, so a same format write still
 # echoes the retained source bytes. Defined after the network types so the
 # constructors resolve.
 

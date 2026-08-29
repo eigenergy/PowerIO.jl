@@ -13,7 +13,7 @@ stacking or solver. A consumer builds a model or program from that instance.
 | `AcScucInstance` | AC SCUC | `powerio-prob` | the stored module (kind `ac_scuc_instance`) |
 
 A source that defines a calculation parses to that calculation's typed value:
-GO Challenge 3 JSON compiles to the `AcScucInstance` module kind through
+DOE GO Challenge 3 JSON compiles to the `AcScucInstance` module kind through
 [`parse_file`](@ref). The 0.9 SCOPF projection (`pio_scopf_*`, `ScopfInstance`,
 `parse_scopf`, `goc3_scopf_data`) is retired; consumers read the typed
 instance through the module surface or build from the matrix and dense table

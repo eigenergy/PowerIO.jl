@@ -26,7 +26,7 @@ accessors use, and the susceptance formula names (`series_susceptance`,
 | `kind` | `pio_module_kind` | `PioModule.kind` |
 | `state_inventory` / `select_state` | `pio_module_state_inventory_json` / `pio_module_export_state` | `.state_inventory()` / `.export_state()` |
 | `dc_data` | `pio_dc_data_build` | `BalancedNetwork.dc_data` |
-| `PowerIO.susceptance` | `pio_dc_data_susceptance` | `data["susceptance"]` |
-| `PowerIO.from_indices` / `PowerIO.to_indices` | `pio_dc_data_from_indices` / `..._to_indices` | `data["from_indices"]` / `data["to_indices"]` |
-| `PowerIO.row_ids` / `PowerIO.bus_ids` | `pio_dc_data_row_ids` / `..._bus_ids` | `data["row_ids"]` / `data["bus_ids"]` |
-| `PowerIO.omitted` | `pio_dc_data_omitted_ids` + `..._omitted_reasons` | `data["omitted_ids"]` + `data["omitted_reasons"]` |
+| `susceptance` | `pio_dc_data_susceptance` | `data["susceptance"]` |
+| `from_indices` / `to_indices` | `pio_dc_data_from_indices` / `..._to_indices` | `data["from_indices"]` / `data["to_indices"]` |
+| `row_ids` / `bus_ids` | `pio_dc_data_row_ids` / `..._bus_ids` | `data["row_ids"]` / `data["bus_ids"]` |
+| `omitted` | `pio_dc_data_omitted_ids` + `..._omitted_reasons` | `data["omitted_ids"]` + `data["omitted_reasons"]` |

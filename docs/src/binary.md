@@ -8,7 +8,7 @@ for each platform; users never compile it.
 1. A version tag on [eigenergy/powerio](https://github.com/eigenergy/powerio)
    triggers its `release-binaries` workflow, which builds
    `libpowerio_capi.<triplet>.tar.gz` with the `arrow`, `matrix`, `gridfm`,
-   `dist`, `pkg`, and `prob` features for Linux glibc (`x86_64`, `aarch64`),
+   `dist`, and `prob` features for Linux glibc (`x86_64`, `aarch64`),
    macOS (`x86_64`, `arm64`), and Windows (`x86_64`), and attaches the five
    tarballs to the GitHub release. Each tarball holds the cdylib under `lib/`
    (`bin/` on Windows), the C header under `include/`, and the licenses.
@@ -29,7 +29,7 @@ for each platform; users never compile it.
 
 `_lib()` resolves the library in this order:
 
-1. `PowerIO.set_library!(path)` / the `POWERIO_CAPI` environment variable
+1. `set_library!(path)` / the `POWERIO_CAPI` environment variable
    (the dev override),
 2. the saved Preferences.jl `library` override,
 3. a sibling `powerio` checkout's `target/{release,debug}` build,
@@ -40,8 +40,10 @@ On an unsupported platform the artifact lookup fails and the fallbacks keep a
 local build working.
 
 ```julia
-PowerIO.set_library!("/path/to/libpowerio_capi.dylib"; persist=true)
-PowerIO.clear_library!(persist=true)
+using PowerIO
+
+set_library!("/path/to/libpowerio_capi.dylib"; persist=true)
+clear_library!(persist=true)
 ```
 
 ## JLL
