@@ -345,7 +345,8 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         @test_logs (:warn, r"CANONICALIZE\.NORMALIZE\.GEN_COST_ABSENT") match_mode = :any to_powerdata(costless_net)
         @test_logs (:warn, r"CANONICALIZE\.NORMALIZE\.GEN_COST_ABSENT") match_mode = :any PowerIO.LoadSeries(costless_net, [1.0])
         # A costed case has nothing to report.
-        costed_net = parse_file(joinpath(data, "case9.m")).value
+        costed_module = parse_file(joinpath(data, "case9.m"))
+        costed_net = costed_module.value
         live = Val(:live)
         @test_logs min_level = Logging.Warn parse_ac_power_data(costed_net)
         @test_logs min_level = Logging.Warn to_powerdata(costed_net)
@@ -357,6 +358,15 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
               parse_ac_power_data(costed_net; filtered=true)
         @test parse_ac_power_data(costed_net, Float64, live) ==
               parse_ac_power_data(costed_net)
+        @test getfield(costed_net, :data) === nothing
+        @test to_powerdata(costed_module) == to_powerdata(costed_net, Float64, live)
+        @test to_powerdata(costed_module, Float32) ==
+              to_powerdata(costed_net, Float32, live)
+        @test parse_ac_power_data(costed_module) ==
+              parse_ac_power_data(costed_net, Float64, live)
+        @test parse_ac_power_data(costed_module, Float32, live) ==
+              parse_ac_power_data(costed_net, Float32, live)
+        @test getfield(costed_net, :data) === nothing
 
         # The closed bridge schema ignores fields added by newer model JSON
         # producers, including nested values and escaped string contents.

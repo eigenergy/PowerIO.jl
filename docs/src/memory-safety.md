@@ -32,7 +32,7 @@ Balanced network API: `pio_balanced_network_from_json`, `pio_balanced_network_to
 
 Arrow API: `pio_balanced_network_to_arrow` and `pio_arrow_catalog_json`, plus the Arrow array and schema release callbacks returned by the C Data Interface.
 
-Distribution API: `pio_multiconductor_network_summary_json`, `pio_multiconductor_network_to_json`, `pio_multiconductor_network_graph_json`, and the `pio_multiconductor_network_retain`/`pio_multiconductor_network_release` lifecycle; parsing and conversion go through the one parse and convert family above.
+Distribution API: `pio_multiconductor_network_summary_json`, `pio_multiconductor_network_to_json`, `pio_multiconductor_network_to_graph_json`, and the `pio_multiconductor_network_retain`/`pio_multiconductor_network_release` lifecycle; parsing and conversion go through the one parse and convert family above. The noun graph symbol remains a 0.10 compatibility alias.
 
 DC data API: `pio_dc_data_build`, the span accessors (`pio_dc_data_susceptance`, `..._from_indices`, `..._to_indices`, `..._row_ids`, `..._bus_ids`, `..._shift`, `..._omitted_ids`, `..._omitted_reasons`), and the `pio_dc_data_retain`/`pio_dc_data_release` lifecycle.
 

@@ -6,7 +6,8 @@ using SparseArrays
     if !(PowerIO.library_available() && PowerIO.arrow_available())
         @test_skip calc_admittance_matrix(m)
     else
-        net = parse_file(m).value
+        case_module = parse_file(m)
+        net = case_module.value
 
         # The path forms parse through the module and agree with the
         # network-first forms.
@@ -15,6 +16,17 @@ using SparseArrays
         @test calc_incidence_matrix(m).matrix == calc_incidence_matrix(net).matrix
         @test calc_bprime_matrix(m).matrix == calc_bprime_matrix(net).matrix
         @test calc_bdoubleprime_matrix(m).matrix == calc_bdoubleprime_matrix(net).matrix
+
+        # A parsed module is the ordinary input; forwarding reaches the same
+        # live value without materializing its JSON payload.
+        @test calc_admittance_matrix(case_module).matrix == calc_admittance_matrix(net).matrix
+        @test calc_susceptance_matrix(case_module).matrix == calc_susceptance_matrix(net).matrix
+        # The module overload uses the canonical branches by buses
+        # orientation. The network overload remains bus by branch for 0.10.
+        @test Matrix(calc_incidence_matrix(case_module)) ==
+              Matrix(calc_incidence_matrix(net).matrix)'
+        @test calc_bprime_matrix(case_module).matrix == calc_bprime_matrix(net).matrix
+        @test calc_bdoubleprime_matrix(case_module).matrix == calc_bdoubleprime_matrix(net).matrix
 
         if try
             to_arrow(m, :ybus)
@@ -54,6 +66,7 @@ using SparseArrays
             end
 
             ybus_coo = to_arrow(m, :ybus)
+            @test to_arrow(case_module, :ybus) == ybus_coo
             ybus_expected = sparse_from_coo(ybus_coo, ybus_coo.g .+ im .* ybus_coo.b)
             ybus = calc_admittance_matrix(net)
             @test ybus isa BusMappedMatrix{ComplexF64}

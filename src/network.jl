@@ -46,8 +46,7 @@ end
 """
     warnings(net::BalancedNetwork) -> Vector{String}
 
-The reader's findings as rendered `CODE: message` lines, the convenience
-twin of the typed records on [`diagnostics`](@ref). Needs a live handle.
+The reader's findings as rendered `CODE: message` lines. Needs a live handle.
 """
 function warnings(net::BalancedNetwork)
     h = _live_handle(net, "warnings")

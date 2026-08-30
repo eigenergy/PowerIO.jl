@@ -9,8 +9,9 @@ using PowerIO
 case = parse_file("case9.m")       # PioModule{BalancedNetwork}
 feeder = parse_file("switch.dss")  # PioModule{MulticonductorNetwork}
 case.value                         # the typed value; clones share its native allocation
-diagnostics(case)                  # the reader's findings, native records
-write_file(case, "copy.m")         # byte exact same format echo
+case.diagnostics                   # the reader's findings, native records
+calc_admittance_matrix(case)       # network operations also accept the module
+emit(case, "matpower", "copy.m")   # byte exact same format echo
 ```
 
 The value kind is detected from the source: balanced network formats
@@ -20,14 +21,15 @@ pandapower JSON, PyPSA CSV, Surge JSON), multiconductor distribution formats
 `AcScucInstance`, BMOPF → `McAcOpfInstance`, DeepMind OPFData →
 `AcOpfSolution`), time series and scenario profiles (PyPSA snapshot axes,
 Egret time keys, GridFM Parquet datasets), and the stored `.pio.json`
-document. `m.value` is the typed value. Matrix and conversion functions
-dispatch on network values, while inspection, state selection, and writing
-take the module itself.
+document. `m.value` is the typed value. Network accessors, matrices,
+normalization, conversion, inspection, state selection, and writing accept the
+module directly; `.value` remains available when explicit value dispatch is
+useful.
 
 The binding uses the `powerio-capi` C ABI (version 6): every handle keeps
 its owning library, borrowed numerical views root their owner, and failures
 carry structured [`Diagnostic`](@ref) records through
-[`PowerIOCError`](@ref). At first use the binding checks the library's ABI
+[`PowerIOError`](@ref). At first use the binding checks the library's ABI
 version and refuses a stale or mismatched library with both versions named.
 
 The C library resolves automatically: the bundled artifact, or a sibling
@@ -45,8 +47,9 @@ import SparseArrays
 
 # The typed module surface: the ordinary path after `using PowerIO`.
 export PioModule, parse_file, parse_bytes, kind, diagnostics,
-       write_file, write_str, write_json, inspect, source_format,
-       state_inventory, select_state, lower_to_balanced, lowering_readiness
+       emit, write_file, write_str, write_json, inspect, source_format,
+       state_inventory, select_state, to_balanced, to_balanced_report,
+       lower_to_balanced, lowering_readiness
 
 # The value families a module can hold.
 export BalancedNetwork, MulticonductorNetwork, TimeSeries, ScenarioSet,
@@ -57,7 +60,7 @@ export BalancedNetwork, MulticonductorNetwork, TimeSeries, ScenarioSet,
        McAcPfSolution, McAcOpfSolution, AcScucSolution
 
 # Structured findings and failures.
-export Diagnostic, SourceSpan, PowerIOCError
+export Diagnostic, SourceSpan, PowerIOError, PowerIOCError
 
 # Conversion and serialization over networks.
 export convert_file, convert_str, to_format, to_normalized,
@@ -66,30 +69,36 @@ export convert_file, convert_str, to_format, to_normalized,
 # Reading a parsed network.
 export warnings, buses, branches, generators, loads, shunts, storage, hvdc,
        lines, linecodes, switches, transformers, ibrs, control_profiles,
-       capacitors, untyped,
-       n_buses, n_branches, n_gens, n_switches, base_mva, base_frequency,
-       network_name, reference_bus_id, reference_bus_indices, n_components,
-       is_radial, bus_type_code
+       capacitors, voltage_sources, untyped,
+       n_buses, n_branches, n_generators, n_gens, n_switches, base_mva,
+       base_frequency, network_name, reference_bus_id, reference_bus_positions,
+       reference_bus_indices, n_islands, n_components, is_radial, bus_type_code
 
 # C library resolution.
 export set_library!, clear_library!, abi_version, library_version,
        library_available, prob_available
 # The module's descriptive records: typed history and source rows.
-export ModuleHistoryEntry, ModuleSource, history, sources
+export ModuleHistoryEntry, ModuleSource, history, module_sources, sources
 
-# Assembled DC matrices over the DC data spans.
-export incidence_matrix, susceptance_laplacian, flow_matrix, bus_injection
+# Calculated DC operators. Raw noun forms remain low level 0.10 compatibility
+# functions over `DcData`.
+export calc_incidence_matrix, calc_bus_susceptance_matrix,
+       calc_branch_susceptance_matrix, calc_phase_shift_injection,
+       calc_branch_flow_dc,
+       incidence_matrix,
+       susceptance_laplacian, flow_matrix, bus_injection
 
 # DC branch data and borrowed numerical views.
 export DcData, dc_data, BorrowedVector, branch_flow,
-       n_rows, from_indices, to_indices, susceptance, shift,
-       shift_injection, row_ids, bus_ids, omitted, formula
+       n_rows, from_bus_positions, to_bus_positions, from_indices, to_indices,
+       susceptance, shift,
+       shift_injection, branch_ids, row_ids, bus_ids, omitted, formula
 
 # Materialized numeric views.
 export to_dense, to_arrow, ArrowTable, release_c_data, arrow_catalog
 
 # Sparse system matrices (Rust matrix feature).
-export calc_admittance_matrix, calc_susceptance_matrix, calc_incidence_matrix,
+export calc_admittance_matrix, calc_susceptance_matrix,
        calc_bprime_matrix, calc_bdoubleprime_matrix, BusMappedMatrix
 
 # Ecosystem bridges (PowerModels, ExaModels, gridfm).

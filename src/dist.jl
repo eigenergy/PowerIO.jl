@@ -171,6 +171,7 @@ function dist_available()
 end
 
 _dist_graph_available() =
+    _exports_symbol(:pio_multiconductor_network_to_graph_json) ||
     _exports_symbol(:pio_multiconductor_network_graph_json)
 
 
@@ -194,7 +195,7 @@ _is_package_path(p) = endswith(lowercase(String(p)), ".pio.json")
 # per-phase detail, so the explicit package pass owns it.
 _cross_model_error(fname::AbstractString) = error(
     "PowerIO.$fname: no implicit conversion between the multiconductor and balanced " *
-    "models. Lower explicitly: parse_file the case, lower_to_balanced the module, " *
+    "models. Convert explicitly: parse_file the case, to_balanced the module, " *
     "and write the balanced result.")
 
 # --- parse and materialize ------------------------------------------------
@@ -270,7 +271,6 @@ function _live_dist_handle(net::MulticonductorNetwork, fname::AbstractString)
     return h
 end
 
-
 """
     from_json(MulticonductorNetwork, text) -> MulticonductorNetwork
 
@@ -317,6 +317,8 @@ transformers(net::MulticonductorNetwork) = _mc_table(net, :transformers)
 loads(net::MulticonductorNetwork) = _mc_table(net, :loads)
 "Generators, each with a `terminal_map` and optional per-conductor `s_max` (VA) / `i_max` (A)."
 generators(net::MulticonductorNetwork) = _mc_table(net, :generators)
+"Number of generator rows in a multiconductor network."
+n_generators(net::MulticonductorNetwork) = Int(_summary(net).counts.generators)
 "Inverter-based resources, each with a `terminal_map`. Empty unless the source case carries them."
 ibrs(net::MulticonductorNetwork) = _mc_table(net, :ibrs)
 "Control profiles attached to controllable elements. Empty unless the source case carries them."
@@ -327,6 +329,8 @@ shunts(net::MulticonductorNetwork) = _mc_table(net, :shunts)
 capacitors(net::MulticonductorNetwork) = _mc_table(net, :capacitors)
 "Voltage sources, each with a `terminal_map` and per-terminal magnitude/angle."
 sources(net::MulticonductorNetwork) = _mc_table(net, :sources)
+"Voltage source elements, under an explicit name that does not overlap module source records."
+voltage_sources(net::MulticonductorNetwork) = sources(net)
 "Elements the reader kept verbatim because they have no typed slot."
 untyped(net::MulticonductorNetwork) = _mc_table(net, :untyped)
 

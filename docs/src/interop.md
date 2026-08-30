@@ -6,10 +6,10 @@
 | BMOPFTools.jl | both | PowerIO backed OpenDSS / BMOPF conversion |
 | ExaModelsPower.jl / ExaPowerIO.jl | out | [`to_powerdata`](@ref) / [`parse_ac_power_data`](@ref) |
 | PowerGridPlanning.jl | out | [`to_powermodels`](@ref), [`build_powermodels_ref`](@ref), and [`repair_powermodels_angle_bounds!`](@ref) |
-| stored `.pio.json` module | both | [`parse_file`](@ref) / [`write_json`](@ref) / `m.value` |
+| stored `.pio.json` module | both | [`parse_file`](@ref) / [`to_json`](@ref) / `m.value` |
 | GridFM (gridfm-datakit Parquet) | in | [`read_gridfm`](@ref) / [`read_gridfm_scenarios`](@ref) |
 | [PowerDiff.jl](https://github.com/grid-opt-alg-lab/PowerDiff.jl) | out | PowerDiff depends on PowerIO as its parser and data layer |
-| OpenDSS / PMD / IEEE BMOPF | both | [`parse_file`](@ref) / `to_format`; see [Distribution networks](distribution.md) |
+| OpenDSS / PMD / IEEE BMOPF | both | [`parse_file`](@ref) / [`emit`](@ref); see [Distribution networks](distribution.md) |
 
 ## PowerModels.jl
 
@@ -20,8 +20,8 @@ consumes. [`from_powermodels`](@ref) reads one back.
 ```julia
 using PowerIO
 
-net = parse_file("case14.m").value
-data = to_powermodels(net)      # Dict{String,Any} with "bus", "branch", "gen", ...
+case = parse_file("case14.m")
+data = to_powermodels(case)     # Dict{String,Any} with "bus", "branch", "gen", ...
 net2 = from_powermodels(data)
 ```
 
@@ -29,7 +29,7 @@ PowerIO also exposes the reference dictionary helpers used by PowerModels style
 packages:
 
 ```julia
-data = to_powermodels(parse_file("case14.m").value)
+data = to_powermodels(parse_file("case14.m"))
 repair_powermodels_angle_bounds!(data)
 ref = build_powermodels_ref(data)
 ```
@@ -53,8 +53,9 @@ consumed by ExaModelsPower's `build_polar_opf`, `build_rect_opf`, and
 `build_dcopf` — GPU-ready struct-of-arrays with per unit conversion applied.
 
 ```julia
-pd = to_powerdata("case14.m")
-ac = parse_ac_power_data("case14.m")
+case = parse_file("case14.m")
+pd = to_powerdata(case)
+ac = parse_ac_power_data(case)
 ac.bus, ac.gen, ac.branch, ac.arc, ac.ref_buses
 ```
 
@@ -79,7 +80,7 @@ using PowerIO: parse_file, to_powermodels, build_powermodels_ref
 import PowerGridPlanning
 
 network = PowerGridPlanning.load_network("case14.m")
-data = to_powermodels(parse_file("case14.m").value)
+data = to_powermodels(parse_file("case14.m"))
 ref = build_powermodels_ref(data)
 ```
 
@@ -91,13 +92,13 @@ C ABI surface.
 
 ```julia
 m = parse_file("case14.m")               # ::PioModule{BalancedNetwork}
-doc = write_json(m)                      # the stored version 1 document
-net = parse_bytes(codeunits(doc); name="case.pio.json").value
+doc = to_json(m)                         # the stored version 1 document
+back = from_json(PioModule, doc)
 
 kind(m)                                  # "balanced_network"
-diagnostics(m)                           # structured diagnostic records
+m.diagnostics                            # structured diagnostic records
 history(m)                               # descriptive history entries
-sources(m)                               # source descriptors
+module_sources(m)                        # source descriptors
 ```
 
 Multiconductor modules check their lowering readiness and lower explicitly;

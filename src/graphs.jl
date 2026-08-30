@@ -33,17 +33,22 @@ end
     to_graph(net::MulticonductorNetwork)
 
 Return the collapsed bus and terminal graph projection as a JSON3 object.
-Needs a live handle from [`parse_file`](@ref) or [`parse_bytes`](@ref), and a
-library exporting `pio_multiconductor_network_graph_json`.
+Needs a live handle from [`parse_file`](@ref), including its `IO` method, and a
+library exporting `pio_multiconductor_network_to_graph_json`.
 """
 function to_graph(net::MulticonductorNetwork)
     h = _live_dist_handle(net, "to_graph")
     lib = getfield(h, :lib)
-    _exports_symbol(:pio_multiconductor_network_graph_json, lib) || error(
-        "PowerIO.to_graph: the C ABI at \"$lib\" does not export " *
-        "pio_multiconductor_network_graph_json. Update the powerio-capi artifact or local library.")
+    symbol = if _exports_symbol(:pio_multiconductor_network_to_graph_json, lib)
+        :pio_multiconductor_network_to_graph_json
+    elseif _exports_symbol(:pio_multiconductor_network_graph_json, lib)
+        :pio_multiconductor_network_graph_json
+    else
+        error("PowerIO.to_graph: the C ABI at \"$lib\" does not export " *
+              "pio_multiconductor_network_to_graph_json. Update the powerio-capi artifact or local library.")
+    end
     s = GC.@preserve h _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_multiconductor_network_graph_json), Cstring,
+        ccall(_library_symbol(lib, symbol), Cstring,
               (Ptr{Cvoid}, Ptr{Ptr{Cvoid}}), h.ptr, err)
     end
     s == C_NULL && error("PowerIO.to_graph: the projection was refused")

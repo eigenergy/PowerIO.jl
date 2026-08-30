@@ -3,7 +3,8 @@
         @test_skip parse_file("case14.m").value
     else
         data = joinpath(@__DIR__, "data")
-        net = parse_file(joinpath(data, "case14.m")).value
+        case_module = parse_file(joinpath(data, "case14.m"))
+        net = case_module.value
 
         # write_pypsa_csv_folder writes a directory and round-trips back through
         # the pypsa-csv reader; bus count and base_mva survive the model crossing.
@@ -32,10 +33,13 @@
         # n_components / is_radial read the C ABI connectivity scalars directly;
         # they must match the dense tables (case14 is one connected, looped component).
         dense = PowerIO.to_dense(net)
+        @test to_dense(case_module).bus_ids == dense.bus_ids
         @test PowerIO.n_components(net) == dense.n_components == 1
+        @test n_islands(case_module) == dense.n_components
         @test PowerIO.is_radial(net) == dense.is_radial == false
 
         graph = PowerIO._json_plain(to_graph(net))
+        @test PowerIO._json_plain(to_graph(case_module)) == graph
         @test length(graph["buses"]) == PowerIO.n_buses(net)
         @test length(graph["edges"]) == count(br -> get(br, :in_service, true), PowerIO.branches(net))
         @test any(bus -> bus["id"] == 1 && bus["index"] == 0 && bus["kind"] == "REF",
@@ -55,7 +59,8 @@ end
         # parse_file from an IO matches parse_file from a path field-for-field,
         # except `name`: a path parse takes the case name from the file stem
         # ("case14"), an in-memory parse has no path so the core defaults it.
-        net = parse_file(joinpath(data, "case14.m")).value
+        case_module = parse_file(joinpath(data, "case14.m"))
+        net = case_module.value
         nets = parse_bytes(IOBuffer(mtext); format="matpower").value
         @test PowerIO.source_format(nets) == "matpower"
         @test PowerIO.n_buses(nets) == PowerIO.n_buses(net)
@@ -70,8 +75,10 @@ end
         # Compare against the network-first form instead, which is unaffected.
         @test to_dense(net).gen.bus == to_dense(parse_file(joinpath(data, "case14.m")).value).gen.bus
         @test to_dense(net).branch.x ≈ to_dense(parse_file(joinpath(data, "case14.m")).value).branch.x
+        @test to_dense(case_module).branch.x ≈ to_dense(net).branch.x
         # to_matpower(net) equals the file->MATPOWER conversion (byte-exact) and round-trips.
         @test to_matpower(net) == convert_file(joinpath(data, "case14.m"), "matpower")[1]
+        @test to_matpower(case_module) == to_matpower(net)
         @test PowerIO.n_buses(parse_bytes(IOBuffer(to_matpower(net)); format="matpower").value) == 14
         @test JSON3.read(to_json(net)).base_mva == PowerIO.base_mva(net)
 
@@ -90,6 +97,8 @@ end
         # case14 buses are already 1..14; norm_tiny below exercises filtering
         # while preserving non-contiguous source ids.
         norm = to_normalized(net)
+        norm_from_module = to_normalized(case_module)
+        @test to_json(norm_from_module) == to_json(norm)
         @test PowerIO.source_format(norm) == "normalized"
         @test PowerIO.n_buses(norm) == 14
         @test [Int(b.id) for b in PowerIO.buses(norm)] == collect(1:14)
@@ -100,6 +109,8 @@ end
         @test all(kind(i) == "PV" for i in (2, 3, 6, 8))         # gen buses
         @test all(kind(i) == "PQ" for i in (4, 5, 7, 9, 10, 11, 12, 13, 14))
         @test PowerIO.reference_bus_id(norm) == 1
+
+        @test to_powermodels(case_module) == to_powermodels(net)
 
         # norm_tiny: ids 1,3,5,8 with bus 8 ISOLATED; branch 1-5 out of service
         # and branch 5-8 onto the dropped bus. Normalized keeps source ids on

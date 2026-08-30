@@ -34,17 +34,15 @@ otherwise); `format` overrides.
 ## The same verbs, routed by format
 
 ```julia
-net = parse_file("switch.dss").value            # ::MulticonductorNetwork
-net = parse_bytes(IOBuffer(text); format="dss").value
-text, warnings = to_format(net, "pmd")    # dispatches on the network type
-bmopf, _ = convert_file("switch.dss", "bmopf")
-pmd, _   = convert_str(text, "pmd"; from="dss")
-
-net.warnings            # parse warnings, retained on the handle
+case = parse_file("switch.dss")                  # ::PioModule{MulticonductorNetwork}
+net = case.value                                  # optional explicit value access
+pmd_text, findings = emit(case, "pmd")            # dispatches on the value type
+bmopf, findings = emit(case, "bmopf")
+case.diagnostics                                  # native diagnostic records
 ```
 
 Writing back to the format the case was parsed from echoes the source byte for
-byte; a cross-format write reports every fidelity loss in `warnings`.
+byte; a cross format write returns every fidelity loss as a diagnostic.
 
 Pin the parser explicitly with `format` when you want to pin the model
 instead of routing on the extension: `parse_file(path; format="pmd")` and
@@ -52,7 +50,7 @@ instead of routing on the extension: `parse_file(path; format="pmd")` and
 matter the extension, and the balanced format tokens reach the balanced
 parsers the same way. Cross-model requests
 (`convert_file("switch.dss", "matpower")`) are a directed error: lowering is
-explicit, through `lower_to_balanced` below.
+explicit, through `to_balanced` below.
 
 ## Inspecting a case
 
@@ -78,13 +76,14 @@ loads(net)                # terminal map plus a voltage model
 generators(net)
 shunts(net)
 switches(net)
-sources(net)              # per terminal magnitude and angle
+voltage_sources(net)      # per terminal magnitude and angle
 ibrs(net)                 # inverter based resources
 control_profiles(net)
 capacitors(net)           # rated banks: q_rated (var), v_nom (V)
 untyped(net)              # elements retained without a typed slot
 
 n_buses(net)
+n_generators(net)
 base_frequency(net)       # Hz
 network_name(net)         # Union{String,Nothing}
 source_format(net)        # "dss", "pmd-json", "bmopf-json", or nothing
@@ -114,15 +113,18 @@ directly.
 
 ```julia
 m = parse_file("switch.dss")            # ::PioModule{MulticonductorNetwork}
-write_file(m, "feeder.pio.json"; format="pio-json")
-back = parse_file("feeder.pio.json").value
-exchange, _ = to_format(back, "bmopf")  # for everything else
+emit(m, "pio-json", "feeder.pio.json")
+back = parse_file("feeder.pio.json")
+exchange, _ = emit(back, "bmopf")       # for everything else
 ```
 
 Supported multiconductor modules lower explicitly to balanced ones:
 
 ```julia
-report = lowering_readiness(m)          # what would lowering lose?
-lowered = lower_to_balanced(m)          # picks a base_mva
+report = to_balanced_report(m)          # what would conversion lose?
+lowered = to_balanced(m)                # picks a base_mva
 net = lowered.value                     # ::BalancedNetwork
 ```
+
+`lowering_readiness` and `lower_to_balanced` remain silent compatibility
+aliases throughout 0.10.

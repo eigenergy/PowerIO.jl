@@ -15,10 +15,9 @@ through the PowerIO Rust library and exposes typed values through Julia.
 using PowerIO
 
 module_ = parse_file("case14.m")       # PioModule{BalancedNetwork}
-network = module_.value
-n_buses(network)                       # 14
-diagnostics(module_)                   # Vector{Diagnostic}
-write_file(module_, "copy.m")         # byte exact same format write
+n_buses(module_)                       # 14
+module_.diagnostics                    # Vector{Diagnostic}
+emit(module_, "matpower", "copy.m")  # byte exact same format write
 ```
 
 [Read the documentation](https://eigenergy.github.io/PowerIO.jl).
@@ -35,7 +34,7 @@ a local Rust build.
 
 ## Values and formats
 
-`parse_file` and `parse_bytes` detect the value kind from the source. A
+`parse_file` detects the value kind from a path or stream. A
 `PioModule{T}` contains one typed value plus its sources, diagnostics, source
 map, and history. The value can be a network, calculation instance, solution,
 time series, or scenario set.
@@ -49,9 +48,8 @@ supported PyPSA or Egret profiles can produce scenario sets or time series.
 
 ```julia
 feeder_module = parse_file("feeder.dss")
-feeder = feeder_module.value             # MulticonductorNetwork
-lines(feeder)
-transformers(feeder)
+lines(feeder_module)
+transformers(feeder_module)
 
 scuc = parse_file("scenario_002.json")   # PioModule{AcScucInstance}
 ```
@@ -68,21 +66,25 @@ egret = parse_file("grid.json"; format="egret")
 The exported accessors work without a `PowerIO.` prefix after `using PowerIO`.
 
 ```julia
-network = parse_file("case14.m").value
+case = parse_file("case14.m")
 
-buses(network)
-branches(network)
-generators(network)
-base_mva(network)
-reference_bus_indices(network)
+buses(case)
+branches(case)
+generators(case)
+base_mva(case)
+reference_bus_positions(case)
 
-ybus = calc_admittance_matrix(network)   # BusMappedMatrix{ComplexF64}
+ybus = calc_admittance_matrix(case)      # BusMappedMatrix{ComplexF64}
 Y = ybus.matrix                          # SparseMatrixCSC
-A = calc_incidence_matrix(network).matrix
+A = calc_incidence_matrix(case)          # branches by buses
+B = calc_bus_susceptance_matrix(case)    # buses by buses
+Bf = calc_branch_susceptance_matrix(case) # branches by buses
+p_shift = calc_phase_shift_injection(case)
 ```
 
 `BusMappedMatrix` keeps the sparse matrix together with `idx_to_bus` and
-`bus_to_idx`. Incidence rows are buses and its columns are branches.
+`bus_to_idx`. The canonical DC calculations use `calc_*` verbs and follow the
+PowerModels branch by bus incidence convention.
 
 ## Writing and conversion
 
@@ -91,16 +93,17 @@ conversion reports fields the destination cannot represent as diagnostics.
 
 ```julia
 module_ = parse_file("case14.m")
-write_file(module_, "copy.m")
+emit(module_, "matpower", "copy.m")
 
-text, findings = convert_file("case14.m", "psse")
-pm_data = to_powermodels(module_.value)
+text, findings = emit(module_, "psse")
+pm_data = to_powermodels(module_)
 ref = build_powermodels_ref(pm_data)
 ```
 
-`write_json(module_)` writes the versioned `.pio.json` module document.
-`to_json(network)` and `from_json(text)` read and write the balanced network
-model JSON used inside PowerIO.
+`to_json(module_)` writes the versioned `.pio.json` module document and
+`from_json(PioModule, text)` reads it. `to_json(module_.value)` and
+`from_json(BalancedNetwork, text)` read and write only the balanced network
+model JSON.
 
 ## Package structure
 

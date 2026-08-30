@@ -3,8 +3,8 @@
 PowerIO 0.10 parses every source into a [`PioModule`](@ref): one typed value
 with its retained source, diagnostics, source map, and history. A `.pio.json`
 version 1 document serializes the value and durable records. This binding
-wraps the ABI v6 handle surface: structured error handles, the module entry
-points, and the DC branch data with borrowed array views.
+wraps the ABI v6 handle surface: structured error handles, module entry
+points, and numerical operators.
 
 Every handle is an independently owned reference over an immutable value.
 Releasing a parent never invalidates a retained child, and every ccall on a
@@ -18,23 +18,26 @@ naming both versions before any other ccall runs.
 ```@docs
 PioModule
 parse_file
-parse_bytes
 kind
 diagnostics
 Diagnostic
 SourceSpan
 inspect
 source_format
-write_file
-write_str
-write_report_str
-write_json
+emit
+to_json(::PioModule)
+from_json(::Type{PioModule}, ::AbstractString)
 state_inventory
 select_state
-lowering_readiness
-lower_to_balanced
-PowerIOCError
+to_balanced_report
+to_balanced
+PowerIOError
 ```
+
+`m.diagnostics` is the preferred field-like spelling; `diagnostics(m)` remains
+a 0.10 compatibility function. Output goes through `emit`:
+`emit(m, "matpower")` returns text and findings, while
+`emit(m, "matpower", "case.m")` writes to a file or directory.
 
 ## Typed values
 
@@ -63,16 +66,41 @@ McAcOpfSolution
 AcScucSolution
 ```
 
+A balanced network or balanced operating point time series follows Julia's
+integer collection conventions:
+
+```julia
+series = parse_file("network.csv"; format="pypsa-csv")
+length(series)
+first_state = series[1]       # a selected PioModule
+for state in series
+    n_buses(state)
+end
+```
+
+A multiconductor operating point series keeps its typed value and explicit
+`state_inventory`, but has no collection indexing until terminal state has a
+lossless static network representation. `select_state` returns the structured
+`REQUEST.STATE.UNBOUND_EXPORT` refusal instead of inventing that mapping.
+
+A scenario set uses its scenario identifiers as string keys:
+
+```julia
+ids = keys(scenarios)
+state = scenarios[first(ids)]
+```
+
 ## Typed records
 
 ```@docs
 ModuleHistoryEntry
 ModuleSource
 history
+module_sources
 sources
 ```
 
-## DC branch data
+## DC matrices and flows
 
 The public equations and signs match PowerModels directly:
 
@@ -86,34 +114,24 @@ p_bus    = -B * va + p_shift
 p_branch = -Bf * va + b .* shift
 ```
 
-Numeric spans surface as [`BorrowedVector`](@ref) read only views that keep
-their owner handle alive; `copy` returns an ordinary mutable Julia array.
-The stable element mappings (`row_ids`, `bus_ids`, and `omitted`) interpret
-every row without another network extraction.
+The module methods return the canonical matrices directly. The selected
+formula defaults to series susceptance and can be changed with the `formula`
+keyword.
 
-```@docs
-DcData
-dc_data
-BorrowedVector
-branch_flow
-PowerIO.n_rows
-PowerIO.n_buses(::DcData)
-PowerIO.from_indices
-PowerIO.to_indices
-PowerIO.susceptance
-PowerIO.shift
-PowerIO.shift_injection
-PowerIO.row_ids
-PowerIO.bus_ids
-PowerIO.omitted
-PowerIO.formula
+```julia
+case = parse_file("case14.m")
+A = calc_incidence_matrix(case)              # branches by buses
+B = calc_bus_susceptance_matrix(case)        # buses by buses
+Bf = calc_branch_susceptance_matrix(case)    # branches by buses
+p_shift = calc_phase_shift_injection(case)   # buses
+f = calc_branch_flow_dc(case, voltage_angles)
+p = A' * f                              # bus injections
 ```
 
-## Assembled matrices
-
 ```@docs
-incidence_matrix
-susceptance_laplacian
-flow_matrix
-bus_injection
+PowerIO.calc_incidence_matrix(::PioModule{BalancedNetwork})
+PowerIO.calc_bus_susceptance_matrix(::PioModule{BalancedNetwork})
+PowerIO.calc_branch_susceptance_matrix(::PioModule{BalancedNetwork})
+PowerIO.calc_phase_shift_injection(::PioModule{BalancedNetwork})
+PowerIO.calc_branch_flow_dc(::PioModule{BalancedNetwork}, ::AbstractVector{<:Real})
 ```

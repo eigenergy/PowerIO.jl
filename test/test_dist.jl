@@ -138,12 +138,15 @@ end
         # The distribution case shares the transmission verbs: the bare verb
         # routes on format/extension, to_format dispatches on the handle, and
         # findings come from the module surface.
-        net = parse_file(dss).value
+        case_module = parse_file(dss)
+        net = case_module.value
         @test net isa MulticonductorNetwork
         @test getfield(net, :data) === nothing
         @test _mc_diag_messages(net) isa Vector{String}
         @test getfield(net, :data) === nothing
         @test PowerIO.n_buses(net) == 4
+        @test n_buses(case_module) == n_buses(net)
+        @test n_generators(case_module) == n_generators(net)
         @test PowerIO.source_format(net) == "dss"
         @test PowerIO.base_frequency(net) == 60.0
         @test net.source_format == "dss"
@@ -158,12 +161,21 @@ end
         @test getfield(net, :data) === nothing
         g = to_graph(net)
         @test !isempty(g.buses)
+        @test to_graph(case_module) == g
+
+        # Module sources are input records; voltage sources are electrical
+        # elements. The explicit names keep the two meanings separate while
+        # both old `sources` dispatches remain available.
+        input_rows = module_sources(case_module)
+        @test length(input_rows) == length(sources(case_module)) == 1
+        @test only(input_rows).name == only(sources(case_module)).name
 
         # Same-format write echoes the source byte for byte and finds nothing.
         echo, echo_findings = to_format(net, "dss")
         @test echo == read(dss, String)
         @test isempty(echo_findings)
         @test getfield(net, :data) === nothing
+        @test voltage_sources(case_module) == voltage_sources(net) == sources(net)
 
         # A cross-format write exercises a second writer (PMD ENGINEERING JSON)
         # and the fidelity findings vector.
@@ -193,13 +205,15 @@ end
         """
         m = parse_bytes(codeunits(lowerable); name="lowerable.dss", format="dss")
         @test kind(m) == "multiconductor_network"
-        readiness = lowering_readiness(m; base_mva = 50.0)
+        readiness = to_balanced_report(m; base_mva = 50.0)
         @test readiness isa JSON3.Object
-        lowered = lower_to_balanced(m; base_mva = 75.0)
+        @test lowering_readiness(m; base_mva = 50.0) == readiness
+        lowered = to_balanced(m; base_mva = 75.0)
         @test kind(lowered) == "balanced_network"
         bal = lowered.value
         @test bal isa BalancedNetwork
         @test PowerIO.base_mva(bal) == 75.0
+        @test kind(lower_to_balanced(m; base_mva = 75.0)) == "balanced_network"
 
         # The in-memory parser matches the file parser on the round trip.
         net_str = parse_bytes(codeunits(read(dss, String)); name="switch.dss", format="dss").value
@@ -338,7 +352,7 @@ end
 
         # Cross-model requests are directed errors, both directions.
         @test_throws ErrorException convert_file(dss, "matpower")
-        @test occursin("lower_to_balanced",
+        @test occursin("to_balanced",
                        try convert_file(dss, "matpower"); "" catch e; sprint(showerror, e) end)
         @test_throws ErrorException convert_file(joinpath(@__DIR__, "data", "case14.m"), "bmopf")
         @test_throws ErrorException convert_str(dss_text, "matpower"; from="dss")

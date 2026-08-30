@@ -107,6 +107,8 @@ shunts(net::BalancedNetwork) = net.data.shunts::JSON3.Array
 storage(net::BalancedNetwork) = net.data.storage::JSON3.Array
 "Two-terminal HVDC lines (MATPOWER `dcline`); empty unless the source carries them."
 hvdc(net::BalancedNetwork) = net.data.hvdc::JSON3.Array
+"Ideal switch rows; empty unless the source carries them."
+switches(net::BalancedNetwork) = net.data.switches::JSON3.Array
 
 """
     n_gens(net) -> Int
@@ -117,6 +119,14 @@ every row, not in-service-filtered.
 function n_gens(net::BalancedNetwork)
     return Int(_summary(net).counts.generators)
 end
+
+"""
+    n_generators(net::BalancedNetwork) -> Int
+
+Number of generator rows. This is the descriptive spelling of [`n_gens`](@ref)
+and dispatches across both network families.
+"""
+n_generators(net::BalancedNetwork) = n_gens(net)
 
 """
     n_switches(net) -> Int
@@ -184,6 +194,15 @@ function reference_bus_indices(net::BalancedNetwork)
 end
 
 """
+    reference_bus_positions(net::BalancedNetwork) -> Vector{Int}
+
+The 1-based positions of every reference bus in dense bus order. These values
+index `to_dense(net).bus_ids` directly. [`reference_bus_indices`](@ref) remains
+the zero based C index view for compatibility.
+"""
+reference_bus_positions(net::BalancedNetwork) = reference_bus_indices(net) .+ 1
+
+"""
     n_components(net) -> Int
 
 Number of connected components of the in-service topology, as the C ABI computes it
@@ -195,6 +214,14 @@ function n_components(net::BalancedNetwork)
     n === nothing && error("PowerIO.n_components: this BalancedNetwork has no live network handle")
     return Int(n)
 end
+
+"""
+    n_islands(net::BalancedNetwork) -> Int
+
+Number of electrical islands in the in-service topology. This is the power
+system spelling of [`n_components`](@ref).
+"""
+n_islands(net::BalancedNetwork) = n_components(net)
 
 """
     is_radial(net) -> Bool

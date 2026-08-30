@@ -35,6 +35,7 @@ _has_v6 = PowerIO.library_available() &&
         @test err isa PowerIOCError
         @test occursin(".", err.code)
         @test !isempty(err.message)
+        @test startswith(sprint(showerror, err), "PowerIOError [")
 
         m = PowerIO.parse_module(case9)
         err = try
@@ -226,6 +227,9 @@ _has_v6 = PowerIO.library_available() &&
         ))
         pio = PowerIO._wrap_module(PowerIO.read_module(doc))
         @test pio isa PioModule{TimeSeries{OperatingPoint{MulticonductorNetwork}}}
+        @test !applicable(length, pio)
+        @test !applicable(getindex, pio, 1)
+        @test length(state_inventory(pio).time_points) == 2
         err = try
             select_state(pio; time=1)
             nothing
@@ -296,7 +300,7 @@ end
     \t1\t2\t0.01\t0.1\t0\t0\t0\t0\t1\t5\t1\t-360\t360;
     ];
     """
-    d = dc_data(parse_bytes(codeunits(shifted); format="matpower"))
+    d = dc_data(parse_file(IOBuffer(shifted); name="case2shift.m", format="matpower"))
     @test any(!iszero, PowerIO.shift_injection(d))
 
     a = incidence_matrix(d)
@@ -316,6 +320,126 @@ end
     @test !(p_branch ≈ -b .* dva)
 end
 
+@testset "canonical DC positions, matrices, and phase shifted flow" begin
+    if !_has_v6
+        @test_skip "the resolved library predates the ABI v6 entry points"
+        return
+    end
+
+    # Three buses, two generators at the reference bus, and one ten degree
+    # phase shifter. This is the binding copy of PowerIO's API conformance
+    # case, kept inline so the language packages exercise the same contract
+    # without a second fixture file.
+    source = """
+    function mpc = api_conformance
+    mpc.version = '2';
+    mpc.baseMVA = 100;
+    mpc.bus = [
+        1 3  0  0 0 0 1 1.0 0 230 1 1.1 0.9;
+        2 1 30 10 0 0 1 1.0 0 230 1 1.1 0.9;
+        3 1 20  5 0 0 1 1.0 0 230 1 1.1 0.9;
+    ];
+    mpc.gen = [
+        1 25 0 30 -30 1.0 100 1 100 0;
+        1 15 0 20 -20 1.0 100 1  80 0;
+    ];
+    mpc.branch = [
+        1 2 0.01 0.1 0 250 250 250 0  0 1 -30 30;
+        1 3 0.02 0.2 0 250 250 250 0 10 1 -30 30;
+    ];
+    mpc.gencost = [
+        2 0 0 3 0.01 1.0 0;
+        2 0 0 3 0.02 0.5 0;
+    ];
+    """
+    m = parse_file(IOBuffer(source); name="api_conformance.m", format="matpower")
+    @test n_buses(m) == 3
+    @test n_generators(m) == n_gens(m) == 2
+    @test all(g -> Int(g.bus) == 1, generators(m))
+    @test reference_bus_indices(m) == [0]
+    @test reference_bus_positions(m) == [1]
+    @test n_islands(m) == n_components(m) == 1
+
+    # Raw DcData remains as 0.10 compatibility. These assertions pin its
+    # positions, orientation, and signs against the canonical module methods
+    # checked below.
+    d = dc_data(m)
+    @test PowerIO.n_rows(d) == n_branches(d) == 2
+    @test branch_ids(d) == row_ids(d) == ["branches:0", "branches:1"]
+    @test bus_ids(d) == ["1", "2", "3"]
+    @test collect(from_indices(d)) == [0, 0]
+    @test collect(PowerIO.to_indices(d)) == [1, 2]
+    @test from_bus_positions(d) == [1, 1]
+    @test to_bus_positions(d) == [2, 3]
+
+    b = [-0.1 / (0.01^2 + 0.1^2), -0.2 / (0.02^2 + 0.2^2)]
+    row_shift = [0.0, 10pi / 180]
+    @test collect(susceptance(d)) ≈ b atol=1e-12
+    @test collect(shift(d)) ≈ row_shift atol=1e-12
+
+    a = [1.0 -1.0 0.0; 1.0 0.0 -1.0]
+    b_bus = [b[1] + b[2] -b[1] -b[2];
+             -b[1] b[1] 0.0;
+             -b[2] 0.0 b[2]]
+    b_branch = [b[1] -b[1] 0.0; b[2] 0.0 -b[2]]
+    p_shift = a' * (b .* row_shift)
+
+    @test Matrix(incidence_matrix(d)) == a
+    @test Matrix(susceptance_laplacian(d)) ≈ b_bus atol=1e-12
+    @test Matrix(flow_matrix(d)) ≈ b_branch atol=1e-12
+    @test collect(shift_injection(d)) ≈ p_shift atol=1e-12
+    @test b_bus ≈ b_bus' atol=1e-12
+
+    va = [0.1, 0.0, -0.05]
+    expected_branch = -b_branch * va + b .* row_shift
+    expected_bus = -b_bus * va + p_shift
+    @test branch_flow(d, va) ≈ expected_branch atol=1e-12
+    @test bus_injection(d, va) ≈ expected_bus atol=1e-12
+    @test a' * expected_branch ≈ expected_bus atol=1e-12
+
+    # Module calculations use the canonical branch by bus DC matrices. The
+    # BalancedNetwork and path calc_incidence_matrix overloads retain their
+    # 0.10 bus by branch orientation until 1.0.
+    @test calc_incidence_matrix(m) == incidence_matrix(d)
+    @test calc_bus_susceptance_matrix(m) == susceptance_laplacian(d)
+    @test calc_branch_susceptance_matrix(m) == flow_matrix(d)
+    @test calc_phase_shift_injection(m) ≈ p_shift atol=1e-12
+    @test calc_branch_flow_dc(m, va) ≈ expected_branch atol=1e-12
+    @test -calc_bus_susceptance_matrix(m) * va +
+          calc_phase_shift_injection(m) ≈ expected_bus atol=1e-12
+    if matrix_available() && arrow_available()
+        @test Matrix(calc_incidence_matrix(m)) == a
+    end
+
+    omitted_source = replace(
+        source,
+        "1 3 0.02 0.2 0 250 250 250 0 10 1 -30 30;" =>
+            "1 3 0.02 0.2 0 250 250 250 0 10 0 -30 30;",
+    )
+    partial = parse_file(
+        IOBuffer(omitted_source);
+        name="api_conformance_partial.m",
+        format="matpower",
+    )
+    @test length(omitted(dc_data(partial))) == 1
+    for operation in (
+        () -> calc_incidence_matrix(partial),
+        () -> calc_branch_susceptance_matrix(partial),
+        () -> calc_branch_flow_dc(partial, va),
+    )
+        err = try
+            operation()
+            nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        @test occursin("branches:1", sprint(showerror, err))
+    end
+    @test size(calc_bus_susceptance_matrix(partial)) == (3, 3)
+    @test length(calc_phase_shift_injection(partial)) == 3
+end
+
 @testset "typed module records" begin
     if !_has_v6
         @test_skip "the resolved library predates the ABI v6 entry points"
@@ -323,14 +447,20 @@ end
     end
     case9 = joinpath(@__DIR__, "data", "case9.m")
     m = parse_file(case9)
-    rows = sources(m)
+    rows = module_sources(m)
+    alias_rows = sources(m)
+    @test length(alias_rows) == length(rows)
+    @test only(alias_rows).name == only(rows).name
+    @test only(alias_rows).byte_length == only(rows).byte_length
     @test length(rows) == 1
     @test endswith(rows[1].name, "case9.m")
     @test rows[1].byte_length > 0
 
-    lowered = lower_to_balanced(parse_bytes(
-        codeunits("New Circuit.c basekv=12.47 bus1=src\n");
-        name="inline.dss", format="dss"))
+    dist_module = parse_bytes(codeunits("New Circuit.c basekv=12.47 bus1=src\n");
+                              name="inline.dss", format="dss")
+    @test to_balanced_report(dist_module) == lowering_readiness(dist_module)
+    lowered = to_balanced(dist_module)
+    @test to_json(lowered) == to_json(lower_to_balanced(dist_module))
     lowered_history = history(lowered)
     @test any(e -> e.kind == "transform" && e.name == "lower_multiconductor_to_balanced",
               lowered_history)
@@ -573,7 +703,7 @@ end
     @test PowerIO._v6_error(lib, err_ref[]).code == "REQUEST.CAPI.SELECTOR_CONFLICT"
 end
 
-@testset "parse_bytes(io::IO) and PowerIOCError carries native diagnostics" begin
+@testset "parse_file(io::IO) and PowerIOError carries native diagnostics" begin
     if !_has_v6
         @test_skip "the resolved library predates the ABI v6 entry points"
         return
@@ -583,21 +713,22 @@ end
     # The IO method reads once and parses the bytes; it must agree with a
     # path parse of the same file.
     io_module = open(case9) do io
-        parse_bytes(io; format="matpower")
+        parse_file(io; name="case9.m", format="matpower")
     end
     @test io_module isa PioModule{BalancedNetwork}
     @test kind(io_module) == "balanced_network"
     @test PowerIO.n_buses(io_module.value) == PowerIO.n_buses(parse_file(case9).value)
 
-    # A malformed source refuses with a PowerIOCError whose diagnostics are
+    # A malformed source refuses with a PowerIOError whose diagnostics are
     # native Diagnostic records, not JSON or strings.
     err = try
-        parse_bytes(codeunits("not a case"); format="matpower")
+        parse_file(IOBuffer("not a case"); name="invalid.m", format="matpower")
         nothing
     catch e
         e
     end
-    @test err isa PowerIOCError
+    @test err isa PowerIOError
+    @test err isa PowerIOCError  # released 0.10 alias
     @test !isempty(err.code)
     @test err.diagnostics isa Vector{Diagnostic}
     @test !isempty(err.diagnostics)

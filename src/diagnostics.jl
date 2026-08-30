@@ -29,7 +29,7 @@ finding's open detail object as a JSON string. Every field except the first
 three can be absent.
 
 Read a module's findings with [`diagnostics`](@ref); a failed operation's
-findings ride on the thrown [`PowerIOCError`](@ref). Branch on `code`, never
+findings ride on the thrown [`PowerIOError`](@ref). Branch on `code`, never
 on the message text.
 """
 struct Diagnostic

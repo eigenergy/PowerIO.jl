@@ -8,7 +8,7 @@ stacking or solver. A consumer builds a model or program from that instance.
 
 | Instance | Class | Rust implementation | PowerIO.jl surface |
 |---|---|---|---|
-| `DcOpfInstance` | DC OPF | `powerio-prob` | `dc_data` and the matrix assemblies |
+| `DcOpfInstance` | DC OPF | `powerio-prob` | module DC matrix and flow methods |
 | `AcOpfInstance` | AC OPF | `powerio-prob` | dense network tables |
 | `AcScucInstance` | AC SCUC | `powerio-prob` | the stored module (kind `ac_scuc_instance`) |
 

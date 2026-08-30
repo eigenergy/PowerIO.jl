@@ -6,9 +6,9 @@ the Rust core that the `to_*` transforms run off.
 
 ## Formats
 
-Each format reads and writes, so any pair converts. A same-format round trip
-is byte exact; a cross-format conversion reports fields the target cannot
-represent as warnings.
+Each format reads and writes, so any pair converts. A same format round trip
+is byte exact; a cross format conversion reports fields the target cannot
+represent as diagnostics.
 
 | Format | Tokens | Extension |
 |---|---|---|
@@ -23,32 +23,31 @@ represent as warnings.
 | PyPSA static network CSV | `"pypsa-csv"` | directory |
 | GridFM Parquet dataset | — (see [`read_gridfm`](@ref)) | directory |
 
-The format is inferred from the extension unless `from` is given. egret and
+The format is inferred from the extension unless `format` is given. Egret and
 PowerModels both use `.json`, so those two need the hint:
 
 ```julia
-net   = parse_file("case14.m").value
-egret = parse_file("grid.json"; format="egret").value
+case  = parse_file("case14.m")
+egret = parse_file("grid.json"; format="egret")
 ```
 
 ## Parsing
 
-[`parse_file`](@ref) reads a path and [`parse_bytes`](@ref) reads named
-in-memory bytes or an `IO` into a [`PioModule`](@ref); the type parameter
-states the detected kind, and `m.value` is the typed value — a live
+[`parse_file`](@ref) reads a path or named `IO` into a [`PioModule`](@ref).
+The type parameter states the detected kind, and `m.value` is the typed value — a live
 [`BalancedNetwork`](@ref) handle for a transmission case. [`from_json`](@ref)
 rebuilds from the internal balanced JSON snapshot [`to_json`](@ref) writes.
 
 ```julia
-m   = parse_file("case14.m")     # ::PioModule{BalancedNetwork}
-net = m.value
-net = parse_bytes(IOBuffer(text); format="matpower").value
-net = from_json(to_json(net))
+m = parse_file("case14.m")        # ::PioModule{BalancedNetwork}
+n_buses(m)                        # module forwarding is the ordinary path
+net = m.value                     # explicit value access when useful
+m = parse_file(IOBuffer(text); name="case.m", format="matpower")
+net = from_json(BalancedNetwork, to_json(net))
 ```
 
 Whatever the reader could not represent or had to assume is retained on the
-module; read it as typed records with [`diagnostics`](@ref), or as rendered
-lines on the network handle with `warnings(net)`.
+module; read it as typed records through `m.diagnostics`.
 
 ## Inspecting a case
 
@@ -66,21 +65,22 @@ net.source_format
 net.base_mva
 net.buses                 # same as buses(net)
 
-buses(net)                # id, kind, vm, va (deg), base_kv, vmax, vmin, ...
-generators(net)           # bus, pg, qg, limits, cost, caps, in_service
-branches(net)             # from, to, r, x, b, rates, tap, shift (deg), ...
-loads(net)                # bus, p (MW), q (MVAr), in_service
-shunts(net)
-storage(net)
-hvdc(net)
+buses(m)                  # id, kind, vm, va (deg), base_kv, vmax, vmin, ...
+generators(m)             # bus, pg, qg, limits, cost, caps, in_service
+branches(m)               # from, to, r, x, b, rates, tap, shift (deg), ...
+loads(m)                  # bus, p (MW), q (MVAr), in_service
+shunts(m)
+storage(m)
+hvdc(m)
 
-n_buses(net), n_branches(net), n_gens(net)
-base_mva(net)
-source_format(net)        # "matpower", "psse", ...
-reference_bus_id(net)     # the slack bus id, or nothing
-n_components(net)         # connected components of the in-service topology
-is_radial(net)
-to_graph(net)             # all buses, in-service branch edges
+n_buses(m), n_branches(m), n_generators(m)
+base_mva(m)
+source_format(m)          # "matpower", "psse", ...
+reference_bus_id(m)       # the slack bus id, or nothing
+reference_bus_positions(m) # 1-based positions in dense bus order
+n_islands(m)              # electrical islands in the in-service topology
+is_radial(m)
+to_graph(m)               # all buses, in-service branch edges
 ```
 
 ## Normalizing
@@ -90,7 +90,7 @@ angles in radians, tap `0 → 1`, out-of-service and isolated elements dropped,
 source bus ids preserved, bus types inferred.
 
 ```julia
-norm = to_normalized(net)
+norm = to_normalized(m)
 source_format(norm)   # "normalized"
 
 norm = to_normalized(net; clamp_angle_bounds=true, angle_bound_pad=pi / 3)
@@ -102,12 +102,11 @@ normalization. The default `to_normalized(net)` preserves the source bounds.
 ## Serializing
 
 ```julia
-to_matpower(net)                    # ::String, byte exact when the input was MATPOWER
-to_format(net, "powermodels-json")  # (text, warnings)
-to_json(net)                        # internal balanced JSON payload
-convert_file("case14.m", "psse")    # parse + write in one shot -> (text, warnings)
-convert_str(text, "psse"; from="matpower")
-write_pypsa_csv_folder(net, "out/") # the one directory writer
+matpower, findings = emit(m, "matpower") # byte exact when the input was MATPOWER
+pm, findings = emit(m, "powermodels-json")
+emit(m, "pypsa-csv", "out/")            # directory output
+to_json(m)                                # stored module document
+to_json(m.value)                          # balanced network model JSON
 ```
 
 ## Dense numeric arrays
@@ -116,7 +115,7 @@ write_pypsa_csv_folder(net, "out/") # the one directory writer
 from the C ABI extractors without passing through JSON:
 
 ```julia
-d = to_dense(net)              # or to_dense("case14.m")
+d = to_dense(m)                # or to_dense("case14.m")
 d.n, d.m, d.ng                 # bus / branch / generator counts
 d.bus_ids                      # 1-based ids; row k of every per-bus table is bus_ids[k]
 d.branch.from, d.branch.x
@@ -135,8 +134,8 @@ it). Raw selectors are `:bus`, `:branch`, `:gen`, `:load`, `:shunt`, and
 the Rust row index space directly.
 
 ```julia
-t = to_arrow(net, :branch)              # NamedTuple of owned Julia Vectors
-z = to_arrow(net, :branch; copy=false)  # zero copy ArrowTable; close when done
+t = to_arrow(m, :branch)                 # NamedTuple of owned Julia Vectors
+z = to_arrow(m, :branch; copy=false)     # zero copy ArrowTable; close when done
 ```
 
 The default returns owned columns (Tables.jl compatible, flows into

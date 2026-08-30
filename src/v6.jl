@@ -21,12 +21,21 @@ struct PowerIOCError <: Exception
     diagnostics::Vector{Diagnostic}
 end
 
+"""
+    PowerIOError
+
+Preferred name for the compatibility spelling `PowerIOCError`. Both names
+denote the same exception type, so existing catches and method signatures keep
+working.
+"""
+const PowerIOError = PowerIOCError
+
 function Base.showerror(io::IO, e::PowerIOCError)
     # The C side already prefixes `message` with `code:` for some failure
     # classes and leaves it off for others; strip the prefix when present so
     # the code renders exactly once.
     message = lstrip(chopprefix(e.message, e.code * ":"))
-    print(io, "PowerIOCError [", e.code, "]: ", message)
+    print(io, "PowerIOError [", e.code, "]: ", message)
 end
 
 # Copy one v6 error handle into a Julia exception and release the handle. The
@@ -366,6 +375,9 @@ _dc_len(d::DcData, sym::Symbol) =
 """Included incidence row count (`m`)."""
 n_rows(d::DcData) = _dc_len(d, :pio_dc_data_n_rows)
 
+"""Included branch count (`m`), the descriptive alias of [`n_rows`](@ref)."""
+n_branches(d::DcData) = n_rows(d)
+
 """Incidence column count (`n`, the bus count)."""
 n_buses(d::DcData) = _dc_len(d, :pio_dc_data_n_buses)
 
@@ -381,6 +393,18 @@ from_indices(d::DcData) = _dc_span(d, :pio_dc_data_from_indices, Int64, n_rows(d
 
 """To bus column per included row (`A[e, to] = -1`), zero based."""
 to_indices(d::DcData) = _dc_span(d, :pio_dc_data_to_indices, Int64, n_rows(d))
+
+"""
+    from_bus_positions(d::DcData) -> Vector{Int}
+
+The 1-based from-bus position of each included branch. The returned values
+index [`bus_ids`](@ref) directly; [`from_indices`](@ref) remains the zero based
+borrowed view for compatibility and zero copy callers.
+"""
+from_bus_positions(d::DcData) = Int[Int(i) + 1 for i in from_indices(d)]
+
+"""The 1-based to-bus positions, parallel to [`from_bus_positions`](@ref)."""
+to_bus_positions(d::DcData) = Int[Int(i) + 1 for i in to_indices(d)]
 
 """Branch susceptance per included row, PowerModels sign."""
 susceptance(d::DcData) = _dc_span(d, :pio_dc_data_susceptance, Float64, n_rows(d))
@@ -424,6 +448,9 @@ end
 
 """Stable module element ID per included row."""
 row_ids(d::DcData) = _dc_strings(d, :pio_dc_data_row_ids, :pio_dc_data_n_rows, n_rows(d))
+
+"""Stable branch element IDs, the descriptive alias of [`row_ids`](@ref)."""
+branch_ids(d::DcData) = row_ids(d)
 
 """Stable bus element ID per incidence column."""
 bus_ids(d::DcData) = _dc_strings(d, :pio_dc_data_bus_ids, :pio_dc_data_n_buses, n_buses(d))

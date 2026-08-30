@@ -10,10 +10,10 @@ module; `m.value` is the typed value.
 using PowerIO
 
 case = parse_file("case14.m")           # PioModule{BalancedNetwork}
-n_buses(case.value)                     # 14
+n_buses(case)                           # 14
 feeder = parse_file("switch.dss")       # PioModule{MulticonductorNetwork}
-diagnostics(feeder)                     # native Diagnostic records
-text, findings = convert_file("case14.m", "psse")
+feeder.diagnostics                      # native Diagnostic records
+text, findings = emit(case, "psse")
 ```
 
 ## Install
