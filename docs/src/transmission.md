@@ -6,9 +6,9 @@ the Rust core that the `to_*` transforms run off.
 
 ## Formats
 
-Each format reads and writes, so any pair converts. A same format round trip
-is byte exact; a cross format conversion reports fields the target cannot
-represent as diagnostics.
+Each format parses and emits, so any pair converts. A same format round trip is
+byte exact; cross format emission reports fields the target cannot represent
+as diagnostics.
 
 | Format | Tokens | Extension |
 |---|---|---|
@@ -21,7 +21,7 @@ represent as diagnostics.
 | pandapower JSON | `"pandapower-json"`, `"pandapower"` | `.json` |
 | Surge JSON | `"surge-json"`, `"surge"` | `.json` |
 | PyPSA static network CSV | `"pypsa-csv"` | directory |
-| GridFM Parquet dataset | — (see [`read_gridfm`](@ref)) | directory |
+| GridFM Parquet dataset | `"gridfm"` | directory |
 
 The format is inferred from the extension unless `format` is given. Egret and
 PowerModels both use `.json`, so those two need the hint:
@@ -33,21 +33,24 @@ egret = parse_file("grid.json"; format="egret")
 
 ## Parsing
 
-[`parse_file`](@ref) reads a path or named `IO` into a [`PioModule`](@ref).
+[`parse_file`](@ref) parses a file or directory path into a [`PioModule`](@ref).
+[`parse_text`](@ref) parses text already in memory.
 The type parameter states the detected kind, and `m.value` is the typed value — a live
 [`BalancedNetwork`](@ref) handle for a transmission case. [`from_json`](@ref)
-rebuilds from the internal balanced JSON snapshot [`to_json`](@ref) writes.
+rebuilds a bare value from the balanced model JSON returned by [`to_json`](@ref);
+`parse_text(model_json; format="model-json")` returns the corresponding module.
 
 ```julia
 m = parse_file("case14.m")        # ::PioModule{BalancedNetwork}
 n_buses(m)                        # module forwarding is the ordinary path
 net = m.value                     # explicit value access when useful
-m = parse_file(IOBuffer(text); name="case.m", format="matpower")
+m = parse_text(text; name="case.m", format="matpower")
 net = from_json(BalancedNetwork, to_json(net))
+model_module = parse_text(to_json(net); name="case.json", format="model-json")
 ```
 
-Whatever the reader could not represent or had to assume is retained on the
-module; read it as typed records through `m.diagnostics`.
+Whatever the parser could not represent or had to assume is retained on the
+module; inspect it as typed records through `m.diagnostics`.
 
 ## Inspecting a case
 
@@ -56,7 +59,7 @@ The element tables mirror the Rust `BalancedNetwork`: raw source units,
 see fit. Cheap metadata properties read a Rust summary and do not materialize
 `net.data`; element table properties materialize the cached JSON payload.
 REPL display uses the same summary path: compact display stays on one line, and
-the multiline `text/plain` form prints counts, base values, topology, warnings,
+the multiline `text/plain` form prints counts, base values, topology, diagnostics,
 and whether `net.data` has been materialized.
 
 ```julia
@@ -99,11 +102,13 @@ norm = to_normalized(net; clamp_angle_bounds=true, angle_bound_pad=pi / 3)
 The angle clamp option repairs PowerModels style branch angle bounds during
 normalization. The default `to_normalized(net)` preserves the source bounds.
 
-## Serializing
+## Emitting
 
 ```julia
-matpower, findings = emit(m, "matpower") # byte exact when the input was MATPOWER
-pm, findings = emit(m, "powermodels-json")
+matpower = emit(m, "matpower")           # byte exact when the input was MATPOWER
+pm = emit(m, "powermodels-json")
+matpower.text
+matpower.diagnostics
 emit(m, "pypsa-csv", "out/")            # directory output
 to_json(m)                                # stored module document
 to_json(m.value)                          # balanced network model JSON

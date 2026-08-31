@@ -14,15 +14,24 @@ end
         m = joinpath(@__DIR__, "data", "case14.m")
         net = parse_file(m).value
         live = Val(:live)
-        data = parse_ac_power_data(net)
-        path_data = parse_ac_power_data(m, Float32)
-        @test parse_ac_power_data(m, Float32, live) == path_data
+        data = to_ac_power_data(net)
+        path_data = to_ac_power_data(m, Float32)
+        module_value = parse_file(m)
+        @test to_ac_power_data(m, Float32, live) == path_data
+        @test to_powerdata(m; format="matpower") == to_powerdata(net)
+        @test to_ac_power_data(m; format="matpower") == data
+        @test_throws MethodError to_powerdata(m; from="matpower")
+        @test_throws MethodError to_ac_power_data(m; from="matpower")
+        @test_throws MethodError to_powerdata(net; from="matpower")
+        @test_throws MethodError to_ac_power_data(net; from="matpower")
+        @test_throws MethodError to_powerdata(module_value; from="matpower")
+        @test_throws MethodError to_ac_power_data(module_value; from="matpower")
         @test Core.Compiler.return_type(
-            PowerIO.parse_ac_power_data,
+            PowerIO.to_ac_power_data,
             Tuple{String,Type{Float32}},
         ) === typeof(path_data)
         @test Core.Compiler.return_type(
-            PowerIO.parse_ac_power_data,
+            PowerIO.to_ac_power_data,
             Tuple{String,Type{Float32},typeof(live)},
         ) === typeof(path_data)
         base = data.baseMVA[]
@@ -134,7 +143,7 @@ end
         ) == PowerIO.LoadSeries{Float32}
         @test_throws ArgumentError PowerIO.read_load_series(net, joinpath(dir, "nope.Pd"), qdf)
 
-        # A series aligns to `parse_ac_power_data`'s bus rows. The alignment now
+        # A series aligns to `to_ac_power_data`'s bus rows. The alignment now
         # comes off the normalized view directly instead of a second
         # `to_powerdata` build, so pin the two against each other on a case with
         # an isolated bus, which normalization drops.
@@ -156,7 +165,7 @@ end
             2 0 0 3 0.01 20 0;
         ];
         """
-        dnet = parse_bytes(IOBuffer(drops); format="matpower").value
+        dnet = parse_text(drops; name="drops.m", format="matpower").value
         dref = to_powerdata(dnet)
         @test dref == to_powerdata(dnet; filtered=true)
         @test length(to_powerdata(dnet; filtered=false).bus) == 3

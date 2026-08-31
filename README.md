@@ -8,16 +8,16 @@
   >
 </p>
 
-PowerIO 0.10 is the public beta of the 1.0 API. It reads power system data
-through the PowerIO Rust library and exposes typed values through Julia.
+PowerIO.jl 1.0 binds the PowerIO 1.0 API. It parses power system
+data through the PowerIO Rust library and exposes typed values through Julia.
 
 ```julia
 using PowerIO
 
-module_ = parse_file("case14.m")       # PioModule{BalancedNetwork}
-n_buses(module_)                       # 14
-module_.diagnostics                    # Vector{Diagnostic}
-emit(module_, "matpower", "copy.m")  # byte exact same format write
+module_ = parse_file("case14.m")        # PioModule{BalancedNetwork}
+n_buses(module_)                        # 14
+module_.diagnostics                     # Vector{Diagnostic}
+emit(module_, "matpower", "copy.m")    # byte exact same format emission
 ```
 
 [Read the documentation](https://eigenergy.github.io/PowerIO.jl).
@@ -34,7 +34,8 @@ a local Rust build.
 
 ## Values and formats
 
-`parse_file` detects the value kind from a path or stream. A
+`parse_file` detects the value kind from a file or directory path. `parse_text`
+accepts text already in memory. A
 `PioModule{T}` contains one typed value plus its sources, diagnostics, source
 map, and history. The value can be a network, calculation instance, solution,
 time series, or scenario set.
@@ -59,6 +60,7 @@ shared by several formats:
 
 ```julia
 egret = parse_file("grid.json"; format="egret")
+inline = parse_text(text; name="case14.m", format="matpower")
 ```
 
 ## Networks and matrices
@@ -86,24 +88,28 @@ p_shift = calc_phase_shift_injection(case)
 `bus_to_idx`. The canonical DC calculations use `calc_*` verbs and follow the
 PowerModels branch by bus incidence convention.
 
-## Writing and conversion
+## Emission and transforms
 
-An unchanged module writes its original format byte for byte. Cross format
-conversion reports fields the destination cannot represent as diagnostics.
+Emitting an unchanged module in its original format reproduces the input byte
+for byte. Cross format emission reports fields the destination cannot
+represent as diagnostics.
 
 ```julia
 module_ = parse_file("case14.m")
 emit(module_, "matpower", "copy.m")
 
-text, findings = emit(module_, "psse")
+result = emit(module_, "psse")
+result.text
+result.diagnostics
 pm_data = to_powermodels(module_)
 ref = build_powermodels_ref(pm_data)
 ```
 
-`to_json(module_)` writes the versioned `.pio.json` module document and
-`from_json(PioModule, text)` reads it. `to_json(module_.value)` and
-`from_json(BalancedNetwork, text)` read and write only the balanced network
-model JSON.
+`to_json(module_)` returns the versioned `.pio.json` module document and
+`from_json(PioModule, text)` rebuilds it. `to_json(module_.value)` and
+`from_json(BalancedNetwork, text)` convert only the balanced network model
+JSON. `parse_text(model_json; format="model-json")` returns that model as a
+`PioModule{BalancedNetwork}` instead.
 
 ## Package structure
 

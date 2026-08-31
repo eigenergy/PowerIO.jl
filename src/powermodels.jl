@@ -12,11 +12,11 @@ _get(obj, key::Symbol, default) = _has(obj, key) ? getproperty(obj, key) : defau
     to_powermodels(net::BalancedNetwork) -> Dict{String,Any}
 
 Convert a parsed network to a PowerModels network data dictionary through the
-PowerIO writer. This is the post-parse network data layout PowerModels.jl consumes.
+PowerIO emitter. This is the post-parse network data layout PowerModels.jl consumes.
 """
 function to_powermodels(net::BalancedNetwork)
-    text, _ = to_format(net, "powermodels-json")
-    return _json_plain(JSON3.read(text))
+    result = emit(PioModule(net), "powermodels-json")
+    return _json_plain(JSON3.read(result.text))
 end
 
 """
@@ -27,7 +27,7 @@ Julia dictionary / NamedTuple or a JSON string.
 """
 from_powermodels(data) = from_powermodels(JSON3.write(data))
 from_powermodels(data::AbstractString) =
-    parse_bytes(codeunits(data); name="powermodels.json", format="powermodels-json").value
+    parse_text(data; name="powermodels.json", format="powermodels-json").value
 
 # --- PowerModels reference utilities -------------------------------------
 #

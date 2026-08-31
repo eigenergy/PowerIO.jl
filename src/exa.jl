@@ -41,8 +41,9 @@ end
 
 # Parse `path` and take its balanced network value, with a directed error
 # naming the detected kind on a mismatch.
-function _parse_balanced(path::AbstractString; from=nothing)
-    m = parse_file(String(path); format=from === nothing ? nothing : String(from))
+function _parse_balanced(path::AbstractString;
+                         format::Union{AbstractString,Nothing}=nothing)
+    m = parse_file(String(path); format)
     m isa PioModule{BalancedNetwork} || error(
         "PowerIO: $path parsed as a $(kind(m)) module; this operation reads a balanced network")
     return m.value
@@ -709,7 +710,7 @@ function _to_powerdata_normalized_input(input::_PowerdataInput,
             BusRow((;
                 i,
                 bus_i = id,
-                type = bus_type_code(String(b.kind)),
+                type = to_bus_type_code(String(b.kind)),
                 pd = pd[i],
                 qd = qd[i],
                 gs = gs[i],
@@ -847,7 +848,7 @@ _powerdata_filter(::Type{T}, filtered::Bool) where {T<:Real} = Val(filtered)
 
 """
     to_powerdata(net; filtered=true, T=Float64) -> NamedTuple
-    to_powerdata(path; from=nothing, filtered=true, T=Float64) -> NamedTuple
+    to_powerdata(path; format=nothing, filtered=true, T=Float64) -> NamedTuple
 
 Return a NamedTuple in ExaPowerIO's `PowerData` layout: `version`, `baseMVA`, `bus`,
 `gen`, `branch`, `arc`, and `storage`. Rows use the field names ExaModelsPower
@@ -859,8 +860,7 @@ into the bus vector.
 With `filtered=true` the normalize pass runs inside this call, so its findings are
 re-emitted as `@warn`, one per distinct diagnostic code. A case with no generator
 cost data warns `CANONICALIZE.NORMALIZE.GEN_COST_ABSENT`: the rows build, and any
-cost objective built from them is identically zero. Read them off the network
-itself with `PowerIO.warnings(`[`to_normalized`](@ref)`(net))`.
+cost objective built from them is identically zero.
 
 A field reads as finite unless it is a bound a source format spells as
 unlimited. `±Inf` passes on the generator and storage reactive and active
@@ -931,7 +931,7 @@ function _to_powerdata_raw_input(input::_PowerdataInput,
             BusRow((;
                 i,
                 bus_i = id,
-                type = bus_type_code(String(b.kind)),
+                type = to_bus_type_code(String(b.kind)),
                 pd = pd[i],
                 qd = qd[i],
                 gs = gs[i],
@@ -1096,58 +1096,73 @@ to_powerdata(net::BalancedNetwork, ::Type{T}, ::Val{:live};
              filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real} =
     _to_powerdata_live(net, T, _powerdata_filter(T, filtered))
 
-to_powerdata(path::AbstractString; from=nothing,
+to_powerdata(path::AbstractString;
+             format::Union{AbstractString,Nothing}=nothing,
              filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER,
              T::Type{<:Real}=Float64) =
-    to_powerdata(path, T; from=from, filtered=filtered)
+    to_powerdata(path, T; format, filtered)
 
-to_powerdata(path::AbstractString, ::Type{T}; from=nothing,
+to_powerdata(path::AbstractString, ::Type{T};
+             format::Union{AbstractString,Nothing}=nothing,
              filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real} =
-    to_powerdata(_parse_balanced(path; from=from), T; filtered=filtered)
+    to_powerdata(_parse_balanced(path; format), T; filtered)
 
-to_powerdata(path::AbstractString, ::Type{T}, live::Val{:live}; from=nothing,
+to_powerdata(path::AbstractString, ::Type{T}, live::Val{:live};
+             format::Union{AbstractString,Nothing}=nothing,
              filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real} =
-    to_powerdata(_parse_balanced(path; from=from), T, live;
-                 filtered=filtered)
+    to_powerdata(_parse_balanced(path; format), T, live; filtered)
 
 """
-    parse_ac_power_data(input; from=nothing, filtered=true, T=Float64) -> NamedTuple
+    to_ac_power_data(net::BalancedNetwork; filtered=true, T=Float64) -> NamedTuple
+    to_ac_power_data(path; format=nothing, filtered=true, T=Float64) -> NamedTuple
 
-Return the NamedTuple layout consumed by ExaModelsPower's `build_polar_opf`,
-`build_rect_opf`, and `build_dcopf`. `input` may be a [`BalancedNetwork`](@ref) or a path.
-Emits the normalize findings as `@warn` the way [`to_powerdata`](@ref) does,
-and reads each field under the same finiteness rule: `±Inf` on a bound a
-source format spells as unlimited, refused everywhere else.
+Convert a [`BalancedNetwork`](@ref), [`PioModule`](@ref), or path to the
+NamedTuple layout consumed by ExaModelsPower's `build_polar_opf`,
+`build_rect_opf`, and `build_dcopf`. Emits the normalize findings as `@warn`
+the way [`to_powerdata`](@ref) does, and reads each field under the same
+finiteness rule: `±Inf` on a bound a source format spells as unlimited,
+refused everywhere else.
 The final `Val(:live)` form is the handle-only spelling for ahead of time
 callers; it requires either a live network or a path that parses as one.
 """
-parse_ac_power_data(input; from=nothing,
-                    filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER,
-                    T::Type{<:Real}=Float64) =
-    parse_ac_power_data(input, T; from=from, filtered=filtered)
+to_ac_power_data(net::BalancedNetwork;
+                 filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER,
+                 T::Type{<:Real}=Float64) =
+    to_ac_power_data(net, T; filtered)
 
-function parse_ac_power_data(input, ::Type{T}; from=nothing,
-                             filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real}
-    pd = input isa BalancedNetwork ? to_powerdata(input, T; filtered=filtered) :
-         to_powerdata(String(input), T; from=from, filtered=filtered)
-    return _parse_ac_power_data_output(pd, T)
+to_ac_power_data(path::AbstractString;
+                 format::Union{AbstractString,Nothing}=nothing,
+                 filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER,
+                 T::Type{<:Real}=Float64) =
+    to_ac_power_data(path, T; format, filtered)
+
+function to_ac_power_data(net::BalancedNetwork, ::Type{T};
+                          filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real}
+    pd = to_powerdata(net, T; filtered)
+    return _to_ac_power_data_output(pd, T)
 end
 
-function parse_ac_power_data(net::BalancedNetwork, ::Type{T}, live::Val{:live};
-                             from=nothing,
-                             filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real}
-    pd = to_powerdata(net, T, live; filtered=filtered)
-    return _parse_ac_power_data_output(pd, T)
+function to_ac_power_data(path::AbstractString, ::Type{T};
+                          format::Union{AbstractString,Nothing}=nothing,
+                          filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real}
+    pd = to_powerdata(path, T; format, filtered)
+    return _to_ac_power_data_output(pd, T)
 end
 
-function parse_ac_power_data(path::AbstractString, ::Type{T}, live::Val{:live};
-                             from=nothing,
-                             filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real}
-    net = _parse_balanced(path; from=from)
-    return parse_ac_power_data(net, T, live; filtered=filtered)
+function to_ac_power_data(net::BalancedNetwork, ::Type{T}, live::Val{:live};
+                          filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real}
+    pd = to_powerdata(net, T, live; filtered)
+    return _to_ac_power_data_output(pd, T)
 end
 
-function _parse_ac_power_data_output(pd, ::Type{T}) where {T<:Real}
+function to_ac_power_data(path::AbstractString, ::Type{T}, live::Val{:live};
+                          format::Union{AbstractString,Nothing}=nothing,
+                          filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real}
+    net = _parse_balanced(path; format)
+    return to_ac_power_data(net, T, live; filtered)
+end
+
+function _to_ac_power_data_output(pd, ::Type{T}) where {T<:Real}
     return (;
         baseMVA = [pd.baseMVA],
         bus = pd.bus,
@@ -1243,7 +1258,7 @@ function Base.show(io::IO, s::LoadSeries{T}) where {T}
 end
 
 # Base loads (per unit), bus ids, and base MVA in the exact bus order
-# parse_ac_power_data / mpopf use, so a series aligns to `data.bus` with no
+# to_ac_power_data / mpopf use, so a series aligns to `data.bus` with no
 # positional guessing. This walks the same normalized view `to_powerdata` walks
 # but builds only the four values a series needs, not the whole row schema.
 function _load_alignment(net::BalancedNetwork, ::Type{T}) where {T<:Real}

@@ -139,6 +139,8 @@ end
         @test bus isa NamedTuple
         @test bus.id isa Vector{Int64}
         @test bus.id == collect(1:14)                   # external 1-based bus ids, in order
+        @test to_arrow(m, :bus; format="matpower").id == collect(1:14)
+        @test_throws MethodError to_arrow(m, :bus; from="matpower")
         bus.id[1] = -999
         @test to_arrow(m, :bus).id[1] == 1
         @test bus.id[2] == 2
@@ -194,6 +196,7 @@ end
 
         # The BalancedNetwork-first method matches the path method.
         @test to_arrow(net, :bus).id == collect(1:14)
+        @test_throws MethodError to_arrow(net, :bus; from="matpower")
 
         @test_throws ArgumentError to_arrow(m, :nonesuch)
 
@@ -330,9 +333,9 @@ end
 
         z2b = to_arrow(m, :bus; copy=false)
         z2b_col = z2b.id
-        release_c_data(z2b)
+        close(z2b)
         @test_throws ErrorException z2b_col[1]
-        @test_nowarn release_c_data(z2b)
+        @test_nowarn close(z2b)
         @test sprint(show, z2b) == "ArrowTable(9 columns, released)"
 
         z3 = to_arrow(m, :bus; copy=false)
@@ -349,9 +352,9 @@ end
 
         z4 = to_arrow(m, :bus; copy=false)
         z4_col = z4.id
-        release_c_data(z4_col)
+        close(z4_col)
         @test_throws ErrorException z4_col[1]
-        @test_nowarn release_c_data(z4_col)
+        @test_nowarn close(z4_col)
 
         function f64_bits(xs)
             ["0x" * string(reinterpret(UInt64, Float64(x)); base=16, pad=16) for x in xs]

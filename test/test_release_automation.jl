@@ -117,6 +117,9 @@ end
 @testset "release intent and state machine" begin
     live = ReleaseState.read_intent()
     @test live.state in ("draft", "ready")
+    @test live.julia_version == ReleaseState.project_version() == v"1.0.0"
+    @test live.powerio_tag == "v1.0.0"
+    @test ReleaseState.changelog_section().version == live.julia_version
     expected = live.state == "draft" ? "waiting_intent" : "ready"
     @test ReleaseState.evaluate_initial_state("schedule"; intent=live).status == expected
     @test ReleaseState.evaluate_initial_state(
@@ -283,6 +286,35 @@ end
 
     no_version = setdiff(copy(ArtifactUpdater.KNOWN_SYMBOLS), Set((:pio_version,)))
     @test _parked_reason(_candidate(symbols=no_version)) == "required_symbol_missing"
+    no_canonical_emit = setdiff(
+        copy(ArtifactUpdater.KNOWN_SYMBOLS),
+        Set((:pio_module_emit_string,)),
+    )
+    @test _parked_reason(_candidate(symbols=no_canonical_emit)) == "required_symbol_missing"
+    no_list_states = setdiff(
+        copy(ArtifactUpdater.KNOWN_SYMBOLS),
+        Set((:pio_module_list_states_json,)),
+    )
+    @test _parked_reason(_candidate(symbols=no_list_states)) ==
+          "required_symbol_missing"
+    no_calc_branch_flow = setdiff(
+        copy(ArtifactUpdater.KNOWN_SYMBOLS),
+        Set((:pio_dc_data_calc_branch_flow,)),
+    )
+    @test _parked_reason(_candidate(symbols=no_calc_branch_flow)) ==
+          "required_symbol_missing"
+    no_normalized_transform = setdiff(
+        copy(ArtifactUpdater.KNOWN_SYMBOLS),
+        Set((:pio_balanced_network_to_normalized,)),
+    )
+    @test _parked_reason(_candidate(symbols=no_normalized_transform)) ==
+          "required_symbol_missing"
+    no_balanced_geo = setdiff(
+        copy(ArtifactUpdater.KNOWN_SYMBOLS),
+        Set((:pio_balanced_network_to_geo_layer_json,)),
+    )
+    @test _parked_reason(_candidate(symbols=no_balanced_geo)) ==
+          "required_symbol_missing"
 
     no_feature = Dict(name => name != "prob" for name in ArtifactUpdater.REQUIRED_FEATURES)
     @test _parked_reason(_candidate(features=no_feature)) == "required_feature_missing"
@@ -291,6 +323,16 @@ end
         Set((:pio_dc_data_build,)),
     )
     @test _parked_reason(_candidate(symbols=no_prob)) == "required_symbol_missing"
+    no_dist_graph = setdiff(
+        copy(ArtifactUpdater.KNOWN_SYMBOLS),
+        Set((:pio_multiconductor_network_to_graph_json,)),
+    )
+    @test _parked_reason(_candidate(symbols=no_dist_graph)) == "required_symbol_missing"
+    no_dist_geo = setdiff(
+        copy(ArtifactUpdater.KNOWN_SYMBOLS),
+        Set((:pio_multiconductor_network_to_geo_layer_json,)),
+    )
+    @test _parked_reason(_candidate(symbols=no_dist_geo)) == "required_symbol_missing"
     @test _parked_reason(_candidate(schema=nothing)) == "schema_report_invalid"
     @test _parked_reason(_candidate(schema=Dict(
         :powerio_version => "0.8.3", :abi => 6, :bmopf_schema => "draft"))) ==

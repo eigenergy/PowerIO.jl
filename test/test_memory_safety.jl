@@ -6,7 +6,8 @@
         m = joinpath(data, "case14.m")
 
         @testset "live handles keep their allocating library" begin
-            net = parse_file(m).value
+            module_ = parse_file(m)
+            net = module_.value
             bus_ids = to_dense(net).bus_ids
             has_arrow = PowerIO.arrow_available()
             missing_lib = joinpath(mktempdir(), "not-libpowerio_capi.$(Libdl.dlext)")
@@ -14,8 +15,8 @@
             try
                 GC.gc(); GC.gc()
                 @test to_dense(net).bus_ids == bus_ids
-                @test PowerIO.reference_bus_indices(net) == [0]
-                @test occursin("mpc.bus", to_matpower(net))
+                @test PowerIO.reference_bus_positions(net) == [1]
+                @test occursin("mpc.bus", emit(module_, "matpower").text)
                 if has_arrow
                     @test to_arrow(net, :bus).id[1] == 1
                 end
@@ -32,7 +33,7 @@
                 GC.gc(); GC.gc()
                 @test d.n == 14
                 @test d.m == 20
-                @test PowerIO.n_components(net) >= 1
+                @test PowerIO.n_islands(net) >= 1
                 json = to_json(net)
                 net = nothing
                 GC.gc(); GC.gc()
@@ -82,9 +83,7 @@
             @test_throws ErrorException PowerIO.n_buses(net)
             @test_throws ErrorException to_json(net)
             @test_throws ErrorException sprint(show, net)
-            # `warnings` reads the live handle, so a finalized handle is a
-            # directed error, like the other live reads above.
-            @test_throws ErrorException net.warnings
+            @test :warnings ∉ propertynames(net)
 
             # Finalizing *after* the first access leaves `data` cached, so the
             # payload-backed reads keep working.

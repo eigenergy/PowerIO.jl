@@ -1,6 +1,6 @@
 # Modules
 
-PowerIO 0.10 parses every source into a [`PioModule`](@ref): one typed value
+PowerIO 1.0 parses every source into a [`PioModule`](@ref): one typed value
 with its retained source, diagnostics, source map, and history. A `.pio.json`
 version 1 document serializes the value and durable records. This binding
 wraps the ABI v6 handle surface: structured error handles, module entry
@@ -17,9 +17,10 @@ naming both versions before any other ccall runs.
 
 ```@docs
 PioModule
+EmitResult
 parse_file
+parse_text
 kind
-diagnostics
 Diagnostic
 SourceSpan
 inspect
@@ -27,17 +28,29 @@ source_format
 emit
 to_json(::PioModule)
 from_json(::Type{PioModule}, ::AbstractString)
-state_inventory
-select_state
+list_states
+export_state
 to_balanced_report
 to_balanced
 PowerIOError
 ```
 
-`m.diagnostics` is the preferred field-like spelling; `diagnostics(m)` remains
-a 0.10 compatibility function. Output goes through `emit`:
-`emit(m, "matpower")` returns text and findings, while
-`emit(m, "matpower", "case.m")` writes to a file or directory.
+`m.diagnostics` holds the module's structured findings. Output goes through
+`emit`. Both overloads return `EmitResult`: `emit(m, "matpower").text`
+contains an in-memory result, while `emit(m, "matpower", "case.m").text ===
+nothing` after emitting to a file or directory. Emission findings are always
+in `.diagnostics`.
+
+Wrap an existing live network in a module without serializing or reparsing it:
+
+```julia
+net = from_json(BalancedNetwork, model_json)
+m = PioModule(net)
+```
+
+`PioModule(value)` accepts `BalancedNetwork` and `MulticonductorNetwork`.
+Retained source and common records stay attached to a parsed value, and a
+value rebuilt from model JSON gains the ordinary module operations.
 
 ## Typed values
 
@@ -79,8 +92,8 @@ end
 ```
 
 A multiconductor operating point series keeps its typed value and explicit
-`state_inventory`, but has no collection indexing until terminal state has a
-lossless static network representation. `select_state` returns the structured
+`list_states`, but has no collection indexing until terminal state has a
+lossless static network representation. `export_state` returns the structured
 `REQUEST.STATE.UNBOUND_EXPORT` refusal instead of inventing that mapping.
 
 A scenario set uses its scenario identifiers as string keys:
@@ -97,7 +110,6 @@ ModuleHistoryEntry
 ModuleSource
 history
 module_sources
-sources
 ```
 
 ## DC matrices and flows
@@ -133,5 +145,9 @@ PowerIO.calc_incidence_matrix(::PioModule{BalancedNetwork})
 PowerIO.calc_bus_susceptance_matrix(::PioModule{BalancedNetwork})
 PowerIO.calc_branch_susceptance_matrix(::PioModule{BalancedNetwork})
 PowerIO.calc_phase_shift_injection(::PioModule{BalancedNetwork})
+PowerIO.calc_bus_injection_dc(::PioModule{BalancedNetwork}, ::AbstractVector{<:Real})
 PowerIO.calc_branch_flow_dc(::PioModule{BalancedNetwork}, ::AbstractVector{<:Real})
 ```
+
+The module methods own coefficient preparation internally. Ordinary matrix and
+flow code does not acquire an intermediate coefficient container.

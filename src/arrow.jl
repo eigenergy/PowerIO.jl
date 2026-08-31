@@ -253,17 +253,7 @@ of `t` is invalid afterwards; reading one throws a Julia error. Idempotent (the
 release callbacks NULL themselves).
 """
 Base.close(t::ArrowTable) = (_release_buffers!(getfield(t, :_buffers)); nothing)
-
-"""
-    release_c_data(t::ArrowTable)
-    release_c_data(c::ArrowColumn)
-
-Release zero copy Arrow buffers explicitly. This mirrors the name used by the
-Arrow.jl C Data Interface import PR; `close(t)` is kept as the Julia table
-idiom. Calling it more than once is safe, and reads after release throw.
-"""
-release_c_data(t::ArrowTable) = close(t)
-release_c_data(c::ArrowColumn) = (_release_buffers!(getfield(c, :buffers)); nothing)
+Base.close(c::ArrowColumn) = (_release_buffers!(getfield(c, :buffers)); nothing)
 
 function _nonnegative_int(x::Integer, what::AbstractString)
     x >= 0 || error("PowerIO.to_arrow: $what is negative ($x)")
@@ -621,7 +611,7 @@ end
 
 """
     to_arrow(net::BalancedNetwork, table::Symbol; copy=true) -> NamedTuple | ArrowTable
-    to_arrow(path, table::Symbol; from=nothing, copy=true) -> NamedTuple | ArrowTable
+    to_arrow(path, table::Symbol; format=nothing, copy=true) -> NamedTuple | ArrowTable
 
 Export one network table over the Arrow C Data Interface. Raw table selectors are
 `:bus`, `:branch`, `:gen`, `:load`, `:shunt`, and `:switch`; those columns are
@@ -653,8 +643,10 @@ Vector. For the numeric tables alone, [`to_dense`](@ref) is a copy free,
 function to_arrow(net::BalancedNetwork, table::Symbol; copy::Bool=true)
     return _arrow_from_handle(_live_handle(net, "to_arrow"), table, copy)
 end
-function to_arrow(path::AbstractString, table::Symbol; from=nothing, copy::Bool=true)
-    m = parse_file(path; format=from === nothing ? nothing : String(from))
+function to_arrow(path::AbstractString, table::Symbol;
+                  format::Union{AbstractString,Nothing}=nothing,
+                  copy::Bool=true)
+    m = parse_file(path; format)
     m isa PioModule{BalancedNetwork} ||
         error("PowerIO.to_arrow: $path parsed as a $(kind(m)) module; the Arrow tables read a balanced network")
     h = getfield(m.value, :handle)

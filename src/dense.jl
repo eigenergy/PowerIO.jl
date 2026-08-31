@@ -159,7 +159,7 @@ end
 
 """
     to_dense(net::BalancedNetwork) -> NamedTuple
-    to_dense(path; from=nothing) -> NamedTuple
+    to_dense(path; format=nothing) -> NamedTuple
 
 Pull a case's numeric tables as dense typed arrays straight from the C ABI,
 skipping the JSON transport (the fast path for matrix assembly). Takes a parsed
@@ -183,9 +183,8 @@ builds the JSON payload). Fields:
   reference bus, so `bus_ids[reference_bus]` is its id, or `nothing` when there
   is no unique reference (none, or several). The C ABI spells absence `-1` and
   counts its indices from zero; both are translated here, so this is a 1-based
-  Julia index and indexes `bus_ids` directly. The Python binding's `to_dense`
-  stays 0 based, as does [`reference_bus_indices`](@ref), which reports the C
-  index space verbatim.
+  Julia index and indexes `bus_ids` directly. The C ABI and Python binding keep
+  their zero based index spaces.
 - `n_components::Int`, `is_radial::Bool` — connectivity of the in-service topology.
 - `ns`, `switch` (the last two fields, powerio v0.7 library) — switch count and
   the switch table: `from, to` (1-based bus ids), `closed::Vector{UInt8}`,
@@ -201,8 +200,9 @@ accessors on a [`parse_file`](@ref) `BalancedNetwork`; for self-describing colum
 use [`to_arrow`](@ref).
 """
 to_dense(net::BalancedNetwork) = _dense_from_handle(_live_handle(net, "to_dense"))
-function to_dense(path::AbstractString; from=nothing)
-    net = _parse_balanced(path; from=from)
+function to_dense(path::AbstractString;
+                  format::Union{AbstractString,Nothing}=nothing)
+    net = _parse_balanced(path; format)
     h = _live_handle(net, "to_dense")
     try
         return _dense_from_handle(h)

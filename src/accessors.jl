@@ -111,22 +111,12 @@ hvdc(net::BalancedNetwork) = net.data.hvdc::JSON3.Array
 switches(net::BalancedNetwork) = net.data.switches::JSON3.Array
 
 """
-    n_gens(net) -> Int
-
-Number of generator rows (one per machine; `bus` repeats). Matches `pio_balanced_network_n_gens`:
-every row, not in-service-filtered.
-"""
-function n_gens(net::BalancedNetwork)
-    return Int(_summary(net).counts.generators)
-end
-
-"""
     n_generators(net::BalancedNetwork) -> Int
 
-Number of generator rows. This is the descriptive spelling of [`n_gens`](@ref)
-and dispatches across both network families.
+Number of generator rows, one per machine. The bus id can repeat, and the
+count includes out-of-service rows.
 """
-n_generators(net::BalancedNetwork) = n_gens(net)
+n_generators(net::BalancedNetwork) = Int(_summary(net).counts.generators)
 
 """
     n_switches(net) -> Int
@@ -143,9 +133,8 @@ end
 """
     source_format(net) -> String
 
-The format the case was read from, as the lowercase token every `from`
-argument accepts, so `to_format(net, source_format(other))` works for every
-writable format. Examples include `"matpower"`, `"powermodels-json"`,
+The format the case was read from, as the lowercase token accepted by
+`parse_file(...; format=...)` and [`emit`](@ref). Examples include `"matpower"`, `"powermodels-json"`,
 `"egret-json"`, `"psse"`, `"powerworld"`, `"pandapower-json"`, `"pslf"`,
 `"pypsa-csv"`, `"gridfm"`, `"surge-json"`, `"in-memory"`, and `"normalized"`
 (the last is the output of [`to_normalized`](@ref)).
@@ -170,16 +159,13 @@ function reference_bus_id(net::BalancedNetwork)
 end
 
 """
-    reference_bus_indices(net) -> Vector{Int}
+    reference_bus_positions(net::BalancedNetwork) -> Vector{Int}
 
-The dense `[0, n)` indices of every reference (slack) bus, in dense bus order.
-Unlike [`reference_bus_id`](@ref) — which returns a single 1-based id and only
-when exactly one bus is `REF` — this returns all of them (zero, one, or many) as
-dense indices. Map an index back to a 1-based id with `to_dense(net).bus_ids`.
-Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
+The 1-based positions of every reference bus in dense bus order. These values
+index `to_dense(net).bus_ids` directly.
 """
-function reference_bus_indices(net::BalancedNetwork)
-    h = _live_handle(net, "reference_bus_indices")
+function reference_bus_positions(net::BalancedNetwork)
+    h = _live_handle(net, "reference_bus_positions")
     lib = getfield(h, :lib)
     # v4 folds the count and fill into one `pio_balanced_network_ref_bus_indices(net, out, cap)`
     # (writes up to `cap`, returns the total): size with a null buffer, then fill.
@@ -189,39 +175,20 @@ function reference_bus_indices(net::BalancedNetwork)
         out = Vector{Int64}(undef, n)
         _check_filled(ccall(_library_symbol(lib, :pio_balanced_network_ref_bus_indices), Csize_t,
                             (Ptr{Cvoid}, Ptr{Int64}, Csize_t), h.ptr, out, n), n, "pio_balanced_network_ref_bus_indices")
-        Vector{Int}(out)
+        Int[Int(i) + 1 for i in out]
     end
-end
-
-"""
-    reference_bus_positions(net::BalancedNetwork) -> Vector{Int}
-
-The 1-based positions of every reference bus in dense bus order. These values
-index `to_dense(net).bus_ids` directly. [`reference_bus_indices`](@ref) remains
-the zero based C index view for compatibility.
-"""
-reference_bus_positions(net::BalancedNetwork) = reference_bus_indices(net) .+ 1
-
-"""
-    n_components(net) -> Int
-
-Number of connected components of the in-service topology, as the C ABI computes it
-(`pio_balanced_network_n_islands`). The same quantity as `to_dense(net).n_components`, without
-building dense tables. Needs `net`'s live Rust handle (from [`parse_file`](@ref)).
-"""
-function n_components(net::BalancedNetwork)
-    n = _summary(net).topology.n_components
-    n === nothing && error("PowerIO.n_components: this BalancedNetwork has no live network handle")
-    return Int(n)
 end
 
 """
     n_islands(net::BalancedNetwork) -> Int
 
-Number of electrical islands in the in-service topology. This is the power
-system spelling of [`n_components`](@ref).
+Number of electrical islands in the in-service topology.
 """
-n_islands(net::BalancedNetwork) = n_components(net)
+function n_islands(net::BalancedNetwork)
+    n = _summary(net).topology.n_components
+    n === nothing && error("PowerIO.n_islands: this BalancedNetwork has no live network handle")
+    return Int(n)
+end
 
 """
     is_radial(net) -> Bool
@@ -237,16 +204,16 @@ function is_radial(net::BalancedNetwork)
 end
 
 """
-    bus_type_code(kind) -> Int
+    to_bus_type_code(kind) -> Int
 
-Map the canonical bus-type string (`"PQ"`, `"PV"`, `"REF"`, `"ISOLATED"`) to the
-MATPOWER code (1, 2, 3, 4). The strings are the Rust core's `BusType::as_str`
-values.
+Convert the canonical bus type string (`"PQ"`, `"PV"`, `"REF"`, `"ISOLATED"`)
+to the MATPOWER code (1, 2, 3, 4). The strings are the Rust core's
+`BusType::as_str` values.
 """
-function bus_type_code(kind::AbstractString)
+function to_bus_type_code(kind::AbstractString)
     kind == "PQ"       && return 1
     kind == "PV"       && return 2
     kind == "REF"      && return 3
     kind == "ISOLATED" && return 4
-    throw(ArgumentError("PowerIO: unknown bus type $(repr(kind))"))
+    throw(ArgumentError("PowerIO.to_bus_type_code: unknown bus type $(repr(kind))"))
 end

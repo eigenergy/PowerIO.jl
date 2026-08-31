@@ -9,28 +9,19 @@
 # `copy` returns an ordinary mutable Julia array.
 
 """
-    PowerIOCError
+    PowerIOError
 
 A structured failure from an ABI v6 entry point: the stable diagnostic
 `code`, the rendered `message`, and the structured `diagnostics` decoded from
 the error handle's JSON array.
 """
-struct PowerIOCError <: Exception
+struct PowerIOError <: Exception
     code::String
     message::String
     diagnostics::Vector{Diagnostic}
 end
 
-"""
-    PowerIOError
-
-Preferred name for the compatibility spelling `PowerIOCError`. Both names
-denote the same exception type, so existing catches and method signatures keep
-working.
-"""
-const PowerIOError = PowerIOCError
-
-function Base.showerror(io::IO, e::PowerIOCError)
+function Base.showerror(io::IO, e::PowerIOError)
     # The C side already prefixes `message` with `code:` for some failure
     # classes and leaves it off for others; strip the prefix when present so
     # the code renders exactly once.
@@ -50,11 +41,11 @@ function _v6_error(lib::AbstractString, err::Ptr{Cvoid})
               (Ptr{Cvoid},), err)
     end
     ccall(_library_symbol(lib, :pio_error_release), Cvoid, (Ptr{Cvoid},), err)
-    return PowerIOCError(code, message, diagnostics)
+    return PowerIOError(code, message, diagnostics)
 end
 
 # Run one fallible v6 ccall: `f(err_ref)` returns the raw result; a non-NULL
-# stored error handle throws `PowerIOCError`.
+# stored error handle throws `PowerIOError`.
 function _v6_call(f, lib::AbstractString)
     err = Ref{Ptr{Cvoid}}(C_NULL)
     result = f(err)
@@ -67,8 +58,8 @@ end
 
 One runtime module: a typed value with its common records, behind an owned
 ABI v6 handle. Internal: [`PioModule`](@ref) wraps it, and the public
-surface reads and writes it through [`parse_file`](@ref), [`parse_bytes`](@ref),
-and [`write_json`](@ref). The handle's finalizer releases it; every
+surface reads and writes it through [`parse_file`](@ref) and [`to_json`](@ref).
+The handle's finalizer releases it; every
 retained child (an exported module, DC data) is independently owned, so
 releasing this module never invalidates them.
 """
@@ -208,130 +199,133 @@ function inspect_module(m::StoredModule)
 end
 
 """
-    state_inventory(m::StoredModule)
+    list_states(m::StoredModule)
 
-The typed time or scenario inventory of the module's value.
+List the typed time points or scenarios of the module's value.
 """
-function state_inventory(m::StoredModule)
+function list_states(m::StoredModule)
     lib = getfield(m, :lib)
+    symbol = _preferred_symbol(
+        :pio_module_list_states_json,
+        :pio_module_state_inventory_json,
+        lib,
+    )
     s = GC.@preserve m _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_state_inventory_json), Cstring,
+        ccall(_library_symbol(lib, symbol), Cstring,
               (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _module_ptr(m), err)
     end
     return JSON3.read(_take_string(lib, s))
 end
 
 """
-    export_state(m::StoredModule; time_position=nothing, scenario=nothing) -> StoredModule
+    _export_state(m::StoredModule; time_position=nothing, scenario=nothing) -> StoredModule
 
 Export one selected time point or scenario as an independent static module.
 Pass exactly one key. `time_position` is zero based, matching the C ABI and
 every other language binding; the first time point is `time_position=0`.
 """
-function export_state(m::StoredModule;
-                      time_position::Union{Integer,Nothing}=nothing,
-                      scenario::Union{AbstractString,Nothing}=nothing)
+function _export_state(m::StoredModule;
+                       time_position::Union{Integer,Nothing}=nothing,
+                       scenario::Union{AbstractString,Nothing}=nothing)
     (time_position === nothing) == (scenario === nothing) &&
-        error("PowerIO.export_state: pass exactly one of time_position and scenario")
+        error("PowerIO._export_state: pass exactly one of time_position and scenario")
     lib = getfield(m, :lib)
-    position = time_position === nothing ? Int64(-1) : Int64(time_position)
-    ptr = GC.@preserve m _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_export_state), Ptr{Cvoid},
-              (Ptr{Cvoid}, Int64, Cstring, Ref{Ptr{Cvoid}}), _module_ptr(m), position,
-              scenario === nothing ? C_NULL : scenario, err)
+    ptr = if time_position !== nothing && time_position >= 0 &&
+             _exports_symbol(:pio_module_export_time_point, lib)
+        position = Csize_t(time_position)
+        GC.@preserve m _v6_call(lib) do err
+            ccall(_library_symbol(lib, :pio_module_export_time_point), Ptr{Cvoid},
+                  (Ptr{Cvoid}, Csize_t, Ref{Ptr{Cvoid}}),
+                  _module_ptr(m), position, err)
+        end
+    elseif scenario !== nothing && _exports_symbol(:pio_module_export_scenario, lib)
+        GC.@preserve m _v6_call(lib) do err
+            ccall(_library_symbol(lib, :pio_module_export_scenario), Ptr{Cvoid},
+                  (Ptr{Cvoid}, Cstring, Ref{Ptr{Cvoid}}),
+                  _module_ptr(m), scenario, err)
+        end
+    else
+        position = time_position === nothing ? Int64(-1) : Int64(time_position)
+        GC.@preserve m _v6_call(lib) do err
+            ccall(_library_symbol(lib, :pio_module_export_state), Ptr{Cvoid},
+                  (Ptr{Cvoid}, Int64, Cstring, Ref{Ptr{Cvoid}}),
+                  _module_ptr(m), position, scenario === nothing ? C_NULL : scenario, err)
+        end
     end
     return StoredModule(ptr, lib)
 end
 
 """
-    lowering_readiness(m::StoredModule; base_mva=100.0)
+    _to_balanced_report(m::StoredModule; base_mva=100.0)
 
-Readiness of the multiconductor value for the balanced lowering, decoded
-from JSON: the inspect half of the transformation.
+Readiness of the multiconductor value for the balanced transformation,
+decoded from JSON as `ready` plus structured `diagnostics`.
 """
-function lowering_readiness(m::StoredModule; base_mva::Real=100.0)
+function _to_balanced_report(m::StoredModule; base_mva::Real=100.0)
     lib = getfield(m, :lib)
+    symbol = _preferred_symbol(:pio_module_to_balanced_report_json,
+                               :pio_module_lowering_readiness_json, lib)
     s = GC.@preserve m _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_lowering_readiness_json), Cstring,
+        ccall(_library_symbol(lib, symbol), Cstring,
               (Ptr{Cvoid}, Cdouble, Ref{Ptr{Cvoid}}), _module_ptr(m), base_mva, err)
     end
     return JSON3.read(_take_string(lib, s))
 end
 
 """
-    lower_module_to_balanced(m::StoredModule; base_mva=100.0) -> StoredModule
+    _to_balanced_module(m::StoredModule; base_mva=100.0) -> StoredModule
 
-Explicitly lower a multiconductor module to a balanced module. The pass
+Transform a multiconductor module to a balanced module. The pass
 appends its findings and one Transform history entry; the source
-descriptors carry over, but not the retained bytes, so a later write in the
+descriptors carry over, but not the retained bytes, so a later emission in the
 original format cannot echo the source exactly.
 """
-function lower_module_to_balanced(m::StoredModule; base_mva::Real=100.0)
+function _to_balanced_module(m::StoredModule; base_mva::Real=100.0)
     lib = getfield(m, :lib)
+    symbol = _preferred_symbol(:pio_module_to_balanced,
+                               :pio_module_lower_to_balanced, lib)
     ptr = GC.@preserve m _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_lower_to_balanced), Ptr{Cvoid},
+        ccall(_library_symbol(lib, symbol), Ptr{Cvoid},
               (Ptr{Cvoid}, Cdouble, Ref{Ptr{Cvoid}}), _module_ptr(m), base_mva, err)
     end
     return StoredModule(ptr, lib)
 end
 
-# ---- DC branch data ---------------------------------------------------------
+# ---- private DC calculation machinery --------------------------------------
 
-"""
-    BorrowedVector{T}
-
-A read only view over a span owned by a C result handle. The view roots the
-owner, so the span stays valid for the view's lifetime; `copy` returns an
-ordinary mutable `Vector{T}`. Mutation throws.
-"""
-struct BorrowedVector{T} <: AbstractVector{T}
+# ABI 6 exposes an owned DC data handle and borrowed numeric spans. Julia 1.0
+# keeps that representation private: callers ask for a named matrix or vector,
+# and these helpers acquire and release the C handle inside that calculation.
+struct _BorrowedVector{T} <: AbstractVector{T}
     owner::Any
     ptr::Ptr{T}
     len::Int
 end
 
-Base.size(v::BorrowedVector) = (v.len,)
-Base.IndexStyle(::Type{<:BorrowedVector}) = IndexLinear()
-function Base.getindex(v::BorrowedVector{T}, i::Int) where {T}
+Base.size(v::_BorrowedVector) = (v.len,)
+Base.IndexStyle(::Type{<:_BorrowedVector}) = IndexLinear()
+function Base.getindex(v::_BorrowedVector{T}, i::Int) where {T}
     @boundscheck checkbounds(v, i)
     owner = getfield(v, :owner)
     GC.@preserve owner begin
-        _dc_ptr(owner)  # raises the owner's own released-handle error first
-        unsafe_load(v.ptr, i)
+        _dc_ptr(owner)
+        return unsafe_load(v.ptr, i)
     end
 end
-Base.setindex!(::BorrowedVector, _, ::Int) =
-    error("PowerIO: a BorrowedVector is read only; `copy` it for a mutable array")
-function Base.copy(v::BorrowedVector{T}) where {T}
+Base.setindex!(::_BorrowedVector, _, ::Int) =
+    error("PowerIO: a borrowed DC view is read only; copy it for a mutable array")
+function Base.copy(v::_BorrowedVector{T}) where {T}
     owner = getfield(v, :owner)
     GC.@preserve owner begin
-        _dc_ptr(owner)  # one release check up front, not once per element
+        _dc_ptr(owner)
         return T[unsafe_load(v.ptr, i) for i in eachindex(v)]
     end
 end
 
-"""
-    DcData
-
-The DC branch data of one balanced module under one susceptance formula, an
-independently owned ABI v6 result: releasing the module that built it never
-invalidates it. Fields with numeric spans are [`BorrowedVector`](@ref)s over
-the handle's own arrays.
-
-The public equations and signs match PowerModels directly:
-
-    A[e, from] = +1
-    A[e, to]   = -1
-    B  = A' * Diagonal(b) * A
-    Bf = Diagonal(b) * A
-    p_shift  = A' * (b .* shift)
-    p_bus    = -B * va + p_shift
-    p_branch = -Bf * va + b .* shift
-"""
-mutable struct DcData
+mutable struct _DcData
     ptr::Ptr{Cvoid}
     lib::String
-    function DcData(ptr::Ptr{Cvoid}, lib::AbstractString)
+    function _DcData(ptr::Ptr{Cvoid}, lib::AbstractString)
         ptr == C_NULL && error("PowerIO: null DC data handle")
         lib = String(lib)
         release = _library_symbol(lib, :pio_dc_data_release)
@@ -344,85 +338,56 @@ mutable struct DcData
     end
 end
 
-function _dc_ptr(d::DcData)
+function _dc_ptr(d::_DcData)
     ptr = getfield(d, :ptr)
-    ptr == C_NULL && error("PowerIO: the DC data handle was released")
+    ptr == C_NULL && error("PowerIO: the private DC data handle was released")
     return ptr
 end
 
-"""
-    dc_data(m::StoredModule; formula="series_susceptance") -> DcData
-
-Build the DC branch data of the module's balanced network value. Formulas:
-`series_susceptance` (`imag(inv(r + im*x))` with the PowerModels sign),
-`tap_adjusted_reactance` (`-1/(x*tap)`), `reactance_only` (`-1/x`); all
-three are negative for an inductive branch.
-"""
-function dc_data(m::StoredModule; formula::AbstractString="series_susceptance")
+function _dc_data(m::StoredModule;
+                  formula::AbstractString="series_susceptance")
     lib = getfield(m, :lib)
-    _require_export("dc_data", :pio_dc_data_build, "a PowerIO ABI 6 library", lib)
+    _require_export("DC calculations", :pio_dc_data_build,
+                    "a PowerIO ABI 6 library", lib)
     ptr = GC.@preserve m _v6_call(lib) do err
         ccall(_library_symbol(lib, :pio_dc_data_build), Ptr{Cvoid},
               (Ptr{Cvoid}, Cstring, Ref{Ptr{Cvoid}}), _module_ptr(m), formula, err)
     end
-    return DcData(ptr, lib)
+    return _DcData(ptr, lib)
 end
 
-_dc_len(d::DcData, sym::Symbol) =
+_dc_len(d::_DcData, sym::Symbol) =
     Int(GC.@preserve d ccall(_library_symbol(getfield(d, :lib), sym), Csize_t,
                              (Ptr{Cvoid},), _dc_ptr(d)))
 
-"""Included incidence row count (`m`)."""
-n_rows(d::DcData) = _dc_len(d, :pio_dc_data_n_rows)
-
-"""Included branch count (`m`), the descriptive alias of [`n_rows`](@ref)."""
-n_branches(d::DcData) = n_rows(d)
-
-"""Incidence column count (`n`, the bus count)."""
-n_buses(d::DcData) = _dc_len(d, :pio_dc_data_n_buses)
-
-function _dc_span(d::DcData, sym::Symbol, ::Type{T}, len::Int) where {T}
+function _dc_n_branches(d::_DcData)
     lib = getfield(d, :lib)
-    ptr = GC.@preserve d ccall(_library_symbol(lib, sym), Ptr{T}, (Ptr{Cvoid},), _dc_ptr(d))
-    ptr == C_NULL && error("PowerIO: NULL DC data span")
-    return BorrowedVector{T}(d, ptr, len)
+    symbol = _preferred_symbol(:pio_dc_data_n_branches, :pio_dc_data_n_rows, lib)
+    return _dc_len(d, symbol)
 end
 
-"""From bus column per included row (`A[e, from] = +1`), zero based."""
-from_indices(d::DcData) = _dc_span(d, :pio_dc_data_from_indices, Int64, n_rows(d))
+_dc_n_buses(d::_DcData) = _dc_len(d, :pio_dc_data_n_buses)
 
-"""To bus column per included row (`A[e, to] = -1`), zero based."""
-to_indices(d::DcData) = _dc_span(d, :pio_dc_data_to_indices, Int64, n_rows(d))
+function _dc_span(d::_DcData, sym::Symbol, ::Type{T}, len::Int) where {T}
+    lib = getfield(d, :lib)
+    ptr = GC.@preserve d ccall(_library_symbol(lib, sym), Ptr{T},
+                               (Ptr{Cvoid},), _dc_ptr(d))
+    ptr == C_NULL && error("PowerIO: NULL private DC data span")
+    return _BorrowedVector{T}(d, ptr, len)
+end
 
-"""
-    from_bus_positions(d::DcData) -> Vector{Int}
+_dc_from_indices(d::_DcData) =
+    _dc_span(d, :pio_dc_data_from_indices, Int64, _dc_n_branches(d))
+_dc_to_indices(d::_DcData) =
+    _dc_span(d, :pio_dc_data_to_indices, Int64, _dc_n_branches(d))
+_dc_susceptance(d::_DcData) =
+    _dc_span(d, :pio_dc_data_susceptance, Float64, _dc_n_branches(d))
+_dc_shift(d::_DcData) =
+    _dc_span(d, :pio_dc_data_shift, Float64, _dc_n_branches(d))
+_dc_shift_injection(d::_DcData) =
+    _dc_span(d, :pio_dc_data_shift_injection, Float64, _dc_n_buses(d))
 
-The 1-based from-bus position of each included branch. The returned values
-index [`bus_ids`](@ref) directly; [`from_indices`](@ref) remains the zero based
-borrowed view for compatibility and zero copy callers.
-"""
-from_bus_positions(d::DcData) = Int[Int(i) + 1 for i in from_indices(d)]
-
-"""The 1-based to-bus positions, parallel to [`from_bus_positions`](@ref)."""
-to_bus_positions(d::DcData) = Int[Int(i) + 1 for i in to_indices(d)]
-
-"""Branch susceptance per included row, PowerModels sign."""
-susceptance(d::DcData) = _dc_span(d, :pio_dc_data_susceptance, Float64, n_rows(d))
-
-"""Branch phase shift angle per included row, radians (the `shift` in `p_branch = -Bf * va + b .* shift`)."""
-shift(d::DcData) = _dc_span(d, :pio_dc_data_shift, Float64, n_rows(d))
-
-"""Phase shift bus injection `p_shift = A' * (b .* shift)`, per bus."""
-shift_injection(d::DcData) = _dc_span(d, :pio_dc_data_shift_injection, Float64, n_buses(d))
-
-# Read a C string table (`const char *const *`): `sym` is the table itself,
-# `count_sym` is the count accessor that owns its length. The length always
-# comes from calling `count_sym` here, never from a value a caller already had
-# on hand; `expected`, when given, is that caller's independently obtained
-# belief about the same count (e.g. a public `n_rows`/`n_buses` it already
-# read), checked against `count_sym` so a disagreement is a directed error
-# instead of a bounds fault deep in a matrix build.
-function _dc_strings(d::DcData, sym::Symbol, count_sym::Symbol,
+function _dc_strings(d::_DcData, sym::Symbol, count_sym::Symbol,
                      expected::Union{Int,Nothing}=nothing)
     len = _dc_len(d, count_sym)
     if expected !== nothing && expected != len
@@ -435,79 +400,73 @@ function _dc_strings(d::DcData, sym::Symbol, count_sym::Symbol,
     return GC.@preserve d String[_dc_string_entry(sym, table, i, len) for i in 1:len]
 end
 
-# One entry of a C string table: a NULL this far into a table whose own count
-# accessor claims `len` entries is the table and its count disagreeing about
-# what is actually populated, not an absent table (already handled above), so
-# it gets its own directed error rather than surfacing as unsafe_string's
-# generic "cannot convert NULL to string".
 function _dc_string_entry(sym::Symbol, table::Ptr{Cstring}, i::Int, len::Int)
     p = unsafe_load(table, i)
     p == C_NULL && error("PowerIO: $sym has a NULL entry at index $i of $len")
     return unsafe_string(p)
 end
 
-"""Stable module element ID per included row."""
-row_ids(d::DcData) = _dc_strings(d, :pio_dc_data_row_ids, :pio_dc_data_n_rows, n_rows(d))
+function _dc_branch_ids(d::_DcData)
+    lib = getfield(d, :lib)
+    ids_symbol = _preferred_symbol(:pio_dc_data_branch_ids, :pio_dc_data_row_ids, lib)
+    count_symbol = _preferred_symbol(:pio_dc_data_n_branches, :pio_dc_data_n_rows, lib)
+    return _dc_strings(d, ids_symbol, count_symbol, _dc_n_branches(d))
+end
 
-"""Stable branch element IDs, the descriptive alias of [`row_ids`](@ref)."""
-branch_ids(d::DcData) = row_ids(d)
+_dc_bus_ids(d::_DcData) =
+    _dc_strings(d, :pio_dc_data_bus_ids, :pio_dc_data_n_buses, _dc_n_buses(d))
 
-"""Stable bus element ID per incidence column."""
-bus_ids(d::DcData) = _dc_strings(d, :pio_dc_data_bus_ids, :pio_dc_data_n_buses, n_buses(d))
-
-"""Omitted branches: stable element IDs and diagnostic reasons."""
-function omitted(d::DcData)
+function _dc_omitted(d::_DcData)
     count = _dc_len(d, :pio_dc_data_n_omitted)
     ids = _dc_strings(d, :pio_dc_data_omitted_ids, :pio_dc_data_n_omitted, count)
     reasons = _dc_strings(d, :pio_dc_data_omitted_reasons, :pio_dc_data_n_omitted, count)
     return collect(zip(ids, reasons))
 end
 
-"""The selected branch susceptance formula's stable name."""
-function formula(d::DcData)
+function _dc_formula(d::_DcData)
     lib = getfield(d, :lib)
-    return GC.@preserve d unsafe_string(ccall(_library_symbol(lib, :pio_dc_data_formula), Cstring,
-                                              (Ptr{Cvoid},), _dc_ptr(d)))
+    return GC.@preserve d unsafe_string(ccall(
+        _library_symbol(lib, :pio_dc_data_formula), Cstring,
+        (Ptr{Cvoid},), _dc_ptr(d),
+    ))
 end
 
-"""
-    branch_flow(d::DcData, va::AbstractVector{<:Real}) -> Vector{Float64}
-
-The complete affine branch flow `p_branch = -Bf * va + b .* shift`, per row
-`-b[e] * (va_from - va_to) + b[e] * shift[e]`, filled by the C library with
-no intermediate vector beyond the result. The phase shift term is included
-in the returned values; [`shift`](@ref) is the per row `shift` the fill
-uses. `va` is per bus, radians.
-"""
-function branch_flow(d::DcData, va::AbstractVector{<:Real})
+function _dc_calc_branch_flow(d::_DcData, va::AbstractVector{<:Real})
     lib = getfield(d, :lib)
-    rows = n_rows(d)
-    buses = n_buses(d)
+    rows = _dc_n_branches(d)
+    buses = _dc_n_buses(d)
     length(va) == buses ||
-        error("PowerIO.branch_flow: va has $(length(va)) entries for $buses buses")
+        error("PowerIO.calc_branch_flow_dc: voltage_angles has $(length(va)) entries for $buses buses")
     angles = Vector{Float64}(va)
     out = Vector{Float64}(undef, rows)
-    ok = GC.@preserve d angles out ccall(_library_symbol(lib, :pio_dc_data_fill_branch_flow),
-                                         Bool,
-                                         (Ptr{Cvoid}, Ptr{Float64}, Csize_t, Ptr{Float64}, Csize_t),
-                                         _dc_ptr(d), angles, length(angles), out, length(out))
-    ok || error("PowerIO.branch_flow: the fill was refused")
+    checked_symbol = if _exports_symbol(:pio_dc_data_calc_branch_flow, lib)
+        :pio_dc_data_calc_branch_flow
+    elseif _exports_symbol(:pio_dc_data_fill_branch_flow_checked, lib)
+        :pio_dc_data_fill_branch_flow_checked
+    else
+        nothing
+    end
+    ok = if checked_symbol !== nothing
+        GC.@preserve d angles out _v6_call(lib) do err
+            ccall(_library_symbol(lib, checked_symbol), Bool,
+                  (Ptr{Cvoid}, Ptr{Float64}, Csize_t, Ptr{Float64}, Csize_t,
+                   Ref{Ptr{Cvoid}}),
+                  _dc_ptr(d), angles, length(angles), out, length(out), err)
+        end
+    else
+        GC.@preserve d angles out ccall(
+            _library_symbol(lib, :pio_dc_data_fill_branch_flow), Bool,
+            (Ptr{Cvoid}, Ptr{Float64}, Csize_t, Ptr{Float64}, Csize_t),
+            _dc_ptr(d), angles, length(angles), out, length(out))
+    end
+    ok || error("PowerIO.calc_branch_flow_dc: the calculation was refused")
     return out
 end
 
-# ---- assembled DC matrices --------------------------------------------------
-
-"""
-    incidence_matrix(d::DcData) -> SparseMatrixCSC{Float64,Int}
-
-The signed incidence `A` (`m × n`): `A[e, from] = +1`, `A[e, to] = -1`,
-assembled from the DC data's own spans with no temporary sign converted
-vector — the spans already carry the PowerModels orientation.
-"""
-function incidence_matrix(d::DcData)
-    rows = n_rows(d)
-    from = from_indices(d)
-    to = to_indices(d)
+function _dc_calc_incidence_matrix(d::_DcData)
+    rows = _dc_n_branches(d)
+    from = _dc_from_indices(d)
+    to = _dc_to_indices(d)
     i = Vector{Int}(undef, 2rows)
     j = Vector{Int}(undef, 2rows)
     v = Vector{Float64}(undef, 2rows)
@@ -519,38 +478,23 @@ function incidence_matrix(d::DcData)
         j[2e] = Int(to[e]) + 1
         v[2e] = -1.0
     end
-    return SparseArrays.sparse(i, j, v, rows, n_buses(d))
+    return SparseArrays.sparse(i, j, v, rows, _dc_n_buses(d))
 end
 
-"""
-    susceptance_laplacian(d::DcData) -> SparseMatrixCSC{Float64,Int}
-
-The DC Laplacian `B = A' * Diagonal(b) * A` (`n × n`), PowerModels sign,
-assembled from the DC data's spans.
-"""
-function susceptance_laplacian(d::DcData)
-    a = incidence_matrix(d)
-    return a' * SparseArrays.spdiagm(0 => copy(susceptance(d))) * a
+function _dc_calc_bus_susceptance_matrix(d::_DcData)
+    a = _dc_calc_incidence_matrix(d)
+    return a' * SparseArrays.spdiagm(0 => copy(_dc_susceptance(d))) * a
 end
 
-"""
-    flow_matrix(d::DcData) -> SparseMatrixCSC{Float64,Int}
-
-The branch flow map `Bf = Diagonal(b) * A` (`m × n`), PowerModels sign, so
-`p_branch = -Bf * va + b .* shift`.
-"""
-function flow_matrix(d::DcData)
-    a = incidence_matrix(d)
-    return SparseArrays.spdiagm(0 => copy(susceptance(d))) * a
+function _dc_calc_branch_susceptance_matrix(d::_DcData)
+    a = _dc_calc_incidence_matrix(d)
+    return SparseArrays.spdiagm(0 => copy(_dc_susceptance(d))) * a
 end
 
-"""
-    bus_injection(d::DcData, va::AbstractVector{<:Real}) -> Vector{Float64}
-
-The DC bus injection `p_bus = -B * va + p_shift`, PowerModels sign.
-"""
-function bus_injection(d::DcData, va::AbstractVector{<:Real})
-    length(va) == n_buses(d) ||
-        error("PowerIO.bus_injection: va has $(length(va)) entries for $(n_buses(d)) buses")
-    return -(susceptance_laplacian(d) * Vector{Float64}(va)) + copy(shift_injection(d))
+function _dc_calc_bus_injection(d::_DcData, va::AbstractVector{<:Real})
+    buses = _dc_n_buses(d)
+    length(va) == buses ||
+        error("PowerIO.calc_bus_injection_dc: voltage_angles has $(length(va)) entries for $buses buses")
+    return -(_dc_calc_bus_susceptance_matrix(d) * Vector{Float64}(va)) +
+           copy(_dc_shift_injection(d))
 end

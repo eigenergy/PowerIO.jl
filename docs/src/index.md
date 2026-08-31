@@ -1,6 +1,8 @@
 # PowerIO.jl
 
-PowerIO 0.10 is the public beta of the 1.0 API. API corrections may land before 1.0.0 as downstream integrations exercise the new design.
+PowerIO.jl 1.0 binds PowerIO 1.0 over C ABI 6. PowerIO 0.10 established the
+public beta; 1.0 applies the final corrections found while building solver and
+language consumers.
 
 Julia binding of [PowerIO](https://github.com/eigenergy/powerio), the power
 system data compiler. One call parses any supported source into a typed
@@ -13,7 +15,9 @@ case = parse_file("case14.m")           # PioModule{BalancedNetwork}
 n_buses(case)                           # 14
 feeder = parse_file("switch.dss")       # PioModule{MulticonductorNetwork}
 feeder.diagnostics                      # native Diagnostic records
-text, findings = emit(case, "psse")
+result = emit(case, "psse")
+result.text
+result.diagnostics
 ```
 
 ## Install
@@ -36,7 +40,8 @@ local build; see [Binary distribution](binary.md).
   cases (OpenDSS, PowerModelsDistribution JSON, IEEE BMOPF JSON). See
   [Distribution networks](distribution.md).
 
-The two network types share the same verbs, and [`parse_file`](@ref) routes on the format:
+The two network types share the same verbs. [`parse_file`](@ref) routes
+filesystem input by format, while [`parse_text`](@ref) handles text in memory:
 a `.m` path parses to a `PioModule{BalancedNetwork}`, a `.dss` path to a
 `PioModule{MulticonductorNetwork}`, and a `.pio.json` to whichever value the
 document stores. Calculation sources can instead produce an instance or

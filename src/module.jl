@@ -11,7 +11,7 @@ complete `T` values: `parse_file` on a supported PyPSA CSV folder with a
 declared snapshot axis returns `PioModule{TimeSeries{BalancedNetwork}}`, and
 a fixed network whose complete electrical state varies returns
 `PioModule{TimeSeries{OperatingPoint{BalancedNetwork}}}`. Inspect the axis
-with [`state_inventory`](@ref). Those balanced series support `length`,
+with [`list_states`](@ref). Those balanced series support `length`,
 integer indexing, `eachindex`, and iteration; each selected entry remains a
 [`PioModule`](@ref), preserving its records. A
 `TimeSeries{OperatingPoint{MulticonductorNetwork}}` has no collection
@@ -190,6 +190,18 @@ struct UnknownValue
 end
 
 """
+    EmitResult
+
+The result of [`emit`](@ref). `text` contains an in-memory text emission and
+is `nothing` when a destination was supplied. `diagnostics` contains findings
+from the emission itself; parse findings remain on the [`PioModule`](@ref).
+"""
+struct EmitResult
+    text::Union{String,Nothing}
+    diagnostics::Vector{Diagnostic}
+end
+
+"""
     PioModule{T}
 
 One parsed module: the typed `value` of family `T` beside the records that
@@ -214,8 +226,47 @@ struct PioModule{T}
     value::T
 end
 
+"""
+    PioModule(value::BalancedNetwork)
+    PioModule(value::MulticonductorNetwork)
+
+Wrap an existing network value without serializing or reparsing it. Common
+records and retained source remain attached, so a parsed value still emits a
+byte exact same format echo. A value rebuilt with [`from_json`](@ref) gains the
+ordinary module [`emit`](@ref) path.
+"""
+function PioModule(value::BalancedNetwork)
+    h = _live_handle(value, "PioModule")
+    lib = getfield(h, :lib)
+    symbol = _preferred_symbol(
+        :pio_balanced_network_to_module,
+        :pio_module_of_balanced_network,
+        lib,
+    )
+    ptr = GC.@preserve h _v6_call(lib) do err
+        ccall(_library_symbol(lib, symbol), Ptr{Cvoid},
+              (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), getfield(h, :ptr), err)
+    end
+    return _wrap_module(StoredModule(ptr, lib))
+end
+
+function PioModule(value::MulticonductorNetwork)
+    h = _live_dist_handle(value, "PioModule")
+    lib = getfield(h, :lib)
+    symbol = _preferred_symbol(
+        :pio_multiconductor_network_to_module,
+        :pio_module_of_multiconductor_network,
+        lib,
+    )
+    ptr = GC.@preserve h _v6_call(lib) do err
+        ccall(_library_symbol(lib, symbol), Ptr{Cvoid},
+              (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), getfield(h, :ptr), err)
+    end
+    return _wrap_module(StoredModule(ptr, lib))
+end
+
 function Base.getproperty(m::PioModule, name::Symbol)
-    name === :diagnostics && return diagnostics(m)
+    name === :diagnostics && return _module_diagnostics(m)
     return getfield(m, name)
 end
 
@@ -273,76 +324,35 @@ function _wrap_module(handle::StoredModule)
     return PioModule(handle, UnknownValue(k, handle))
 end
 
-function _parse_file_format(format::Union{AbstractString,Nothing}, from)
-    format !== nothing && from !== nothing && throw(ArgumentError(
-        "parse_file accepts either format or from, not both"))
-    selected = format === nothing ? from : format
-    return selected === nothing ? nothing : String(selected)
-end
-
 """
     parse_file(path; format=nothing) -> PioModule
-    parse_file(io::IO; name="<memory>", format=nothing) -> PioModule
 
-Parse a path or stream into a typed module of whichever built in value family
-claims it. A path can name a file or directory format profile. Stream input is
-read once; `name` labels it and supplies an extension for format detection.
-`format` pins an ambiguous or mislabeled input without changing the returned
-abstraction.
+Parse a file or directory path into a typed module of whichever built in value
+family claims it. `format` pins an ambiguous or mislabeled input without
+changing the returned abstraction. Use [`parse_text`](@ref) for in-memory text.
 """
 function parse_file(path::AbstractString;
-                    format::Union{AbstractString,Nothing}=nothing,
-                    from=nothing)
-    return _wrap_module(parse_module(path; format=_parse_file_format(format, from)))
+                    format::Union{AbstractString,Nothing}=nothing)
+    return _wrap_module(parse_module(path; format))
 end
 
-function parse_file(io::IO;
+"""
+    parse_text(text; name="<memory>", format=nothing, include_root=nothing) -> PioModule
+
+Parse in-memory case text into a typed module. `name` labels the source for
+diagnostics and format detection; `format` pins an ambiguous source. In-memory
+text does not resolve included files, so `include_root` must be `nothing`; put
+an include based case on disk and use [`parse_file`](@ref).
+"""
+function parse_text(text::AbstractString;
                     name::AbstractString="<memory>",
                     format::Union{AbstractString,Nothing}=nothing,
-                    from=nothing)
-    return parse_bytes(io; name, format=_parse_file_format(format, from))
+                    include_root::Union{AbstractString,Nothing}=nothing)
+    include_root === nothing || throw(ArgumentError(
+        "PowerIO.parse_text: in-memory text cannot resolve included files; " *
+        "write the case beneath include_root and call parse_file"))
+    return _wrap_module(parse_module_str(text; name, format))
 end
-
-# Quiet compatibility for the released positional stream format.
-parse_file(io::IO, format::AbstractString; name::AbstractString="<memory>") =
-    parse_file(io; name, format)
-
-# Quiet compatibility for consumers that used the pre-0.10 type marker.
-# The marker narrows the parsed value and returns it, preserving the old
-# return type. New code dispatches on the PioModule that parse_file(source)
-# returns instead.
-const _COMPAT_NETWORK_VALUE = Union{BalancedNetwork,MulticonductorNetwork}
-
-function parse_file(::Type{T}, path::AbstractString; from=nothing) where {T<:_COMPAT_NETWORK_VALUE}
-    m = parse_file(path; format=from === nothing ? nothing : String(from))
-    m isa PioModule{T} || error(
-        "PowerIO.parse_file: $(repr(path)) parsed as $(kind(m)), not $(T)")
-    return m.value
-end
-
-function parse_file(::Type{T}, io::IO;
-                    from=nothing,
-                    name::AbstractString="<memory>") where {T<:_COMPAT_NETWORK_VALUE}
-    m = parse_file(io; name, format=from === nothing ? nothing : String(from))
-    m isa PioModule{T} || error(
-        "PowerIO.parse_file: $(repr(name)) parsed as $(kind(m)), not $(T)")
-    return m.value
-end
-
-"""
-    parse_bytes(bytes; name="<memory>", format=nothing) -> PioModule
-    parse_bytes(io::IO; name="<memory>", format=nothing) -> PioModule
-
-Compatibility entry point for a byte buffer or stream. `name` labels the buffer for diagnostics
-and format detection from its extension; the default `"<memory>"` has none,
-so an ambiguous source needs either an explicit `format` or a `name` ending
-in a recognized extension (e.g. `name="case.m"`).
-"""
-parse_bytes(bytes::AbstractVector{UInt8};
-            name::AbstractString="<memory>",
-            format::Union{AbstractString,Nothing}=nothing) =
-    _wrap_module(parse_module_bytes(bytes; name, format))
-parse_bytes(io::IO; kwargs...) = parse_bytes(read(io); kwargs...)
 
 """
     kind(m::PioModule) -> String
@@ -355,14 +365,14 @@ kind(m::PioModule) = module_kind(getfield(m, :handle))
 kind(v::UnknownValue) = getfield(v, :kind)
 
 """
-    diagnostics(m::PioModule) -> Vector{Diagnostic}
+    m.diagnostics -> Vector{Diagnostic}
 
 The module's findings as native records: severity, stable code, message,
 target, byte spans into the retained source, related record identities, and
 suggested actions. A successful parse keeps its findings here; a failed one
 throws [`PowerIOError`](@ref) carrying the same record shape.
 """
-function diagnostics(m::PioModule)
+function _module_diagnostics(m::PioModule)
     handle = getfield(m, :handle)
     lib = getfield(handle, :lib)
     return GC.@preserve handle _diagnostics_of(lib) do _
@@ -374,81 +384,41 @@ function diagnostics(m::PioModule)
 end
 
 """
-    write_str(m::PioModule; format) -> String
+    emit(m::PioModule, format) -> EmitResult
+    emit(m::PioModule, format, destination) -> EmitResult
 
-Compatibility convenience that returns only the text from
-`emit(m, format)`. Writing an
-unchanged parsed module back to its own source format returns the retained
-source bytes exactly; any other target serializes the typed value and
-reports what it cannot represent through the module's returned findings
-(read them with [`write_report_str`](@ref) when they matter).
+Emit a module in `format` as text or to a file or directory destination. With
+no destination, `result.text` contains the text. With a destination,
+`result.text === nothing`. `result.diagnostics` contains the emission findings
+in both cases. An unchanged module emitted to its source format reproduces the
+retained source bytes.
 """
-write_str(m::PioModule; format::AbstractString) = first(write_report_str(m; format))
-
-"""
-    write_report_str(m::PioModule; format) -> (String, Vector{Diagnostic})
-
-Compatibility spelling of `emit(m, format)`.
-"""
-function write_report_str(m::PioModule; format::AbstractString)
+function emit(m::PioModule, format::AbstractString)
     handle = getfield(m, :handle)
     lib = getfield(handle, :lib)
+    symbol = _preferred_symbol(:pio_module_emit_string, :pio_module_write_str, lib)
     out_diagnostics = Ref{Ptr{Cvoid}}(C_NULL)
     s = GC.@preserve handle _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_write_str), Cstring,
+        ccall(_library_symbol(lib, symbol), Cstring,
               (Ptr{Cvoid}, Cstring, Ref{Ptr{Cvoid}}, Ref{Ptr{Cvoid}}),
               _module_ptr(handle), format, out_diagnostics, err)
     end
     findings = _diagnostics_of(_ -> out_diagnostics[], lib)
-    return _take_string(lib, s), findings
+    return EmitResult(_take_string(lib, s), findings)
 end
 
-"""
-    write_file(m::PioModule, path; format=nothing) -> Vector{Diagnostic}
-
-Compatibility spelling of `emit(m, format, path)`. Write the module to `path`
-as the named target format, returning the
-writer's findings. With no `format`, the module's own source format is the
-target, which for an unchanged parsed module reproduces the source bytes
-exactly. Directory formats (PyPSA CSV) write the folder at `path`. The
-destination must not already exist.
-"""
-function write_file(m::PioModule, path::AbstractString;
-                    format::Union{AbstractString,Nothing}=nothing)
+function emit(m::PioModule, format::AbstractString, destination::AbstractString)
     handle = getfield(m, :handle)
     lib = getfield(handle, :lib)
-    target = format === nothing ? source_format(m) : String(format)
-    target === nothing && error(
-        "PowerIO.write_file: the module was built in memory and has no source \
-         format; pass the target with format=")
+    symbol = _preferred_symbol(:pio_module_emit_file, :pio_module_write_file, lib)
     out_diagnostics = Ref{Ptr{Cvoid}}(C_NULL)
     GC.@preserve handle _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_write_file), Cint,
+        ccall(_library_symbol(lib, symbol), Cint,
               (Ptr{Cvoid}, Cstring, Cstring, Ref{Ptr{Cvoid}}, Ref{Ptr{Cvoid}}),
-              _module_ptr(handle), target, path, out_diagnostics, err)
+              _module_ptr(handle), format, destination, out_diagnostics, err)
     end
-    return _diagnostics_of(_ -> out_diagnostics[], lib)
+    return EmitResult(nothing, _diagnostics_of(_ -> out_diagnostics[], lib))
 end
-
-"""
-    write_json(m::PioModule) -> String
-
-The stored `.pio.json` version 1 document for any value kind.
-"""
-write_json(m::PioModule) = write_module(getfield(m, :handle))
-
-"""
-    emit(m::PioModule, format) -> (String, Vector{Diagnostic})
-    emit(m::PioModule, format, destination) -> Vector{Diagnostic}
-
-Emit a module in `format` as text or to a destination. With no destination,
-the result contains the text and writer findings. File and directory
-destinations follow the same rules as [`write_file`](@ref). The argument order
-matches the Rust and Python surfaces: value, target format, then destination.
-"""
-emit(m::PioModule, format::AbstractString) = write_report_str(m; format)
-emit(m::PioModule, format::AbstractString, destination::AbstractString) =
-    write_file(m, destination; format)
 
 """
     to_json(m::PioModule) -> String
@@ -456,7 +426,7 @@ emit(m::PioModule, format::AbstractString, destination::AbstractString) =
 The stored `.pio.json` document for a module. On a network value,
 `to_json(m.value)` remains the model-only JSON transport.
 """
-to_json(m::PioModule) = write_json(m)
+to_json(m::PioModule) = write_module(getfield(m, :handle))
 
 """
     from_json(PioModule, text) -> PioModule
@@ -469,20 +439,36 @@ from_json(::Type{PioModule}, text::AbstractString) = _wrap_module(read_module(te
 from_json(::Type{BalancedNetwork}, text::AbstractString) = from_json(text)
 
 """
-    to_format(m::PioModule, format) -> (String, Vector{Diagnostic})
-
-Compatibility positional spelling of `emit(m, format)`.
-"""
-to_format(m::PioModule, format::AbstractString) = write_report_str(m; format)
-
-"""
     inspect(m::PioModule)
 
 Value inspection and supported operation discovery: counts, the source
 format, and the operations the value supports, decoded from the module's
-inspection report.
+inspection report. `operations` names the concise Julia surface; C ABI
+compatibility spellings are not exposed through this binding.
 """
-inspect(m::PioModule) = inspect_module(getfield(m, :handle))
+function inspect(m::PioModule)
+    raw = inspect_module(getfield(m, :handle))
+    report = Dict{String,Any}(
+        "kind" => raw.kind,
+        "value" => raw.value,
+        "records" => raw.records,
+        "operations" => _public_operations(m),
+    )
+    haskey(raw, :source_format) && (report["source_format"] = raw.source_format)
+    return JSON3.read(JSON3.write(report))
+end
+
+_public_operations(::PioModule) = ["inspect", "diagnostics", "emit"]
+_public_operations(::PioModule{BalancedNetwork}) =
+    ["inspect", "diagnostics", "emit", "to_normalized"]
+_public_operations(::PioModule{MulticonductorNetwork}) =
+    ["inspect", "diagnostics", "emit", "to_balanced_report", "to_balanced"]
+_public_operations(::PioModule{TimeSeries{OperatingPoint{MulticonductorNetwork}}}) =
+    ["inspect", "diagnostics", "emit"]
+_public_operations(::PioModule{<:TimeSeries}) =
+    ["inspect", "diagnostics", "emit", "list_states", "export_state"]
+_public_operations(::PioModule{<:ScenarioSet}) =
+    ["inspect", "diagnostics", "emit", "list_states", "export_state"]
 
 """
     source_format(m::PioModule) -> Union{String,Nothing}
@@ -499,14 +485,14 @@ function source_format(m::PioModule)
 end
 
 """
-    state_inventory(m::PioModule)
+    list_states(m::PioModule)
 
-The time point or scenario inventory of a series or scenario set module.
-Time point positions are one based, matching [`select_state`](@ref)'s `time`
+List the time points or scenarios of a series or scenario set module.
+Time point positions are one based, matching [`export_state`](@ref)'s `time`
 keyword: the first time point has `position == 1`.
 """
-function state_inventory(m::PioModule)
-    raw = state_inventory(getfield(m, :handle))
+function list_states(m::PioModule)
+    raw = list_states(getfield(m, :handle))
     haskey(raw, :time_points) || return raw
     return _one_based_time_points(raw)
 end
@@ -523,13 +509,13 @@ const _INDEXABLE_TIME_SERIES = Union{
 }
 
 function Base.length(m::PioModule{T}) where {T<:_INDEXABLE_TIME_SERIES}
-    return length(state_inventory(m).time_points)
+    return length(list_states(m).time_points)
 end
 Base.firstindex(::PioModule{T}) where {T<:_INDEXABLE_TIME_SERIES} = 1
 Base.lastindex(m::PioModule{T}) where {T<:_INDEXABLE_TIME_SERIES} = length(m)
 Base.eachindex(m::PioModule{T}) where {T<:_INDEXABLE_TIME_SERIES} = Base.OneTo(length(m))
 Base.getindex(m::PioModule{T}, i::Integer) where {T<:_INDEXABLE_TIME_SERIES} =
-    select_state(m; time=i)
+    export_state(m; time=i)
 function Base.iterate(m::PioModule{T},
                       state::Tuple{Int,Int}=(1, length(m))) where {T<:_INDEXABLE_TIME_SERIES}
     i, n = state
@@ -538,17 +524,18 @@ function Base.iterate(m::PioModule{T},
 end
 
 function Base.keys(m::PioModule{T}) where {T<:ScenarioSet}
-    return String[String(row.id) for row in state_inventory(m).scenarios]
+    return String[String(row.id) for row in list_states(m).scenarios]
 end
 Base.length(m::PioModule{T}) where {T<:ScenarioSet} =
-    length(state_inventory(m).scenarios)
+    length(list_states(m).scenarios)
 Base.haskey(m::PioModule{T}, id::AbstractString) where {T<:ScenarioSet} =
     any(==(String(id)), keys(m))
 Base.getindex(m::PioModule{T}, id::AbstractString) where {T<:ScenarioSet} =
-    select_state(m; scenario=id)
+    export_state(m; scenario=id)
 
 # The raw v6 report is zero based, matching the C ABI (`export_state`'s
-# `time_position`); this wrapper and `select_state`'s `time` keyword are one
+# `time_position`); this wrapper and the public `export_state` method's `time`
+# keyword are one
 # based, matching every other Julia axis, so positions are bumped by one on
 # the way out. Scenario entries carry no position, so they pass through
 # `haskey(raw, :time_points)` above untouched.
@@ -563,23 +550,14 @@ function _one_based_time_points(raw)
     return JSON3.read(JSON3.write(entry))
 end
 
-"""
-    dc_data(m::PioModule; formula="series_susceptance") -> DcData
-
-The module's DC branch data as independently owned spans; see [`DcData`](@ref).
-"""
-dc_data(m::PioModule; formula::AbstractString="series_susceptance") =
-    dc_data(getfield(m, :handle); formula)
-
-function _require_complete_dc_branch_axis(data::DcData, operation::AbstractString)
-    missing = omitted(data)
+function _require_complete_dc_branch_axis(data::_DcData, operation::AbstractString)
+    missing = _dc_omitted(data)
     isempty(missing) && return data
     details = join(("$id ($reason)" for (id, reason) in missing), ", ")
     noun = length(missing) == 1 ? "branch was" : "branches were"
     throw(ArgumentError(
         "$operation cannot return the complete branch table axis because " *
-        "$(length(missing)) $noun omitted: $details; inspect dc_data(module) " *
-        "for branch_ids and omitted rows",
+        "$(length(missing)) $noun omitted: $details",
     ))
 end
 
@@ -587,21 +565,19 @@ end
     calc_incidence_matrix(m::PioModule{BalancedNetwork}; formula="series_susceptance")
 
 Calculate the canonical DC incidence matrix `A` as branches by buses, with
-`+1` at the from bus and `-1` at the to bus.
-
-The `BalancedNetwork` and path overloads retain their 0.10 bus by branch
-orientation until 1.0. Parse the source first and pass its `PioModule` for the
-canonical orientation.
+`+1` at the from bus and `-1` at the to bus. The module, network value, and
+path overloads use this orientation.
 """
 calc_incidence_matrix(m::PioModule{BalancedNetwork};
                       formula::AbstractString="series_susceptance") = begin
-    data = dc_data(m; formula)
+    data = _dc_data(getfield(m, :handle); formula)
     _require_complete_dc_branch_axis(data, "calc_incidence_matrix")
-    incidence_matrix(data)
+    _dc_calc_incidence_matrix(data)
 end
 
 """
     calc_bus_susceptance_matrix(m::PioModule{BalancedNetwork}; formula="series_susceptance")
+    calc_bus_susceptance_matrix(path; format=nothing, formula="series_susceptance")
 
 Calculate the canonical DC bus susceptance matrix
 `B = A' * Diagonal(b) * A`. Phase
@@ -609,34 +585,38 @@ shift injections stay separate, so `B` remains symmetric.
 """
 calc_bus_susceptance_matrix(m::PioModule{BalancedNetwork};
                             formula::AbstractString="series_susceptance") =
-    susceptance_laplacian(dc_data(m; formula))
+    _dc_calc_bus_susceptance_matrix(_dc_data(getfield(m, :handle); formula))
 
 """
     calc_branch_susceptance_matrix(m::PioModule{BalancedNetwork}; formula="series_susceptance")
+    calc_branch_susceptance_matrix(path; format=nothing, formula="series_susceptance")
 
 Calculate the canonical DC branch matrix `Bf = Diagonal(b) * A`, as branches
 by buses.
 """
 calc_branch_susceptance_matrix(m::PioModule{BalancedNetwork};
                                formula::AbstractString="series_susceptance") = begin
-    data = dc_data(m; formula)
+    data = _dc_data(getfield(m, :handle); formula)
     _require_complete_dc_branch_axis(data, "calc_branch_susceptance_matrix")
-    flow_matrix(data)
+    _dc_calc_branch_susceptance_matrix(data)
 end
 
 """
     calc_phase_shift_injection(m::PioModule{BalancedNetwork}; formula="series_susceptance")
+    calc_phase_shift_injection(path; format=nothing, formula="series_susceptance")
 
 Calculate `p_shift = A' * (b .* shift)` in canonical bus order. The phase
 shift term stays separate from the symmetric bus susceptance matrix.
 """
 calc_phase_shift_injection(m::PioModule{BalancedNetwork};
                            formula::AbstractString="series_susceptance") =
-    copy(shift_injection(dc_data(m; formula)))
+    copy(_dc_shift_injection(_dc_data(getfield(m, :handle); formula)))
 
 """
     calc_branch_flow_dc(m::PioModule{BalancedNetwork}, voltage_angles;
                         formula="series_susceptance")
+    calc_branch_flow_dc(path, voltage_angles;
+                        format=nothing, formula="series_susceptance")
 
 Compute `p_branch = -Bf * voltage_angles + b .* shift` in canonical branch
 order. Voltage angles are in radians.
@@ -644,13 +624,66 @@ order. Voltage angles are in radians.
 calc_branch_flow_dc(m::PioModule{BalancedNetwork},
                     voltage_angles::AbstractVector{<:Real};
                     formula::AbstractString="series_susceptance") = begin
-    data = dc_data(m; formula)
+    data = _dc_data(getfield(m, :handle); formula)
     _require_complete_dc_branch_axis(data, "calc_branch_flow_dc")
-    branch_flow(data, voltage_angles)
+    _dc_calc_branch_flow(data, voltage_angles)
 end
 
 """
-    select_state(m::PioModule; time=nothing, scenario=nothing) -> PioModule
+    calc_bus_injection_dc(m::PioModule{BalancedNetwork}, voltage_angles;
+                          formula="series_susceptance")
+    calc_bus_injection_dc(path, voltage_angles;
+                          format=nothing, formula="series_susceptance")
+
+Compute `p_bus = -B * voltage_angles + p_shift` in canonical bus order.
+Voltage angles are in radians.
+"""
+calc_bus_injection_dc(m::PioModule{BalancedNetwork},
+                      voltage_angles::AbstractVector{<:Real};
+                      formula::AbstractString="series_susceptance") =
+    _dc_calc_bus_injection(
+        _dc_data(getfield(m, :handle); formula),
+        voltage_angles,
+    )
+
+# A bare live value uses the same named calculations without exposing the C
+# handle that supplies their arrays.
+calc_bus_susceptance_matrix(net::BalancedNetwork; kwargs...) =
+    calc_bus_susceptance_matrix(PioModule(net); kwargs...)
+calc_branch_susceptance_matrix(net::BalancedNetwork; kwargs...) =
+    calc_branch_susceptance_matrix(PioModule(net); kwargs...)
+calc_phase_shift_injection(net::BalancedNetwork; kwargs...) =
+    calc_phase_shift_injection(PioModule(net); kwargs...)
+calc_branch_flow_dc(net::BalancedNetwork, voltage_angles::AbstractVector{<:Real}; kwargs...) =
+    calc_branch_flow_dc(PioModule(net), voltage_angles; kwargs...)
+calc_bus_injection_dc(net::BalancedNetwork, voltage_angles::AbstractVector{<:Real}; kwargs...) =
+    calc_bus_injection_dc(PioModule(net), voltage_angles; kwargs...)
+
+# Julia's path convenience is consistent across every exported matrix and
+# direct DC calculation. Parsing remains explicit in Rust, Python, and C.
+calc_bus_susceptance_matrix(path::AbstractString;
+                            format::Union{AbstractString,Nothing}=nothing,
+                            formula::AbstractString="series_susceptance") =
+    calc_bus_susceptance_matrix(parse_file(path; format); formula)
+calc_branch_susceptance_matrix(path::AbstractString;
+                               format::Union{AbstractString,Nothing}=nothing,
+                               formula::AbstractString="series_susceptance") =
+    calc_branch_susceptance_matrix(parse_file(path; format); formula)
+calc_phase_shift_injection(path::AbstractString;
+                           format::Union{AbstractString,Nothing}=nothing,
+                           formula::AbstractString="series_susceptance") =
+    calc_phase_shift_injection(parse_file(path; format); formula)
+calc_branch_flow_dc(path::AbstractString, voltage_angles::AbstractVector{<:Real};
+                    format::Union{AbstractString,Nothing}=nothing,
+                    formula::AbstractString="series_susceptance") =
+    calc_branch_flow_dc(parse_file(path; format), voltage_angles; formula)
+calc_bus_injection_dc(path::AbstractString, voltage_angles::AbstractVector{<:Real};
+                      format::Union{AbstractString,Nothing}=nothing,
+                      formula::AbstractString="series_susceptance") =
+    calc_bus_injection_dc(parse_file(path; format), voltage_angles; formula)
+
+"""
+    export_state(m::PioModule; time=nothing, scenario=nothing) -> PioModule
 
 Select one time point (one based, matching every other Julia axis) or one
 named scenario as an independent static module. The selection shares the
@@ -660,20 +693,20 @@ A `TimeSeries{OperatingPoint{MulticonductorNetwork}}` module refuses with
 `REQUEST.STATE.UNBOUND_EXPORT`: a multiconductor operating point selects and
 reads in place, and static materialization is not implemented yet.
 """
-function select_state(m::PioModule;
+function export_state(m::PioModule;
                       time::Union{Integer,Nothing}=nothing,
                       scenario::Union{AbstractString,Nothing}=nothing)
     (time === nothing) == (scenario === nothing) &&
-        error("PowerIO.select_state: pass exactly one of time and scenario")
+        error("PowerIO.export_state: pass exactly one of time and scenario")
     if time !== nothing
-        time >= 1 || error("PowerIO.select_state: time is one based; got $time")
+        time >= 1 || error("PowerIO.export_state: time is one based; got $time")
     end
     handle = try
-        export_state(getfield(m, :handle);
-                     time_position=time === nothing ? nothing : time - 1,
-                     scenario)
+        _export_state(getfield(m, :handle);
+                      time_position=time === nothing ? nothing : time - 1,
+                      scenario)
     catch err
-        (time !== nothing && err isa PowerIOCError && err.code == "REQUEST.STATE.OUT_OF_RANGE") ||
+        (time !== nothing && err isa PowerIOError && err.code == "REQUEST.STATE.OUT_OF_RANGE") ||
             rethrow()
         _rebase_out_of_range(err, time)
     end
@@ -681,15 +714,15 @@ function select_state(m::PioModule;
 end
 
 # `err`'s message names the zero-based `time_position` this function passed
-# to `export_state`, not the one-based `time` the caller passed to us;
+# to `_export_state`, not the one-based `time` the caller passed to us;
 # restate it in the caller's own terms. The code is unchanged so callers
 # still branch on it.
-function _rebase_out_of_range(err::PowerIOCError, time::Integer)
+function _rebase_out_of_range(err::PowerIOError, time::Integer)
     axis = match(r"outside the (\d+) point axis", err.message)
     message = axis === nothing ?
         "time = $time is outside the time point axis" :
         "time = $time (the $(axis[1]) point axis accepts 1:$(axis[1]))"
-    throw(PowerIOCError(err.code, message, err.diagnostics))
+    throw(PowerIOError(err.code, message, err.diagnostics))
 end
 
 """
@@ -698,11 +731,11 @@ end
 Build the positive sequence balanced equivalent of a multiconductor value.
 The pass appends its findings and one Transform history entry;
 the source descriptors carry over, but not the retained bytes, so a later
-write in the original format cannot echo the source exactly.
+emission in the original format cannot echo the source exactly.
 [`to_balanced_report`](@ref) reports the losses first without transforming.
 """
 to_balanced(m::PioModule{MulticonductorNetwork}; base_mva::Real=100.0) =
-    _wrap_module(lower_module_to_balanced(getfield(m, :handle); base_mva))
+    _wrap_module(_to_balanced_module(getfield(m, :handle); base_mva))
 
 """
     to_balanced_report(m::PioModule{MulticonductorNetwork}; base_mva=100.0)
@@ -711,15 +744,7 @@ Report the assumptions, losses, and blocking findings for [`to_balanced`](@ref)
 without building the balanced equivalent.
 """
 to_balanced_report(m::PioModule{MulticonductorNetwork}; base_mva::Real=100.0) =
-    lowering_readiness(getfield(m, :handle); base_mva)
-
-function lower_to_balanced(m::PioModule{MulticonductorNetwork}; base_mva::Real=100.0)
-    return to_balanced(m; base_mva)
-end
-
-function lowering_readiness(m::PioModule{MulticonductorNetwork}; base_mva::Real=100.0)
-    return to_balanced_report(m; base_mva)
-end
+    _to_balanced_report(getfield(m, :handle); base_mva)
 
 function Base.show(io::IO, m::PioModule{T}) where {T}
     print(io, "PioModule{", T, "}")
@@ -730,7 +755,7 @@ function Base.show(io::IO, m::PioModule{T}) where {T}
     end
     fmt === nothing || print(io, " from ", fmt)
     n = try
-        length(diagnostics(m))
+        length(m.diagnostics)
     catch
         0
     end
@@ -787,9 +812,9 @@ struct ModuleSource
 end
 
 # The stored document is the wire; decoding records from it reads exactly
-# what `write_json` states, no whole network re-serialization beyond that
+# what `to_json` states, no whole network re-serialization beyond that
 # wire.
-_stored_document(m::PioModule) = JSON3.read(write_json(m))
+_stored_document(m::PioModule) = JSON3.read(to_json(m))
 
 # An explicit JSON null reads like an absent key: the capi document writes
 # "format": null where the DTO omits the key.
@@ -817,8 +842,7 @@ end
     module_sources(m::PioModule) -> Vector{ModuleSource}
 
 The sources the module was compiled from, decoded from the stored document.
-[`sources`](@ref) remains a compatibility alias; `module_sources` avoids
-confusion with distribution voltage source elements.
+The explicit name avoids confusion with distribution voltage source elements.
 """
 function module_sources(m::PioModule)
     rows = get(_stored_document(m), :sources, nothing)
@@ -827,18 +851,14 @@ function module_sources(m::PioModule)
                          _record_string(row, :format)) for row in rows]
 end
 
-"""Compatibility alias for [`module_sources`](@ref)."""
-sources(m::PioModule) = module_sources(m)
-
 # Read-only module forwarding. The value and module share the same native
 # allocation, so these methods add Julia dispatch convenience without copying
 # tables or changing ownership.
 for f in (:buses, :branches, :generators, :loads, :shunts, :storage, :hvdc,
-          :switches, :warnings,
-          :n_buses, :n_branches, :n_generators, :n_gens, :n_switches,
+          :switches,
+          :n_buses, :n_branches, :n_generators, :n_switches,
           :base_mva, :base_frequency, :network_name, :reference_bus_id,
-          :reference_bus_positions, :reference_bus_indices, :n_islands,
-          :n_components, :is_radial)
+          :reference_bus_positions, :n_islands, :is_radial)
     @eval $f(m::PioModule{BalancedNetwork}) = $f(getfield(m, :value))
 end
 
@@ -857,7 +877,6 @@ to_arrow(m::PioModule{BalancedNetwork}, table::Symbol; kwargs...) =
 to_graph(m::PioModule{BalancedNetwork}) = to_graph(getfield(m, :value))
 to_graph(m::PioModule{MulticonductorNetwork}) = to_graph(getfield(m, :value))
 to_powermodels(m::PioModule{BalancedNetwork}) = to_powermodels(getfield(m, :value))
-to_matpower(m::PioModule{BalancedNetwork}) = to_matpower(getfield(m, :value))
 to_powerdata(m::PioModule{BalancedNetwork};
              filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER,
              T::Type{<:Real}=Float64) =
@@ -869,24 +888,22 @@ to_powerdata(m::PioModule{BalancedNetwork}, ::Type{T}, live::Val{:live};
              filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real} =
     to_powerdata(getfield(m, :value), T, live; filtered)
 
-parse_ac_power_data(m::PioModule{BalancedNetwork}; from=nothing,
-                    filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER,
-                    T::Type{<:Real}=Float64) =
-    parse_ac_power_data(m, T; from, filtered)
-function parse_ac_power_data(m::PioModule{BalancedNetwork}, ::Type{T}; from=nothing,
-                             filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real}
+to_ac_power_data(m::PioModule{BalancedNetwork};
+                 filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER,
+                 T::Type{<:Real}=Float64) =
+    to_ac_power_data(m, T; filtered)
+function to_ac_power_data(m::PioModule{BalancedNetwork}, ::Type{T};
+                          filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real}
     pd = to_powerdata(m, T; filtered)
-    return _parse_ac_power_data_output(pd, T)
+    return _to_ac_power_data_output(pd, T)
 end
-function parse_ac_power_data(m::PioModule{BalancedNetwork}, ::Type{T}, live::Val{:live};
-                             from=nothing,
-                             filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real}
+function to_ac_power_data(m::PioModule{BalancedNetwork}, ::Type{T}, live::Val{:live};
+                          filtered::Union{Bool,_DefaultPowerdataFilter}=_DEFAULT_POWERDATA_FILTER) where {T<:Real}
     pd = to_powerdata(m, T, live; filtered)
-    return _parse_ac_power_data_output(pd, T)
+    return _to_ac_power_data_output(pd, T)
 end
 
-for f in (:calc_admittance_matrix, :calc_susceptance_matrix,
-          :calc_bprime_matrix,
+for f in (:calc_admittance_matrix, :calc_bprime_matrix,
           :calc_bdoubleprime_matrix)
     @eval $f(m::PioModule{BalancedNetwork}) = $f(getfield(m, :value))
 end

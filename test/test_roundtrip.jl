@@ -11,11 +11,12 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         @test_skip parse_file("case14.m").value
     else
         data = joinpath(@__DIR__, "data")
-        net = parse_file(joinpath(data, "case14.m")).value
+        module_ = parse_file(joinpath(data, "case14.m"))
+        net = module_.value
         @test getfield(net, :data) === nothing
         @test PowerIO.n_buses(net) == 14
         @test PowerIO.n_branches(net) == 20
-        @test PowerIO.n_gens(net) == 5
+        @test PowerIO.n_generators(net) == 5
         @test PowerIO.base_mva(net) == 100.0
         @test PowerIO.reference_bus_id(net) == 1
         @test getfield(net, :data) === nothing
@@ -34,7 +35,7 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
             @test PowerIO._handle_string(net, :pio_balanced_network_name) == PowerIO.network_name(net)
             @test PowerIO._handle_string(net, :pio_balanced_network_source_format) == PowerIO.source_format(net)
             @test PowerIO.network_name(net) == "case14"
-            @test net.warnings == String[]
+            @test :warnings ∉ propertynames(net)
             @test getfield(net, :data) === nothing
             @test sprint(show, net) == "BalancedNetwork{matpower}: 14 buses, 20 branches, 5 gens"
             display = sprint(show, MIME"text/plain"(), net)
@@ -70,7 +71,7 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         @test PowerIO.n_buses(net_hinted) == 14
 
         text_in = read(joinpath(data, "case14.m"), String)
-        net_from_text = parse_bytes(IOBuffer(text_in); format="matpower").value
+        net_from_text = parse_text(text_in; name="case14.m", format="matpower").value
         @test PowerIO.n_buses(net_from_text) == 14
         @test PowerIO.source_format(net_from_text) == "matpower"
 
@@ -78,9 +79,13 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         @test PowerIO.n_buses(net_from_json) == 14
         @test PowerIO.source_format(net_from_json) == "matpower"
 
-        # Model JSON is not a case format, so a forced case parse refuses it
-        # and names from_json. A clean MATPOWER parse keeps no handle warnings.
-        @test_throws PowerIOCError parse_bytes(IOBuffer(to_json(net)); format="model-json").value
+        # Model JSON is the balanced network serialization rather than an
+        # external case format, but the universal parser still accepts its
+        # classifier token and returns the same value family.
+        model_module = parse_text(to_json(net); name="case14.json", format="model-json")
+        @test model_module isa PioModule{BalancedNetwork}
+        @test n_buses(model_module) == n_buses(module_)
+        # A clean MATPOWER parse keeps no handle findings.
         @test isempty(_diag_messages(net))
 
         # The core classifies it as its own family, and a bare .json holding
@@ -101,7 +106,7 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
             @test Symbol.(classes) == collect(PowerIO.JSON_FAMILIES)
         end
 
-        # EGRET and PowerModels both use .json (fixtures produced by convert_file).
+        # EGRET and PowerModels both use .json.
         # The positive cases confirm each fixture parses under its own format; the
         # negative cases prove `from` overrides inference, since forcing the wrong
         # reader on a well-formed file fails.
@@ -111,23 +116,25 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         pm = parse_file(joinpath(data, "case14.pm.json"); format="powermodels").value
         @test PowerIO.n_buses(pm) == 14
         @test PowerIO.source_format(pm) == "powermodels-json"
-        @test_throws PowerIOCError parse_file(joinpath(data, "case14.pm.json"); format="egret").value
-        @test_throws PowerIOCError parse_file(joinpath(data, "case14.egret.json"); format="powermodels").value
+        @test_throws PowerIOError parse_file(joinpath(data, "case14.pm.json"); format="egret").value
+        @test_throws PowerIOError parse_file(joinpath(data, "case14.egret.json"); format="powermodels").value
 
-        # Same-format conversion is byte-exact and warning-free.
-        text, warnings = convert_file(joinpath(data, "case14.m"), "matpower")
+        # Same format output is byte exact and finding free.
+        result = emit(module_, "matpower")
+        text = result.text
         @test occursin("mpc.bus", text)
-        @test isempty(warnings)
+        @test isempty(result.diagnostics)
 
         # A cross-format target exercises a second writer and the warnings vector.
-        psse_text, psse_warnings = convert_file(joinpath(data, "case14.m"), "psse")
+        psse_result = emit(module_, "psse")
+        psse_text = psse_result.text
         @test !isempty(psse_text)
-        @test psse_warnings isa Vector{Diagnostic}
+        @test psse_result.diagnostics isa Vector{Diagnostic}
 
         # Every finding carries a dotted code whose first segment names the
         # stage, so a consumer branches on `.code` directly, never on prose.
-        @test !isempty(psse_warnings)
-        for d in psse_warnings
+        @test !isempty(psse_result.diagnostics)
+        for d in psse_result.diagnostics
             @test occursin(r"^[A-Z][A-Z0-9_]*(\.[A-Z0-9_]+)+$", d.code)
             @test split(d.code, '.')[1] in
                   ("PARSE", "READ", "CANONICALIZE", "VALIDATE", "LOWER", "BUILD",
@@ -137,23 +144,24 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         # An error carries the same code identity a warning does, so a test
         # can name the failure mode without matching prose.
         failure = try
-            convert_file(joinpath(data, "case14.m"), "no-such-format")
+            emit(module_, "no-such-format")
             nothing
         catch e
             e
         end
-        @test failure isa PowerIOCError
-        @test failure.code == "REQUEST.FORMAT.UNKNOWN"
+        @test failure isa PowerIOError
+        @test failure.code == "REQUEST.WRITE.UNKNOWN_FORMAT"
 
-        # convert_str is the in-memory sibling of convert_file (v4 pio_convert_str);
-        # matpower -> psse matches the file conversion byte for byte.
-        cs_text, cs_warnings = convert_str(read(joinpath(data, "case14.m"), String), "psse"; from = "matpower")
-        @test cs_text == psse_text
-        @test cs_warnings isa Vector{Diagnostic}
+        # In-memory text follows the same parse then emit path.
+        cs_module = parse_text(read(joinpath(data, "case14.m"), String);
+                               name="case14.m", format="matpower")
+        cs_result = emit(cs_module, "psse")
+        @test cs_result.text == psse_text
+        @test cs_result.diagnostics isa Vector{Diagnostic}
 
-        pm_text, pm_warnings = to_format(net, "powermodels-json")
-        @test JSON3.read(pm_text).baseMVA == 100.0
-        @test pm_warnings isa Vector{Diagnostic}
+        pm_result = emit(module_, "powermodels-json")
+        @test JSON3.read(pm_result.text).baseMVA == 100.0
+        @test pm_result.diagnostics isa Vector{Diagnostic}
         pm_dict = to_powermodels(net)
         @test haskey(pm_dict, "bus")
         pm_net = from_powermodels(pm_dict)
@@ -168,7 +176,7 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         @test pdata.gen[1].c[1] ≈ 430.292599
         @test pdata.gen[1].c[2] ≈ 2000.0
         @test pdata.gen[1].c[3] ≈ 0.0
-        ac = parse_ac_power_data(net)
+        ac = to_ac_power_data(net)
         @test ac.baseMVA == [100.0]
         @test ac.ref_buses == [1]
         @test ac.gen[1].c == pdata.gen[1].c
@@ -192,7 +200,7 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         routed_model_path = joinpath(mktempdir(), "case14.json")
         write(routed_model_path, to_json(net))
         @test to_powerdata(routed_model_path) == pdata
-        @test parse_ac_power_data(routed_model_path) == ac
+        @test to_ac_power_data(routed_model_path) == ac
 
         # The stored module replaces the 0.9 package: the document round trips
         # through read_module/write_module, and the balanced value comes back
@@ -204,9 +212,9 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         @test doc.version == 1
         @test doc.value.kind == "balanced_network"
         # as_network is gone: the public round trip back to a typed value is
-        # parse_bytes/parse_file on the stored document, the same path a
+        # parse_text/parse_file on the stored document, the same path a
         # consumer reading a `.pio.json` file takes.
-        back = parse_bytes(codeunits(PowerIO.write_module(m)); name="case14.pio.json").value
+        back = parse_text(PowerIO.write_module(m); name="case14.pio.json").value
         @test back isa BalancedNetwork
         @test PowerIO.n_buses(back) == 14
         @test PowerIO.to_dense(back).gen.bus == PowerIO.to_dense(net).gen.bus
@@ -215,7 +223,7 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         write(module_path, PowerIO.write_module(m))
         @test PowerIO.module_kind(PowerIO.read_module(read(module_path, String))) == "balanced_network"
         @test to_powerdata(module_path) == pdata
-        @test parse_ac_power_data(module_path) == ac
+        @test to_ac_power_data(module_path) == ac
 
         pv_noref = """
         function mpc = pv_noref
@@ -235,13 +243,15 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
             2 0 0 3 0.01 20 0;
         ];
         """
-        pv_ac = parse_ac_power_data(parse_bytes(IOBuffer(pv_noref); format="matpower").value)
+        pv_ac = to_ac_power_data(parse_text(pv_noref; name="pv_noref.m",
+                                            format="matpower").value)
         @test pv_ac.ref_buses == [1]
         @test pv_ac.bus[1].type == 3
 
         bad_branch = replace(pv_noref, "0.01 0.1" => "NaN 0.1")
         bad_err = try
-            to_powerdata(parse_bytes(IOBuffer(bad_branch); format="matpower").value)
+            to_powerdata(parse_text(bad_branch; name="bad_branch.m",
+                                    format="matpower").value)
             nothing
         catch e
             e
@@ -254,10 +264,10 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         # carries it on seven generators.
         inf_q = replace(pv_noref, "1 50 0 50 -50 1 100 1 100 0;" =>
                                   "1 50 0 Inf -Inf 1 100 1 100 0;")
-        inf_net = parse_bytes(IOBuffer(inf_q); format="matpower").value
+        inf_net = parse_text(inf_q; name="inf_q.m", format="matpower").value
         @test PowerIO.generators(inf_net)[1].qmax == "Infinity"
         @test PowerIO.generators(inf_net)[1].qmin == "-Infinity"
-        inf_ac = parse_ac_power_data(inf_net)
+        inf_ac = to_ac_power_data(inf_net)
         @test inf_ac.qmax[1] == Inf
         @test inf_ac.qmin[1] == -Inf
         @test to_powerdata(inf_net).gen[1].qmax == Inf
@@ -308,7 +318,7 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         # (`NonFiniteSusceptance`); the bridge now agrees with it.
         inf_x = replace(pv_noref, "0.01 0.1" => "0.01 Inf")
         inf_x_err = try
-            to_powerdata(parse_bytes(codeunits(inf_x); format="matpower").value)
+            to_powerdata(parse_text(inf_x; name="inf_x.m", format="matpower").value)
             nothing
         catch e
             e
@@ -316,7 +326,8 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         @test inf_x_err isa ArgumentError
         @test occursin("nonfinite field `br_x`", sprint(showerror, inf_x_err))
         # And the same case through the other entry point.
-        @test_throws ArgumentError parse_ac_power_data(parse_bytes(codeunits(inf_x); format="matpower").value)
+        @test_throws ArgumentError to_ac_power_data(
+            parse_text(inf_x; name="inf_x.m", format="matpower").value)
 
         # A voltage bound is a limit but no format spells it unlimited, so it
         # reads as a real: this is the case the 0.9 relaxation swept in with
@@ -324,7 +335,8 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         inf_vmax = replace(pv_noref, "1 1.1 0.9;" => "1 Inf 0.9;")
         if inf_vmax != pv_noref
             inf_vmax_err = try
-                to_powerdata(parse_bytes(codeunits(inf_vmax); format="matpower").value)
+                to_powerdata(parse_text(inf_vmax; name="inf_vmax.m",
+                                        format="matpower").value)
                 nothing
             catch e
                 e
@@ -339,33 +351,33 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
         # that objective is the one who needs to know.
         costless = replace(read(joinpath(data, "case9.m"), String),
                            r"(?s)mpc\.gencost.*?\];" => "")
-        costless_net = parse_bytes(IOBuffer(costless); format="matpower").value
+        costless_net = parse_text(costless; name="costless.m", format="matpower").value
         @test any(occursin("GEN_COST_ABSENT", c) for c in _diag_codes(to_normalized(costless_net)))
-        @test_logs (:warn, r"CANONICALIZE\.NORMALIZE\.GEN_COST_ABSENT") match_mode = :any parse_ac_power_data(costless_net)
+        @test_logs (:warn, r"CANONICALIZE\.NORMALIZE\.GEN_COST_ABSENT") match_mode = :any to_ac_power_data(costless_net)
         @test_logs (:warn, r"CANONICALIZE\.NORMALIZE\.GEN_COST_ABSENT") match_mode = :any to_powerdata(costless_net)
         @test_logs (:warn, r"CANONICALIZE\.NORMALIZE\.GEN_COST_ABSENT") match_mode = :any PowerIO.LoadSeries(costless_net, [1.0])
         # A costed case has nothing to report.
         costed_module = parse_file(joinpath(data, "case9.m"))
         costed_net = costed_module.value
         live = Val(:live)
-        @test_logs min_level = Logging.Warn parse_ac_power_data(costed_net)
+        @test_logs min_level = Logging.Warn to_ac_power_data(costed_net)
         @test_logs min_level = Logging.Warn to_powerdata(costed_net)
         @test to_powerdata(costed_net) == to_powerdata(costed_net; filtered=true)
         @test to_powerdata(costed_net, Float64, live) == to_powerdata(costed_net)
         @test to_powerdata(costed_net, Float64, live; filtered=false) ==
               to_powerdata(costed_net; filtered=false)
-        @test parse_ac_power_data(costed_net) ==
-              parse_ac_power_data(costed_net; filtered=true)
-        @test parse_ac_power_data(costed_net, Float64, live) ==
-              parse_ac_power_data(costed_net)
+        @test to_ac_power_data(costed_net) ==
+              to_ac_power_data(costed_net; filtered=true)
+        @test to_ac_power_data(costed_net, Float64, live) ==
+              to_ac_power_data(costed_net)
         @test getfield(costed_net, :data) === nothing
         @test to_powerdata(costed_module) == to_powerdata(costed_net, Float64, live)
         @test to_powerdata(costed_module, Float32) ==
               to_powerdata(costed_net, Float32, live)
-        @test parse_ac_power_data(costed_module) ==
-              parse_ac_power_data(costed_net, Float64, live)
-        @test parse_ac_power_data(costed_module, Float32, live) ==
-              parse_ac_power_data(costed_net, Float32, live)
+        @test to_ac_power_data(costed_module) ==
+              to_ac_power_data(costed_net, Float64, live)
+        @test to_ac_power_data(costed_module, Float32, live) ==
+              to_ac_power_data(costed_net, Float32, live)
         @test getfield(costed_net, :data) === nothing
 
         # The closed bridge schema ignores fields added by newer model JSON
@@ -412,7 +424,7 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
                        sprint(showerror, missing_error))
         # Each call reports for itself: separate cases deserve separate warnings,
         # so the dedupe is within a call rather than capped across the session.
-        @test_logs (:warn, r"GEN_COST_ABSENT") match_mode = :any parse_ac_power_data(costless_net)
+        @test_logs (:warn, r"GEN_COST_ABSENT") match_mode = :any to_ac_power_data(costless_net)
         # The unfiltered path runs no normalize pass, so it reports nothing.
         @test_logs min_level = Logging.Warn to_powerdata(costless_net; filtered=false)
         # An already normalized network is passed straight through.
@@ -454,7 +466,8 @@ _diag_codes(net) = [d.code for d in PowerIO._handle_diagnostics(getfield(net, :h
             1 0.0 0.0 0.50 200.0 100.0 100.0 0.95 0.9 500 -500 500 0.2 0.02 0 0 0;
         ];
         """
-        storage_net = parse_bytes(IOBuffer(storage_text); format="matpower").value
+        storage_net = parse_text(storage_text; name="storage_case.m",
+                                 format="matpower").value
         storage_raw_pd = to_powerdata(storage_net; filtered=false)
         # Nonempty storage rows carry the declared storage row type (order/field drift guard).
         @test eltype(storage_raw_pd.storage) === PowerIO._powerdata_storage_row_type(Float64)

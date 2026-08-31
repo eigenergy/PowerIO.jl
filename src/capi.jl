@@ -226,6 +226,13 @@ function _exports_symbol(sym::Symbol, lib::AbstractString=_lib())
     end
 end
 
+# Additive ABI 6 releases can add a preferred spelling without removing the
+# released entry point. Bindings use the preferred symbol when present and
+# retain the earlier one for an older ABI 6 library.
+_preferred_symbol(preferred::Symbol, compatibility::Symbol,
+                  lib::AbstractString=_lib()) =
+    _exports_symbol(preferred, lib) ? preferred : compatibility
+
 # The classification families the core answers with, in its own spelling
 # (`pio_classify_str`, and `json_classes` in `pio_build_info`). The set is
 # closed and additive: a spelling is permanent and a new family appends.
@@ -390,8 +397,13 @@ end
 # diagnostics.
 function _handle_diagnostics(h::BalancedNetworkHandle)
     lib = getfield(h, :lib)
+    symbol = _preferred_symbol(
+        :pio_balanced_network_to_module,
+        :pio_module_of_balanced_network,
+        lib,
+    )
     module_ptr = GC.@preserve h _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_of_balanced_network), Ptr{Cvoid},
+        ccall(_library_symbol(lib, symbol), Ptr{Cvoid},
               (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), h.ptr, err)
     end
     handle = StoredModule(module_ptr, lib)

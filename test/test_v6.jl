@@ -6,12 +6,50 @@
 _has_v6 = PowerIO.library_available() &&
     PowerIO._exports_symbol(:pio_module_read_json, PowerIO._lib())
 
+_test_dc_data(m::PioModule; kwargs...) =
+    PowerIO._dc_data(getfield(m, :handle); kwargs...)
+_test_dc_data(m::PowerIO.StoredModule; kwargs...) = PowerIO._dc_data(m; kwargs...)
+
 @testset "ABI v6 stored modules and DC data" begin
     if !_has_v6
         @test_skip "the resolved library predates the ABI v6 entry points"
         return
     end
     case9 = joinpath(@__DIR__, "data", "case9.m")
+
+    @testset "preferred additive ABI 6 symbols" begin
+        lib = PowerIO._lib()
+        pairs = (
+            (:pio_module_emit_string, :pio_module_write_str),
+            (:pio_module_emit_file, :pio_module_write_file),
+            (:pio_module_to_balanced_report_json, :pio_module_lowering_readiness_json),
+            (:pio_module_to_balanced, :pio_module_lower_to_balanced),
+            (:pio_module_list_states_json, :pio_module_state_inventory_json),
+            (:pio_dc_data_n_branches, :pio_dc_data_n_rows),
+            (:pio_dc_data_branch_ids, :pio_dc_data_row_ids),
+            (:pio_dc_data_calc_branch_flow, :pio_dc_data_fill_branch_flow_checked),
+        )
+        for (preferred, compatibility) in pairs
+            expected = PowerIO._exports_symbol(preferred, lib) ? preferred : compatibility
+            @test PowerIO._preferred_symbol(preferred, compatibility, lib) == expected
+        end
+    end
+
+    @testset "PioModule wraps existing balanced values without reparsing" begin
+        parsed = parse_file(case9)
+        wrapped = PioModule(parsed.value)
+        @test wrapped isa PioModule{BalancedNetwork}
+        @test wrapped.diagnostics == parsed.diagnostics
+        result = emit(wrapped, "matpower")
+        @test codeunits(result.text) == read(case9)
+        @test isempty(result.diagnostics)
+
+        rebuilt = from_json(to_json(parsed.value))
+        generated = PioModule(rebuilt)
+        @test generated isa PioModule{BalancedNetwork}
+        @test n_buses(generated) == n_buses(parsed)
+        @test occursin("mpc.baseMVA", emit(generated, "matpower").text)
+    end
 
     @testset "module round trip and kind" begin
         m = PowerIO.parse_module(case9)
@@ -23,6 +61,9 @@ _has_v6 = PowerIO.library_available() &&
         inspection = PowerIO.inspect_module(back)
         @test inspection.kind == "balanced_network"
         @test "diagnostics" in inspection.operations
+        if PowerIO._exports_symbol(:pio_module_emit_string, PowerIO._lib())
+            @test "emit" in inspection.operations
+        end
     end
 
     @testset "structured refusals carry the code" begin
@@ -32,44 +73,46 @@ _has_v6 = PowerIO.library_available() &&
         catch e
             e
         end
-        @test err isa PowerIOCError
+        @test err isa PowerIOError
         @test occursin(".", err.code)
         @test !isempty(err.message)
         @test startswith(sprint(showerror, err), "PowerIOError [")
 
         m = PowerIO.parse_module(case9)
         err = try
-            PowerIO.export_state(m; time_position=0)
+            PowerIO._export_state(m; time_position=0)
             nothing
         catch e
             e
         end
-        @test err isa PowerIOCError
+        @test err isa PowerIOError
         @test err.code == "REQUEST.STATE.NOT_A_COLLECTION"
     end
 
     @testset "DC data spans, mappings, and PowerModels values" begin
         m = PowerIO.parse_module(case9)
-        d = dc_data(m)
+        d = _test_dc_data(m)
         # The result is independently owned: drop the module first.
         finalize(m)
-        rows = PowerIO.n_rows(d)
-        buses = PowerIO.n_buses(d)
+        rows = PowerIO._dc_n_branches(d)
+        buses = PowerIO._dc_n_buses(d)
         @test rows == 9 && buses == 9
-        b = PowerIO.susceptance(d)
-        @test b isa BorrowedVector{Float64}
+        b = PowerIO._dc_susceptance(d)
+        @test b isa PowerIO._BorrowedVector{Float64}
         @test length(b) == rows
         # PowerModels sign: imag(inv(r + im*x)) is negative for an inductive
         # branch, and case9 has no shunt susceptance or capacitive branch.
         @test all(<(0), b)
-        shift = PowerIO.shift(d)
-        @test shift isa BorrowedVector{Float64}
+        shift = PowerIO._dc_shift(d)
+        @test shift isa PowerIO._BorrowedVector{Float64}
         @test length(shift) == rows
         @test all(iszero, shift)  # case9 has no phase shifting transformer
-        @test PowerIO.formula(d) == "series_susceptance"
-        @test PowerIO.row_ids(d)[1] == "branches:0"
-        @test length(PowerIO.bus_ids(d)) == buses
-        @test isempty(PowerIO.omitted(d))
+        @test PowerIO._dc_formula(d) == "series_susceptance"
+        @test PowerIO._dc_branch_ids(d)[1] == "branches:0"
+        @test PowerIO._dc_n_branches(d) == rows
+        @test PowerIO._dc_branch_ids(d) == PowerIO._dc_branch_ids(d)
+        @test length(PowerIO._dc_bus_ids(d)) == buses
+        @test isempty(PowerIO._dc_omitted(d))
 
         # The view is read only; copy is an ordinary mutable array.
         @test_throws ErrorException b[1] = 0.0
@@ -79,18 +122,44 @@ _has_v6 = PowerIO.library_available() &&
         @test b[1] != 0.0
 
         # p_branch = -b (va_from - va_to), against a hand computed row.
-        from = PowerIO.from_indices(d)
-        to = PowerIO.to_indices(d)
+        from = PowerIO._dc_from_indices(d)
+        to = PowerIO._dc_to_indices(d)
         va = zeros(buses)
         va[from[1] + 1] = 0.05
-        flow = branch_flow(d, va)
+        flow = PowerIO._dc_calc_branch_flow(d, va)
         expected = -b[1] * (va[from[1] + 1] - va[to[1] + 1])
         @test isapprox(flow[1], expected; atol=1e-12)
-        @test_throws ErrorException branch_flow(d, zeros(buses - 1))
+        @test_throws ErrorException PowerIO._dc_calc_branch_flow(d, zeros(buses - 1))
+
+        if PowerIO._exports_symbol(:pio_dc_data_fill_branch_flow_checked, PowerIO._lib())
+            short_angles = zeros(buses - 1)
+            untouched = fill(41.0, rows)
+            err = try
+                GC.@preserve d short_angles untouched PowerIO._v6_call(PowerIO._lib()) do error
+                    ccall(
+                        PowerIO._library_symbol(
+                            PowerIO._lib(), :pio_dc_data_fill_branch_flow_checked),
+                        Bool,
+                        (Ptr{Cvoid}, Ptr{Float64}, Csize_t, Ptr{Float64}, Csize_t,
+                         Ref{Ptr{Cvoid}}),
+                        PowerIO._dc_ptr(d), short_angles, length(short_angles), untouched,
+                        length(untouched), error,
+                    )
+                end
+                nothing
+            catch e
+                e
+            end
+            @test err isa PowerIOError
+            @test err.code == "BIND.CAPI.LENGTH_MISMATCH"
+            @test all(==(41.0), untouched)
+        end
 
         # The borrowed view roots its owner: the spans survive a GC pass with
         # only the view live.
-        view = PowerIO.susceptance(dc_data(PowerIO.parse_module(case9)))
+        view = PowerIO._dc_susceptance(
+            _test_dc_data(PowerIO.parse_module(case9)),
+        )
         GC.gc()
         @test length(view) == rows
         @test view[1] < 0
@@ -98,7 +167,9 @@ _has_v6 = PowerIO.library_available() &&
         # Every formula carries the PowerModels sign: negative susceptance
         # for an inductive branch, exactly as the docstring states.
         for f in ("series_susceptance", "tap_adjusted_reactance", "reactance_only")
-            vals = PowerIO.susceptance(dc_data(PowerIO.parse_module(case9); formula=f))
+            vals = PowerIO._dc_susceptance(
+                _test_dc_data(PowerIO.parse_module(case9); formula=f),
+            )
             @test all(<(0.0), vals)
         end
     end
@@ -133,10 +204,13 @@ _has_v6 = PowerIO.library_available() &&
         ))
         m = PowerIO.read_module(legacy)
         @test PowerIO.module_kind(m) == "balanced_operating_point_time_series"
-        inventory = state_inventory(m)
+        inventory = list_states(m)
         @test inventory.keyed_by == "time_position"
         @test [p.label for p in inventory.time_points] == ["h0", "h1"]
-        exported = PowerIO.export_state(m; time_position=1)
+        if PowerIO._exports_symbol(:pio_module_export_time_point, PowerIO._lib())
+            @test "export_time_point" in PowerIO.inspect_module(m).operations
+        end
+        exported = PowerIO._export_state(m; time_position=1)
         @test PowerIO.module_kind(exported) == "balanced_network"
         # time_position is zero based: position 1 selects the SECOND time
         # point ("h1"), whose update set pg to 95.0. Read it back off the
@@ -149,9 +223,9 @@ _has_v6 = PowerIO.library_available() &&
         @test occursin("export_selected_state", PowerIO.write_module(exported))
     end
 
-    @testset "select_state and state_inventory are one based on the module surface" begin
+    @testset "export_state and list_states are one based on the module surface" begin
         # Same legacy 0.9 upgrade fixture as above, wrapped as the typed
-        # PioModule surface select_state and state_inventory serve.
+        # PioModule surface export_state and list_states serve.
         network_json = JSON3.read(to_json(parse_file(case9).value))
         legacy = JSON3.write(Dict(
             "powerio_version" => "0.9.0",
@@ -179,31 +253,31 @@ _has_v6 = PowerIO.library_available() &&
         pio = PowerIO._wrap_module(PowerIO.read_module(legacy))
         @test pio isa PioModule{TimeSeries{OperatingPoint{BalancedNetwork}}}
 
-        inventory = state_inventory(pio)
+        inventory = list_states(pio)
         @test [p.position for p in inventory.time_points] == [1, 2]
         @test first(inventory.time_points).position == 1
 
-        # select_state(time=<inventory position>) selects the point the
-        # inventory names, with no off by one against export_state's own
+        # export_state(time=<inventory position>) selects the point the
+        # inventory names, with no off by one against _export_state's own
         # zero based time_position.
-        selected = select_state(pio; time=first(inventory.time_points).position)
+        selected = export_state(pio; time=first(inventory.time_points).position)
         @test kind(selected) == "balanced_network"
 
         # An out of range time restates the position in one based terms: the
         # caller's own `time`, not the zero based export_state offset.
         err = try
-            select_state(pio; time=99)
+            export_state(pio; time=99)
             nothing
         catch e
             e
         end
-        @test err isa PowerIOCError
+        @test err isa PowerIOError
         @test err.code == "REQUEST.STATE.OUT_OF_RANGE"
         @test occursin("99", err.message)
         @test count(err.code, sprint(showerror, err)) == 1
     end
 
-    @testset "select_state refuses a multiconductor operating point series" begin
+    @testset "export_state refuses a multiconductor operating point series" begin
         # A multiconductor time series selects and reads in place; static
         # materialization is not implemented, and the refusal must name the
         # one based `time` the caller passed, same as the balanced case.
@@ -227,16 +301,17 @@ _has_v6 = PowerIO.library_available() &&
         ))
         pio = PowerIO._wrap_module(PowerIO.read_module(doc))
         @test pio isa PioModule{TimeSeries{OperatingPoint{MulticonductorNetwork}}}
+        @test String.(inspect(pio).operations) == ["inspect", "diagnostics", "emit"]
         @test !applicable(length, pio)
         @test !applicable(getindex, pio, 1)
-        @test length(state_inventory(pio).time_points) == 2
+        @test length(list_states(pio).time_points) == 2
         err = try
-            select_state(pio; time=1)
+            export_state(pio; time=1)
             nothing
         catch e
             e
         end
-        @test err isa PowerIOCError
+        @test err isa PowerIOError
         @test err.code == "REQUEST.STATE.UNBOUND_EXPORT"
     end
 end
@@ -252,30 +327,30 @@ end
     # rebuild is in flight to keep them in step for this fixture. This
     # testset may only pass once that rebuild is in the resolved library.
     fixture = joinpath(@__DIR__, "data", "psse", "case3_3w_v33.raw")
-    d = dc_data(parse_file(fixture))
-    rows = PowerIO.n_rows(d)
-    buses = PowerIO.n_buses(d)
+    d = _test_dc_data(parse_file(fixture))
+    rows = PowerIO._dc_n_branches(d)
+    buses = PowerIO._dc_n_buses(d)
 
-    @test length(PowerIO.row_ids(d)) == rows
-    @test length(PowerIO.bus_ids(d)) == buses
-    @test length(PowerIO.from_indices(d)) == rows
-    @test length(PowerIO.to_indices(d)) == rows
-    @test length(PowerIO.susceptance(d)) == rows
-    @test length(PowerIO.shift_injection(d)) == buses
-    @test all(!isempty, PowerIO.row_ids(d))
-    @test all(!isempty, PowerIO.bus_ids(d))
-    for (id, reason) in PowerIO.omitted(d)
+    @test length(PowerIO._dc_branch_ids(d)) == rows
+    @test length(PowerIO._dc_bus_ids(d)) == buses
+    @test length(PowerIO._dc_from_indices(d)) == rows
+    @test length(PowerIO._dc_to_indices(d)) == rows
+    @test length(PowerIO._dc_susceptance(d)) == rows
+    @test length(PowerIO._dc_shift_injection(d)) == buses
+    @test all(!isempty, PowerIO._dc_branch_ids(d))
+    @test all(!isempty, PowerIO._dc_bus_ids(d))
+    for (id, reason) in PowerIO._dc_omitted(d)
         @test !isempty(id)
         @test !isempty(reason)
     end
 
-    a = incidence_matrix(d)
+    a = PowerIO._dc_calc_incidence_matrix(d)
     @test size(a) == (rows, buses)
-    b_matrix = susceptance_laplacian(d)
+    b_matrix = PowerIO._dc_calc_bus_susceptance_matrix(d)
     @test size(b_matrix) == (buses, buses)
-    bf = flow_matrix(d)
+    bf = PowerIO._dc_calc_branch_susceptance_matrix(d)
     @test size(bf) == (rows, buses)
-    @test length(bus_injection(d, zeros(buses))) == buses
+    @test length(PowerIO._dc_calc_bus_injection(d, zeros(buses))) == buses
 end
 
 @testset "phase shift bus injection matches the sign corrected equations" begin
@@ -300,21 +375,21 @@ end
     \t1\t2\t0.01\t0.1\t0\t0\t0\t0\t1\t5\t1\t-360\t360;
     ];
     """
-    d = dc_data(parse_file(IOBuffer(shifted); name="case2shift.m", format="matpower"))
-    @test any(!iszero, PowerIO.shift_injection(d))
+    d = _test_dc_data(parse_text(shifted; name="case2shift.m", format="matpower"))
+    @test any(!iszero, PowerIO._dc_shift_injection(d))
 
-    a = incidence_matrix(d)
+    a = PowerIO._dc_calc_incidence_matrix(d)
     va = [0.0, -0.03]
-    p_branch = branch_flow(d, va)
-    p_bus = bus_injection(d, va)
+    p_branch = PowerIO._dc_calc_branch_flow(d, va)
+    p_bus = PowerIO._dc_calc_bus_injection(d, va)
     @test a' * p_branch ≈ p_bus atol=1e-10
 
     # The documented equation is the computed one, elementwise: the shift
     # term is included, and the shift free expression differs.
-    b = copy(PowerIO.susceptance(d))
-    row_shift = copy(PowerIO.shift(d))
-    from = copy(PowerIO.from_indices(d))
-    to = copy(PowerIO.to_indices(d))
+    b = copy(PowerIO._dc_susceptance(d))
+    row_shift = copy(PowerIO._dc_shift(d))
+    from = copy(PowerIO._dc_from_indices(d))
+    to = copy(PowerIO._dc_to_indices(d))
     dva = va[from .+ 1] .- va[to .+ 1]
     @test p_branch ≈ -b .* dva .+ b .* row_shift atol=1e-12
     @test !(p_branch ≈ -b .* dva)
@@ -352,30 +427,28 @@ end
         2 0 0 3 0.02 0.5 0;
     ];
     """
-    m = parse_file(IOBuffer(source); name="api_conformance.m", format="matpower")
+    m = parse_text(source; name="api_conformance.m", format="matpower")
     @test n_buses(m) == 3
-    @test n_generators(m) == n_gens(m) == 2
+    @test n_generators(m) == 2
     @test all(g -> Int(g.bus) == 1, generators(m))
-    @test reference_bus_indices(m) == [0]
     @test reference_bus_positions(m) == [1]
-    @test n_islands(m) == n_components(m) == 1
+    @test n_islands(m) == 1
 
-    # Raw DcData remains as 0.10 compatibility. These assertions pin its
-    # positions, orientation, and signs against the canonical module methods
-    # checked below.
-    d = dc_data(m)
-    @test PowerIO.n_rows(d) == n_branches(d) == 2
-    @test branch_ids(d) == row_ids(d) == ["branches:0", "branches:1"]
-    @test bus_ids(d) == ["1", "2", "3"]
-    @test collect(from_indices(d)) == [0, 0]
-    @test collect(PowerIO.to_indices(d)) == [1, 2]
-    @test from_bus_positions(d) == [1, 1]
-    @test to_bus_positions(d) == [2, 3]
+    # Private ABI arrays back the direct module calculations. These assertions
+    # pin their positions, orientation, and signs.
+    d = _test_dc_data(m)
+    @test PowerIO._dc_n_branches(d) == 2
+    @test PowerIO._dc_branch_ids(d) == ["branches:0", "branches:1"]
+    @test PowerIO._dc_bus_ids(d) == ["1", "2", "3"]
+    @test collect(PowerIO._dc_from_indices(d)) == [0, 0]
+    @test collect(PowerIO._dc_to_indices(d)) == [1, 2]
+    @test collect(PowerIO._dc_from_indices(d)) .+ 1 == [1, 1]
+    @test collect(PowerIO._dc_to_indices(d)) .+ 1 == [2, 3]
 
     b = [-0.1 / (0.01^2 + 0.1^2), -0.2 / (0.02^2 + 0.2^2)]
     row_shift = [0.0, 10pi / 180]
-    @test collect(susceptance(d)) ≈ b atol=1e-12
-    @test collect(shift(d)) ≈ row_shift atol=1e-12
+    @test collect(PowerIO._dc_susceptance(d)) ≈ b atol=1e-12
+    @test collect(PowerIO._dc_shift(d)) ≈ row_shift atol=1e-12
 
     a = [1.0 -1.0 0.0; 1.0 0.0 -1.0]
     b_bus = [b[1] + b[2] -b[1] -b[2];
@@ -384,25 +457,23 @@ end
     b_branch = [b[1] -b[1] 0.0; b[2] 0.0 -b[2]]
     p_shift = a' * (b .* row_shift)
 
-    @test Matrix(incidence_matrix(d)) == a
-    @test Matrix(susceptance_laplacian(d)) ≈ b_bus atol=1e-12
-    @test Matrix(flow_matrix(d)) ≈ b_branch atol=1e-12
-    @test collect(shift_injection(d)) ≈ p_shift atol=1e-12
+    @test Matrix(PowerIO._dc_calc_incidence_matrix(d)) == a
+    @test Matrix(PowerIO._dc_calc_bus_susceptance_matrix(d)) ≈ b_bus atol=1e-12
+    @test Matrix(PowerIO._dc_calc_branch_susceptance_matrix(d)) ≈ b_branch atol=1e-12
+    @test collect(PowerIO._dc_shift_injection(d)) ≈ p_shift atol=1e-12
     @test b_bus ≈ b_bus' atol=1e-12
 
     va = [0.1, 0.0, -0.05]
     expected_branch = -b_branch * va + b .* row_shift
     expected_bus = -b_bus * va + p_shift
-    @test branch_flow(d, va) ≈ expected_branch atol=1e-12
-    @test bus_injection(d, va) ≈ expected_bus atol=1e-12
+    @test PowerIO._dc_calc_branch_flow(d, va) ≈ expected_branch atol=1e-12
+    @test PowerIO._dc_calc_bus_injection(d, va) ≈ expected_bus atol=1e-12
     @test a' * expected_branch ≈ expected_bus atol=1e-12
 
-    # Module calculations use the canonical branch by bus DC matrices. The
-    # BalancedNetwork and path calc_incidence_matrix overloads retain their
-    # 0.10 bus by branch orientation until 1.0.
-    @test calc_incidence_matrix(m) == incidence_matrix(d)
-    @test calc_bus_susceptance_matrix(m) == susceptance_laplacian(d)
-    @test calc_branch_susceptance_matrix(m) == flow_matrix(d)
+    # Module calculations use the canonical branch by bus DC matrices.
+    @test calc_incidence_matrix(m) == PowerIO._dc_calc_incidence_matrix(d)
+    @test calc_bus_susceptance_matrix(m) == PowerIO._dc_calc_bus_susceptance_matrix(d)
+    @test calc_branch_susceptance_matrix(m) == PowerIO._dc_calc_branch_susceptance_matrix(d)
     @test calc_phase_shift_injection(m) ≈ p_shift atol=1e-12
     @test calc_branch_flow_dc(m, va) ≈ expected_branch atol=1e-12
     @test -calc_bus_susceptance_matrix(m) * va +
@@ -416,12 +487,9 @@ end
         "1 3 0.02 0.2 0 250 250 250 0 10 1 -30 30;" =>
             "1 3 0.02 0.2 0 250 250 250 0 10 0 -30 30;",
     )
-    partial = parse_file(
-        IOBuffer(omitted_source);
-        name="api_conformance_partial.m",
-        format="matpower",
-    )
-    @test length(omitted(dc_data(partial))) == 1
+    partial = parse_text(omitted_source;
+                         name="api_conformance_partial.m", format="matpower")
+    @test length(PowerIO._dc_omitted(_test_dc_data(partial))) == 1
     for operation in (
         () -> calc_incidence_matrix(partial),
         () -> calc_branch_susceptance_matrix(partial),
@@ -448,21 +516,16 @@ end
     case9 = joinpath(@__DIR__, "data", "case9.m")
     m = parse_file(case9)
     rows = module_sources(m)
-    alias_rows = sources(m)
-    @test length(alias_rows) == length(rows)
-    @test only(alias_rows).name == only(rows).name
-    @test only(alias_rows).byte_length == only(rows).byte_length
     @test length(rows) == 1
     @test endswith(rows[1].name, "case9.m")
     @test rows[1].byte_length > 0
 
-    dist_module = parse_bytes(codeunits("New Circuit.c basekv=12.47 bus1=src\n");
-                              name="inline.dss", format="dss")
-    @test to_balanced_report(dist_module) == lowering_readiness(dist_module)
+    dist_module = parse_text("New Circuit.c basekv=12.47 bus1=src\n";
+                             name="inline.dss", format="dss")
+    @test !isempty(to_balanced_report(dist_module).assumptions)
     lowered = to_balanced(dist_module)
-    @test to_json(lowered) == to_json(lower_to_balanced(dist_module))
     lowered_history = history(lowered)
-    @test any(e -> e.kind == "transform" && e.name == "lower_multiconductor_to_balanced",
+    @test any(e -> e.kind == "transform" && e.name == "to_balanced",
               lowered_history)
     entry = only(filter(e -> e.kind == "transform", lowered_history))
     @test any(a -> occursin("power base", a), entry.assumptions)
@@ -487,33 +550,33 @@ end
     end
     case9 = joinpath(@__DIR__, "data", "case9.m")
     m = parse_file(case9)
-    d = dc_data(m)
-    rows = PowerIO.n_rows(d)
-    buses = PowerIO.n_buses(d)
+    d = _test_dc_data(m)
+    rows = PowerIO._dc_n_branches(d)
+    buses = PowerIO._dc_n_buses(d)
 
-    a = incidence_matrix(d)
+    a = PowerIO._dc_calc_incidence_matrix(d)
     @test size(a) == (rows, buses)
     @test all(sum(a; dims=2) .== 0)
 
-    b_matrix = susceptance_laplacian(d)
+    b_matrix = PowerIO._dc_calc_bus_susceptance_matrix(d)
     @test size(b_matrix) == (buses, buses)
     @test b_matrix ≈ b_matrix'  # no shifted branch in case9
-    bf = flow_matrix(d)
+    bf = PowerIO._dc_calc_branch_susceptance_matrix(d)
     @test size(bf) == (rows, buses)
 
     # p_branch = -Bf va (+ b .* shift, zero here) agrees with the C fill, and
     # p_bus = -B va + p_shift agrees with A' applied to that flow.
     va = collect(range(0.0, 0.08; length=buses))
-    flow = branch_flow(d, va)
+    flow = PowerIO._dc_calc_branch_flow(d, va)
     @test flow ≈ -(bf * va) atol=1e-12
-    @test bus_injection(d, va) ≈ a' * flow atol=1e-12
+    @test PowerIO._dc_calc_bus_injection(d, va) ≈ a' * flow atol=1e-12
 
     # The Laplacian agrees with the branch data it was assembled from: each
     # off diagonal entry is the negated susceptance of the branch joining the
     # pair (case9 has no parallel branches).
-    from = PowerIO.from_indices(d)
-    to = PowerIO.to_indices(d)
-    b = PowerIO.susceptance(d)
+    from = PowerIO._dc_from_indices(d)
+    to = PowerIO._dc_to_indices(d)
+    b = PowerIO._dc_susceptance(d)
     for e in 1:rows
         @test b_matrix[from[e] + 1, to[e] + 1] ≈ -b[e] atol=1e-12
     end
@@ -525,13 +588,13 @@ end
         return
     end
     case9 = joinpath(@__DIR__, "data", "case9.m")
-    d = dc_data(parse_file(case9))
+    d = _test_dc_data(parse_file(case9))
     dense = to_dense(case9)
-    b = PowerIO.susceptance(d)
-    from = PowerIO.from_indices(d)
-    to = PowerIO.to_indices(d)
+    b = PowerIO._dc_susceptance(d)
+    from = PowerIO._dc_from_indices(d)
+    to = PowerIO._dc_to_indices(d)
     branch = dense.branch
-    ids = PowerIO.bus_ids(d)
+    ids = PowerIO._dc_bus_ids(d)
     @test length(b) == length(branch.r)
     for e in 1:length(b)
         r = branch.r[e]
@@ -550,7 +613,7 @@ end
         @test_skip "the resolved library predates the ABI v6 entry points"
         return
     end
-    # Every module/DcData handle below exists only as an inline argument, with
+    # Every module and private DC handle below exists only as an inline argument, with
     # no local binding keeping it alive past the ccall: if the GC.@preserve
     # around the ccall does not also cover the unsafe_string read, an
     # interleaved collection frees the handle before its name is read back.
@@ -560,18 +623,22 @@ end
         GC.gc()
         @test PowerIO.module_kind(PowerIO.parse_module_str(dss_text; format="dss")) == "multiconductor_network"
         GC.gc()
-        @test PowerIO.formula(PowerIO.dc_data(PowerIO.parse_module(case9))) == "series_susceptance"
+        @test PowerIO._dc_formula(
+            _test_dc_data(PowerIO.parse_module(case9)),
+        ) == "series_susceptance"
     end
 end
 
-@testset "BorrowedVector rejects access once its owner is released" begin
+@testset "private borrowed DC views reject access once their owner is released" begin
     if !_has_v6
         @test_skip "the resolved library predates the ABI v6 entry points"
         return
     end
-    d = PowerIO.dc_data(PowerIO.parse_module(joinpath(@__DIR__, "data", "case9.m")))
-    v = PowerIO.susceptance(d)
-    @test length(v) == PowerIO.n_rows(d)
+    d = _test_dc_data(
+        PowerIO.parse_module(joinpath(@__DIR__, "data", "case9.m")),
+    )
+    v = PowerIO._dc_susceptance(d)
+    @test length(v) == PowerIO._dc_n_branches(d)
     @test v[1] isa Float64
     @test v[1:3] isa Vector{Float64}
     @test collect(v) isa Vector{Float64}
@@ -638,15 +705,14 @@ end
     case9 = joinpath(@__DIR__, "data", "case9.m")
     m = PowerIO.parse_module(case9)
 
-    # Reachable through the public API: dc_data does not validate its
-    # `formula` keyword or the module's value kind before the ccall.
+    # The private DC builder validates its formula and value kind in the C ABI.
     err = try
-        dc_data(m; formula="nodal_admittance")
+        _test_dc_data(m; formula="nodal_admittance")
         nothing
     catch e
         e
     end
-    @test err isa PowerIOCError
+    @test err isa PowerIOError
     @test err.code == "REQUEST.CAPI.UNKNOWN_FORMULA"
 
     mc = PowerIO.parse_module_str(
@@ -654,12 +720,12 @@ end
         "New Line.l1 bus1=src bus2=a length=1\nSet VoltageBases=[12.47]\n";
         format="dss")
     err = try
-        dc_data(mc)
+        _test_dc_data(mc)
         nothing
     catch e
         e
     end
-    @test err isa PowerIOCError
+    @test err isa PowerIOError
     @test err.code == "REQUEST.CAPI.NOT_A_BALANCED_NETWORK"
     # This class of refusal does not code-prefix its message; showerror must
     # still render the code exactly once.
@@ -673,7 +739,7 @@ end
     catch e
         e
     end
-    @test format_err isa PowerIOCError
+    @test format_err isa PowerIOError
     @test format_err.code == "REQUEST.FORMAT.UNKNOWN"
     @test startswith(format_err.message, format_err.code * ":")
     @test count(format_err.code, sprint(showerror, format_err)) == 1
@@ -685,7 +751,7 @@ end
     # sees a NULL pointer, and export_state's keyword check rejects both
     # conflicting combinations before it dispatches. Neither can surface
     # through the public API; exercised here with a direct ccall to confirm
-    # PowerIOCError decodes these two codes correctly as well.
+    # PowerIOError decodes these two codes correctly as well.
     lib = PowerIO._lib()
     err_ref = Ref{Ptr{Cvoid}}(C_NULL)
     s = ccall(PowerIO._library_symbol(lib, :pio_module_write_json), Cstring,
@@ -703,32 +769,27 @@ end
     @test PowerIO._v6_error(lib, err_ref[]).code == "REQUEST.CAPI.SELECTOR_CONFLICT"
 end
 
-@testset "parse_file(io::IO) and PowerIOError carries native diagnostics" begin
+@testset "parse_text and PowerIOError carry native diagnostics" begin
     if !_has_v6
         @test_skip "the resolved library predates the ABI v6 entry points"
         return
     end
     case9 = joinpath(@__DIR__, "data", "case9.m")
 
-    # The IO method reads once and parses the bytes; it must agree with a
-    # path parse of the same file.
-    io_module = open(case9) do io
-        parse_file(io; name="case9.m", format="matpower")
-    end
-    @test io_module isa PioModule{BalancedNetwork}
-    @test kind(io_module) == "balanced_network"
-    @test PowerIO.n_buses(io_module.value) == PowerIO.n_buses(parse_file(case9).value)
+    text_module = parse_text(read(case9, String); name="case9.m", format="matpower")
+    @test text_module isa PioModule{BalancedNetwork}
+    @test kind(text_module) == "balanced_network"
+    @test PowerIO.n_buses(text_module.value) == PowerIO.n_buses(parse_file(case9).value)
 
     # A malformed source refuses with a PowerIOError whose diagnostics are
     # native Diagnostic records, not JSON or strings.
     err = try
-        parse_file(IOBuffer("not a case"); name="invalid.m", format="matpower")
+        parse_text("not a case"; name="invalid.m", format="matpower")
         nothing
     catch e
         e
     end
     @test err isa PowerIOError
-    @test err isa PowerIOCError  # released 0.10 alias
     @test !isempty(err.code)
     @test err.diagnostics isa Vector{Diagnostic}
     @test !isempty(err.diagnostics)

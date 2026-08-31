@@ -4,10 +4,10 @@
 |---|---|---|
 | PowerModels.jl | both | [`to_powermodels`](@ref) / [`from_powermodels`](@ref) |
 | BMOPFTools.jl | both | PowerIO backed OpenDSS / BMOPF conversion |
-| ExaModelsPower.jl / ExaPowerIO.jl | out | [`to_powerdata`](@ref) / [`parse_ac_power_data`](@ref) |
+| ExaModelsPower.jl / ExaPowerIO.jl | out | [`to_powerdata`](@ref) / [`to_ac_power_data`](@ref) |
 | PowerGridPlanning.jl | out | [`to_powermodels`](@ref), [`build_powermodels_ref`](@ref), and [`repair_powermodels_angle_bounds!`](@ref) |
 | stored `.pio.json` module | both | [`parse_file`](@ref) / [`to_json`](@ref) / `m.value` |
-| GridFM (gridfm-datakit Parquet) | in | [`read_gridfm`](@ref) / [`read_gridfm_scenarios`](@ref) |
+| GridFM (gridfm-datakit Parquet) | in | [`parse_file`](@ref), then scenario set indexing |
 | [PowerDiff.jl](https://github.com/grid-opt-alg-lab/PowerDiff.jl) | out | PowerDiff depends on PowerIO as its parser and data layer |
 | OpenDSS / PMD / IEEE BMOPF | both | [`parse_file`](@ref) / [`emit`](@ref); see [Distribution networks](distribution.md) |
 
@@ -15,7 +15,7 @@
 
 [`to_powermodels`](@ref) converts a parsed network to a PowerModels network
 data dictionary — the post-parse `Dict{String,Any}` layout PowerModels.jl
-consumes. [`from_powermodels`](@ref) reads one back.
+consumes. [`from_powermodels`](@ref) rebuilds a PowerIO value from one.
 
 ```julia
 using PowerIO
@@ -48,14 +48,14 @@ BMOPFTools.to_dss(net, "out/")
 ## ExaModelsPower.jl
 
 [`to_powerdata`](@ref) returns a NamedTuple in ExaPowerIO's `PowerData`
-layout; [`parse_ac_power_data`](@ref) returns the NamedTuple-of-arrays layout
+layout; [`to_ac_power_data`](@ref) returns the NamedTuple-of-arrays layout
 consumed by ExaModelsPower's `build_polar_opf`, `build_rect_opf`, and
 `build_dcopf` — GPU-ready struct-of-arrays with per unit conversion applied.
 
 ```julia
 case = parse_file("case14.m")
 pd = to_powerdata(case)
-ac = parse_ac_power_data(case)
+ac = to_ac_power_data(case)
 ac.bus, ac.gen, ac.branch, ac.arc, ac.ref_buses
 ```
 
@@ -103,17 +103,23 @@ module_sources(m)                        # source descriptors
 
 Multiconductor modules check their lowering readiness and lower explicitly;
 see [Distribution networks](distribution.md). The migration guide documents
-the one way reader for earlier `.pio.json` documents.
+the one way upgrade for earlier `.pio.json` documents.
 
 ## GridFM
 
-[`read_gridfm`](@ref) reads a gridfm-datakit Parquet dataset into a
-`BalancedNetwork`. It needs `--features gridfm`; [`gridfm_available`](@ref)
-reports whether the loaded library includes it. Fields that GridFM cannot
-represent appear in `diagnostics`.
+GridFM directories parse through the same module entry point as every other
+format. The result is a `ScenarioSet{BalancedNetwork}` whose string keys are
+the scenario identifiers. It needs `--features gridfm`;
+[`gridfm_available`](@ref) reports whether the loaded library includes it.
+Fields that GridFM cannot represent appear in `scenarios.diagnostics`.
 
 ```julia
-r = read_gridfm("out/case14/raw")                # (; network, scenario, diagnostics)
-to_matpower(r.network)                           # gridfm -> any classical format
-reads = read_gridfm_scenarios("out/case14/raw")  # one result per scenario id
+scenarios = parse_file("out/case14/raw"; format="gridfm")
+scenario_ids = keys(scenarios)
+case = scenarios[first(scenario_ids)]
+result = emit(case, "matpower")
+matpower = result.text
+findings = result.diagnostics
 ```
+
+Keep the `PioModule`, its diagnostics, and the shared scenario set axis.

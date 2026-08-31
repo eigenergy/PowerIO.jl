@@ -3,13 +3,10 @@
 #
 # Transmission cases (balanced positive sequence) flow through `BalancedNetwork`
 # and multiconductor unbalanced cases through `MulticonductorNetwork` — a
-# different model on its own handle, parsed from and written to OpenDSS
+# different model on its own handle, parsed from and emitted as OpenDSS
 # (`"dss"`), PowerModelsDistribution ENGINEERING JSON (`"pmd"`), and the IEEE
-# BMOPF Taskforce JSON (`"bmopf"`). The two share the verbs: the bare verbs
-# route on the format (see `parse_file`, pinned explicitly with its `format`
-# keyword), `convert_file` / `convert_str` keep their type marker forms
-# (`convert_file(MulticonductorNetwork, path, to)`), and `to_format` /
-# `warnings` dispatch on the network type.
+# BMOPF Taskforce JSON (`"bmopf"`). `parse_file` routes by path and format;
+# `emit` produces output through the returned module.
 #
 # Like `BalancedNetwork`, a parsed `MulticonductorNetwork` keeps a live Rust
 # handle and leaves the element tables (`net.data`) unmaterialized until first
@@ -64,24 +61,23 @@ Base.show(io::IO, h::MulticonductorNetworkHandle) =
 """
     MulticonductorNetwork
 
-A parsed multiconductor distribution case. `parse_file` and `parse_bytes` keep a
+A parsed multiconductor distribution case. `parse_file` and `parse_text` keep a
 live Rust handle and leave `net.data` empty until first table access. The first
 `net.data` access reads the `pio-payload-multiconductor/1` JSON payload:
 `buses`, `linecodes`, `lines`, `switches`, `transformers`, `loads`,
 `generators`, `ibrs`, `control_profiles`, `shunts`, `capacitors`, `sources`,
 `untyped`, plus `base_frequency`, `name`, `source_format`, and parse
-`warnings`. The writer omits `ibrs`, `control_profiles`, and `capacitors`
+`warnings`. The emitter omits `ibrs`, `control_profiles`, and `capacitors`
 when they are empty; the accessors read a missing one as an empty table.
 String bus ids, ordered string terminal names, SI units, radians.
 
 Build one with [`parse_file`](@ref)`("switch.dss")` (the bare verb routes on
 the format) or `parse_file(path; format="dss")` to pin the parser explicitly. A
 `MulticonductorNetwork` constructed from a bare payload object has
-`handle === nothing`; the accessors work on it, but the handle transforms
-([`to_format`](@ref)) error. A stored module carries the model with its sources,
-diagnostics, source map, and history ([`write_json`](@ref) /
-[`parse_file`](@ref)); tools outside PowerIO read
-`to_format(net, "bmopf")`.
+`handle === nothing`; the accessors work on it, but handle transformations
+error. A stored module carries the model with its sources, diagnostics, source
+map, and history through [`to_json`](@ref) and [`parse_file`](@ref). Wrap a live
+bare value with `PioModule(net)` before calling [`emit`](@ref).
 
 As on [`BalancedNetwork`](@ref), `data` is lazy: `finalize(net.handle)` before the
 first `net.data` access leaves the data-backed accessors with nothing to read and
@@ -113,7 +109,7 @@ const _MC_TABLE_NAMES = (:buses, :linecodes, :lines, :switches, :transformers, :
                          :generators, :ibrs, :control_profiles, :shunts, :capacitors,
                          :sources, :untyped)
 
-# The writer omits these tables when empty (serde `skip_serializing_if`),
+# The emitter omits these tables when empty (serde `skip_serializing_if`),
 # and `capacitors` first shipped with powerio v0.8, so a missing key reads
 # as an empty table. Every other table always serializes; a missing one
 # marks a wrong-shaped document and stays a `KeyError`.
@@ -128,16 +124,9 @@ function _mc_table(net::MulticonductorNetwork, name::Symbol)
     return getproperty(data, name)
 end
 
-# The payload's own warnings field: the rendered lines the model JSON
-# carries, kept readable as `net.warnings` for payload round trips. Live
-# findings are the module's `diagnostics`.
-_mc_payload_warnings(net::MulticonductorNetwork) =
-    String[String(w) for w in get(net.data, :warnings, String[])]
-
 # One reader per scalar property; `getproperty` and `propertynames` both
 # derive from this table, so the two surfaces cannot drift.
 const _MC_SCALAR_READERS = (; name = network_name, source_format = source_format,
-                            warnings = _mc_payload_warnings,
                             base_frequency = base_frequency)
 const _MC_SCALARS = keys(_MC_SCALAR_READERS)
 
@@ -149,12 +138,14 @@ function Base.getproperty(net::MulticonductorNetwork, name::Symbol)
     name === :data && return _materialized_data(net)
     reader = get(_MC_SCALAR_READERS, name, nothing)
     reader === nothing || return reader(net)
-    name in _MC_TABLE_NAMES && return _mc_table(net, name)
+    name === :voltage_sources && return _mc_table(net, :sources)
+    name in _MC_TABLE_NAMES && name !== :sources && return _mc_table(net, name)
     return getfield(net, name)
 end
 
 function Base.propertynames(::MulticonductorNetwork, private::Bool=false)
-    public = (_MC_SCALARS..., _MC_TABLE_NAMES..., :data)
+    public_tables = (filter(!=(:sources), _MC_TABLE_NAMES)..., :voltage_sources)
+    public = (_MC_SCALARS..., public_tables..., :data)
     return private ? (public..., :handle, :summary) : public
 end
 
@@ -174,29 +165,6 @@ _dist_graph_available() =
     _exports_symbol(:pio_multiconductor_network_to_graph_json) ||
     _exports_symbol(:pio_multiconductor_network_graph_json)
 
-
-# --- format routing -------------------------------------------------------
-#
-# The bare verbs route between the two models on format tokens and file
-# extensions. The token set mirrors the core's name tables
-# (powerio-dist/src/convert.rs `dist_target_from_name` and
-# powerio/src/format/routing.rs `distribution_format_from_name`); the
-# drift-canary test feeds every claimed token back through the core.
-
-_canonical_format_key(s) = replace(lowercase(String(s)), "-" => "", "_" => "")
-const _DIST_FORMAT_KEYS = Set(["dss", "opendss", "pmd", "pmdjson", "engineering",
-                               "bmopf", "bmopfjson"])
-_is_dist_format(s) = _canonical_format_key(s) in _DIST_FORMAT_KEYS
-_is_dss_path(p) = lowercase(splitext(String(p))[2]) == ".dss"
-_is_package_path(p) = endswith(lowercase(String(p)), ".pio.json")
-
-# The directed error for a cross-model conversion request. There is no
-# implicit lowering: multiconductor → balanced picks a base_mva and drops
-# per-phase detail, so the explicit package pass owns it.
-_cross_model_error(fname::AbstractString) = error(
-    "PowerIO.$fname: no implicit conversion between the multiconductor and balanced " *
-    "models. Convert explicitly: parse_file the case, to_balanced the module, " *
-    "and write the balanced result.")
 
 # --- parse and materialize ------------------------------------------------
 
@@ -264,7 +232,7 @@ function _live_dist_handle(net::MulticonductorNetwork, fname::AbstractString)
     h = getfield(net, :handle)
     h === nothing && error(
         "PowerIO.$fname: this MulticonductorNetwork has no live network handle " *
-        "(produce it with parse_file or parse_bytes).")
+        "(produce it with parse_file, parse_text, or from_json).")
     h.ptr == C_NULL && error(
         "PowerIO.$fname: this MulticonductorNetwork's handle was finalized; access the data " *
         "you need (e.g. net.data) before calling finalize(net.handle).")
@@ -278,7 +246,7 @@ Rebuild a live [`MulticonductorNetwork`](@ref) from the model JSON its `data`
 payload serializes to (`pio_multiconductor_network_to_json` / `JSON3.write(net.data)`, the same
 object a `.pio.json` package carries under `model.multiconductor_network`) —
 the distribution sibling of [`from_json`](@ref)`(text)`. The rebuilt handle
-retains no source text, so a same format write is a fresh serialization.
+retains no source text, so a same format emission is a fresh serialization.
 Needs powerio-capi v0.7 built `--features dist`.
 """
 function from_json(::Type{MulticonductorNetwork}, text::AbstractString)
@@ -327,10 +295,8 @@ control_profiles(net::MulticonductorNetwork) = _mc_table(net, :control_profiles)
 shunts(net::MulticonductorNetwork) = _mc_table(net, :shunts)
 "Rated capacitor banks (nameplate `q_rated` var, `v_nom` V). Empty when the case has none or the library predates the table."
 capacitors(net::MulticonductorNetwork) = _mc_table(net, :capacitors)
-"Voltage sources, each with a `terminal_map` and per-terminal magnitude/angle."
-sources(net::MulticonductorNetwork) = _mc_table(net, :sources)
 "Voltage source elements, under an explicit name that does not overlap module source records."
-voltage_sources(net::MulticonductorNetwork) = sources(net)
+voltage_sources(net::MulticonductorNetwork) = _mc_table(net, :sources)
 "Elements the reader kept verbatim because they have no typed slot."
 untyped(net::MulticonductorNetwork) = _mc_table(net, :untyped)
 
@@ -362,80 +328,4 @@ lowercase token convention as the balanced accessor since powerio 0.9), or
 function source_format(net::MulticonductorNetwork)
     source = _summary(net).source_format
     return source === nothing ? nothing : String(source)
-end
-
-
-# --- serialize and convert --------------------------------------------------
-
-"""
-    to_format(net::MulticonductorNetwork, to) -> (text, findings)
-
-Serialize a [`MulticonductorNetwork`](@ref) to format `to` (`"dss"`, `"pmd"`, or
-`"bmopf"`) — the distribution method of [`to_format`](@ref). Writing back to
-the format the handle was parsed from echoes the source byte for byte; a
-cross-format write reports every fidelity loss in the returned findings. A balanced target
-is a directed error: lowering is explicit, through the package pass.
-"""
-function to_format(net::MulticonductorNetwork, to::AbstractString)
-    _is_dist_format(to) || _cross_model_error("to_format")
-    h = _live_dist_handle(net, "to_format")
-    lib = getfield(h, :lib)
-    module_ptr = GC.@preserve h _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_of_multiconductor_network), Ptr{Cvoid},
-              (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), h.ptr, err)
-    end
-    handle = StoredModule(module_ptr, lib)
-    out_diagnostics = Ref{Ptr{Cvoid}}(C_NULL)
-    s = GC.@preserve handle _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_write_str), Cstring,
-              (Ptr{Cvoid}, Cstring, Ref{Ptr{Cvoid}}, Ref{Ptr{Cvoid}}),
-              _module_ptr(handle), String(to), out_diagnostics, err)
-    end
-    text = _take_string(lib, s)
-    return (text, _diagnostics_of(_ -> out_diagnostics[], lib))
-end
-
-"""
-    convert_file(MulticonductorNetwork, path, to; from=nothing) -> (text, findings)
-
-Convert distribution case `path` to format `to` (`"dss"`, `"pmd"`, `"bmopf"`)
-in one shot — the explicit form of the format-routed [`convert_file`](@ref).
-`from` overrides extension inference; [`parse_file`](@ref) pins the same way with its `format` keyword.
-Returns the converted text and the findings (the reader's plus the writer's
-fidelity losses, since there is no handle to query).
-"""
-function convert_file(::Type{MulticonductorNetwork}, path::AbstractString, to::AbstractString; from=nothing)
-    lib = _lib()
-    _ensure_compatible(lib)
-    out_diagnostics = Ref{Ptr{Cvoid}}(C_NULL)
-    fromc = from === nothing ? C_NULL : String(from)
-    s = _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_convert_file), Cstring,
-              (Cstring, Cstring, Cstring, Ptr{Cvoid}, Ref{Ptr{Cvoid}}, Ref{Ptr{Cvoid}}),
-              path, fromc, String(to), C_NULL, out_diagnostics, err)
-    end
-    text = _take_string(lib, s)
-    return (text, _diagnostics_of(_ -> out_diagnostics[], lib))
-end
-
-"""
-    convert_str(MulticonductorNetwork, text, to; from) -> (text, findings)
-
-Convert in-memory distribution case `text` of format `from` to format `to`
-(both required; `"dss"`, `"pmd"`, `"bmopf"`). The string sibling of
-`convert_file(MulticonductorNetwork, ...)`, taking `from` as a keyword the way
-[`convert_str`](@ref)`(text, to; from)` does.
-"""
-function convert_str(::Type{MulticonductorNetwork}, text::AbstractString, to::AbstractString;
-                     from::AbstractString)
-    lib = _lib()
-    _ensure_compatible(lib)
-    out_diagnostics = Ref{Ptr{Cvoid}}(C_NULL)
-    s = _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_convert_str), Cstring,
-              (Cstring, Cstring, Cstring, Ptr{Cvoid}, Ref{Ptr{Cvoid}}, Ref{Ptr{Cvoid}}),
-              String(text), String(from), String(to), C_NULL, out_diagnostics, err)
-    end
-    out = _take_string(lib, s)
-    return (out, _diagnostics_of(_ -> out_diagnostics[], lib))
 end

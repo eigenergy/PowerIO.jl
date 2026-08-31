@@ -40,12 +40,30 @@ const CORE_SYMBOLS = Set((
     :pio_parse_file,
     :pio_module_release,
     :pio_module_diagnostics,
+    :pio_module_emit_string,
+    :pio_module_emit_file,
+    :pio_module_list_states_json,
+    :pio_module_export_time_point,
+    :pio_module_export_scenario,
+    :pio_module_to_balanced_report_json,
+    :pio_module_to_balanced,
+    :pio_balanced_network_to_normalized,
+    :pio_balanced_network_to_geo_layer_json,
+    :pio_dc_data_n_branches,
+    :pio_dc_data_branch_ids,
+    :pio_dc_data_calc_branch_flow,
+    :pio_dc_data_fill_branch_flow_checked,
 ))
 const REPRESENTATIVE_SYMBOLS = Dict(
     "arrow" => (:pio_balanced_network_to_arrow, :pio_arrow_catalog_json),
     "matrix" => (),
     "gridfm" => (),
-    "dist" => (:pio_module_multiconductor_network, :pio_multiconductor_network_to_json),
+    "dist" => (
+        :pio_module_multiconductor_network,
+        :pio_multiconductor_network_to_json,
+        :pio_multiconductor_network_to_graph_json,
+        :pio_multiconductor_network_to_geo_layer_json,
+    ),
     "prob" => (:pio_dc_data_build, :pio_dc_data_release),
 )
 const KNOWN_SYMBOLS = union(

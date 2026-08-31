@@ -1,4 +1,4 @@
-@testset "PyPSA CSV writer and reference bus indices" begin
+@testset "PyPSA CSV emission and reference bus positions" begin
     if !PowerIO.library_available()
         @test_skip parse_file("case14.m").value
     else
@@ -6,35 +6,33 @@
         case_module = parse_file(joinpath(data, "case14.m"))
         net = case_module.value
 
-        # write_pypsa_csv_folder writes a directory and round-trips back through
-        # the pypsa-csv reader; bus count and base_mva survive the model crossing.
-        # The writer refuses an existing target, so the output is a fresh child
+        # Generic emit writes a PyPSA CSV directory that round-trips through
+        # the reader; bus count and base_mva survive the model crossing.
+        # Emission refuses an existing target, so the output is a fresh child
         # of the temporary directory.
         out = joinpath(mktempdir(), "pypsa")
-        dir, warnings = write_pypsa_csv_folder(net, out)
-        @test dir == out
-        @test warnings isa Vector{Diagnostic}
+        result = emit(PioModule(net), "pypsa-csv", out)
+        @test result.text === nothing
+        @test result.diagnostics isa Vector{Diagnostic}
         @test !isempty(readdir(out))
         back = parse_file(out; format="pypsa-csv").value
         @test PowerIO.n_buses(back) == PowerIO.n_buses(net)
         @test PowerIO.base_mva(back) ≈ PowerIO.base_mva(net)
 
-        # reference_bus_indices returns the dense indices of every REF bus; case14
-        # has the single slack reference_bus_id reports, and the dense index maps
-        # back to that 1-based id through bus_ids.
-        refs = PowerIO.reference_bus_indices(net)
+        # reference_bus_positions returns Julia positions for every REF bus.
+        refs = PowerIO.reference_bus_positions(net)
         @test refs isa Vector{Int}
         @test length(refs) == 1
-        @test PowerIO.to_dense(net).bus_ids[refs[1] + 1] == PowerIO.reference_bus_id(net)
+        @test PowerIO.to_dense(net).bus_ids[refs[1]] == PowerIO.reference_bus_id(net)
         # `reference_bus` is the same bus as a 1-based index into `bus_ids`.
         @test PowerIO.to_dense(net).bus_ids[PowerIO.to_dense(net).reference_bus] ==
               PowerIO.reference_bus_id(net)
 
-        # n_components / is_radial read the C ABI connectivity scalars directly;
+        # n_islands / is_radial read the C ABI connectivity scalars directly;
         # they must match the dense tables (case14 is one connected, looped component).
         dense = PowerIO.to_dense(net)
         @test to_dense(case_module).bus_ids == dense.bus_ids
-        @test PowerIO.n_components(net) == dense.n_components == 1
+        @test PowerIO.n_islands(net) == dense.n_components == 1
         @test n_islands(case_module) == dense.n_components
         @test PowerIO.is_radial(net) == dense.is_radial == false
 
@@ -56,12 +54,12 @@ end
         data = joinpath(@__DIR__, "data")
         mtext = read(joinpath(data, "case14.m"), String)
 
-        # parse_file from an IO matches parse_file from a path field-for-field,
+        # parse_text matches parse_file from a path field-for-field,
         # except `name`: a path parse takes the case name from the file stem
         # ("case14"), an in-memory parse has no path so the core defaults it.
         case_module = parse_file(joinpath(data, "case14.m"))
         net = case_module.value
-        nets = parse_bytes(IOBuffer(mtext); format="matpower").value
+        nets = parse_text(mtext; name="case14.m", format="matpower").value
         @test PowerIO.source_format(nets) == "matpower"
         @test PowerIO.n_buses(nets) == PowerIO.n_buses(net)
         for k in keys(net.data)
@@ -69,17 +67,18 @@ end
             @test JSON3.write(net.data[k]) == JSON3.write(nets.data[k])
         end
 
-        # Each BalancedNetwork-first to_* transform agrees with its path / convert counterpart.
+        # Each BalancedNetwork-first to_* transform agrees with its path counterpart.
         # src defect: to_dense(path::AbstractString) calls an undefined
         # `_parse_handle` (dense.jl); pinned below in "dense numeric API".
         # Compare against the network-first form instead, which is unaffected.
         @test to_dense(net).gen.bus == to_dense(parse_file(joinpath(data, "case14.m")).value).gen.bus
         @test to_dense(net).branch.x ≈ to_dense(parse_file(joinpath(data, "case14.m")).value).branch.x
         @test to_dense(case_module).branch.x ≈ to_dense(net).branch.x
-        # to_matpower(net) equals the file->MATPOWER conversion (byte-exact) and round-trips.
-        @test to_matpower(net) == convert_file(joinpath(data, "case14.m"), "matpower")[1]
-        @test to_matpower(case_module) == to_matpower(net)
-        @test PowerIO.n_buses(parse_bytes(IOBuffer(to_matpower(net)); format="matpower").value) == 14
+        # emit is byte exact and its text round trips.
+        emitted = emit(case_module, "matpower").text
+        @test emitted == mtext
+        @test PowerIO.n_buses(parse_text(emitted; name="case14.m",
+                                         format="matpower").value) == 14
         @test JSON3.read(to_json(net)).base_mva == PowerIO.base_mva(net)
 
         # to_json works on a handle-less BalancedNetwork (built straight from JSON); every
@@ -89,7 +88,6 @@ end
         @test jsononly.handle === nothing
         @test to_json(jsononly) isa String
         @test_throws ErrorException to_dense(jsononly)
-        @test_throws ErrorException to_matpower(jsononly)
         @test_throws ErrorException to_arrow(jsononly, :bus)
         @test_throws ErrorException to_normalized(jsononly)
 
@@ -140,19 +138,21 @@ end
             @test occursin("READ.IO.OPEN", sprint(showerror, e))
         end
         try
-            parse_bytes(IOBuffer("not a MATPOWER case"); format="matpower").value
-            error("expected parse_bytes to fail")
+            parse_text("not a MATPOWER case"; name="invalid.m", format="matpower").value
+            error("expected parse_text to fail")
         catch e
             @test occursin("PARSE.", sprint(showerror, e))
         end
         basemva0 = replace(mtext, "mpc.baseMVA = 100" => "mpc.baseMVA = 0")
-        @test_throws PowerIOCError to_normalized(parse_bytes(IOBuffer(basemva0); format="matpower").value)
+        @test_throws PowerIOError to_normalized(
+            parse_text(basemva0; name="basemva0.m", format="matpower").value)
         # No generators and no REF bus: nothing to promote to slack.
         noref = "function mpc = noref\nmpc.version = '2';\nmpc.baseMVA = 100;\n" *
                 "mpc.bus = [\n1 1 10 5 0 0 1 1.0 0 138 1 1.1 0.9;\n" *
                 "2 1 20 8 0 0 1 1.0 -1 138 1 1.1 0.9;\n];\n" *
                 "mpc.gen = [\n];\nmpc.branch = [\n1 2 0.01 0.1 0 100 100 100 0 0 1 -30 30;\n];\n"
-        @test_throws PowerIOCError to_normalized(parse_bytes(IOBuffer(noref); format="matpower").value)
+        @test_throws PowerIOError to_normalized(
+            parse_text(noref; name="noref.m", format="matpower").value)
 
         # The clamp rides `PioNormalizeOptions` on `pio_balanced_network_normalize`; the symbol is
         # not feature gated, so a compatible library always has it.
@@ -169,7 +169,7 @@ end
         @test any(w -> occursin("angle difference bounds clamped", w), clamped_messages)
         custom = to_normalized(angle_net; clamp_angle_bounds=true, angle_bound_pad=0.5)
         @test PowerIO.branches(custom)[1].angmin ≈ -0.5
-        @test_throws PowerIOCError to_normalized(angle_net; clamp_angle_bounds=true,
+        @test_throws PowerIOError to_normalized(angle_net; clamp_angle_bounds=true,
                                                   angle_bound_pad=pi / 2)
         # A zero pad is the default pad, which is what makes a zero filled
         # options struct the defaults.
@@ -185,7 +185,13 @@ end
         # The path form parses through the module and frees the handle
         # after the copy; it agrees with the network-first form.
         d_path = to_dense(joinpath(@__DIR__, "data", "case14.m"))
+        @test to_dense(joinpath(@__DIR__, "data", "case14.m"); format="matpower").bus_ids ==
+              d_path.bus_ids
+        @test_throws MethodError to_dense(joinpath(@__DIR__, "data", "case14.m");
+                                          from="matpower")
         d = to_dense(parse_file(joinpath(@__DIR__, "data", "case14.m")).value)
+        @test_throws MethodError to_dense(parse_file(joinpath(@__DIR__, "data", "case14.m")).value;
+                                          from="matpower")
         @test d_path.bus_ids == d.bus_ids && d_path.n == d.n
         @test (d.n, d.m, d.ng) == (14, 20, 5)
         @test d.base_mva == 100.0
@@ -212,7 +218,8 @@ end
         \t2\t3\t0.01\t0.1\t0\t0\t0\t0\t0\t0\t1\t-360\t360;
         ];
         """
-        multi = to_dense(parse_bytes(IOBuffer(two_slacks); format="matpower").value)
+        multi = to_dense(parse_text(two_slacks; name="twoslack.m",
+                                    format="matpower").value)
         @test multi.reference_bus === nothing
         # Absence is `nothing`, so indexing with it fails loudly rather than
         # silently reading a bus.
@@ -224,7 +231,8 @@ end
         @test d.gen.bus == [1, 2, 3, 6, 8]              # generator buses, file order
         @test sum(d.demand.pd) ≈ 259.0 rtol = 1e-6      # total active demand (MW)
         # The dense gen table lines up with the JSON payload's count.
-        @test d.ng == PowerIO.n_gens(parse_file(joinpath(@__DIR__, "data", "case14.m")).value)
+        @test d.ng == PowerIO.n_generators(
+            parse_file(joinpath(@__DIR__, "data", "case14.m")).value)
 
         # The v0.7 dense fields are present exactly when the resolved library
         # exports their extractors; a pre-0.7 ABI-4 library omits them. Each
@@ -251,7 +259,8 @@ end
                                             "state" => 1, "thermal_rating" => 1.25, "pf" => 0.1))
             pm["branch"]["1"]["b_fr"] = 0.02
             pm["branch"]["1"]["b_to"] = 0.03
-            swnet = parse_bytes(IOBuffer(JSON3.write(pm)); format="powermodels").value
+            swnet = parse_text(JSON3.write(pm); name="case14.pm.json",
+                               format="powermodels").value
             @test PowerIO.n_switches(swnet) == 1
             @test length(swnet.switches) == 1           # the JSON payload table agrees
             ds = to_dense(swnet)

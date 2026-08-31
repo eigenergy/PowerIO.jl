@@ -1,17 +1,16 @@
 @testset "public API loads" begin
     # The module must load with no C library present (the binding is lazy).
     # The exported surface is the ordinary consumer path: one typed module
-    # from parse_file, its value families, structured findings,
+    # from parse_file or parse_text, its value families, structured findings,
     # the conversion/serialization verbs, and the feature/library probes.
     # An exact set equality catches drift in both directions — a symbol lost
     # from the export list, or a new one added without updating this guard.
     exported = Set{Symbol}((
         :PowerIO,
         # The typed module surface.
-        :PioModule, :parse_file, :parse_bytes, :kind, :diagnostics,
-        :emit, :write_file, :write_str, :write_json, :inspect, :source_format,
-        :state_inventory, :select_state, :to_balanced, :to_balanced_report,
-        :lower_to_balanced, :lowering_readiness,
+        :PioModule, :EmitResult, :parse_file, :parse_text, :kind,
+        :emit, :inspect, :source_format,
+        :list_states, :export_state, :to_balanced, :to_balanced_report,
         # Value families.
         :BalancedNetwork, :MulticonductorNetwork, :TimeSeries, :ScenarioSet,
         :OperatingPoint, :UnknownValue,
@@ -20,49 +19,40 @@
         :DcPfSolution, :AcPfSolution, :DcOpfSolution, :AcOpfSolution,
         :McAcPfSolution, :McAcOpfSolution, :AcScucSolution,
         # Structured findings and failures.
-        :Diagnostic, :SourceSpan, :PowerIOError, :PowerIOCError,
+        :Diagnostic, :SourceSpan, :PowerIOError,
         # Conversion and serialization over networks.
-        :convert_file, :convert_str, :to_format, :to_normalized,
-        :to_json, :from_json, :to_matpower, :write_pypsa_csv_folder,
+        :to_normalized, :to_json, :from_json,
         # Network tables, counts, and metadata.
-        :warnings, :buses, :branches, :generators, :loads, :shunts, :storage,
+        :buses, :branches, :generators, :loads, :shunts, :storage,
         :hvdc, :lines, :linecodes, :switches, :transformers, :ibrs,
         :control_profiles, :capacitors, :voltage_sources, :untyped,
-        :n_buses, :n_branches, :n_generators, :n_gens, :n_switches, :base_mva,
+        :n_buses, :n_branches, :n_generators, :n_switches, :base_mva,
         :base_frequency, :network_name, :reference_bus_id,
-        :reference_bus_positions, :reference_bus_indices, :n_islands,
-        :n_components, :is_radial, :bus_type_code,
+        :reference_bus_positions, :n_islands, :is_radial, :to_bus_type_code,
         # C library resolution.
         :set_library!, :clear_library!, :abi_version, :library_version,
         :library_available, :prob_available,
-        # DC branch data and borrowed numerical views.
-        :DcData, :dc_data, :BorrowedVector, :branch_flow,
-        :n_rows, :from_bus_positions, :to_bus_positions, :from_indices, :to_indices,
-        :susceptance, :shift, :shift_injection, :branch_ids, :row_ids, :bus_ids,
-        :omitted, :formula,
         # Materialized numeric views.
-        :to_dense, :to_arrow, :ArrowTable, :release_c_data, :arrow_catalog,
+        :to_dense, :to_arrow, :ArrowTable, :arrow_catalog,
         # Sparse system matrices.
-        :calc_admittance_matrix, :calc_susceptance_matrix, :calc_incidence_matrix,
+        :calc_admittance_matrix, :calc_incidence_matrix,
         :calc_bus_susceptance_matrix, :calc_branch_susceptance_matrix,
         :calc_phase_shift_injection, :calc_bprime_matrix,
         :calc_bdoubleprime_matrix, :BusMappedMatrix,
         # The module's descriptive records: typed history and source rows.
-        :ModuleHistoryEntry, :ModuleSource, :history, :module_sources, :sources,
-        # Assembled DC matrices over the DC data spans.
-        :incidence_matrix, :calc_branch_flow_dc,
-        :susceptance_laplacian, :flow_matrix, :bus_injection,
+        :ModuleHistoryEntry, :ModuleSource, :history, :module_sources,
+        # Direct DC calculations.
+        :calc_branch_flow_dc, :calc_bus_injection_dc,
         # Ecosystem bridges.
-        :to_powermodels, :from_powermodels, :to_powerdata, :parse_ac_power_data,
-        :read_gridfm, :read_gridfm_scenarios, :build_powermodels_ref,
+        :to_powermodels, :from_powermodels, :to_powerdata, :to_ac_power_data,
+        :build_powermodels_ref,
         :repair_powermodels_angle_bounds!,
         # Distribution availability and feature probes.
         :dist_available, :to_graph, :features, :has_feature, :schema_versions,
         :build_info, :arrow_available, :gridfm_available, :matrix_available,
-        :write_report_str,
     ))
     @test Set(names(PowerIO)) == exported
-    @test PowerIOError === PowerIOCError
+    @test !isdefined(PowerIO, :PowerIOCError)
 
     # Current user examples use the namespace that `using PowerIO` exports.
     # Qualified calls remain appropriate only in Developer Guides that show
@@ -102,16 +92,30 @@
                 :CompilerPackage, :to_normalized_with_options,
                 :OperatingPointSeries, :TimeAxis, :ElementUpdate,
                 :operating_point_series, :materialize_operating_point_series,
-                # parse_str and the bare PowerIO.parse dispatcher are gone;
-                # parse_file handles paths and streams. Its released type
-                # marker form remains as quiet 0.10 compatibility.
+                # parse_str, parse_bytes, the bare PowerIO.parse dispatcher,
+                # stream overloads, and type marker forms are gone. parse_file
+                # handles filesystem sources and parse_text handles text.
                 # as_network/as_dist_network (StoredModule -> typed value)
                 # are gone too: parse_file on the stored document is the
                 # public round trip now. The distribution ABI probe
                 # (dist_abi_version/dist_capabilities/PIO_DIST_ABI_VERSION)
                 # is gone from the C ABI itself, not just this binding.
                 :as_network, :as_dist_network, :dist_abi_version,
-                :dist_capabilities, :PIO_DIST_ABI_VERSION)
+                :dist_capabilities, :PIO_DIST_ABI_VERSION,
+                :parse_bytes, :diagnostics, :convert_file, :convert_str,
+                :to_format, :to_matpower, :write_file, :write_str,
+                :write_report_str, :write_json, :write_pypsa_csv_folder,
+                :read_gridfm, :read_gridfm_scenarios, :state_inventory,
+                :lower_to_balanced, :lowering_readiness, :PowerIOCError,
+                :warnings, :n_gens, :n_components, :reference_bus_indices,
+                :sources, :release_c_data, :bus_type_code,
+                :parse_ac_power_data, :DcData, :dc_data, :BorrowedVector,
+                :select_state, :calc_susceptance_matrix, :AdmittanceMatrix,
+                :branch_flow, :n_rows, :from_bus_positions, :to_bus_positions,
+                :from_indices, :susceptance, :shift,
+                :shift_injection, :branch_ids, :row_ids, :bus_ids, :omitted,
+                :formula, :incidence_matrix, :susceptance_laplacian,
+                :flow_matrix, :bus_injection)
     for sym in retired_names
         @test !isdefined(PowerIO, sym)
     end
@@ -141,10 +145,18 @@
     for f in readdir(joinpath(root, "docs", "src"); join=true)
         endswith(f, ".md") && basename(f) ∉ excluded_pages && push!(doc_files, f)
     end
+    retired_prose_names = (:parse_bytes, :diagnostics, :convert_file, :convert_str,
+        :to_format, :to_matpower, :write_file, :write_str, :write_report_str,
+        :write_json, :write_pypsa_csv_folder, :read_gridfm, :read_gridfm_scenarios,
+        :state_inventory, :lower_to_balanced, :lowering_readiness, :n_gens,
+        :n_components, :reference_bus_indices, :release_c_data, :bus_type_code,
+        :parse_ac_power_data, :dc_data, :branch_flow, :incidence_matrix,
+        :select_state, :calc_susceptance_matrix,
+        :susceptance_laplacian, :flow_matrix, :bus_injection)
     for f in doc_files
         text = read(f, String)
-        hits = [String(sym) for sym in retired_names
-                if occursin(Regex("\\b" * String(sym) * "\\b"), text)]
+        hits = [String(sym) for sym in retired_prose_names
+                if occursin(Regex("\\b" * String(sym) * "\\s*\\("), text)]
         append!(hits, [tok for tok in retired_prose_tokens if occursin(tok, text)])
         @testset "$(basename(f))" begin
             @test isempty(hits)
@@ -152,21 +164,17 @@
     end
 
     # The ordinary accessor API is exported after `using PowerIO`.
-    for sym in (:n_buses, :n_branches, :n_gens, :n_switches, :base_mva, :network_name,
-                :source_format, :reference_bus_id, :reference_bus_indices,
-                :n_components, :is_radial, :bus_type_code,
+    for sym in (:n_buses, :n_branches, :n_generators, :n_switches, :base_mva, :network_name,
+                :source_format, :reference_bus_id, :reference_bus_positions,
+                :n_islands, :is_radial, :to_bus_type_code,
                 :buses, :generators, :branches, :loads, :shunts, :storage, :hvdc,
-                :lines, :linecodes, :switches, :transformers, :sources,
+                :lines, :linecodes, :switches, :transformers, :voltage_sources,
                 :ibrs, :control_profiles, :capacitors, :untyped,
                 :base_frequency,
                 :abi_version, :library_version, :library_available)
         @test isdefined(PowerIO, sym)
         @test sym in names(PowerIO)
     end
-    @test isdefined(PowerIO, :AdmittanceMatrix)
-    @test :AdmittanceMatrix ∉ names(PowerIO)
-    @test PowerIO.AdmittanceMatrix === BusMappedMatrix
-
     # PowerModels spelling compatibility remains qualified; the public names
     # avoid adding collisions to `using PowerModels, PowerIO`.
     for sym in (:build_ref, :correct_voltage_angle_differences!,
@@ -188,7 +196,8 @@
     # PioModule wraps: present, unexported.
     for sym in (:StoredModule, :read_module, :parse_module, :parse_module_str,
                 :parse_module_bytes, :write_module, :module_kind,
-                :inspect_module, :export_state, :lower_module_to_balanced)
+                :inspect_module, :_export_state, :_to_balanced_module,
+                :_to_balanced_report)
         @test isdefined(PowerIO, sym)
         @test sym ∉ names(PowerIO)
     end
@@ -317,7 +326,7 @@
 end
 
 @testset "pure-Julia accessors (no binary)" begin
-    # `reference_bus_id` and `bus_type_code` are pure functions of the parsed JSON,
+    # `reference_bus_id` and `to_bus_type_code` are pure functions of the parsed JSON,
     # so build a `BalancedNetwork` straight from a JSON3 object and exercise every branch
     # without the native library.
     mk(buses) = PowerIO.BalancedNetwork(JSON3.read(JSON3.write((; buses = buses))))
@@ -326,10 +335,7 @@ end
     # the id is 7. This pins the accessor to the id field, not the position.
     one_ref = mk([(id = 4, kind = "PQ"), (id = 7, kind = "REF"), (id = 9, kind = "PV")])
     @test PowerIO.reference_bus_id(one_ref) == 7
-    @test :warnings in propertynames(one_ref)
-    # `warnings` reads the live handle; an in-memory network has none, so
-    # the read is a directed error like the other live reads.
-    @test_throws ErrorException one_ref.warnings
+    @test :warnings ∉ propertynames(one_ref)
     @test sprint(show, one_ref) == "BalancedNetwork{in-memory}: 3 buses, 0 branches, 0 gens"
     balanced_display = sprint(show, MIME"text/plain"(), one_ref)
     @test occursin("BalancedNetwork{in-memory}", balanced_display)
@@ -355,11 +361,10 @@ end
     @test PowerIO.network_name(mn) == "t"
     @test PowerIO.source_format(mn) == "dss"
     @test PowerIO.base_frequency(mn) == 60.0
-    # Unlike BalancedNetwork, MulticonductorNetwork's getproperty(:warnings)
-    # reads the payload's own `warnings` field directly (no removed function
-    # in the way), so the property access works.
-    @test :warnings in propertynames(mn)
-    @test mn.warnings == ["w1"]
+    @test :warnings ∉ propertynames(mn)
+    @test :sources ∉ propertynames(mn)
+    @test :voltage_sources in propertynames(mn)
+    @test isempty(voltage_sources(mn))
     @test sprint(show, mn) == "MulticonductorNetwork{dss}: 2 buses, 1 lines, 1 loads"
     multi_display = sprint(show, MIME"text/plain"(), mn)
     @test occursin("MulticonductorNetwork{dss}", multi_display)
@@ -367,11 +372,11 @@ end
     @test occursin("  lines: 1", multi_display)
     @test occursin("  data: materialized", multi_display)
 
-    @test PowerIO.bus_type_code("PQ") == 1
-    @test PowerIO.bus_type_code("PV") == 2
-    @test PowerIO.bus_type_code("REF") == 3
-    @test PowerIO.bus_type_code("ISOLATED") == 4
-    @test_throws ArgumentError PowerIO.bus_type_code("SLACK")
+    @test PowerIO.to_bus_type_code("PQ") == 1
+    @test PowerIO.to_bus_type_code("PV") == 2
+    @test PowerIO.to_bus_type_code("REF") == 3
+    @test PowerIO.to_bus_type_code("ISOLATED") == 4
+    @test_throws ArgumentError PowerIO.to_bus_type_code("SLACK")
 end
 
 # NOTE: the "OperatingPointSeries reserved skeleton" testset that used to
@@ -381,13 +386,13 @@ end
 # which exist any more in any form (not even unexported). The real type
 # family it was reserving a name for has shipped: `TimeSeries{T}` /
 # `ScenarioSet{T}` / `OperatingPoint{N}`, backed by the module surface and
-# reachable through ordinary `parse_file` (`parse_bytes` is compatibility).
-# See "parse_file
+# reachable through ordinary `parse_file` or `parse_text`.
+# See "parse_file and parse_text
 # value family dispatch" below for its replacement coverage, including the
-# one-based `select_state(m; time=)` contract the deleted testset could not
+# one-based `export_state(m; time=)` contract the deleted testset could not
 # have exercised (there was nothing behind it to select from).
 
-@testset "parse_file value family dispatch" begin
+@testset "parse_file and parse_text value family dispatch" begin
     if !PowerIO.library_available()
         @test_skip parse_file("case9.m")
     else
@@ -404,49 +409,41 @@ end
         @test :handle ∉ propertynames(balanced)
         @test :handle in propertynames(balanced, true)
         @test n_buses(balanced) == n_buses(balanced.value) == 9
-        @test n_generators(balanced) == n_gens(balanced) == 3
+        @test n_generators(balanced) == 3
         @test n_branches(balanced) == 9
-        @test n_islands(balanced) == n_components(balanced) == 1
-        @test reference_bus_positions(balanced) == reference_bus_indices(balanced) .+ 1
+        @test n_islands(balanced) == 1
+        @test reference_bus_positions(balanced) == [1]
         @test all(>=(1), reference_bus_positions(balanced))
+        balanced_operations = String.(inspect(balanced).operations)
+        @test balanced_operations == ["inspect", "diagnostics", "emit", "to_normalized"]
+        @test isempty(intersect(
+            Set(balanced_operations),
+            Set(["write", "dc_data", "normalize"]),
+        ))
 
-        # Released 0.10 format spellings stay quiet while `format` is the
-        # canonical keyword on both paths and streams.
-        compat_from = parse_file(joinpath(data, "case9.m"); from="matpower")
-        @test compat_from isa PioModule{BalancedNetwork}
-        compat_stream = parse_file(
-            IOBuffer(read(joinpath(data, "case9.m"))), "matpower";
-            name="case9.m")
-        @test compat_stream isa PioModule{BalancedNetwork}
-        @test_throws ArgumentError parse_file(
-            joinpath(data, "case9.m"); format="matpower", from="matpower")
+        @test_throws MethodError parse_file(IOBuffer(read(joinpath(data, "case9.m"))))
+        @test_throws MethodError parse_file(BalancedNetwork, joinpath(data, "case9.m"))
         @test length(buses(balanced)) == n_buses(balanced)
 
         dist_fixture = joinpath(data, "dist", "switch.dss")
         if PowerIO.dist_available() && isfile(dist_fixture)
             multi = parse_file(dist_fixture)
-            compat_multi_value = parse_file(MulticonductorNetwork, dist_fixture)
             @test typeof(multi) === PioModule{MulticonductorNetwork}
             @test kind(multi) == "multiconductor_network"
-            @test compat_multi_value isa MulticonductorNetwork
-            @test n_buses(compat_multi_value) == n_buses(multi)
+            @test String.(inspect(multi).operations) == [
+                "inspect", "diagnostics", "emit", "to_balanced_report", "to_balanced",
+            ]
         end
 
-        # write_str on an unchanged parsed module echoes the retained source
-        # bytes exactly.
-        @test write_str(balanced; format="matpower") == read(joinpath(data, "case9.m"), String)
-        text, findings = to_format(balanced, "matpower")
-        @test text == read(joinpath(data, "case9.m"), String)
-        @test findings isa Vector{Diagnostic}
-        emitted, emitted_findings = emit(balanced, "matpower")
-        @test emitted == text
-        @test [x.code for x in emitted_findings] == [x.code for x in findings]
-        @test to_matpower(balanced) == text
+        # emit on an unchanged parsed module echoes retained source text.
+        result = emit(balanced, "matpower")
+        @test result isa EmitResult
+        @test result.text == read(joinpath(data, "case9.m"), String)
+        @test result.diagnostics isa Vector{Diagnostic}
 
         # Type directed JSON distinguishes the complete stored module from the
         # model-only balanced network transport.
         stored = to_json(balanced)
-        @test stored == write_json(balanced)
         stored_back = from_json(PioModule, stored)
         @test stored_back isa PioModule{BalancedNetwork}
         @test kind(stored_back) == kind(balanced)
@@ -454,28 +451,18 @@ end
         @test model_back isa BalancedNetwork
         @test n_buses(model_back) == n_buses(balanced)
 
-        by_bytes = parse_bytes(read(joinpath(data, "case9.m"));
+        from_text = parse_text(read(joinpath(data, "case9.m"), String);
                                name="case9.m", format="matpower")
-        by_stream = parse_file(IOBuffer(read(joinpath(data, "case9.m")));
-                               name="case9.m", format="matpower")
-        compat_value = parse_file(BalancedNetwork, joinpath(data, "case9.m");
-                                  from="matpower")
-        compat_stream_value = parse_file(BalancedNetwork,
-                                         IOBuffer(read(joinpath(data, "case9.m")));
-                                         name="case9.m", from="matpower")
-        @test by_bytes isa PioModule{BalancedNetwork}
-        @test by_stream isa PioModule{BalancedNetwork}
-        @test compat_value isa BalancedNetwork
-        @test compat_stream_value isa BalancedNetwork
-        @test n_buses(by_bytes) == n_buses(by_stream) == n_buses(balanced)
-        @test n_buses(compat_value) == n_buses(compat_stream_value) == n_buses(balanced)
+        @test from_text isa PioModule{BalancedNetwork}
+        @test n_buses(from_text) == n_buses(balanced)
+        @test_throws ArgumentError parse_text(read(joinpath(data, "case9.m"), String);
+                                              name="case9.m", format="matpower",
+                                              include_root=data)
 
-        # m.diagnostics is the module's findings as native records;
-        # diagnostics(m) remains the quiet 0.10 function spelling.
+        # m.diagnostics is the module's findings as native records.
         d = balanced.diagnostics
         @test d isa Vector{Diagnostic}
         @test all(x -> x.severity isa Symbol, d)
-        @test [x.code for x in diagnostics(balanced)] == [x.code for x in d]
 
         # The multiline text/plain form adds the module's own element counts
         # beyond the single line compact form.
@@ -485,12 +472,11 @@ end
         @test startswith(multiline, compact)
         @test occursin("buses", multiline)
 
-        # select_state is one based, matching every other Julia axis
+        # export_state is one based, matching every other Julia axis
         # (StoredModule's export_state, the C ABI, and every other language
         # binding are zero based instead). Build a genuine
         # PioModule{TimeSeries{OperatingPoint{BalancedNetwork}}} by feeding a
-        # stored document through the public stream parser a consumer reading
-        # a `.pio.json` file would use.
+        # stored document through the public text parser.
         network_json = JSON3.read(to_json(balanced.value))
         legacy = JSON3.write(Dict(
             "powerio_version" => "0.9.0",
@@ -515,9 +501,11 @@ end
                 ],
             ),
         ))
-        series = parse_file(IOBuffer(legacy); name="legacy.pio.json")
+        series = parse_text(legacy; name="legacy.pio.json")
         @test typeof(series) === PioModule{TimeSeries{OperatingPoint{BalancedNetwork}}}
         @test kind(series) == "balanced_operating_point_time_series"
+        @test String.(inspect(series).operations) ==
+              ["inspect", "diagnostics", "emit", "list_states", "export_state"]
         @test length(series) == 2
         @test firstindex(series) == 1
         @test lastindex(series) == 2
@@ -530,15 +518,18 @@ end
         @test Float64(first(PowerIO.generators(second_point.value)).pg) ≈ 95.0
         @test [Float64(first(generators(point)).pg) for point in series] ≈
               [original_pg, 95.0]
-        @test_throws ErrorException select_state(series; time=0)  # one based: 0 is out of range
-        @test_throws ErrorException select_state(series)          # exactly one of time/scenario
-        @test_throws ErrorException select_state(series; time=1, scenario="x")
+        @test_throws ErrorException export_state(series; time=0)  # one based: 0 is out of range
+        @test_throws ErrorException export_state(series)          # exactly one of time/scenario
+        @test_throws ErrorException export_state(series; time=1, scenario="x")
 
         # A gridfm scenario set selects by scenario id string instead.
         gridfm_dir = joinpath(data, "case14_gridfm", "raw")
         if PowerIO.gridfm_available() && isdir(gridfm_dir)
             scenarios = parse_file(gridfm_dir; format="gridfm")
             @test typeof(scenarios) === PioModule{ScenarioSet{BalancedNetwork}}
+            if PowerIO._exports_symbol(:pio_module_export_scenario, PowerIO._lib())
+                @test "export_state" in inspect(scenarios).operations
+            end
             @test keys(scenarios) == ["0"]
             @test length(scenarios) == 1
             @test haskey(scenarios, "0")
@@ -549,7 +540,7 @@ end
     end
 end
 
-@testset "write_file's default format echoes the parsed source" begin
+@testset "emit produces the requested format" begin
     if !PowerIO.library_available()
         @test_skip "library unavailable"
     else
@@ -564,14 +555,11 @@ end
         else
             @test source_format(m) == "matpower"
             @test occursin("matpower", sprint(show, m))
-            tmp = tempname() * ".m"
-            write_file(m, tmp)  # no format keyword: the module's own source
-            @test read(tmp, String) == read(joinpath(data, "case9.m"), String)
-            rm(tmp; force=true)
-
             emitted_path = tempname() * ".m"
-            emitted_findings = emit(m, "matpower", emitted_path)
-            @test emitted_findings isa Vector{Diagnostic}
+            emitted = emit(m, "matpower", emitted_path)
+            @test emitted isa EmitResult
+            @test emitted.text === nothing
+            @test emitted.diagnostics isa Vector{Diagnostic}
             @test read(emitted_path, String) == read(joinpath(data, "case9.m"), String)
             rm(emitted_path; force=true)
 
@@ -581,7 +569,7 @@ end
                 @test source_format(dn) == "dss"
                 @test occursin("dss", sprint(show, dn))
                 tmp_dss = tempname() * ".dss"
-                write_file(dn, tmp_dss)
+                emit(dn, "dss", tmp_dss)
                 # DSS writes as a directory (one file inside, name not
                 # pinned here) rather than a flat file at the given path.
                 written = isdir(tmp_dss) ? only(readdir(tmp_dss; join=true)) : tmp_dss
@@ -592,51 +580,39 @@ end
     end
 end
 
-@testset "parse_bytes compatibility" begin
+@testset "parse_text" begin
     if !PowerIO.library_available()
-        @test_skip parse_bytes(UInt8[])
+        @test_skip parse_text("")
     else
-        # The byte entry point takes an explicit length, so it needs no NUL
-        # and can carry binary. Against a text case it must agree with the
-        # path parse.
         path = joinpath(@__DIR__, "data", "case9.m")
         from_path = parse_file(path).value
-        from_bytes = parse_bytes(read(path); format="matpower").value
-        @test from_bytes isa BalancedNetwork
-        @test length(from_bytes.data.buses) == length(from_path.data.buses)
-        @test length(from_bytes.data.branches) == length(from_path.data.branches)
+        from_text = parse_text(read(path, String); name="case9.m", format="matpower").value
+        @test from_text isa BalancedNetwork
+        @test length(from_text.data.buses) == length(from_path.data.buses)
+        @test length(from_text.data.branches) == length(from_path.data.branches)
+        @test parse_text(read(path, String); name="case9.m") isa
+              PioModule{BalancedNetwork}
+        @test parse_text(read(path, String); format="matpower") isa
+              PioModule{BalancedNetwork}
 
-        # A read-only view of the same bytes works: the binding copies what it must
-        # before the ccall rather than assuming a Vector{UInt8}.
-        @test parse_bytes(view(read(path), :); format="matpower").value isa BalancedNetwork
-
-        # The compatibility IO overload reads the stream once and agrees with
-        # the path and Vector{UInt8} forms.
-        io_value = open(path) do io
-            parse_bytes(io; format="matpower").value
-        end
-        @test PowerIO.n_buses(io_value) == PowerIO.n_buses(from_path)
-
-        # Bytes a text format cannot decode surface as that, not as a bad case.
-        @test_throws PowerIOCError parse_bytes(UInt8[0xff, 0xfe, 0x00]; format="matpower")
-
-        # A malformed source's PowerIOCError carries native diagnostics, not
-        # just a rendered message.
+        # A malformed source's PowerIOError carries native diagnostics.
         err = try
-            parse_bytes(codeunits("not a case"); format="matpower")
+            parse_text("not a case"; name="invalid.m", format="matpower")
             nothing
         catch e
             e
         end
-        @test err isa PowerIOCError
+        @test err isa PowerIOError
         @test !isempty(err.code)
         @test err.diagnostics isa Vector{Diagnostic}
+        @test_throws ArgumentError parse_text(read(path, String);
+                                              name="case9.m", format="matpower",
+                                              include_root=dirname(path))
     end
 end
 
-@testset "PowerWorld byte paths" begin
-    # PowerWorld binary has no text form, so parse_bytes with "pwb" is the only
-    # in-memory route to it, and neither PowerWorld path was covered here. The
+@testset "PowerWorld file paths" begin
+    # PowerWorld binary remains a filesystem input. The
     # fixtures are 1.5 MB against 528 KB of test/data, so read them out of the
     # powerio checkout the C library was built from instead of vendoring them:
     # POWERIO_CAPI points at <root>/target/release/libpowerio_capi.<ext>.
@@ -658,8 +634,8 @@ end
         @info "PowerWorld fixtures not found next to POWERIO_CAPI; skipping the byte path tests" custom_target_dir
         @test_skip "PowerWorld fixtures unavailable"
     else
-        pwb = parse_bytes(read(pwb_path); format="pwb").value
-        aux = parse_bytes(read(aux_path); format="aux").value
+        pwb = parse_file(pwb_path; format="pwb").value
+        aux = parse_file(aux_path; format="aux").value
         mat = parse_file(mat_path).value
 
         # Each path reaches its own reader rather than a text fallback.
@@ -686,22 +662,14 @@ end
         @test setdiff(endpoints(pwb), endpoints(mat)) == [(82, 64)]
         @test isempty(setdiff(endpoints(mat), endpoints(pwb)))
 
-        # Truncated bytes raise instead of returning a partial network. The
-        # binary reader validates its table chain, so a cut past the last case
-        # table reads as a complete case; both cuts below land inside the chain.
-        raw = read(pwb_path)
-        @test_throws PowerIOCError parse_bytes(raw[1:16]; format="pwb")
-        @test_throws PowerIOCError parse_bytes(raw[1:65536]; format="pwb")
-        text = read(aux_path)
-        @test_throws PowerIOCError parse_bytes(text[1:(length(text) ÷ 2)]; format="aux")
     end
 end
 
 @testset "conversion findings are structured records" begin
     # A case whose conversion loses nothing reports an empty findings list,
     # and every finding is a native Diagnostic, not a rendered string.
-    net = parse_file(joinpath(@__DIR__, "data", "case9.m")).value
-    _, clean = PowerIO.to_format(net, "matpower")
+    module_ = parse_file(joinpath(@__DIR__, "data", "case9.m"))
+    clean = emit(module_, "matpower").diagnostics
     @test clean isa Vector{Diagnostic}
     @test isempty(clean)
 
@@ -709,7 +677,7 @@ end
     # carries its own code/severity/message rather than a truncatable
     # rendered buffer (the pre-ABI-5 64 KiB guess and its "may be
     # truncated" marker are both gone: there is no cap to approach).
-    _, lossy = PowerIO.to_format(net, "psse")
+    lossy = emit(module_, "psse").diagnostics
     @test lossy isa Vector{Diagnostic}
     @test !isempty(lossy)
     d = first(lossy)
@@ -726,10 +694,6 @@ end
     @test occursin(d.message, string(d))
     @test startswith(string(d), uppercase(String(d.severity)))
 
-    # Every finding of a real conversion round trips through the same fields.
-    _, from_file = PowerIO.convert_file(joinpath(@__DIR__, "data", "case9.m"), "psse")
-    @test from_file isa Vector{Diagnostic}
-    @test Set(d.code for d in from_file) == Set(d.code for d in lossy)
 end
 
 @testset "schema version contract" begin

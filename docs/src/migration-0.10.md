@@ -1,147 +1,129 @@
-# Migrating from 0.9
+# Migrating from 0.9 and 0.10
 
-PowerIO 0.10 is the public beta of the 1.0 API. API corrections may land before 1.0.0 as downstream integrations exercise the new design.
+PowerIO.jl 1.0 completes the API break announced with the 0.10 beta. The 1.0
+surface uses `parse_file` for filesystem input, `parse_text` for in-memory
+text, `to_*` for in-memory conversions, `calc_*` for calculations, and `emit`
+for external output.
 
-## The parse result is now a module
+## Parsing returns a module
 
-`parse_file` returns a [`PioModule`](@ref) instead of a bare network. `m.value` is
-the typed value: a live `BalancedNetwork` or `MulticonductorNetwork` handle for
-a transmission or distribution case, or one of the calculation, series, and
-scenario families described in [Modules](modules.md) — twenty value kinds in
-total, plus `UnknownValue` for a kind a newer library adds later.
+`parse_file` and `parse_text` return a [`PioModule`](@ref). Its `value` field
+holds the typed value and its `diagnostics` field holds structured findings.
 
 ```julia
-# 0.9
-net = parse_file("case14.m")
-net.buses
+case = parse_file("case14.m")
+case.value
+case.diagnostics
 
-# 0.10
-m = parse_file("case14.m")
-buses(m)
-m.value.buses             # explicit value access also remains available
-m.diagnostics             # field-like module findings
+inline = parse_text(matpower_text; name="case14.m", format="matpower")
 ```
 
-Network accessors, normalization, matrices, graphs, PowerModels and ExaModels
-bridges, Arrow and dense extraction, and format conversion accept the module
-directly. The corresponding `m.value` methods remain available. `to_json(m)`
-writes the stored module; `to_json(m.value)` writes only the network model.
+Use `parse_file(path; format)` for a file or directory. Use
+`parse_text(text; name, format)` only for text already in memory. In-memory
+text cannot resolve included files; a non-`nothing` `include_root` raises an
+`ArgumentError`. Put an include based input on disk and call `parse_file`.
 
-## Additive names in 0.10 patch releases
+The public `parse_bytes`, `parse_file(::IO)`, positional format, and type
+marker overloads were removed. Binary formats such as PowerWorld PWB remain
+filesystem inputs.
 
-The descriptive Julia names below are aliases or forwarding methods. Existing
-0.10 code keeps working without deprecation warnings.
+Network accessors, normalization, matrices, graphs, PowerModels and
+ExaModelsPower bridges, Arrow and dense extraction, and emission accept the
+module directly. Take `case.value` only when a bare value is required.
+`to_json(case)` returns a stored module document; `to_json(case.value)`
+returns the network model JSON.
 
-| Preferred | Existing compatibility name or form |
+An existing live network can be wrapped without serialization:
+
+```julia
+net = from_json(BalancedNetwork, model_json)
+case = PioModule(net)
+```
+
+`PioModule(value)` accepts `BalancedNetwork` and `MulticonductorNetwork` and
+keeps retained source and common records attached to the live value.
+
+## Output uses emit
+
+`emit(case, format)` returns an `EmitResult` with `text` and `diagnostics`
+fields. Add a destination as the third argument to emit a file or directory;
+the same result type is returned with `text === nothing`.
+
+```julia
+case = parse_file("case14.m")
+result = emit(case, "matpower")
+result.text
+result.diagnostics
+emit(case, "matpower", "copy.m")
+emit(case, "psse", "copy.raw")
+```
+
+An unchanged module emitted to its source format reproduces the source bytes.
+
+## Final 1.0 replacements
+
+| Removed 0.10 surface | 1.0 surface |
 |---|---|
-| `parse_file(path)`, `parse_file(io; name, format)` | `parse_bytes` for memory input |
-| `parse_file(source; format)` returning `PioModule` | `parse_file(T, source; from)` returning the network value |
-| `emit(m, format)`, `emit(m, format, destination)` | `to_format`, `write_report_str`, `write_str`, `write_file` |
-| `PowerIOError` | `PowerIOCError` |
-| `to_balanced`, `to_balanced_report` | `lower_to_balanced`, `lowering_readiness` |
-| `n_generators`, `n_islands` | `n_gens`, `n_components` |
-| `reference_bus_positions` | `reference_bus_indices .+ 1` |
-| `module_sources` | `sources(m::PioModule)` |
-| `voltage_sources` | `sources(net::MulticonductorNetwork)` |
-| `calc_incidence_matrix(m::PioModule)` | raw `incidence_matrix(::DcData)`; the released network and path `calc_incidence_matrix` overloads keep their 0.10 orientation until 1.0 |
-| `calc_bus_susceptance_matrix`, `calc_branch_susceptance_matrix` | raw `susceptance_laplacian`, `flow_matrix` |
-| `calc_phase_shift_injection`, `calc_branch_flow_dc` | raw `shift_injection`, `branch_flow` |
-| `branch_ids`, `from_bus_positions`, `to_bus_positions` | `row_ids`, zero based `from_indices` / `to_indices` |
+| `parse_bytes`, `parse_file(io, format; name)`, `parse_file(T, source; from)` | `parse_text(text; name, format)` or `parse_file(path; format)` |
+| `diagnostics(m)`, `warnings(net)` | `m.diagnostics` |
+| `convert_file`, `convert_str` | parse, then `emit` |
+| `to_format`, `to_matpower`, `write_file`, `write_str`, `write_report_str` | `emit(m, format[, destination])` |
+| `write_json(m)` | `to_json(m)` |
+| `write_pypsa_csv_folder(net, dir)` | `emit(PioModule(net), "pypsa-csv", dir)` |
+| `read_gridfm`, `read_gridfm_scenarios` | `parse_file(dir; format="gridfm")`, then scenario set indexing |
+| `state_inventory` | `list_states` |
+| `select_state` | `export_state` |
+| `PowerIOCError` | `PowerIOError` |
+| `lower_to_balanced`, `lowering_readiness` | `to_balanced`, `to_balanced_report` |
+| `n_gens`, `n_components` | `n_generators`, `n_islands` |
+| `reference_bus_indices` | `reference_bus_positions` |
+| `sources(m::PioModule)` | `module_sources` |
+| `sources(net::MulticonductorNetwork)` | `voltage_sources` |
+| `release_c_data` | `close` |
+| `bus_type_code` | `to_bus_type_code` |
+| `parse_ac_power_data` | `to_ac_power_data` |
+| `calc_susceptance_matrix` | `calc_bprime_matrix` for FDPF `B'`; `calc_bus_susceptance_matrix` for the canonical DC bus matrix |
+| `AdmittanceMatrix` | `BusMappedMatrix` |
 
-Balanced network and balanced operating point time series modules support
-Julia integer indexing and iteration; scenario set modules support string keys
-and indexing. Multiconductor operating point series expose their inventory but
-not collection indexing because they have no lossless static materialization.
-
-## emit uses one argument order
-
-`emit(m, format)` returns text and writer findings. Add a destination as the
-third argument to write a file or directory. An unchanged module emitted to
-its source format reproduces the source bytes exactly.
+The public low level DC aggregate and its borrowed views were also removed:
+`DcData`, `dc_data`, `BorrowedVector`, `n_rows`, `row_ids`, `branch_ids`,
+`bus_ids`, `from_indices`, `to_indices`, `from_bus_positions`,
+`to_bus_positions`, `susceptance`, `shift`, `shift_injection`, `omitted`,
+`formula`, `incidence_matrix`, `susceptance_laplacian`, `flow_matrix`,
+`bus_injection`, and `branch_flow`. There is no renamed aggregate. Call the
+named calculations directly on a balanced network module:
 
 ```julia
-m = parse_file("case14.m")
-text, findings = emit(m, "matpower")
-emit(m, "matpower", "copy.m")            # byte exact echo
-emit(m, "psse", "copy.raw")              # cross format write
+A = calc_incidence_matrix(case)
+B = calc_bus_susceptance_matrix(case)
+Bf = calc_branch_susceptance_matrix(case)
+p_shift = calc_phase_shift_injection(case)
+p_bus = calc_bus_injection_dc(case, voltage_angles)
+p_branch = calc_branch_flow_dc(case, voltage_angles)
 ```
 
-## Planned 1.0 export cleanup
+`calc_incidence_matrix(::BalancedNetwork)` and the path overload now match the
+module overload and return the PowerModels branch by bus matrix. The 0.10 bus
+by branch `BusMappedMatrix` behavior was removed.
 
-PowerIO 0.10 keeps every released spelling callable and emits no deprecation
-warnings. The final 1.0 export cleanup is limited to names that now have a
-clear canonical replacement:
-
-- `parse_bytes` leaves the ordinary export set; wrap bytes in `IOBuffer` and
-  use `parse_file(io; name, format)`.
-- The type marker `parse_file(T, source; from)` methods leave; dispatch on the
-  `PioModule` returned by `parse_file(source; format)` and use `m.value` when a
-  bare network is required.
-- `DcData`, `dc_data`, `BorrowedVector`, and the raw span and mapping helpers
-  leave the ordinary export set. The compatibility names `shift_injection`,
-  `susceptance_laplacian`, `flow_matrix`, `bus_injection`, and `branch_flow`
-  leave with them. Use `calc_incidence_matrix(m)`,
-  `calc_bus_susceptance_matrix(m)`, `calc_branch_susceptance_matrix(m)`,
-  `calc_phase_shift_injection(m)`, and `calc_branch_flow_dc(m, va)` on the
-  module.
-- The released `calc_incidence_matrix(::BalancedNetwork)` and path overloads
-  return a bus by branch `BusMappedMatrix`. The module overload already returns
-  the PowerModels branch by bus matrix. The final 1.0 break reconciles the old
-  overloads to the module orientation.
-
-These are export changes, not C ABI changes.
+These are Julia source changes. The private binding still uses the stable ABI
+6 acquisition and DC array functions needed to implement the direct methods.
 
 ## Removed 0.9 entry points
 
 | Removed | Replacement |
 |---|---|
-| `Network`, `NetworkHandle`, `DistNetwork`, `dist_graph` | `parse_file` returning `PioModule{BalancedNetwork}` or `PioModule{MulticonductorNetwork}`; `PowerIO.to_graph` |
-| `NetworkPackage`, `CompilerPackage`, `to_package`, `from_package`, `read_package`, `write_package` | `PioModule`; `parse_file` reads a stored `.pio.json` document like any other source, and `to_json(m)` writes it |
-| `ScopfInstance`, `parse_scopf`, `parse_goc3_json`, `goc3_scopf_data` | the `AcScucInstance` module kind, read through `parse_file` and the module surface |
-| `OperatingPointSeries`, `TimeAxis`, `ElementUpdate`, `operating_point_series`, `materialize_operating_point_series` | `TimeSeries{OperatingPoint{T}}` modules; `state_inventory` and `select_state` |
+| `Network`, `NetworkHandle`, `DistNetwork`, `dist_graph` | `parse_file` returning `PioModule{BalancedNetwork}` or `PioModule{MulticonductorNetwork}`; `to_graph` |
+| `NetworkPackage`, `CompilerPackage`, `to_package`, `from_package`, `read_package`, `write_package` | `PioModule`; `parse_file` for stored `.pio.json`; `to_json(m)` for output |
+| `ScopfInstance`, `parse_scopf`, `parse_goc3_json`, `goc3_scopf_data` | `AcScucInstance`, parsed through the module surface |
+| `OperatingPointSeries`, `TimeAxis`, `ElementUpdate`, `operating_point_series`, `materialize_operating_point_series` | `TimeSeries{OperatingPoint{T}}`; `list_states` and `export_state` |
 | `as_network`, `as_dist_network` | `m.value` |
 | `to_normalized_with_options` | keyword arguments on `to_normalized` |
-| `parse_str` and its type marker form | `parse_file(IOBuffer(text); name, format)` |
-| `dist_abi_version`, `dist_capabilities`, `PIO_DIST_ABI_VERSION` | the single ABI handshake below; `features()` and `build_info()` for what the library carries |
+| `parse_str` and its type marker form | `parse_text(text; name, format)` |
+| `dist_abi_version`, `dist_capabilities`, `PIO_DIST_ABI_VERSION` | the single ABI handshake; `features()` and `build_info()` |
 
 ## One ABI handshake
 
-At first use the binding checks `pio_abi_version` against the C ABI version it targets (6 in 0.10) and refuses a stale or mismatched library with an error stating both versions. Distribution entry points are covered by the same handshake; 0.9's separate `pio_dist_abi_version` check is gone along with the C symbol itself.
-
-See the full [CHANGELOG](https://github.com/eigenergy/PowerIO.jl/blob/main/CHANGELOG.md) entry for 0.10.0 for the complete list of changes.
-
-## 0.10 compatibility API reference
-
-```@docs
-parse_bytes
-write_file
-write_str
-write_report_str
-write_json
-to_format(::PioModule, ::AbstractString)
-lowering_readiness
-PowerIOCError
-DcData
-dc_data
-BorrowedVector
-PowerIO.n_rows
-PowerIO.n_branches(::DcData)
-PowerIO.n_buses(::DcData)
-PowerIO.from_bus_positions
-PowerIO.to_bus_positions
-PowerIO.from_indices
-PowerIO.to_indices
-PowerIO.susceptance
-PowerIO.shift
-PowerIO.shift_injection
-PowerIO.branch_ids
-PowerIO.row_ids
-PowerIO.bus_ids
-PowerIO.omitted
-PowerIO.formula
-PowerIO.incidence_matrix(::DcData)
-susceptance_laplacian
-flow_matrix
-PowerIO.bus_injection(::DcData, ::AbstractVector{<:Real})
-PowerIO.branch_flow(::DcData, ::AbstractVector{<:Real})
-```
+At first use the binding checks `pio_abi_version` against ABI 6 and refuses a
+stale or mismatched library before another C call runs. Distribution entry
+points use the same handshake.

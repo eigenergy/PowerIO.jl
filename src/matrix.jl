@@ -8,7 +8,7 @@
 Sparse matrix plus the bus id mapping used by its rows. `idx_to_bus[i]` is the
 external bus id at sparse row `i`, `bus_to_idx[id]` is the row for a bus id,
 and `matrix` holds the sparse values. Square bus matrices use the same mapping
-for columns. The incidence matrix uses branch columns.
+for columns.
 """
 struct BusMappedMatrix{T}
     idx_to_bus::Vector{Int}
@@ -20,13 +20,9 @@ Base.show(io::IO, x::BusMappedMatrix{<:Number}) =
     print(io, "BusMappedMatrix(", length(x.idx_to_bus), " bus rows, ",
           SparseArrays.nnz(x.matrix), " entries)")
 
-# Source compatibility for code that used the 0.9 wrapper name. The alias is
-# deliberately unexported because it describes the incidence matrix poorly and
-# collides with PowerModels.
-const AdmittanceMatrix = BusMappedMatrix
-
-function _matrix_from_path(f, path::AbstractString, fname::AbstractString; from=nothing)
-    net = _parse_balanced(path; from=from)
+function _matrix_from_path(f, path::AbstractString, fname::AbstractString;
+                           format::Union{AbstractString,Nothing}=nothing)
+    net = _parse_balanced(path; format)
     try
         return f(net)
     finally
@@ -107,7 +103,7 @@ end
 
 """
     calc_admittance_matrix(net::BalancedNetwork)
-    calc_admittance_matrix(path; from=nothing)
+    calc_admittance_matrix(path; format=nothing)
 
 Return the Rust computed bus admittance matrix `Ybus` as a
 `BusMappedMatrix{ComplexF64}`. Matrix rows and columns use the dense
@@ -121,96 +117,48 @@ function calc_admittance_matrix(net::BalancedNetwork)
     return BusMappedMatrix(idx_to_bus, bus_to_idx, _sparse_from_owned_coo!(coo, values))
 end
 
-calc_admittance_matrix(path::AbstractString; from=nothing) =
-    _matrix_from_path(calc_admittance_matrix, path, "calc_admittance_matrix"; from=from)
+calc_admittance_matrix(path::AbstractString;
+                       format::Union{AbstractString,Nothing}=nothing) =
+    _matrix_from_path(calc_admittance_matrix, path, "calc_admittance_matrix"; format)
 
 """
     calc_bprime_matrix(net::BalancedNetwork)
-    calc_bprime_matrix(path; from=nothing)
+    calc_bprime_matrix(path; format=nothing)
 
 Return Rust's FDPF `B'` matrix as a `BusMappedMatrix{Float64}`. This
 preserves Rust's positive Laplacian convention.
 """
 calc_bprime_matrix(net::BalancedNetwork) = _wrapped_real_matrix(net, :bprime)
 
-calc_bprime_matrix(path::AbstractString; from=nothing) =
-    _matrix_from_path(calc_bprime_matrix, path, "calc_bprime_matrix"; from=from)
+calc_bprime_matrix(path::AbstractString;
+                   format::Union{AbstractString,Nothing}=nothing) =
+    _matrix_from_path(calc_bprime_matrix, path, "calc_bprime_matrix"; format)
 
 """
     calc_bdoubleprime_matrix(net::BalancedNetwork)
-    calc_bdoubleprime_matrix(path; from=nothing)
+    calc_bdoubleprime_matrix(path; format=nothing)
 
 Return Rust's FDPF `B''` matrix as a `BusMappedMatrix{Float64}`.
 """
 calc_bdoubleprime_matrix(net::BalancedNetwork) = _wrapped_real_matrix(net, :bdoubleprime)
 
-calc_bdoubleprime_matrix(path::AbstractString; from=nothing) =
-    _matrix_from_path(calc_bdoubleprime_matrix, path, "calc_bdoubleprime_matrix"; from=from)
+calc_bdoubleprime_matrix(path::AbstractString;
+                         format::Union{AbstractString,Nothing}=nothing) =
+    _matrix_from_path(calc_bdoubleprime_matrix, path, "calc_bdoubleprime_matrix"; format)
 
 """
-    calc_susceptance_matrix(net::BalancedNetwork)
-    calc_susceptance_matrix(path; from=nothing)
+    calc_incidence_matrix(net::BalancedNetwork; formula="series_susceptance")
+    calc_incidence_matrix(path; format=nothing, formula="series_susceptance")
 
-Return a PowerModels sign convention susceptance matrix as a
-`BusMappedMatrix{Float64}`. This is the sign adjusted form of Rust's
-`B'` matrix: `calc_susceptance_matrix(net).matrix == -calc_bprime_matrix(net).matrix`.
-
-`B'` is the fast decoupled power flow matrix, so a phase shifting branch folds
-into the off diagonal and the result is **not symmetric in general**. On
-PowerModels' `case5.m`, whose 3-4 pair carries a one degree shift, the two off
-diagonal entries differ by 0.23.
-
-It is therefore not the DC OPF `B`-theta Laplacian, which is a different matrix:
-that one weights each branch by `DcConvention`, stays symmetric, and routes phase
-shifts through the injection vector rather than the matrix. Build that one from
-[`calc_incidence_matrix`](@ref) and the branch series values.
-
-# Convention
-
-Each branch enters with the series susceptance `x / (r^2 + x^2)` from its own
-impedance: Rust builds `B'` under the BX scheme, which keeps the resistance and
-sets the tap magnitude to one. That weight is a positive Laplacian edge weight
-in [`calc_bprime_matrix`](@ref), where off diagonal entries are negative and
-each diagonal is the sum over its incident branches. Negating flips both signs,
-so here the off diagonal entries are positive and the diagonals negative.
-
-# Extending the generic
-
-A downstream package can add a method to this generic for its own network type,
-returning a matrix under a different sign, a different per branch weight, or a
-different phase shifter treatment. Nothing at the call site distinguishes the
-methods, so:
-
-- [`calc_bprime_matrix`](@ref) names one matrix and one convention. Use it when
-  a package extends the generic, and when the positive Laplacian form is what
-  the caller wants regardless of which packages are loaded.
-- A package adding a method for its own network type owns documenting that
-  method's convention: sign, per branch weight, and phase shifter treatment.
+Calculate the canonical signed incidence matrix as branches by buses, with
+`+1` at the from bus and `-1` at the to bus. These overloads have the same
+orientation and return type as the [`PioModule`](@ref) method.
 """
-function calc_susceptance_matrix(net::BalancedNetwork)
-    bp = calc_bprime_matrix(net)
-    return BusMappedMatrix(bp.idx_to_bus, bp.bus_to_idx, -bp.matrix)
-end
+calc_incidence_matrix(net::BalancedNetwork;
+                      formula::AbstractString="series_susceptance") =
+    calc_incidence_matrix(PioModule(net); formula)
 
-calc_susceptance_matrix(path::AbstractString; from=nothing) =
-    _matrix_from_path(calc_susceptance_matrix, path, "calc_susceptance_matrix"; from=from)
-
-"""
-    calc_incidence_matrix(net::BalancedNetwork)
-    calc_incidence_matrix(path; from=nothing)
-
-Return the Rust computed signed incidence matrix as a
-`BusMappedMatrix{Float64}`, so the bus id maps travel with the matrix
-rather than the caller rebuilding them. Rows use the `matrix_bus` axis and
-`idx_to_bus` / `bus_to_idx` map them to external bus ids. Columns use the
-`matrix_branch` axis.
-"""
-function calc_incidence_matrix(net::BalancedNetwork)
-    h = _live_handle(net, "calc_incidence_matrix")
-    coo = _matrix_arrow_from_handle(h, :incidence)
-    idx_to_bus, bus_to_idx = _matrix_bus_maps(h, coo.row_count)
-    return BusMappedMatrix(idx_to_bus, bus_to_idx, _sparse_from_owned_coo!(coo, coo.value))
-end
-
-calc_incidence_matrix(path::AbstractString; from=nothing) =
-    _matrix_from_path(calc_incidence_matrix, path, "calc_incidence_matrix"; from=from)
+calc_incidence_matrix(path::AbstractString;
+                      format::Union{AbstractString,Nothing}=nothing,
+                      formula::AbstractString="series_susceptance") =
+    calc_incidence_matrix(parse_file(path; format); formula)

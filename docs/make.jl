@@ -23,7 +23,7 @@ makedocs(;
         "Distribution" => "distribution.md",
         "Interop" => "interop.md",
         "Developer Guides" => [
-            "Migrating from 0.9" => "migration-0.10.md",
+            "Migrating from 0.9 and 0.10" => "migration-0.10.md",
             "Binary distribution" => "binary.md",
             "Memory safety" => "memory-safety.md",
             "Language map" => "languages.md",

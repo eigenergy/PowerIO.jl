@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.0
+
+PowerIO.jl 1.0 binds PowerIO 1.0 through C ABI 6. It completes the source API break announced by the 0.10 beta while retaining ABI 6 for existing C consumers.
+
+- `parse_file(path; format)` handles files and case directories. `parse_text(text; name, format)` handles UTF-8 text already in memory. Both return a typed `PioModule`; its `value` and `diagnostics` fields are the single value and finding surfaces.
+- Both `emit` overloads return `EmitResult`. Without a destination, `text` holds the emitted text; with a file or directory destination, `text === nothing`. `diagnostics` always holds the emission findings. The removed `to_format`, `to_matpower`, `write_file`, `write_str`, and conversion helpers have this one replacement.
+- `to_*` names in-memory transformations, `calc_*` names calculations, and Julia multiple dispatch supplies the network and module forms. `to_bus_type_code`, `to_ac_power_data`, `to_balanced`, and `to_balanced_report` replace the 0.10 spellings.
+- The public `DcData` aggregate and its borrowed views are gone. `calc_incidence_matrix`, `calc_bus_susceptance_matrix`, `calc_branch_susceptance_matrix`, `calc_phase_shift_injection`, `calc_bus_injection_dc`, and `calc_branch_flow_dc` operate directly on a balanced module or network. Incidence is branches by buses, matching PowerModels.
+- The ambiguous `calc_susceptance_matrix` and the unexported `AdmittanceMatrix` compatibility alias are gone. Use `calc_bprime_matrix` for FDPF `B'`, `calc_bus_susceptance_matrix` for the canonical DC bus matrix, and `BusMappedMatrix` for mapped square matrices.
+- Module and value diagnostics are no longer duplicated. Read `module.diagnostics`; network values do not expose `diagnostics`, `warnings`, or `read_warnings` aliases.
+- Time series and scenario materialization use `list_states` and `export_state`. Julia collection indexing remains one based while the C time position remains zero based.
+- OPF preparation compiles the declared feasibility or generator cost objective, preserves convex piecewise linear costs, and applies the instance's active constraint selections. Solution demand marginals use objective units per MW or MVAr, and thermal limit multipliers remain separate by branch direction or AC terminal.
+- The stored reader maps 0.10 price columns to demand marginal columns, splits a signed 0.10 DC branch dual into directional columns with `READ.MODULE.BRANCH_DUAL_SPLIT`, and removes the retired differentiability regularization term with `READ.MODULE.OBJECTIVE_TERM_RETIRED`.
+- Release candidate validation requires the final ABI 6 symbols and the `arrow`, `matrix`, `gridfm`, `dist`, and `prob` feature set. The release intent remains draft until the native candidate and Julia source are reviewed together.
+
 ## 0.10.0
 
 PowerIO 0.10 is the public beta of the 1.0 API. API corrections may land before 1.0.0 as downstream integrations exercise the new design.
