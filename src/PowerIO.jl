@@ -46,7 +46,8 @@ import Libdl
 import SparseArrays
 
 # The typed module surface: the ordinary path after `using PowerIO`.
-export PioModule, EmitResult, parse_file, parse_text, kind, emit, inspect, source_format,
+export PioModule, EmitResult, FormatInfo, parse_file, parse_text, kind, emit, inspect,
+       source_format, resolve_format,
        list_states, export_state, to_balanced, to_balanced_report
 
 # The value families a module can hold.
@@ -99,6 +100,7 @@ export dist_available, to_graph, features, has_feature, schema_versions,
        build_info, arrow_available, gridfm_available, matrix_available
 
 include("capi.jl")        # library resolution, ABI handshake, handle types
+include("formats.jl")     # canonical format tokens and destination shapes
 include("diagnostics.jl") # native Diagnostic records over the structured C list
 include("v6.jl")          # error handles, stored module handles, DC branch data
 include("network.jl")     # BalancedNetwork and its in-memory transforms

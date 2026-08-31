@@ -36,6 +36,7 @@ const CORE_SYMBOLS = Set((
     :pio_has_feature,
     :pio_schema_versions_json,
     :pio_build_info,
+    :pio_resolve_format_json,
     :pio_string_release,
     :pio_parse_file,
     :pio_module_release,

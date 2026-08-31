@@ -41,6 +41,15 @@ contains an in-memory result, while `emit(m, "matpower", "case.m").text ===
 nothing` after emitting to a file or directory. Emission findings are always
 in `.diagnostics`.
 
+`resolve_format("raw34")` returns
+`FormatInfo("psse34", "raw", false, true)`. Use its canonical token and
+extension when naming an emitted artifact; `is_directory` says whether the
+destination is a directory. `extension` omits the leading dot and can be a
+compound suffix such as `"pio.json"`. `can_emit` reports whether the format has
+a fresh universal emitter; it is neither a build feature probe nor a promise
+that every module value kind can emit the format. A false value neither
+promises nor forbids a same format retained source echo.
+
 Wrap an existing live network in a module without serializing or reparsing it:
 
 ```julia

@@ -291,6 +291,12 @@ end
         Set((:pio_module_emit_string,)),
     )
     @test _parked_reason(_candidate(symbols=no_canonical_emit)) == "required_symbol_missing"
+    no_format_resolver = setdiff(
+        copy(ArtifactUpdater.KNOWN_SYMBOLS),
+        Set((:pio_resolve_format_json,)),
+    )
+    @test _parked_reason(_candidate(symbols=no_format_resolver)) ==
+          "required_symbol_missing"
     no_list_states = setdiff(
         copy(ArtifactUpdater.KNOWN_SYMBOLS),
         Set((:pio_module_list_states_json,)),

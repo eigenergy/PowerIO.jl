@@ -8,8 +8,8 @@
     exported = Set{Symbol}((
         :PowerIO,
         # The typed module surface.
-        :PioModule, :EmitResult, :parse_file, :parse_text, :kind,
-        :emit, :inspect, :source_format,
+        :PioModule, :EmitResult, :FormatInfo, :parse_file, :parse_text, :kind,
+        :emit, :inspect, :source_format, :resolve_format,
         :list_states, :export_state, :to_balanced, :to_balanced_report,
         # Value families.
         :BalancedNetwork, :MulticonductorNetwork, :TimeSeries, :ScenarioSet,
@@ -537,6 +537,21 @@ end
             selected = scenarios["0"]
             @test typeof(selected) === PioModule{BalancedNetwork}
         end
+    end
+end
+
+@testset "format aliases resolve to canonical artifact metadata" begin
+    if !PowerIO.library_available()
+        @test_skip resolve_format("matpower")
+    else
+        psse = resolve_format("raw34")
+        @test psse == FormatInfo("psse34", "raw", false, true)
+        @test resolve_format("AUX").token == "powerworld"
+        @test resolve_format("pypsa") == FormatInfo("pypsa-csv", nothing, true, true)
+        @test resolve_format("pio-json").extension == "pio.json"
+        @test !resolve_format("pwb").can_emit
+        @test resolve_format("json") === nothing
+        @test resolve_format("not-a-format") === nothing
     end
 end
 

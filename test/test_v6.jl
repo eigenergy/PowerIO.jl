@@ -19,6 +19,7 @@ _test_dc_data(m::PowerIO.StoredModule; kwargs...) = PowerIO._dc_data(m; kwargs..
 
     @testset "preferred additive ABI 6 symbols" begin
         lib = PowerIO._lib()
+        @test PowerIO._exports_symbol(:pio_resolve_format_json, lib)
         pairs = (
             (:pio_module_emit_string, :pio_module_write_str),
             (:pio_module_emit_file, :pio_module_write_file),

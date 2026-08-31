@@ -18,6 +18,11 @@ Keep the parsed module and call [`emit`](@ref) for a case format. Use
 
 ```@autodocs
 Modules = [PowerIO]
+Pages = ["formats.jl"]
+```
+
+```@autodocs
+Modules = [PowerIO]
 Pages = ["network.jl"]
 ```
 

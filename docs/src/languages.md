@@ -29,6 +29,7 @@ parse_file -> PioModule { value, diagnostics } -> transform or matrix operation 
 | transform | `to_balanced(module)` | `module.to_balanced()` | `pio_module_to_balanced` |
 | emit text | `emit(module, format)` | `module.emit(format)` | `pio_module_emit_string` |
 | emit files | `emit(module, format, path)` | `module.emit(format, path)` | `pio_module_emit_file` |
+| resolve a format | `resolve_format(name)` | `powerio.resolve_format(name)` | `pio_resolve_format_json` |
 | incidence | `calc_incidence_matrix(module)` | `net.calc_incidence_matrix()` | assemble from ABI 6 DC spans |
 | bus susceptance | `calc_bus_susceptance_matrix(module)` | `net.calc_bus_susceptance_matrix()` | assemble from ABI 6 DC spans |
 | branch susceptance | `calc_branch_susceptance_matrix(module)` | `net.calc_branch_susceptance_matrix()` | assemble from ABI 6 DC spans |
