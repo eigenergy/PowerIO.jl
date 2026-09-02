@@ -66,6 +66,12 @@ export MulticonductorBus, MulticonductorLineCode, MulticonductorLine, Multicondu
 # Dense tables and graph projections.
 export to_dense, to_graph
 
+# Matrices and vectors.
+export calc_incidence_matrix, calc_branch_susceptances, calc_bus_susceptance_matrix,
+       calc_branch_flow_matrix, calc_branch_phase_shift_injection, calc_bus_phase_shift_injection,
+       calc_branch_flow_dc, calc_bus_injection_dc,
+       calc_admittance_matrix, calc_bprime_matrix, calc_bdoubleprime_matrix, BusMappedMatrix
+
 # Calculation constructions and solution access.
 export to_dc_pf_instance, to_ac_pf_instance, to_dc_opf_instance, to_ac_opf_instance,
        to_mc_ac_pf_instance, to_mc_ac_opf_instance, time_count
@@ -96,6 +102,8 @@ include("graphs.jl")         # to_graph
 include("collections.jl")    # TimeSeries, ScenarioSet, OperatingPoint
 include("instances.jl")      # calculation instances, solutions, to_*_instance
 include("updates.jl")        # typed updates and apply_updates!
+include("calc.jl")           # the eight DC calculations from the library
+include("ybus.jl")           # admittance matrices assembled in Julia
 include("display.jl")        # show methods
 
 end # module
