@@ -1,7 +1,7 @@
 # The typed values a module can hold, and the structural type name dispatch
 # that chooses among them.
 #
-# Every value wraps an owner rooted C handle. The C library keeps the module
+# Every value wraps a C handle borrowed from a module. The C library keeps the module
 # data alive for as long as any borrowed handle exists, so a value outlives the
 # module handle it came from. Values that come straight from a module also keep
 # the module handle so operations that need the module (emission, PowerModels

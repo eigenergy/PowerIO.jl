@@ -1,4 +1,4 @@
-# `MulticonductorNetwork`: properties over the owner rooted handle and the
+# `MulticonductorNetwork`: properties over the network handle and the
 # conductor level element structs. Terminal names, per conductor vectors, and
 # impedance matrices are copied out of the borrowed spans.
 

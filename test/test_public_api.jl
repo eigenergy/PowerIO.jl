@@ -11,7 +11,7 @@ const EXPORTED_NAMES = Set([
     :DcPfSolution, :AcPfSolution, :DcOpfSolution, :AcOpfSolution, :SocwrOpfSolution,
     :McAcPfSolution, :McAcOpfSolution, :AcScucSolution, :UnknownValue,
     # records and results
-    :Diagnostic, :SourceSpan, :PowerIOError, :EmitResult, :Artifact,
+    :Diagnostic, :SourceSpan, :PowerIOError, :EmitResult, :EmittedFile,
     :Producer, :ModuleSource, :HistoryEntry,
     # balanced network elements
     :Elements, :ComponentId, :TerminalReference, :Location, :Geo, :DetailedConnectivity,

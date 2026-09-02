@@ -1,4 +1,4 @@
-# `BalancedNetwork`: properties over the owner rooted network handle, element
+# `BalancedNetwork`: properties over the network handle, element
 # collections, and the immutable element structs they produce.
 #
 # Every element struct repeats the C view's field names without the `has_*`

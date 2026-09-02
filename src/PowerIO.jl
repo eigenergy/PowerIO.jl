@@ -10,7 +10,7 @@ net = case.value
 length(net.buses)                   # 9
 net.branches[1].reactance_pu
 case.diagnostics                    # the reader's findings
-emit(case, "matpower", "copy.m")    # byte exact same format echo
+emit(case, "matpower", "copy.m")    # same format: writes the original file unchanged
 result = emit(case, "psse")         # another format, in memory
 result.text
 serialize(case, "case9.pio.json")   # PowerIO IR
@@ -45,7 +45,7 @@ export BalancedNetwork, MulticonductorNetwork, TimeSeries, ScenarioSet, Operatin
        McAcPfSolution, McAcOpfSolution, AcScucSolution, UnknownValue
 
 # Records and results.
-export Diagnostic, SourceSpan, PowerIOError, EmitResult, Artifact,
+export Diagnostic, SourceSpan, PowerIOError, EmitResult, EmittedFile,
        Producer, ModuleSource, HistoryEntry
 
 # Balanced network elements.
@@ -88,7 +88,7 @@ include("diagnostics.jl")    # Diagnostic and SourceSpan
 include("errors.jl")         # PowerIOError and the checked call helpers
 include("values.jl")         # the value type tree and structural name dispatch
 include("module.jl")         # PioModule, parse, deserialize, records
-include("emit.jl")           # emit, serialize, EmitResult, Artifact
+include("emit.jl")           # emit, serialize, EmitResult, EmittedFile
 include("network.jl")        # BalancedNetwork properties and element structs
 include("multiconductor.jl") # MulticonductorNetwork properties and element structs
 include("dense.jl")          # to_dense

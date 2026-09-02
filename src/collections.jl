@@ -1,5 +1,5 @@
-# `TimeSeries{T}`, `ScenarioSet{T}`, and `OperatingPoint{N}` over their owner
-# rooted handles. Entries are typed values borrowed from the collection; no
+# `TimeSeries{T}`, `ScenarioSet{T}`, and `OperatingPoint{N}` over handles that keep
+# their module alive. Entries are typed values borrowed from the collection; no
 # entry access serializes or copies a network.
 
 function _with_handle(f, x)

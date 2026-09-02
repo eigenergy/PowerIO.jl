@@ -1,14 +1,14 @@
 # `emit` for grid exchange formats and `serialize` for PowerIO IR.
 
 """
-    Artifact
+    EmittedFile
 
 One file produced by [`emit`](@ref) or [`serialize`](@ref). `name` is the
-artifact name. `data` holds the bytes after a memory emission and is `nothing`
-after a filesystem commit; `path` holds the written path after a filesystem
-commit and is `nothing` for a memory emission.
+file name. `data` holds the content after an in-memory emission and is
+`nothing` after a write to disk; `path` holds the written path after a write
+to disk and is `nothing` for an in-memory emission.
 """
-struct Artifact
+struct EmittedFile
     name::String
     data::Union{Vector{UInt8},Nothing}
     path::Union{String,Nothing}
@@ -19,17 +19,17 @@ end
 
 What one emission produced.
 
-- `artifacts::Vector{Artifact}`: one entry per file.
+- `files::Vector{EmittedFile}`: one entry per file.
 - `layout::String`: `"file"` or `"directory"`.
-- `fidelity::String`: `"exact_same_format"` when retained source bytes were
-  echoed, `"canonical"` for fresh output.
+- `fidelity::String`: `"exact_same_format"` when the output is the original
+  file content the reader kept, `"canonical"` for freshly written output.
 - `diagnostics::Vector{Diagnostic}`: what the writer kept, defaulted, or
   could not carry.
-- `text`: the one UTF-8 memory artifact as a `String`, or `nothing` when the
-  inventory holds anything else.
+- `text`: the content of the one in-memory UTF-8 file as a `String`, or
+  `nothing` when the result holds anything else.
 """
 struct EmitResult
-    artifacts::Vector{Artifact}
+    files::Vector{EmittedFile}
     layout::String
     fidelity::String
     diagnostics::Vector{Diagnostic}
@@ -37,9 +37,9 @@ end
 
 function Base.getproperty(r::EmitResult, name::Symbol)
     if name === :text
-        artifacts = getfield(r, :artifacts)
-        length(artifacts) == 1 || return nothing
-        data = artifacts[1].data
+        files = getfield(r, :files)
+        length(files) == 1 || return nothing
+        data = files[1].data
         data === nothing && return nothing
         return isvalid(String, data) ? String(copy(data)) : nothing
     end
@@ -47,10 +47,10 @@ function Base.getproperty(r::EmitResult, name::Symbol)
 end
 
 Base.propertynames(::EmitResult, private::Bool=false) =
-    (:artifacts, :layout, :fidelity, :diagnostics, :text)
+    (:files, :layout, :fidelity, :diagnostics, :text)
 
 function Base.show(io::IO, r::EmitResult)
-    print(io, "EmitResult(", length(r.artifacts), " artifact", length(r.artifacts) == 1 ? "" : "s",
+    print(io, "EmitResult(", length(r.files), " file", length(r.files) == 1 ? "" : "s",
           ", ", r.layout, ", ", r.fidelity, ", ", length(r.diagnostics), " diagnostic",
           length(r.diagnostics) == 1 ? "" : "s", ")")
 end
@@ -75,7 +75,7 @@ function _destination_memory(lib::AbstractString, root::AbstractString)
     return DestinationHandle(ptr, lib)
 end
 
-# Read the artifact inventory of an emit result handle and release it.
+# Read the file list of an emit result handle and release it.
 function _emit_result(lib::AbstractString, ptr::Ptr{Cvoid}, in_memory::Bool)
     h = EmitResultHandle(ptr, lib)
     result = GC.@preserve h begin
@@ -83,35 +83,35 @@ function _emit_result(lib::AbstractString, ptr::Ptr{Cvoid}, in_memory::Bool)
         layout = _str(ccall(_library_symbol(lib, :pio_emit_result_layout), PioStringView, (Ptr{Cvoid},), p))
         fidelity = _str(ccall(_library_symbol(lib, :pio_emit_result_fidelity), PioStringView, (Ptr{Cvoid},), p))
         n = Int(ccall(_library_symbol(lib, :pio_emit_result_artifact_count), Csize_t, (Ptr{Cvoid},), p))
-        artifacts = map(1:n) do k
-            aptr = _checked(lib) do err
+        files = map(1:n) do k
+            fptr = _checked(lib) do err
                 ccall(_library_symbol(lib, :pio_emit_result_artifact), Ptr{Cvoid},
                       (Ptr{Cvoid}, Csize_t, Ref{Ptr{Cvoid}}), p, Csize_t(k - 1), err)
             end
-            a = ArtifactHandle(aptr, lib)
-            artifact = GC.@preserve a begin
-                name = _str(ccall(_library_symbol(lib, :pio_artifact_name), PioStringView, (Ptr{Cvoid},), _ptr(a)))
+            f = EmittedFileHandle(fptr, lib)
+            file = GC.@preserve f begin
+                name = _str(ccall(_library_symbol(lib, :pio_artifact_name), PioStringView, (Ptr{Cvoid},), _ptr(f)))
                 if in_memory
-                    Artifact(name, _bytes(ccall(_library_symbol(lib, :pio_artifact_bytes), PioByteView,
-                                                (Ptr{Cvoid},), _ptr(a))), nothing)
+                    EmittedFile(name, _bytes(ccall(_library_symbol(lib, :pio_artifact_bytes), PioByteView,
+                                                   (Ptr{Cvoid},), _ptr(f))), nothing)
                 else
-                    Artifact(basename(name), nothing, name)
+                    EmittedFile(basename(name), nothing, name)
                 end
             end
-            release!(a)
-            artifact
+            release!(f)
+            file
         end
         diagnostics = _diagnostics(lib, ccall(_library_symbol(lib, :pio_emit_result_diagnostics), Ptr{Cvoid},
                                               (Ptr{Cvoid},), p))
-        EmitResult(artifacts, layout, fidelity, diagnostics)
+        EmitResult(files, layout, fidelity, diagnostics)
     end
     release!(h)
     return result
 end
 
 # Run one output operation against a destination. `destination` is `nothing`
-# (memory), a path, or a writable `IO` that receives the single artifact.
-# `root` names the memory destination; artifact names carry it as a prefix.
+# (in memory), a path, or a writable `IO` that receives the single file.
+# `root` names the in-memory destination; file names carry it as a prefix.
 function _output(op, m::PioModule, destination, what::AbstractString, root::AbstractString)
     lib = _lib_of(m)
     h = _handle(m)
@@ -120,10 +120,10 @@ function _output(op, m::PioModule, destination, what::AbstractString, root::Abst
         result = GC.@preserve h dest _emit_result(lib, op(lib, _ptr(h), _ptr(dest)), true)
         release!(dest)
         if destination isa IO
-            length(result.artifacts) == 1 || throw(ArgumentError(
-                "PowerIO.$what: a stream destination accepts one artifact, this emission produced " *
-                "$(length(result.artifacts)); pass a directory path instead"))
-            write(destination, result.artifacts[1].data)
+            length(result.files) == 1 || throw(ArgumentError(
+                "PowerIO.$what: a stream destination accepts one file, this emission produced " *
+                "$(length(result.files)); pass a directory path instead"))
+            write(destination, result.files[1].data)
         end
         return result
     elseif destination isa AbstractString
@@ -142,11 +142,11 @@ end
 Write the module's value as the grid exchange format named by `format`
 (`"matpower"`, `"psse"`, `"xiidm"`, `"cgmes"`, `"dss"`, `"pmd"`, `"bmopf"`,
 `"powermodels-json"`, `"pypsa-csv"`, and the other canonical tokens). With
-`destination === nothing` the artifacts stay in memory. A path writes one file
-or a directory. A writable `IO` receives the single artifact.
+`destination === nothing` the files stay in memory. A path writes one file
+or a directory. A writable `IO` receives the single file.
 
-Emitting the format the module was read from echoes the retained source bytes
-exactly (`fidelity == "exact_same_format"`) when the value is unchanged.
+When the module was read from the same format and its value is unchanged,
+the output is the original file content (`fidelity == "exact_same_format"`).
 Anything the target cannot carry is reported in `result.diagnostics`.
 """
 function emit(m::PioModule, format::AbstractString, destination=nothing)

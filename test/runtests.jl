@@ -19,7 +19,7 @@ fixture(parts...) = joinpath(DATA, parts...)
     include("test_release.jl")            # Project.toml and changelog release guard
     include("test_release_automation.jl") # reviewed intent and artifact state machine
     include("test_public_api.jl")         # the exported surface
-    include("test_roundtrip.jl")          # parse, emit, serialize, deserialize
+    include("test_operations.jl")         # parse, emit, serialize, deserialize
     include("test_network.jl")            # BalancedNetwork element tables
     include("test_dist.jl")               # MulticonductorNetwork element tables
     include("test_collections.jl")        # TimeSeries, ScenarioSet, instances, solutions
