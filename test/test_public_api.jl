@@ -13,6 +13,21 @@ const EXPORTED_NAMES = Set([
     # records and results
     :Diagnostic, :SourceSpan, :PowerIOError, :EmitResult, :Artifact,
     :Producer, :ModuleSource, :HistoryEntry,
+    # balanced network elements
+    :Elements, :ComponentId, :TerminalReference, :Location, :Geo, :DetailedConnectivity,
+    :Bus, :Branch, :Generator, :Load, :Shunt, :StaticVarCompensator, :Storage, :Switch, :Hvdc,
+    :ThreeWindingTransformer, :Area,
+    :LoadVoltageModel, :ShuntBlock, :ShuntControl, :TransformerControl, :BranchRating,
+    :GeneratorCost, :GeneratorCapability, :ActivePowerControl, :HvdcConverter,
+    :TransformerWinding, :TransformerImpedance, :reference_bus_ids,
+    # multiconductor network elements
+    :MulticonductorBus, :MulticonductorLineCode, :MulticonductorLine, :MulticonductorSwitch,
+    :MulticonductorTransformer, :MulticonductorTransformerWinding, :MulticonductorLoad,
+    :MulticonductorGenerator, :InverterBasedResource, :ControlProfile, :VoltVarControl,
+    :VoltWattControl, :MulticonductorShunt, :MulticonductorCapacitor, :VoltageSource,
+    :UntypedObject, :SourceCommand,
+    # dense tables and graphs
+    :to_dense, :to_graph,
     # library resolution
     :set_library!, :clear_library!, :abi_version, :library_version, :library_available,
 ])

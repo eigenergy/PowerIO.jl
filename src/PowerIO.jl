@@ -48,16 +48,39 @@ export BalancedNetwork, MulticonductorNetwork, TimeSeries, ScenarioSet, Operatin
 export Diagnostic, SourceSpan, PowerIOError, EmitResult, Artifact,
        Producer, ModuleSource, HistoryEntry
 
+# Balanced network elements.
+export Elements, ComponentId, TerminalReference, Location, Geo, DetailedConnectivity,
+       Bus, Branch, Generator, Load, Shunt, StaticVarCompensator, Storage, Switch, Hvdc,
+       ThreeWindingTransformer, Area,
+       LoadVoltageModel, ShuntBlock, ShuntControl, TransformerControl, BranchRating,
+       GeneratorCost, GeneratorCapability, ActivePowerControl, HvdcConverter,
+       TransformerWinding, TransformerImpedance, reference_bus_ids
+
+# Multiconductor network elements.
+export MulticonductorBus, MulticonductorLineCode, MulticonductorLine, MulticonductorSwitch,
+       MulticonductorTransformer, MulticonductorTransformerWinding, MulticonductorLoad,
+       MulticonductorGenerator, InverterBasedResource, ControlProfile, VoltVarControl,
+       VoltWattControl, MulticonductorShunt, MulticonductorCapacitor, VoltageSource,
+       UntypedObject, SourceCommand
+
+# Dense tables and graph projections.
+export to_dense, to_graph
+
 # Library resolution.
 export set_library!, clear_library!, abi_version, library_version, library_available
 
-include("views.jl")        # C struct mirrors and span conversions
-include("capi.jl")         # library resolution and the ABI handshake
-include("handles.jl")      # owned handle types with release finalizers
-include("diagnostics.jl")  # Diagnostic and SourceSpan
-include("errors.jl")       # PowerIOError and the checked call helpers
-include("values.jl")       # the value type tree and structural name dispatch
-include("module.jl")       # PioModule, parse, deserialize, records
-include("emit.jl")         # emit, serialize, EmitResult, Artifact
+include("views.jl")          # C struct mirrors and span conversions
+include("capi.jl")           # library resolution and the ABI handshake
+include("handles.jl")        # owned handle types with release finalizers
+include("diagnostics.jl")    # Diagnostic and SourceSpan
+include("errors.jl")         # PowerIOError and the checked call helpers
+include("values.jl")         # the value type tree and structural name dispatch
+include("module.jl")         # PioModule, parse, deserialize, records
+include("emit.jl")           # emit, serialize, EmitResult, Artifact
+include("network.jl")        # BalancedNetwork properties and element structs
+include("multiconductor.jl") # MulticonductorNetwork properties and element structs
+include("dense.jl")          # to_dense
+include("graphs.jl")         # to_graph
+include("display.jl")        # show methods
 
 end # module
