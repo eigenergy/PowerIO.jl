@@ -1,162 +1,139 @@
 # Modules
 
-PowerIO 1.0 parses every source into a [`PioModule`](@ref): one typed value
-with its retained source, diagnostics, source map, and history. A `.pio.json`
-version 1 document serializes the value and durable records. This binding
-wraps the ABI v6 handle surface: structured error handles, module entry
-points, and numerical operators.
-
-Every handle is an independently owned reference over an immutable value.
-Releasing a parent never invalidates a retained child, and every ccall on a
-handle resolves its symbol from the library that created the handle, so a
-handle outlives a `set_library!` switch. Parsing checks the resolved library
-first: an ABI version this binding does not accept raises a directed error
-naming both versions before any other ccall runs.
-
-## The module surface
-
-```@docs
-PioModule
-EmitResult
-parse_file
-parse_text
-kind
-Diagnostic
-SourceSpan
-inspect
-source_format
-emit
-to_json(::PioModule)
-from_json(::Type{PioModule}, ::AbstractString)
-list_states
-export_state
-to_balanced_report
-to_balanced
-PowerIOError
-```
-
-`m.diagnostics` holds the module's structured findings. Output goes through
-`emit`. Both overloads return `EmitResult`: `emit(m, "matpower").text`
-contains an in-memory result, while `emit(m, "matpower", "case.m").text ===
-nothing` after emitting to a file or directory. Emission findings are always
-in `.diagnostics`.
-
-`resolve_format("raw34")` returns
-`FormatInfo("psse34", "raw", false, true)`. Use its canonical token and
-extension when naming an emitted artifact; `is_directory` says whether the
-destination is a directory. `extension` omits the leading dot and can be a
-compound suffix such as `"pio.json"`. `can_emit` reports whether the format has
-a fresh universal emitter; it is neither a build feature probe nor a promise
-that every module value kind can emit the format. A false value neither
-promises nor forbids a same format retained source echo.
-
-Wrap an existing live network in a module without serializing or reparsing it:
+Every source parses into a [`PioModule`](@ref): one typed value together with
+the records that describe how it was produced.
 
 ```julia
-net = from_json(BalancedNetwork, model_json)
-m = PioModule(net)
+case = parse("case118.m")
+case isa PioModule{BalancedNetwork}    # true
+case.value                              # the BalancedNetwork
+case.diagnostics                        # Vector{Diagnostic}
+case.producer                           # Producer("powerio", "1.0.0")
+case.sources                            # the files it was read from
+case.history                            # the operations applied so far
 ```
 
-`PioModule(value)` accepts `BalancedNetwork` and `MulticonductorNetwork`.
-Retained source and common records stay attached to a parsed value, and a
-value rebuilt from model JSON gains the ordinary module operations.
-
-## Typed values
-
-The value families a module can hold. The two network kinds are documented on
-their own pages; the calculation, series, and scenario kinds are typed
-carriers whose operations run on the module.
-
-```@docs
-TimeSeries
-ScenarioSet
-OperatingPoint
-UnknownValue
-DcPfInstance
-AcPfInstance
-DcOpfInstance
-AcOpfInstance
-McAcPfInstance
-McAcOpfInstance
-AcScucInstance
-DcPfSolution
-AcPfSolution
-DcOpfSolution
-AcOpfSolution
-McAcPfSolution
-McAcOpfSolution
-AcScucSolution
-```
-
-A balanced network or balanced operating point time series follows Julia's
-integer collection conventions:
+The type parameter follows the source. Dispatch on it:
 
 ```julia
-series = parse_file("network.csv"; format="pypsa-csv")
-length(series)
-first_state = series[1]       # a selected PioModule
-for state in series
-    n_buses(state)
+summarize(m::PioModule{BalancedNetwork}) = length(m.value.buses)
+summarize(m::PioModule{MulticonductorNetwork}) = length(m.value.lines)
+summarize(m::PioModule{<:TimeSeries}) = length(m.value)
+```
+
+| Source | Value type |
+|---|---|
+| MATPOWER, PSS/E RAW and RAWX, XIIDM, CGMES, PowerWorld, PSLF EPC, PowerModels JSON, Egret JSON, pandapower JSON, PyPSA CSV (one snapshot) | `BalancedNetwork` |
+| OpenDSS, PMD JSON, BMOPF | `MulticonductorNetwork` |
+| PyPSA CSV with several snapshots | `TimeSeries{BalancedNetwork}` |
+| GridFM Parquet | `ScenarioSet{BalancedNetwork}` |
+| GO Challenge 3 problem, or problem and solution | `AcScucInstance`, `AcScucSolution` |
+| OPFData | `AcOpfSolution` |
+
+A value type this release does not bind arrives as [`UnknownValue`](@ref) with
+its structural type name.
+
+## Sources
+
+`parse` takes a path, an `IO`, or bytes. `format` is a canonical token such as
+`"matpower"`, `"psse"`, `"xiidm"`, `"cgmes"`, or `"dss"`; when omitted, the
+source name and content select it. `name` supplies the source name for an
+in-memory source.
+
+```julia
+parse("case9.m")
+parse("cgmes_case/")                                    # a directory or ZIP for a profile set
+parse(IOBuffer(text); format="matpower", name="case9.m")
+parse(bytes; format="pwb", name="case.pwb")
+open("case9.m") do io
+    parse(io)                                           # an open file keeps its path as the name
 end
 ```
 
-A multiconductor operating point series keeps its typed value and explicit
-`list_states`, but has no collection indexing until terminal state has a
-lossless static network representation. `export_state` returns the structured
-`REQUEST.STATE.UNBOUND_EXPORT` refusal instead of inventing that mapping.
+A failed parse throws [`PowerIOError`](@ref) with a stable `code`, the rendered
+`message`, and the structured `diagnostics` that caused it. Branch on the code,
+not the message.
 
-A scenario set uses its scenario identifiers as string keys:
+## Diagnostics
+
+Diagnostics belong to the module, not to the value. Each [`Diagnostic`](@ref)
+has a `code` (`"READ.MATPOWER.FIELD_DEFAULTED"`, `"EMIT.PSSE.FIELD_DROPPED"`),
+a `severity` (`:error`, `:warning`, `:remark`, `:note`), a `message`, and when
+the reader recorded them an `id`, a `target` naming the element concerned, a
+`suggested_action`, source `spans`, `related` diagnostic ids, and structured
+`details`.
 
 ```julia
-ids = keys(scenarios)
-state = scenarios[first(ids)]
+for d in case.diagnostics
+    d.severity == :warning || continue
+    println(d.code, ": ", d.message)
+end
 ```
 
-## Typed records
+## Emit
+
+[`emit`](@ref) writes a module as a grid exchange format and returns an
+[`EmitResult`](@ref).
+
+```julia
+same = emit(case, "matpower")            # in memory
+same.fidelity                            # "exact_same_format"
+same.text                                # the original file content
+
+other = emit(case, "psse")
+other.fidelity                           # "canonical": freshly written
+other.diagnostics                        # what PSS/E cannot carry
+
+emit(case, "psse", "case.raw")           # one file on disk
+emit(case, "pypsa-csv", "case_dir")      # a directory of files
+emit(case, "matpower", stdout)           # a writable IO receives the single file
+```
+
+`result.files` lists what was produced, one [`EmittedFile`](@ref) per file with
+its `name` and either its `data` (in memory) or its `path` (on disk). `layout`
+is `"file"` or `"directory"`. `fidelity` is `"exact_same_format"` when the
+module was read from that format and its value is unchanged, so the output is
+the original file content; otherwise `"canonical"`. `text` is the content of
+the single in-memory UTF-8 file, or `nothing`.
+
+## PowerIO IR
+
+PowerIO IR is PowerIO's own serialization of a module: one JSON document
+(`"schema": "powerio.module"`, `"version": 1`) holding the typed value with its
+diagnostics, producer, sources, source mappings, history, and extensions.
+[`serialize`](@ref) writes it and [`deserialize`](@ref) reads it.
+
+```julia
+serialize(case, "case9.pio.json")
+back = deserialize("case9.pio.json")     # PioModule{BalancedNetwork}
+```
+
+PowerIO IR is not a grid exchange format. `parse` does not read it and `emit`
+does not write it, and it does not appear in format discovery. Use it when both
+sides are PowerIO consumers and the module records matter; use `emit` for every
+other tool. The document does not carry the original file content, so a
+deserialized module writes canonical output rather than the original file.
+
+## Constructions
+
+`to_dc_pf_instance`, `to_ac_pf_instance`, `to_dc_opf_instance`,
+`to_ac_opf_instance`, `to_mc_ac_pf_instance`, and `to_mc_ac_opf_instance`
+construct a calculation instance module from a network module. The network is
+shared, and the new module records the construction in its history. See
+[Collections and instances](collections.md).
 
 ```@docs
-ModuleHistoryEntry
+PioModule
+Producer
 ModuleSource
-history
-module_sources
+HistoryEntry
+Diagnostic
+SourceSpan
+PowerIOError
+UnknownValue
+emit
+EmitResult
+EmittedFile
+serialize
+deserialize
 ```
-
-## DC matrices and flows
-
-The public equations and signs match PowerModels directly:
-
-```text
-A[e, from] = +1
-A[e, to]   = -1
-B  = A' * Diagonal(b) * A
-Bf = Diagonal(b) * A
-p_shift  = A' * (b .* shift)
-p_bus    = -B * va + p_shift
-p_branch = -Bf * va + b .* shift
-```
-
-The module methods return the canonical matrices directly. The selected
-formula defaults to series susceptance and can be changed with the `formula`
-keyword.
-
-```julia
-case = parse_file("case14.m")
-A = calc_incidence_matrix(case)              # branches by buses
-B = calc_bus_susceptance_matrix(case)        # buses by buses
-Bf = calc_branch_susceptance_matrix(case)    # branches by buses
-p_shift = calc_phase_shift_injection(case)   # buses
-f = calc_branch_flow_dc(case, voltage_angles)
-p = A' * f                              # bus injections
-```
-
-```@docs
-PowerIO.calc_incidence_matrix(::PioModule{BalancedNetwork})
-PowerIO.calc_bus_susceptance_matrix(::PioModule{BalancedNetwork})
-PowerIO.calc_branch_susceptance_matrix(::PioModule{BalancedNetwork})
-PowerIO.calc_phase_shift_injection(::PioModule{BalancedNetwork})
-PowerIO.calc_bus_injection_dc(::PioModule{BalancedNetwork}, ::AbstractVector{<:Real})
-PowerIO.calc_branch_flow_dc(::PioModule{BalancedNetwork}, ::AbstractVector{<:Real})
-```
-
-The module methods own coefficient preparation internally. Ordinary matrix and
-flow code does not acquire an intermediate coefficient container.

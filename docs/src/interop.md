@@ -1,125 +1,75 @@
-# Ecosystem interop
+# Interop
 
 | Target | Direction | Mechanism |
 |---|---|---|
-| PowerModels.jl | both | [`to_powermodels`](@ref) / [`from_powermodels`](@ref) |
-| BMOPFTools.jl | both | PowerIO backed OpenDSS / BMOPF conversion |
-| ExaModelsPower.jl / ExaPowerIO.jl | out | [`to_powerdata`](@ref) / [`to_ac_power_data`](@ref) |
-| PowerGridPlanning.jl | out | [`to_powermodels`](@ref), [`build_powermodels_ref`](@ref), and [`repair_powermodels_angle_bounds!`](@ref) |
-| stored `.pio.json` module | both | [`parse_file`](@ref) / [`to_json`](@ref) / `m.value` |
-| GridFM (gridfm-datakit Parquet) | in | [`parse_file`](@ref), then scenario set indexing |
-| [PowerDiff.jl](https://github.com/grid-opt-alg-lab/PowerDiff.jl) | out | PowerDiff depends on PowerIO as its parser and data layer |
-| OpenDSS / PMD / IEEE BMOPF | both | [`parse_file`](@ref) / [`emit`](@ref); see [Distribution networks](distribution.md) |
+| PowerModels.jl | both | [`to_powermodels`](@ref), [`from_powermodels`](@ref) through PowerModels JSON |
+| ExaModelsPower.jl | out | [`to_powerdata`](@ref), [`to_ac_power_data`](@ref), `LoadSeries` |
+| GridFM | both | `parse` of a Parquet dataset, `emit(m, "gridfm")` |
+| PyPSA | both | `parse` of a CSV folder, `emit(m, "pypsa-csv", dir)` |
+| PowerModelsDistribution.jl | both | `emit(m, "pmd")`, `parse` of PMD JSON |
+| BMOPF | both | `emit(m, "bmopf")`, `parse` of BMOPF JSON |
+| Other PowerIO consumers | both | `serialize`, `deserialize` (PowerIO IR) |
 
 ## PowerModels.jl
 
-[`to_powermodels`](@ref) converts a parsed network to a PowerModels network
-data dictionary — the post-parse `Dict{String,Any}` layout PowerModels.jl
-consumes. [`from_powermodels`](@ref) rebuilds a PowerIO value from one.
+`to_powermodels` writes the module through the PowerModels JSON writer and
+returns the network data dictionary PowerModels.jl consumes: per unit powers,
+radian angles, string keyed component tables. `from_powermodels` parses such a
+dictionary (or its JSON text) back into a `PioModule{BalancedNetwork}`.
 
 ```julia
-using PowerIO
-
-case = parse_file("case14.m")
-data = to_powermodels(case)     # Dict{String,Any} with "bus", "branch", "gen", ...
-net2 = from_powermodels(data)
+case = parse("case14.m")
+data = to_powermodels(case)
+data["bus"]["1"]["bus_type"]              # 3
+back = from_powermodels(data)             # PioModule{BalancedNetwork}
 ```
 
-PowerIO also exposes the reference dictionary helpers used by PowerModels style
-packages:
-
-```julia
-data = to_powermodels(parse_file("case14.m"))
-repair_powermodels_angle_bounds!(data)
-ref = build_powermodels_ref(data)
-```
-
-## BMOPFTools.jl
-
-BMOPFTools uses the distribution model for OpenDSS and BMOPF exchange.
-
-```julia
-using BMOPFTools
-
-net = BMOPFTools.from_dss("Master.dss")
-BMOPFTools.to_dss(net, "out/")
-```
+[`build_powermodels_ref`](@ref) builds the flat reference dictionary
+(`:bus`, `:gen`, `:branch`, `:arcs`, `:bus_arcs`, `:ref_buses`, ...) that
+PowerModels models index, and
+[`repair_powermodels_angle_bounds!`](@ref) clamps branch angle difference
+bounds the way `PowerModels.correct_voltage_angle_differences!` does.
 
 ## ExaModelsPower.jl
 
-[`to_powerdata`](@ref) returns a NamedTuple in ExaPowerIO's `PowerData`
-layout; [`to_ac_power_data`](@ref) returns the NamedTuple-of-arrays layout
-consumed by ExaModelsPower's `build_polar_opf`, `build_rect_opf`, and
-`build_dcopf` — GPU-ready struct-of-arrays with per unit conversion applied.
+`to_powerdata` returns ExaPowerIO's `PowerData` layout (`bus`, `gen`,
+`branch`, `arc`, `storage` rows with the fields ExaModelsPower reads);
+`to_ac_power_data` adds the bound and initial value vectors its `build_*_opf`
+functions consume. Powers are per unit, angles are radians, and bus references
+are positions in the bus table.
 
 ```julia
-case = parse_file("case14.m")
-pd = to_powerdata(case)
-ac = to_ac_power_data(case)
-ac.bus, ac.gen, ac.branch, ac.arc, ac.ref_buses
+data = to_ac_power_data("case118.m")
+data.ref_buses
+data.pmax
 ```
 
-ExaModelsPower can use that parser path directly and keep ExaPowerIO for test
-data artifacts:
-
-```julia
-using ExaModelsPower
-
-model, vars, cons = ExaModelsPower.ac_opf_model("case14.m")
-model, vars, cons = ExaModelsPower.dcopf_model("case.raw")
-```
-
-## PowerGridPlanning.jl
-
-PowerGridPlanning can preserve its `load_network` API while delegating parser
-semantics, PowerModels reference construction, and branch angle repair to
-PowerIO.
-
-```julia
-using PowerIO: parse_file, to_powermodels, build_powermodels_ref
-import PowerGridPlanning
-
-network = PowerGridPlanning.load_network("case14.m")
-data = to_powermodels(parse_file("case14.m"))
-ref = build_powermodels_ref(data)
-```
-
-## `.pio.json` stored modules
-
-Stored `.pio.json` modules carry one typed value beside the module's records
-(sources, source maps, diagnostics, history), over the native `pio_module_*`
-C ABI surface.
-
-```julia
-m = parse_file("case14.m")               # ::PioModule{BalancedNetwork}
-doc = to_json(m)                         # the stored version 1 document
-back = from_json(PioModule, doc)
-
-kind(m)                                  # "balanced_network"
-m.diagnostics                            # structured diagnostic records
-history(m)                               # descriptive history entries
-module_sources(m)                        # source descriptors
-```
-
-Multiconductor modules check their lowering readiness and lower explicitly;
-see [Distribution networks](distribution.md). The migration guide documents
-the one way upgrade for earlier `.pio.json` documents.
+`PowerIO.LoadSeries` builds dense per bus load matrices over several periods
+for the multiperiod models, from a matrix in MW, a per period multiplier, an
+id keyed table, or two files.
 
 ## GridFM
 
-GridFM directories parse through the same module entry point as every other
-format. The result is a `ScenarioSet{BalancedNetwork}` whose string keys are
-the scenario identifiers. It needs `--features gridfm`;
-[`gridfm_available`](@ref) reports whether the loaded library includes it.
-Fields that GridFM cannot represent appear in `scenarios.diagnostics`.
+A GridFM Parquet dataset parses into a `ScenarioSet{BalancedNetwork}`; each
+scenario is a network. `emit(m, "gridfm", dir)` writes a dataset. Both need a
+powerio library built with the `gridfm` feature; the release binaries include
+it, and a build without it reports a coded parse error naming the feature.
 
-```julia
-scenarios = parse_file("out/case14/raw"; format="gridfm")
-scenario_ids = keys(scenarios)
-case = scenarios[first(scenario_ids)]
-result = emit(case, "matpower")
-matpower = result.text
-findings = result.diagnostics
+## PowerIO IR
+
+`serialize` and `deserialize` pass a complete module, with its diagnostics and
+history, to another PowerIO consumer in Rust, Python, Julia, or C. The document
+shape is `"schema": "powerio.module"`, `"version": 1`.
+
+```@docs
+to_powermodels
+from_powermodels
+build_powermodels_ref
+repair_powermodels_angle_bounds!
+to_powerdata
+to_ac_power_data
+PowerIO.LoadSeries
+PowerIO.n_periods
+PowerIO.demands_mw
+PowerIO.read_load_series
 ```
-
-Keep the `PioModule`, its diagnostics, and the shared scenario set axis.

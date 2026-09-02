@@ -78,4 +78,24 @@ const RETIRED_NAMES = [
     @test hasmethod(Base.parse, Tuple{IO})
     @test hasmethod(Base.parse, Tuple{AbstractVector{UInt8}})
     @test PowerIO.PIO_ABI_VERSION == 7
+
+    @testset "documentation names no removed operation" begin
+        root = dirname(@__DIR__)
+        pages = [joinpath(root, "docs", "src", p) for p in readdir(joinpath(root, "docs", "src"))
+                 if endswith(p, ".md") && !startswith(p, "migration")]
+        push!(pages, joinpath(root, "README.md"))
+        retired = (r"\bparse_file\(", r"\bparse_text\(", r"\bto_json\(", r"\bfrom_json\(",
+                   r"\blist_states\(", r"\bexport_state\(", r"\bto_balanced\(",
+                   r"\bresolve_format\(", r"\bto_arrow\(", r"\bbuild_info\(", r"\bhas_feature\(",
+                   r"\bn_buses\(", r"\bbuses\(", r"ABI 6", r"\.data\.", r"—")
+        for page in pages
+            text = read(page, String)
+            for pattern in retired
+                @test isnothing(match(pattern, text)) || "$(basename(page)) matches $(pattern.pattern)" == ""
+            end
+        end
+        for src in readdir(joinpath(root, "src"); join=true)
+            @test !occursin("—", read(src, String)) || "$(basename(src)) has an em dash" == ""
+        end
+    end
 end

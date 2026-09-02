@@ -1,7 +1,8 @@
 # Build the Documenter site. Locally:
 #   julia --project=docs -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
 #   julia --project=docs docs/make.jl
-# CI deploys to gh-pages on pushes to main (the docs job in CI.yml).
+# CI deploys to gh-pages on pushes to main (the docs job in CI.yml). The module
+# loads without the C library, so the build needs no Rust toolchain.
 using Documenter
 using PowerIO
 
@@ -10,6 +11,7 @@ makedocs(;
     modules = [PowerIO],
     checkdocs = :exports,
     doctest = false,
+    warnonly = [:cross_references],
     format = Documenter.HTML(;
         canonical = "https://eigenergy.github.io/PowerIO.jl",
         edit_link = "main",
@@ -17,13 +19,14 @@ makedocs(;
     pages = [
         "Home" => "index.md",
         "Modules" => "modules.md",
-        "Networks" => "transmission.md",
-        "Matrices" => "matrices.md",
-        "OPF" => "opf-backends.md",
+        "Networks" => "networks.md",
         "Distribution" => "distribution.md",
+        "Collections and instances" => "collections.md",
+        "Matrices" => "matrices.md",
+        "Updates" => "updates.md",
         "Interop" => "interop.md",
         "Developer Guides" => [
-            "Migrating from 0.9 and 0.10" => "migration-0.10.md",
+            "Migrating to 1.0" => "migration-1.0.md",
             "Binary distribution" => "binary.md",
             "Memory safety" => "memory-safety.md",
             "Language map" => "languages.md",

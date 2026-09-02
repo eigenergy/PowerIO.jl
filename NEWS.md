@@ -2,6 +2,20 @@
 
 Release announcements. See [CHANGELOG.md](CHANGELOG.md) for the complete, itemized history.
 
+## 1.0.0
+
+PowerIO.jl 1.0 binds PowerIO 1.0 over C ABI 7.
+
+- `parse(source)` returns a `PioModule{T}`; `emit`, `serialize`, and
+  `deserialize` write it out.
+- Network tables are properties that return typed element structs:
+  `net.buses[1].vm_pu`, `length(net.branches)`, `net.lines[1].line_code`.
+- Time series and scenario sets index like Julia collections; calculation
+  instances and solutions are typed values.
+- Typed updates change a module in place through `apply_updates!`.
+- See [Migrating to 1.0](https://eigenergy.github.io/PowerIO.jl/migration-1.0/)
+  for every removed name and its replacement.
+
 ## 0.10.0
 
 PowerIO 0.10 is the public beta of the 1.0 API. API corrections may land before 1.0.0 as downstream integrations exercise the new design.

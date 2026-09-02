@@ -2,19 +2,63 @@
 
 ## 1.0.0
 
-PowerIO.jl 1.0 binds PowerIO 1.0 through C ABI 6. It completes the source API break announced by the 0.10 beta while retaining ABI 6 for existing C consumers.
+PowerIO.jl 1.0 binds PowerIO 1.0 over C ABI 7. This is a breaking release: the
+0.10 binding read every table from a network's JSON payload through accessor
+functions, and ABI 7 replaces that layer with typed element views. The public
+API follows the cross language vocabulary of PowerIO 1.0.
 
-- `parse_file(path; format)` handles files and case directories. `parse_text(text; name, format)` handles UTF-8 text already in memory. Both return a typed `PioModule`; its `value` and `diagnostics` fields are the single value and finding surfaces.
-- `resolve_format(name)` returns `FormatInfo` with the canonical token, conventional filename suffix, directory shape, and fresh universal emitter availability for a token or common alias. Suffixes omit the leading dot and can be compound. Unknown and ambiguous names return `nothing`.
-- Both `emit` overloads return `EmitResult`. Without a destination, `text` holds the emitted text; with a file or directory destination, `text === nothing`. `diagnostics` always holds the emission findings. The removed `to_format`, `to_matpower`, `write_file`, `write_str`, and conversion helpers have this one replacement.
-- `to_*` names in-memory transformations, `calc_*` names calculations, and Julia multiple dispatch supplies the network and module forms. `to_bus_type_code`, `to_ac_power_data`, `to_balanced`, and `to_balanced_report` replace the 0.10 spellings.
-- The public `DcData` aggregate and its borrowed views are gone. `calc_incidence_matrix`, `calc_bus_susceptance_matrix`, `calc_branch_susceptance_matrix`, `calc_phase_shift_injection`, `calc_bus_injection_dc`, and `calc_branch_flow_dc` operate directly on a balanced module or network. Incidence is branches by buses, matching PowerModels.
-- The ambiguous `calc_susceptance_matrix` and the unexported `AdmittanceMatrix` compatibility alias are gone. Use `calc_bprime_matrix` for FDPF `B'`, `calc_bus_susceptance_matrix` for the canonical DC bus matrix, and `BusMappedMatrix` for mapped square matrices.
-- Module and value diagnostics are no longer duplicated. Read `module.diagnostics`; network values do not expose `diagnostics`, `warnings`, or `read_warnings` aliases.
-- Time series and scenario materialization use `list_states` and `export_state`. Julia collection indexing remains one based while the C time position remains zero based.
-- OPF preparation compiles the declared feasibility or generator cost objective, preserves convex piecewise linear costs, and applies the instance's active constraint selections. Solution demand marginals use objective units per MW or MVAr, and thermal limit multipliers remain separate by branch direction or AC terminal.
-- The stored reader maps 0.10 price columns to demand marginal columns, splits a signed 0.10 DC branch dual into directional columns with `READ.MODULE.BRANCH_DUAL_SPLIT`, and removes the retired differentiability regularization term with `READ.MODULE.OBJECTIVE_TERM_RETIRED`.
-- Release candidate validation requires the final ABI 6 symbols and the `arrow`, `matrix`, `gridfm`, `dist`, and `prob` feature set. The release intent remains draft until the native candidate and Julia source are reviewed together.
+- `parse(source; format, name)` replaces `parse_file` and `parse_text`. It
+  extends `Base.parse` over a path, an `IO`, or bytes and returns a
+  `PioModule{T}` whose parameter is the value type: `BalancedNetwork`,
+  `MulticonductorNetwork`, `TimeSeries{T}`, `ScenarioSet{T}`,
+  `OperatingPoint{N}`, the seven calculation instances, or the eight solutions.
+- Element tables are properties: `net.buses`, `net.branches`, `net.generators`,
+  `net.loads`, `net.shunts`, `net.storage`, `net.switches`, `net.hvdc`,
+  `net.transformers_3w`, `net.areas` on a `BalancedNetwork`; `net.lines`,
+  `net.linecodes`, `net.transformers`, `net.loads`, and the other conductor
+  level tables on a `MulticonductorNetwork`. Each returns an `Elements{T}`
+  vector of immutable structs (`Bus`, `Branch`, `Generator`,
+  `MulticonductorLine`, ...) whose field names follow the C header. The
+  accessor functions (`buses(net)`, `n_buses(net)`, `base_mva(net)`, ...) and
+  the `net.data` JSON payload are removed.
+- `emit(m, format, destination)` returns an `EmitResult` with `files`,
+  `layout`, `fidelity`, `diagnostics`, and `text`. `serialize` and `deserialize`
+  move PowerIO IR; `to_json`, `from_json`, and the `pio-json` format token are
+  removed.
+- `TimeSeries` supports `length`, 1-based indexing, and iteration;
+  `ScenarioSet` supports `keys`, `values`, `haskey`, indexing by id, and
+  iteration over pairs. `list_states` and `export_state` are removed.
+- Calculation instances expose `.network`; solutions expose `.instance`,
+  `.termination`, `.objective`, and `solution[quantity]`. `to_dc_pf_instance`,
+  `to_ac_pf_instance`, `to_dc_opf_instance`, `to_ac_opf_instance`,
+  `to_mc_ac_pf_instance`, and `to_mc_ac_opf_instance` construct instance
+  modules.
+- Typed updates: `ComponentId`, `ActivePower`, `ReactivePower`,
+  `ApparentPower`, the `set_*` update constructors, and `apply_updates!`,
+  which validates a batch, applies it atomically, refreshes `m.value`, and
+  returns an `UpdateReport`.
+- The eight DC calculations (`calc_incidence_matrix`,
+  `calc_branch_susceptances`, `calc_bus_susceptance_matrix`,
+  `calc_branch_flow_matrix`, `calc_branch_phase_shift_injection`,
+  `calc_bus_phase_shift_injection`, `calc_branch_flow_dc`,
+  `calc_bus_injection_dc`) come from the library. `calc_admittance_matrix`,
+  `calc_bprime_matrix`, and `calc_bdoubleprime_matrix` are assembled in Julia
+  from the element tables following MATPOWER's `makeYbus`.
+- `m.producer`, `m.sources`, and `m.history` are typed records.
+- Removed with no ABI 7 counterpart: `to_normalized`, `to_balanced`,
+  `to_balanced_report`, `resolve_format`, `FormatInfo`, `features`,
+  `has_feature`, `build_info`, `schema_versions`, the `*_available` probes,
+  `to_arrow`, `ArrowTable`, `arrow_catalog`, `n_islands`, `is_radial`,
+  `reference_bus_positions`, `to_bus_type_code`, `kind`, `inspect`.
+- The 49 typed detailed connectivity tables, the OPF preparations, and the
+  multiconductor admittance matrix are not bound in this release; binding them
+  later is additive.
+- The PowerModels bridge (`to_powermodels`, `from_powermodels`,
+  `build_powermodels_ref`, `repair_powermodels_angle_bounds!`) and the
+  ExaModelsPower bridge (`to_powerdata`, `to_ac_power_data`, `LoadSeries`) are
+  rebuilt over the element tables. `from_powermodels` returns a module.
+- Release validation checks a binary for ABI 7, the version string, the core
+  entry points, and GridFM parsing.
 
 ## 0.10.0
 

@@ -1,74 +1,79 @@
 # Matrices
 
-PowerIO constructs sparse matrices in Rust and returns Julia
-`SparseMatrixCSC` values.
+Two groups of calculations take a `BalancedNetwork` or a
+`PioModule{BalancedNetwork}` and return `SparseMatrixCSC` or `Vector{Float64}`
+values with 1-based indices.
 
-The PowerIO C ABI transports common power system matrix entries as Arrow COO
-tables. Julia keeps square bus matrices with their bus row mapping in a
-[`BusMappedMatrix`](@ref). The incidence and direct DC methods return ordinary
-Julia sparse matrices and vectors.
+## DC calculations
 
-The shipped matrix API supports [`BalancedNetwork`](@ref). Distribution system
-matrices belong in this API family once Rust exposes distribution matrix
-constructors.
+The eight DC calculations are computed by the powerio library and share their
+names with the Rust, Python, and C APIs. With `A` the branch by bus incidence
+matrix (`+1` at the from bus, `-1` at the to bus of every in-service branch)
+and `b` the branch susceptances:
 
-## Rust matrix builders
 ```julia
-case = parse_file("case14.m")
+A  = calc_incidence_matrix(net)            # branches by buses
+b  = calc_branch_susceptances(net)         # one per in-service branch
+B  = calc_bus_susceptance_matrix(net)      # A' * Diagonal(b) * A
+Bf = calc_branch_flow_matrix(net)          # Diagonal(b) * A
+ps = calc_branch_phase_shift_injection(net)
+pb = calc_bus_phase_shift_injection(net)
 
-ybus = calc_admittance_matrix(case)      # BusMappedMatrix{ComplexF64}
-Y = ybus.matrix
-
-A = calc_incidence_matrix(case)          # branches by buses
-Bp = calc_bprime_matrix(case).matrix   # Rust B' positive Laplacian
-Bpp = calc_bdoubleprime_matrix(case).matrix
+va = zeros(length(net.buses))              # bus voltage angles, radians
+pf = calc_branch_flow_dc(net, va)          # -(Bf * va) + ps
+p  = calc_bus_injection_dc(net, va)        # -(B * va) + pb
 ```
 
-## Structure
+`formula="series_susceptance"` (the default) uses the imaginary part of the
+series admittance as the branch susceptance. Rows follow the bus and branch
+tables of the network.
 
-The square matrix feature functions in this section return `BusMappedMatrix`, which
-carries:
+## Admittance matrices
 
-- `idx_to_bus`: row index to external bus id.
-- `bus_to_idx`: external bus id to row index.
-- `matrix`: the sparse matrix.
+[`calc_admittance_matrix`](@ref) assembles the complex bus admittance matrix
+`Y = G + jB` in Julia from the element tables, following MATPOWER's `makeYbus`
+as the powerio matrix crate implements it. For each in-service branch from bus
+`i` to bus `j` with series impedance `z = r + jx`, terminal charging `y_fr` and
+`y_to`, and complex tap `a = tap * exp(j * shift)`:
 
-The row and column index space is the dense matrix row index chosen by Rust.
-Use `idx_to_bus` and `bus_to_idx` when you need to translate between matrix
-rows and external bus ids.
-
-`calc_incidence_matrix` returns the PowerModels branch by bus sparse matrix for
-module, network, and path inputs.
-
-## DC power flow convention
-
-`calc_bprime_matrix` is the fast decoupled power flow matrix. It is not the
-canonical DC power flow bus susceptance matrix. Use the direct module methods
-for the PowerModels contract:
-
-```julia
-A  = calc_incidence_matrix(case)             # branches by buses
-B  = calc_bus_susceptance_matrix(case)       # A' * Diagonal(b) * A
-Bf = calc_branch_susceptance_matrix(case)    # Diagonal(b) * A
-p_shift = calc_phase_shift_injection(case)   # A' * (b .* shift)
-f = calc_branch_flow_dc(case, voltage_angles)
-p = calc_bus_injection_dc(case, voltage_angles)
-@assert p ≈ A' * f
+```text
+Y[i,i] += (1/z + y_fr) / |a|^2
+Y[j,j] += 1/z + y_to
+Y[i,j] += -(1/z) / conj(a)
+Y[j,i] += -(1/z) / a
 ```
 
-`B` stays symmetric when phase shifters are present. Their angle contribution
-is returned separately by `calc_phase_shift_injection` and included by
-`calc_branch_flow_dc`.
-The three calculations whose result has a branch axis refuse a network when
-the DC preparation omitted a branch, because a shortened bare matrix or vector
-would lose its row mapping. The thrown diagnostic names the omitted branch IDs
-and reasons. The bus matrix and phase shift injection remain available because
-their bus axis is complete.
-`to_dense(case).bus_ids` maps the matrix bus order to source bus identifiers.
-
-[`to_arrow`](@ref) remains available for lower level consumers that want COO
-tables directly:
+plus the in-service bus shunts `Y[i,i] += (g_s + j b_s) / base_mva`. The result
+is a [`BusMappedMatrix`](@ref) with `idx_to_bus`, `bus_to_idx`, and the sparse
+`matrix`.
 
 ```julia
-coo = to_arrow(case, :ybus)   # row_index, col_index, g, b
+Y = calc_admittance_matrix(net)
+Y.matrix[Y.bus_to_idx[4], Y.bus_to_idx[5]]
+calc_admittance_matrix(net; include_taps=false)
+calc_admittance_matrix("case9.m")          # parse, then assemble
+```
+
+[`calc_bprime_matrix`](@ref) and [`calc_bdoubleprime_matrix`](@ref) are the
+fast decoupled `B'` and `B''` matrices: the same kernel with charging, taps,
+shifts, shunts, and series resistance switched as MATPOWER's `makeB` does,
+negated. `scheme=:bx` (the default) or `:xb` selects where the series
+resistance is dropped.
+
+A branch whose impedance magnitude is below the divisibility threshold is an
+error unless `skip_zero_impedance=true` drops it.
+
+```@docs
+calc_incidence_matrix
+calc_branch_susceptances
+calc_bus_susceptance_matrix
+calc_branch_flow_matrix
+calc_branch_phase_shift_injection
+calc_bus_phase_shift_injection
+calc_branch_flow_dc
+calc_bus_injection_dc
+calc_admittance_matrix
+calc_bprime_matrix
+calc_bdoubleprime_matrix
+BusMappedMatrix
 ```

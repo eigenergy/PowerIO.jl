@@ -1,127 +1,97 @@
 # Distribution networks
 
-Multiconductor distribution cases parse into a [`MulticonductorNetwork`](@ref):
-a live handle into the Rust core plus lazy element tables (`net.data`), matching
-the balanced side's handle plus cached payload pattern. Distribution data is
-unbalanced and per phase, so the two models never merge: string bus ids,
-ordered terminal names, explicit grounding, SI units, and radians stay on the
-multiconductor side, while the verbs are shared and route on the format.
-
-The IEEE BMOPF schema remains a draft. Distribution parsing needs a library
-built with `--features dist`, which released binaries include.
-[`dist_available`](@ref) reports whether the resolved library has it.
-
-[`features`](@ref) reports whether the resolved library carries distribution
-support, and [`schema_versions`](@ref) names the BMOPF schema vintage this
-build emits. Downstream packages should gate on those instead of checking
-PowerIO version strings.
-
-## Formats
-
-| Format | Token | Extension |
-|---|---|---|
-| OpenDSS | `"dss"` | `.dss` |
-| PowerModelsDistribution ENGINEERING JSON | `"pmd"` | `.json` |
-| IEEE BMOPF Taskforce JSON | `"bmopf"` | `.json` |
-
-A `.pio.json` stored module is not a case format and has no token: parse it
-with [`parse_file`](@ref) and take `m.value`.
-
-A `.dss` path routes by extension. A bare `.json` routes by the same top level
-markers the core parsers use (the ENGINEERING `data_model` key means PMD, BMOPF
-otherwise); `format` overrides.
-
-## The same verbs, routed by format
+OpenDSS, PMD JSON, and BMOPF sources parse into a
+[`MulticonductorNetwork`](@ref): buses with named terminals, lines with per
+length impedance matrices, transformers with windings, loads and generators
+with per terminal powers.
 
 ```julia
-case = parse_file("switch.dss")                  # ::PioModule{MulticonductorNetwork}
-net = case.value                                  # optional explicit value access
-pmd = emit(case, "pmd")                           # dispatches on the value type
-bmopf = emit(case, "bmopf")
-pmd.text
-pmd.diagnostics
-case.diagnostics                                  # native diagnostic records
+feeder = parse("IEEE13Nodeckt.dss")     # PioModule{MulticonductorNetwork}
+net = feeder.value
+
+net.name
+net.base_frequency                       # 60.0
+net.source_format                        # "dss"
+
+net.buses                                # Elements{MulticonductorBus}
+net.linecodes                            # Elements{MulticonductorLineCode}
+net.lines
+net.switches
+net.transformers
+net.loads
+net.generators
+net.ibrs                                 # inverter based resources
+net.control_profiles
+net.shunts
+net.capacitors
+net.voltage_sources
+net.untyped                              # source objects kept without a typed slot
+net.commands                             # retained source commands (solve, ...)
+net.options                              # name => value pairs
 ```
 
-Emitting the format the case was parsed from echoes the source byte for byte;
-cross format emission returns every fidelity loss as a diagnostic.
-
-Pin the parser explicitly with `format` when you want to pin the model
-instead of routing on the extension: `parse_file(path; format="pmd")` and
-`parse_file(path; format="bmopf")` reach their multiconductor parsers no
-matter the extension, and the balanced format tokens reach the balanced
-parsers the same way. A cross model request such as
-`emit(parse_file("switch.dss"), "matpower")` is a directed error: lowering is
-explicit, through `to_balanced` below.
-
-## Inspecting a case
-
-The element tables mirror the core's multiconductor model and work without the library once
-materialized. `n_buses`, `base_frequency`, `network_name`, `source_format`, and
-REPL display read from the live handle without forcing `net.data` when the C library exports
-`pio_multiconductor_network_summary_json`. Metadata properties do the same; element table
-properties materialize `net.data`. The multiline REPL display prints counts,
-base frequency, diagnostic counts, and whether `net.data` has been materialized.
-
 ```julia
-net.source_format
-net.base_frequency
-net.buses                 # same as buses(net)
+lc = net.linecodes[1]
+lc.resistance                            # conductor_count square, ohm per metre
+lc.reactance
+lc.susceptance_from + lc.susceptance_to  # siemens per metre
 
-buses(net)                # string ids, ordered terminals, explicit grounding
-lines(net)                # terminal maps, linecode, length
-linecodes(net)            # per unit length impedance and shunt matrices (SI)
-transformers(net)         # windings with terminal maps and connection kinds
-loads(net)                # terminal map plus a voltage model
-generators(net)
-shunts(net)
-switches(net)
-voltage_sources(net)      # per terminal magnitude and angle
-ibrs(net)                 # inverter based resources
-control_profiles(net)
-capacitors(net)           # rated banks: q_rated (var), v_nom (V)
-untyped(net)              # elements retained without a typed slot
+line = net.lines[1]
+line.bus_from, line.terminals_from       # "650", ["1", "2", "3"]
+line.line_code, line.length_m
 
-n_buses(net)
-n_generators(net)
-base_frequency(net)       # Hz
-network_name(net)         # Union{String,Nothing}
-source_format(net)        # "dss", "pmd-json", "bmopf-json", or nothing
-to_graph(net)             # collapsed bus and terminal graph
-build_info().features.dist          # true when this build carries distribution support
-build_info().foreign_schemas.bmopf  # the BMOPF schema vintage this build emits
+load = net.loads[1]
+load.terminals                           # phases and neutral
+load.active_power_nominal_w              # one entry per phase
+load.voltage_model                       # "constant_power", ...
 ```
 
-BMOPF emission omits `ibrs`, `control_profiles`, and `capacitors` when they are
-empty, so those accessors read a missing payload key as an empty table. The
-other tables are always present in a library payload; a missing one raises a
-`KeyError` and marks a wrong-shaped document.
+Units are SI: volts, watts, vars, metres, ohms, siemens. Terminal maps are
+vectors of terminal names in the order the source lists them.
 
-## Carrying and exchanging cases
+## Writing
 
-Two JSON forms exist on purpose, and they carry the same model:
-
-- **`.pio.json` stored modules** carry a case between PowerIO consumers with
-  sources, source maps, diagnostics, and history.
-- **BMOPF JSON** is the format for tools outside PowerIO.
-
-`parse_file("case.pio.json")` returns the module it stores; `m.value` is the
-typed handle it declares, with the module's retained source threaded on so a
-same format emission still echoes the source bytes. Document JSON is not used by
-solver, matrix, dense, or Arrow fast paths; those read live network handles
-directly.
+`emit` writes the same three formats. A module read from OpenDSS writes its
+original `.dss` files unchanged when nothing changed; PMD JSON and BMOPF are
+canonical output with diagnostics for whatever the target cannot carry.
 
 ```julia
-m = parse_file("switch.dss")            # ::PioModule{MulticonductorNetwork}
-emit(m, "pio-json", "feeder.pio.json")
-back = parse_file("feeder.pio.json")
-exchange = emit(back, "bmopf").text     # for everything else
+emit(feeder, "dss", "copy.dss")
+emit(feeder, "pmd").text
+emit(feeder, "bmopf").text
 ```
 
-Supported multiconductor modules lower explicitly to balanced ones:
+## PowerIO IR and grid exchange formats
 
-```julia
-report = to_balanced_report(m)          # report.ready and report.diagnostics
-lowered = to_balanced(m)                # picks a base_mva
-net = lowered.value                     # ::BalancedNetwork
+OpenDSS, PMD JSON, and BMOPF are grid exchange formats: other tools read and
+write them, and they enter PowerIO through `parse` and leave through `emit`.
+PowerIO IR (`serialize`, `deserialize`) is PowerIO's own serialization of a
+module, for passing a module with its diagnostics and history to another
+PowerIO consumer. It is not an exchange format and no other tool reads it.
+
+## Calculations
+
+[`to_mc_ac_pf_instance`](@ref) and [`to_mc_ac_opf_instance`](@ref) construct
+multiconductor power flow and optimal power flow instances from a network
+module. The multiconductor admittance matrix is not bound in this release.
+
+```@docs
+MulticonductorNetwork
+MulticonductorBus
+MulticonductorLineCode
+MulticonductorLine
+MulticonductorSwitch
+MulticonductorTransformer
+MulticonductorTransformerWinding
+MulticonductorLoad
+MulticonductorGenerator
+InverterBasedResource
+ControlProfile
+VoltVarControl
+VoltWattControl
+MulticonductorShunt
+MulticonductorCapacitor
+VoltageSource
+UntypedObject
+SourceCommand
 ```
