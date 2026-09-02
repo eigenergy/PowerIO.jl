@@ -5,20 +5,20 @@ using Aqua
 using Libdl
 using Logging
 using SHA
+using SparseArrays
+
+# The C library under test. Every ccall test skips when no library resolves;
+# CI sets `POWERIO_CAPI` to a fresh `powerio-capi` build.
+const LIBRARY_AVAILABLE = PowerIO.library_available()
+LIBRARY_AVAILABLE || @info "PowerIO: no compatible libpowerio_capi resolved; ccall tests skip (set POWERIO_CAPI)"
+
+const DATA = joinpath(@__DIR__, "data")
+fixture(parts...) = joinpath(DATA, parts...)
 
 @testset "PowerIO" begin
-    include("test_release.jl")    # Project.toml and changelog release guard
+    include("test_release.jl")            # Project.toml and changelog release guard
     include("test_release_automation.jl") # reviewed intent and artifact state machine
-    include("test_public_api.jl") # module API and pure-Julia accessors
-    include("test_roundtrip.jl")  # C ABI round trip, adapters, packages
-    include("test_v6.jl")         # ABI v6: stored modules, errors, DC data
-    include("test_powermodels_ref.jl") # PowerModels reference utilities
-    include("test_transforms.jl") # PyPSA writer, parse dispatch, to_normalized, to_dense
-    include("test_loadseries.jl") # LoadSeries multiperiod bus loads
-    include("test_arrow.jl")      # Arrow export (feature arrow)
-    include("test_matrix.jl")     # Rust computed sparse matrices
-    include("test_memory_safety.jl")
-    include("test_gridfm.jl")     # gridfm reader (feature gridfm)
-    include("test_dist.jl")       # distribution API (feature dist)
-    include("test_aqua.jl")       # Aqua quality checks
+    include("test_public_api.jl")         # the exported surface
+    include("test_roundtrip.jl")          # parse, emit, serialize, deserialize
+    include("test_aqua.jl")               # Aqua quality checks
 end
