@@ -43,6 +43,9 @@ const EXPORTED_NAMES = Set([
     :set_generator_reactive_power, :set_generator_voltage_magnitude, :set_generator_in_service,
     :set_branch_in_service, :set_transformer_tap_ratio, :set_transformer_phase_shift_degrees,
     :set_switch_closed, :set_branch_thermal_rating,
+    # solver and modeling bridges
+    :to_powermodels, :from_powermodels, :build_powermodels_ref, :repair_powermodels_angle_bounds!,
+    :to_powerdata, :to_ac_power_data,
     # library resolution
     :set_library!, :clear_library!, :abi_version, :library_version, :library_available,
 ])

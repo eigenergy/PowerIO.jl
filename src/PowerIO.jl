@@ -84,6 +84,10 @@ export ActivePower, ReactivePower, ApparentPower, OperatingPointUpdate, NetworkU
        set_branch_in_service, set_transformer_tap_ratio, set_transformer_phase_shift_degrees,
        set_switch_closed, set_branch_thermal_rating
 
+# Solver and modeling bridges.
+export to_powermodels, from_powermodels, build_powermodels_ref, repair_powermodels_angle_bounds!,
+       to_powerdata, to_ac_power_data
+
 # Library resolution.
 export set_library!, clear_library!, abi_version, library_version, library_available
 
@@ -104,6 +108,8 @@ include("instances.jl")      # calculation instances, solutions, to_*_instance
 include("updates.jl")        # typed updates and apply_updates!
 include("calc.jl")           # the eight DC calculations from the library
 include("ybus.jl")           # admittance matrices assembled in Julia
+include("powermodels.jl")    # PowerModels.jl network data bridge
+include("exa.jl")            # ExaModelsPower bridge and LoadSeries
 include("display.jl")        # show methods
 
 end # module
