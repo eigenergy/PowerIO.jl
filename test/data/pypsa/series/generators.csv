@@ -1,0 +1,2 @@
+name,bus,control,p_nom,p_set
+G1,B1,Slack,100.0,12.0

@@ -28,6 +28,16 @@ const EXPORTED_NAMES = Set([
     :UntypedObject, :SourceCommand,
     # dense tables and graphs
     :to_dense, :to_graph,
+    # calculation constructions and solution access
+    :to_dc_pf_instance, :to_ac_pf_instance, :to_dc_opf_instance, :to_ac_opf_instance,
+    :to_mc_ac_pf_instance, :to_mc_ac_opf_instance, :time_count,
+    # typed updates
+    :ActivePower, :ReactivePower, :ApparentPower, :OperatingPointUpdate, :NetworkUpdate,
+    :UpdateReport, :UpdateChange, :apply_updates!,
+    :set_load_active_power, :set_load_reactive_power, :set_generator_active_power,
+    :set_generator_reactive_power, :set_generator_voltage_magnitude, :set_generator_in_service,
+    :set_branch_in_service, :set_transformer_tap_ratio, :set_transformer_phase_shift_degrees,
+    :set_switch_closed, :set_branch_thermal_rating,
     # library resolution
     :set_library!, :clear_library!, :abi_version, :library_version, :library_available,
 ])

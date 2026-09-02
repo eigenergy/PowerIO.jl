@@ -66,6 +66,18 @@ export MulticonductorBus, MulticonductorLineCode, MulticonductorLine, Multicondu
 # Dense tables and graph projections.
 export to_dense, to_graph
 
+# Calculation constructions and solution access.
+export to_dc_pf_instance, to_ac_pf_instance, to_dc_opf_instance, to_ac_opf_instance,
+       to_mc_ac_pf_instance, to_mc_ac_opf_instance, time_count
+
+# Typed updates.
+export ActivePower, ReactivePower, ApparentPower, OperatingPointUpdate, NetworkUpdate,
+       UpdateReport, UpdateChange, apply_updates!,
+       set_load_active_power, set_load_reactive_power, set_generator_active_power,
+       set_generator_reactive_power, set_generator_voltage_magnitude, set_generator_in_service,
+       set_branch_in_service, set_transformer_tap_ratio, set_transformer_phase_shift_degrees,
+       set_switch_closed, set_branch_thermal_rating
+
 # Library resolution.
 export set_library!, clear_library!, abi_version, library_version, library_available
 
@@ -81,6 +93,9 @@ include("network.jl")        # BalancedNetwork properties and element structs
 include("multiconductor.jl") # MulticonductorNetwork properties and element structs
 include("dense.jl")          # to_dense
 include("graphs.jl")         # to_graph
+include("collections.jl")    # TimeSeries, ScenarioSet, OperatingPoint
+include("instances.jl")      # calculation instances, solutions, to_*_instance
+include("updates.jl")        # typed updates and apply_updates!
 include("display.jl")        # show methods
 
 end # module
