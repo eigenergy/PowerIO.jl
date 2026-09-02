@@ -45,7 +45,7 @@ end
 @handle DetailedConnectivityHandle :pio_detailed_connectivity_release "Detailed connectivity tables; keep their network alive."
 @handle DiagnosticsHandle :pio_diagnostics_release "One diagnostics list."
 @handle EmitResultHandle :pio_emit_result_release "Completed emission inventory."
-@handle EmittedFileHandle :pio_artifact_release "One emitted file."
+@handle ArtifactHandle :pio_artifact_release "One emitted artifact."
 @handle TimeSeriesHandle :pio_time_series_release "Time series; keeps its module alive."
 @handle ScenarioSetHandle :pio_scenario_set_release "Scenario set; keeps its module alive."
 @handle OperatingPointHandle :pio_operating_point_release "Operating point; keeps its module alive."

@@ -66,10 +66,10 @@
             @test same.layout == "file"
             @test same.fidelity == "exact_same_format"
             @test same.text == read(fixture("case9.m"), String)
-            @test length(same.files) == 1
-            @test same.files[1].path === nothing
-            @test same.files[1].data == read(fixture("case9.m"))
-            @test propertynames(same) == (:files, :layout, :fidelity, :diagnostics, :text)
+            @test length(same.artifacts) == 1
+            @test same.artifacts[1].path === nothing
+            @test same.artifacts[1].data == read(fixture("case9.m"))
+            @test propertynames(same) == (:artifacts, :layout, :fidelity, :diagnostics, :text)
 
             other = emit(m, "psse")
             @test other.fidelity == "canonical"
@@ -85,16 +85,16 @@
                 path = joinpath(dir, "case9.raw")
                 written = emit(m, "psse", path)
                 @test written.layout == "file"
-                @test written.files[1].path == path
-                @test written.files[1].data === nothing
-                @test written.files[1].name == "case9.raw"
+                @test written.artifacts[1].path == path
+                @test written.artifacts[1].data === nothing
+                @test written.artifacts[1].name == "case9.raw"
                 @test read(path, String) == other.text
 
                 folder = joinpath(dir, "pypsa")
                 dir_result = emit(m, "pypsa-csv", folder)
                 @test dir_result.layout == "directory"
-                @test length(dir_result.files) > 1
-                @test all(a -> isfile(a.path), dir_result.files)
+                @test length(dir_result.artifacts) > 1
+                @test all(a -> isfile(a.path), dir_result.artifacts)
                 @test_throws ArgumentError emit(m, "pypsa-csv", IOBuffer())
             end
 
@@ -111,7 +111,7 @@
             ir = serialize(m)
             @test ir isa EmitResult
             @test ir.layout == "file"
-            @test length(ir.files) == 1
+            @test length(ir.artifacts) == 1
             doc = JSON3.read(ir.text)
             @test doc.schema == "powerio.module"
             @test doc.version == 1
@@ -128,7 +128,7 @@
             mktempdir() do dir
                 path = joinpath(dir, "case9.pio.json")
                 written = serialize(m, path)
-                @test written.files[1].path == path
+                @test written.artifacts[1].path == path
                 @test deserialize(path) isa PioModule{BalancedNetwork}
                 open(path) do io
                     @test deserialize(io) isa PioModule{BalancedNetwork}

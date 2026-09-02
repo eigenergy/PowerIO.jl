@@ -15,7 +15,7 @@ payload now comes from typed C views.
 | `parse_file(BalancedNetwork, path)` | `parse(path).value` |
 | `kind(m)` | dispatch on `PioModule{T}` or `typeof(m.value)` |
 | `inspect(m)`, `source_format(m)` | `m.sources`, `m.history`, `m.producer` |
-| `emit(m, format)` returning `text` | `emit(m, format)` returning an `EmitResult`; `result.text`, `result.files` |
+| `emit(m, format)` returning `text` | `emit(m, format)` returning an `EmitResult`; `result.text`, `result.artifacts` |
 | `to_json(m)`, `from_json(PioModule, text)` | `serialize(m)`, `deserialize(bytes)` |
 | `to_json(net)`, `from_json(text)` | removed: a network is written through its module |
 | `emit(m, "pio-json", path)` | `serialize(m, path)` |

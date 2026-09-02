@@ -21,7 +21,7 @@ API follows the cross language vocabulary of PowerIO 1.0.
   `MulticonductorLine`, ...) whose field names follow the C header. The
   accessor functions (`buses(net)`, `n_buses(net)`, `base_mva(net)`, ...) and
   the `net.data` JSON payload are removed.
-- `emit(m, format, destination)` returns an `EmitResult` with `files`,
+- `emit(m, format, destination)` returns an `EmitResult` with `artifacts`,
   `layout`, `fidelity`, `diagnostics`, and `text`. `serialize` and `deserialize`
   move PowerIO IR; `to_json`, `from_json`, and the `pio-json` format token are
   removed.

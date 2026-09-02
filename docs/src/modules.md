@@ -89,7 +89,7 @@ emit(case, "pypsa-csv", "case_dir")      # a directory of files
 emit(case, "matpower", stdout)           # a writable IO receives the single file
 ```
 
-`result.files` lists what was produced, one [`EmittedFile`](@ref) per file with
+`result.artifacts` lists what was produced, one [`Artifact`](@ref) per file with
 its `name` and either its `data` (in memory) or its `path` (on disk). `layout`
 is `"file"` or `"directory"`. `fidelity` is `"exact_same_format"` when the
 module was read from that format and its value is unchanged, so the output is
@@ -133,7 +133,7 @@ PowerIOError
 UnknownValue
 emit
 EmitResult
-EmittedFile
+Artifact
 serialize
 deserialize
 ```
