@@ -60,6 +60,14 @@ API follows the cross language vocabulary of PowerIO 1.0.
 - Release validation checks a binary for ABI 7, the version string, the core
   entry points, and GridFM parsing.
 
+**A geographic layer is a value.** `parse` returns `GeoLayer` for the
+canonical `.geo.json`, GeoJSON, aliased CSV or JSON records, headerless
+buscoords CSV, and a PowerWorld `.pwd` display, which lifts into a diagram
+space layer. `serialize` and `deserialize` carry it through PowerIO IR and
+`emit(m, "geo-json")` writes the canonical document. `layer.diagnostics` lists
+the reader's notes. The C ABI keeps a layer's features to itself, so this
+release reads the document rather than the individual features.
+
 ## 0.10.0
 
 PowerIO 0.10 is the public beta of the 1.0 API. API corrections may land before 1.0.0 as downstream integrations exercise the new design.

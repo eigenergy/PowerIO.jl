@@ -13,6 +13,9 @@ PowerIO.jl 1.0 binds PowerIO 1.0 over C ABI 7.
 - Time series and scenario sets index like Julia collections; calculation
   instances and solutions are typed values.
 - Typed updates change a module in place through `apply_updates!`.
+- `parse` returns `GeoLayer` for a geographic layer document, including a
+  PowerWorld `.pwd` display; `emit(m, "geo-json")` writes the canonical
+  document and PowerIO IR carries the layer.
 - See [Migrating to 1.0](https://eigenergy.github.io/PowerIO.jl/migration-1.0/)
   for every removed name and its replacement.
 

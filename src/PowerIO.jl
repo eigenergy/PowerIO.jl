@@ -42,7 +42,7 @@ export BalancedNetwork, MulticonductorNetwork, TimeSeries, ScenarioSet, Operatin
        DcPfInstance, AcPfInstance, DcOpfInstance, AcOpfInstance,
        McAcPfInstance, McAcOpfInstance, AcScucInstance,
        DcPfSolution, AcPfSolution, DcOpfSolution, AcOpfSolution, SocwrOpfSolution,
-       McAcPfSolution, McAcOpfSolution, AcScucSolution, UnknownValue
+       McAcPfSolution, McAcOpfSolution, AcScucSolution, GeoLayer, UnknownValue
 
 # Records and results.
 export Diagnostic, SourceSpan, PowerIOError, EmitResult, Artifact,

@@ -147,3 +147,29 @@
         end
     end
 end
+
+@testset "geographic layer" begin
+    path = joinpath(@__DIR__, "data", "geo", "case9.geo.json")
+    m = parse(path)
+    @test m.value isa GeoLayer
+    @test isempty(m.value.diagnostics)
+    @test propertynames(m.value) == (:diagnostics,)
+
+    # The layer travels through PowerIO IR.
+    mktempdir() do dir
+        result = serialize(m, joinpath(dir, "layer.pio.json"))
+        @test result.fidelity == "canonical"
+        back = deserialize(joinpath(dir, "layer.pio.json"))
+        @test back.value isa GeoLayer
+    end
+
+    # The canonical document comes back out and reads as a layer again.
+    document = emit(m, "geo-json").text
+    @test document !== nothing
+    @test occursin("FeatureCollection", document)
+    again = parse(Vector{UInt8}(codeunits(document)); format="geo-json")
+    @test again.value isa GeoLayer
+
+    # No grid exchange format states a standalone layer.
+    @test_throws PowerIOError emit(m, "matpower")
+end

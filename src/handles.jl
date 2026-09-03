@@ -43,6 +43,7 @@ end
 @handle BalancedNetworkHandle :pio_balanced_network_release "Balanced network; keeps its module alive."
 @handle MulticonductorNetworkHandle :pio_multiconductor_network_release "Multiconductor network; keeps its module alive."
 @handle DetailedConnectivityHandle :pio_detailed_connectivity_release "Detailed connectivity tables; keep their network alive."
+@handle GeoLayerHandle :pio_geo_layer_release "Geographic layer; owns its own data."
 @handle DiagnosticsHandle :pio_diagnostics_release "One diagnostics list."
 @handle EmitResultHandle :pio_emit_result_release "Completed emission inventory."
 @handle ArtifactHandle :pio_artifact_release "One emitted artifact."

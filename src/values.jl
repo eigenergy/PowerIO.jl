@@ -38,6 +38,24 @@ struct MulticonductorNetwork
 end
 
 """
+    GeoLayer
+
+A standalone geographic document: element points and routes keyed by element
+identity, in one coordinate space. `parse` returns it for the canonical
+`.geo.json`, GeoJSON, aliased CSV or JSON records, headerless buscoords CSV,
+and a PowerWorld `.pwd` display. `layer.diagnostics` lists the reader's notes
+on records it could not use. `emit(m, "geo-json")` writes the canonical
+document and `serialize` carries the layer through PowerIO IR.
+
+The C ABI keeps a layer's features to itself, so this release reads the
+document rather than the individual features; place a layer onto a case in
+Rust, Python, or the command line.
+"""
+struct GeoLayer
+    handle::GeoLayerHandle
+end
+
+"""
     TimeSeries{T}
 
 Values of type `T` in chronological order. Supports `length`, 1-based
@@ -150,6 +168,7 @@ const _SOLUTION_TYPES = Dict(
 function _julia_type(name::AbstractString)
     name == "powerio.BalancedNetwork" && return BalancedNetwork
     name == "powerio.MulticonductorNetwork" && return MulticonductorNetwork
+    name == "powerio.GeoLayer" && return GeoLayer
     haskey(_INSTANCE_TYPES, name) && return _INSTANCE_TYPES[name][1]
     haskey(_SOLUTION_TYPES, name) && return _SOLUTION_TYPES[name][1]
     for (prefix, wrapper) in (("powerio.TimeSeries<", TimeSeries),
@@ -187,6 +206,8 @@ _wrap_as(::Type{BalancedNetwork}, lib, value, owner) =
     BalancedNetwork(BalancedNetworkHandle(_borrow(lib, value, :pio_value_balanced_network), lib), owner)
 _wrap_as(::Type{MulticonductorNetwork}, lib, value, owner) =
     MulticonductorNetwork(MulticonductorNetworkHandle(_borrow(lib, value, :pio_value_multiconductor_network), lib), owner)
+_wrap_as(::Type{GeoLayer}, lib, value, owner) =
+    GeoLayer(GeoLayerHandle(_borrow(lib, value, :pio_value_geo_layer), lib))
 _wrap_as(::Type{TimeSeries{T}}, lib, value, owner) where {T} =
     TimeSeries{T}(TimeSeriesHandle(_borrow(lib, value, :pio_value_time_series), lib))
 _wrap_as(::Type{ScenarioSet{T}}, lib, value, owner) where {T} =
@@ -207,6 +228,7 @@ end
 # The structural type name of a bound Julia type.
 _type_name(::Type{BalancedNetwork}) = "powerio.BalancedNetwork"
 _type_name(::Type{MulticonductorNetwork}) = "powerio.MulticonductorNetwork"
+_type_name(::Type{GeoLayer}) = "powerio.GeoLayer"
 _type_name(::Type{TimeSeries{T}}) where {T} = "powerio.TimeSeries<" * _type_name(T) * ">"
 _type_name(::Type{ScenarioSet{T}}) where {T} = "powerio.ScenarioSet<" * _type_name(T) * ">"
 _type_name(::Type{OperatingPoint{T}}) where {T} = "powerio.OperatingPoint<" * _type_name(T) * ">"
@@ -216,3 +238,17 @@ _type_name(::Type{T}) where {T<:CalculationSolution} = "powerio." * String(nameo
 # The library a value's handle was allocated by.
 _lib_of(v) = getfield(getfield(v, :handle), :lib)
 _lib_of(v::UnknownValue) = getfield(v.handle, :lib)
+
+function Base.getproperty(layer::GeoLayer, name::Symbol)
+    if name === :diagnostics
+        handle = getfield(layer, :handle)
+        lib = handle.lib
+        return GC.@preserve handle _diagnostics(lib,
+            ccall(_library_symbol(lib, :pio_geo_layer_diagnostics), Ptr{Cvoid},
+                  (Ptr{Cvoid},), _ptr(handle)))
+    end
+    return getfield(layer, name)
+end
+
+Base.propertynames(::GeoLayer, private::Bool=false) =
+    private ? (:diagnostics, :handle) : (:diagnostics,)

@@ -29,6 +29,7 @@ summarize(m::PioModule{<:TimeSeries}) = length(m.value)
 | GridFM Parquet | `ScenarioSet{BalancedNetwork}` |
 | GO Challenge 3 problem, or problem and solution | `AcScucInstance`, `AcScucSolution` |
 | OPFData | `AcOpfSolution` |
+| A geographic layer: `.geo.json`, GeoJSON, aliased CSV or JSON records, headerless buscoords CSV, PowerWorld `.pwd` | `GeoLayer` |
 
 A value type this release does not bind arrives as [`UnknownValue`](@ref) with
 its structural type name.
@@ -130,6 +131,7 @@ HistoryEntry
 Diagnostic
 SourceSpan
 PowerIOError
+GeoLayer
 UnknownValue
 emit
 EmitResult

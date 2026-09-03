@@ -1,0 +1,15 @@
+{
+  "type": "FeatureCollection",
+  "powerio_geo": { "space": "geographic", "kind": "manual" },
+  "features": [
+    { "type": "Feature",
+      "properties": { "target": "bus", "uid": "buses:1" },
+      "geometry": { "type": "Point", "coordinates": [-89.6, 40.6] } },
+    { "type": "Feature",
+      "properties": { "target": "bus", "uid": "buses:2" },
+      "geometry": { "type": "Point", "coordinates": [-89.2, 39.9] } },
+    { "type": "Feature",
+      "properties": { "target": "branch", "uid": "branches:1" },
+      "geometry": { "type": "LineString", "coordinates": [[-89.6, 40.6], [-89.2, 39.9]] } }
+  ]
+}

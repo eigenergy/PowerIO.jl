@@ -9,7 +9,7 @@ const EXPORTED_NAMES = Set([
     :DcPfInstance, :AcPfInstance, :DcOpfInstance, :AcOpfInstance,
     :McAcPfInstance, :McAcOpfInstance, :AcScucInstance,
     :DcPfSolution, :AcPfSolution, :DcOpfSolution, :AcOpfSolution, :SocwrOpfSolution,
-    :McAcPfSolution, :McAcOpfSolution, :AcScucSolution, :UnknownValue,
+    :McAcPfSolution, :McAcOpfSolution, :AcScucSolution, :GeoLayer, :UnknownValue,
     # records and results
     :Diagnostic, :SourceSpan, :PowerIOError, :EmitResult, :Artifact,
     :Producer, :ModuleSource, :HistoryEntry,
