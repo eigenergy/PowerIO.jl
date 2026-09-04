@@ -14,7 +14,7 @@ net.base_frequency                       # 60.0
 net.source_format                        # "dss"
 
 net.buses                                # Elements{MulticonductorBus}
-net.linecodes                            # Elements{MulticonductorLineCode}
+net.line_codes                            # Elements{MulticonductorLineCode}
 net.lines
 net.switches
 net.transformers
@@ -25,13 +25,13 @@ net.control_profiles
 net.shunts
 net.capacitors
 net.voltage_sources
-net.untyped                              # source objects kept without a typed slot
+net.untyped_objects                              # source objects kept without a typed slot
 net.commands                             # retained source commands (solve, ...)
 net.options                              # name => value pairs
 ```
 
 ```julia
-lc = net.linecodes[1]
+lc = net.line_codes[1]
 lc.resistance                            # conductor_count square, ohm per metre
 lc.reactance
 lc.susceptance_from + lc.susceptance_to  # siemens per metre

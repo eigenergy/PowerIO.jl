@@ -23,6 +23,10 @@ stabilization line for the candidate 1.0 API.
   `MulticonductorLine`, ...) whose field names follow the C header. The
   accessor functions (`buses(net)`, `n_buses(net)`, `base_mva(net)`, ...) and
   the `net.data` JSON payload are removed.
+- `net.line_codes` and `net.untyped_objects` replace `net.linecodes` and
+  `net.untyped`, matching the C, Python, and Rust table names.
+- `Diagnostic.details` is a `Dict{String,Any}` rather than a `JSON3.Object`,
+  and `UpdateReport` supports `report[i]` beside `length` and iteration.
 - `emit(m, format, destination)` returns an `EmitResult` with `artifacts`,
   `layout`, `fidelity`, `diagnostics`, and `text`. `serialize` and `deserialize`
   move PowerIO IR; `to_json`, `from_json`, and the `pio-json` format token are

@@ -26,9 +26,9 @@ end
     MulticonductorNetwork
 
 A conductor level distribution network. Read the tables through properties:
-`net.buses`, `net.linecodes`, `net.lines`, `net.switches`, `net.transformers`,
+`net.buses`, `net.line_codes`, `net.lines`, `net.switches`, `net.transformers`,
 `net.loads`, `net.generators`, `net.ibrs`, `net.control_profiles`,
-`net.shunts`, `net.capacitors`, `net.voltage_sources`, `net.untyped`,
+`net.shunts`, `net.capacitors`, `net.voltage_sources`, `net.untyped_objects`,
 `net.commands`, `net.options`. Scalars: `net.name`, `net.base_frequency`,
 `net.source_format`, `net.geo`.
 """

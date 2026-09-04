@@ -289,6 +289,7 @@ end
 Base.length(r::UpdateReport) = length(r.changes)
 Base.isempty(r::UpdateReport) = isempty(r.changes)
 Base.iterate(r::UpdateReport, state...) = iterate(r.changes, state...)
+Base.getindex(r::UpdateReport, i::Integer) = r.changes[i]
 
 function _calculation_update(lib, u::OperatingPointUpdate)
     h = u.handle
