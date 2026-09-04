@@ -26,9 +26,9 @@ stabilization line for the candidate 1.0 API.
 - `emit(m, format, destination)` returns an `EmitResult` with `artifacts`,
   `layout`, `fidelity`, `diagnostics`, and `text`. `serialize` and `deserialize`
   move PowerIO IR; `to_json`, `from_json`, and the `pio-json` format token are
-  removed. A PowerIO IR document states the PowerIO release that wrote it, which
-  `library_version()` reports, and the library reads the documents of its own
-  compatible release line no newer than itself.
+  removed. PowerIO IR uses the durable identity `pio-ir` and integer generation
+  2. The producer record separately states the PowerIO release that wrote the
+  document, which `library_version()` reports for the loaded library.
 - `TimeSeries` supports `length`, 1-based indexing, and iteration;
   `ScenarioSet` supports `keys`, `values`, `haskey`, indexing by id, and
   iteration over pairs. `list_states` and `export_state` are removed.

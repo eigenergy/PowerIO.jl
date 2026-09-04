@@ -113,9 +113,11 @@
             @test ir.layout == "file"
             @test length(ir.artifacts) == 1
             doc = JSON3.read(ir.text)
-            @test doc.schema == "powerio.module"
-            # PowerIO IR names the release that wrote it.
-            @test doc.version == library_version()
+            @test doc.schema == "pio-ir"
+            @test doc.version == 2
+            # The IR generation and producing release are independent.
+            @test doc.producer.name == "powerio"
+            @test doc.producer.version == library_version()
             @test doc.value.type == "powerio.BalancedNetwork"
 
             back = deserialize(Vector{UInt8}(ir.text))
@@ -143,17 +145,18 @@
             end
             @test e isa PowerIOError
 
-            # A document from outside this library's compatible release line
-            # is refused with the version it states named, and with the remedy
-            # that applies to it: a later release needs a newer PowerIO, an
-            # earlier one has to be regenerated from its source data.
-            header(version) = JSON3.write(
-                Dict("schema" => "powerio.module", "version" => version),
+            # An unsupported generation is refused with the version it states
+            # and the applicable remedy. The v0.10 identity is historical and
+            # is not another current schema family.
+            header(schema, version) = JSON3.write(
+                Dict("schema" => schema, "version" => version),
             )
-            for (version, remedy) in
-                (("99.0.0", "upgrade PowerIO"), ("0.10.0", "regenerate this one"))
+            for (schema, version, remedy) in
+                (("pio-ir", 3, "upgrade PowerIO"),
+                 ("pio-ir", 1, "regenerate this document"),
+                 ("powerio.module", 1, "regenerate this document"))
                 err = try
-                    deserialize(Vector{UInt8}(header(version)))
+                    deserialize(Vector{UInt8}(header(schema, version)))
                 catch caught
                     caught
                 end

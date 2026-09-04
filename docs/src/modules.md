@@ -99,17 +99,18 @@ the single in-memory UTF-8 file, or `nothing`.
 ## PowerIO IR
 
 PowerIO IR is PowerIO's own serialization of a module: one JSON document
-(`"schema": "powerio.module"`, and a `"version"` naming the PowerIO release
-that wrote it) holding the typed value with its diagnostics, producer, sources,
-source mappings, history, and extensions.
+(`"schema": "pio-ir"`, integer generation `"version": 2`) holding the typed
+value with its diagnostics, producer, sources, source mappings, history, and
+extensions. The producer record separately names the PowerIO release that
+wrote the document.
 [`serialize`](@ref) writes it and [`deserialize`](@ref) reads it.
 
-A library reads the documents of its own compatible release line no newer than
-itself: PowerIO 0.11.3 reads 0.11.0 through 0.11.3, and refuses 0.10.0,
-0.12.0, and 0.11.4 with the version it found named. [`library_version`](@ref)
-reports this library's own version. A refused document says which remedy
-applies: a later release needs a newer PowerIO, and an earlier one has to be
-regenerated from its original power system data.
+PowerIO 0.11 reads generation 2. The integer advances only when the serialized
+representation changes; it is independent of the PowerIO release and C ABI.
+[`library_version`](@ref) reports the library release. A refused document names
+the generation it found and the applicable remedy: a later generation needs a
+newer PowerIO, and any other identity or older generation has to be regenerated
+from its original power system data.
 
 ```julia
 serialize(case, "case9.pio.json")
