@@ -104,9 +104,6 @@ Base.show(io::IO, u::NetworkUpdate) = print(io, "NetworkUpdate(", u.description,
 
 const _NO_TERMINAL = ""
 
-_terminal_args(terminal) = terminal === nothing ? (C_NULL, Csize_t(0)) :
-                           (pointer(String(terminal)), Csize_t(sizeof(String(terminal))))
-
 # Build an operating point update whose C constructor takes a component, an
 # optional terminal, and a quantity handle.
 function _power_update(sym::Symbol, id::ComponentId, power, terminal, description)
@@ -318,6 +315,11 @@ Validate the whole batch of [`OperatingPointUpdate`](@ref) and
 throws [`PowerIOError`](@ref) and leaves the module unchanged. On success
 `m.value` is refreshed; values obtained before the call keep the pre-update
 data.
+
+The call needs exclusive use of `m`: no other task may read `m.diagnostics`,
+`m.producer`, `m.sources`, or `m.history`, or pass `m` to [`emit`](@ref),
+[`serialize`](@ref), or another `apply_updates!`, until it returns. Values
+already obtained from `m` (a network and its elements) stay readable.
 """
 function apply_updates!(m::PioModule, updates)
     lib = _lib_of(m)
