@@ -104,6 +104,13 @@ that wrote it) holding the typed value with its diagnostics, producer, sources,
 source mappings, history, and extensions.
 [`serialize`](@ref) writes it and [`deserialize`](@ref) reads it.
 
+A library reads the documents of its own compatible release line no newer than
+itself: PowerIO 0.11.3 reads 0.11.0 through 0.11.3, and refuses 0.10.0,
+0.12.0, and 0.11.4 with the version it found named. [`library_version`](@ref)
+reports this library's own version. A refused document says which remedy
+applies: a later release needs a newer PowerIO, and an earlier one has to be
+regenerated from its original power system data.
+
 ```julia
 serialize(case, "case9.pio.json")
 back = deserialize("case9.pio.json")     # PioModule{BalancedNetwork}

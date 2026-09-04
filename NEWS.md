@@ -20,7 +20,7 @@ PowerIO.jl 0.11 binds PowerIO 0.11 over C ABI 7.
 
 PowerIO 0.10 is the public beta of the 1.0 API. API corrections may land before 1.0.0 as downstream integrations exercise the new design.
 
-- `parse_file` and `parse_bytes` return a `PioModule{T}` instead of a bare network. `m.value` is the typed value, one of twenty kinds covering transmission and distribution networks, calculation instances and solutions, and time series and scenario sets. See [Migrating from 0.9](https://eigenergy.github.io/PowerIO.jl/migration-0.10/).
+- `parse_file` and `parse_bytes` return a `PioModule{T}` instead of a bare network. `m.value` is the typed value, one of twenty kinds covering transmission and distribution networks, calculation instances and solutions, and time series and scenario sets. See the 0.10 migration guide in the [v0.10 documentation](https://eigenergy.github.io/PowerIO.jl/v0.10/migration-0.10/).
 - `write_file(m, path)` with no `format` keyword writes the module's own source format, and for an unchanged module reproduces the source bytes exactly.
 - The binding moves to C ABI 6, checked with `pio_abi_version` at first use. Distribution entry points are covered by the same handshake.
 - Ordinary accessors are exported after `using PowerIO`, sparse matrix builders return `BusMappedMatrix`, and the PowerModels helpers use names that do not collide with PowerModels.jl.

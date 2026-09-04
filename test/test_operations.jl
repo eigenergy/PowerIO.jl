@@ -143,6 +143,25 @@
             end
             @test e isa PowerIOError
 
+            # A document from outside this library's compatible release line
+            # is refused with the version it states named, and with the remedy
+            # that applies to it: a later release needs a newer PowerIO, an
+            # earlier one has to be regenerated from its source data.
+            header(version) = JSON3.write(
+                Dict("schema" => "powerio.module", "version" => version),
+            )
+            for (version, remedy) in
+                (("99.0.0", "upgrade PowerIO"), ("0.10.0", "regenerate this one"))
+                err = try
+                    deserialize(Vector{UInt8}(header(version)))
+                catch caught
+                    caught
+                end
+                @test err isa PowerIOError
+                @test occursin("version $version", err.message)
+                @test occursin(remedy, err.message)
+            end
+
             feeder = parse(fixture("dist", "switch.dss"))
             @test deserialize(Vector{UInt8}(serialize(feeder).text)) isa PioModule{MulticonductorNetwork}
         end

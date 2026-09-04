@@ -16,7 +16,9 @@ payload now comes from typed C views.
 | `kind(m)` | dispatch on `PioModule{T}` or `typeof(m.value)` |
 | `inspect(m)`, `source_format(m)` | `m.sources`, `m.history`, `m.producer` |
 | `emit(m, format)` returning `text` | `emit(m, format)` returning an `EmitResult`; `result.text`, `result.artifacts` |
-| `to_json(m)`, `from_json(PioModule, text)` | `serialize(m)`, `deserialize(bytes)` |
+| `parse_bytes(bytes; name, format)` | `parse(bytes; name, format)` |
+| `write_file(m, path[; format])` | `emit(m, format, path)`, or `emit(m, m.sources[1].format, path)` for the source format |
+| `to_json(m)`, `from_json(PioModule, text)` | `serialize(m)`, `deserialize(bytes)`; a stored 0.10 document is refused and must be regenerated from its original power system data |
 | `to_json(net)`, `from_json(text)` | removed: a network is written through its module |
 | `emit(m, "pio-json", path)` | `serialize(m, path)` |
 | `resolve_format`, `FormatInfo` | removed: format discovery is not part of the C ABI |
