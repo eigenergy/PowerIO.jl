@@ -30,6 +30,7 @@
             report = apply_updates!(m, [update])
             @test report isa UpdateReport
             @test length(report) == 1
+            @test report[1] === report.changes[1]
             @test !report.connectivity_changed
             @test report.changes[1].component_id == ComponentId("load", "bus-5")
             @test report.changes[1].field == "load_active_power"

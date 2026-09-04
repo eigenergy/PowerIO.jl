@@ -24,7 +24,7 @@ One finding recorded by a reader, writer, or transformation.
 - `suggested_action`: what to do about it, or `nothing`.
 - `spans`: source byte ranges.
 - `related`: identities of related diagnostics.
-- `details`: structured details as a `JSON3.Object`, or `nothing`.
+- `details`: structured details as a `Dict{String,Any}`, or `nothing`.
 """
 struct Diagnostic
     code::String
@@ -35,7 +35,7 @@ struct Diagnostic
     suggested_action::Union{String,Nothing}
     spans::Vector{SourceSpan}
     related::Vector{String}
-    details::Union{JSON3.Object,Nothing}
+    details::Union{Dict{String,Any},Nothing}
 end
 
 function Base.show(io::IO, d::Diagnostic)
@@ -92,8 +92,8 @@ function _decode_diagnostics(lib::AbstractString, p::Ptr{Cvoid})
                   (Ptr{Cvoid}, Csize_t, Ref{Ptr{Cvoid}}), p, i, err)
         end
         details_text = _take_string(lib, details_ptr)
-        details = isempty(details_text) ? nothing : JSON3.read(details_text)
-        details = details isa JSON3.Object && !isempty(details) ? details : nothing
+        details = isempty(details_text) ? nothing : JSON3.read(details_text, Dict{String,Any})
+        details = details isa Dict && !isempty(details) ? details : nothing
         out[k] = Diagnostic(code, severity, message, id, target, action, spans, related, details)
     end
     return out

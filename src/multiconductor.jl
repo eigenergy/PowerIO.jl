@@ -293,7 +293,7 @@ end
 
 const _MC_TABLES = (
     buses = (MulticonductorBus, :buses),
-    linecodes = (MulticonductorLineCode, :line_codes),
+    line_codes = (MulticonductorLineCode, :line_codes),
     lines = (MulticonductorLine, :lines),
     switches = (MulticonductorSwitch, :switches),
     transformers = (MulticonductorTransformer, :transformers),
@@ -304,7 +304,7 @@ const _MC_TABLES = (
     shunts = (MulticonductorShunt, :shunts),
     capacitors = (MulticonductorCapacitor, :capacitors),
     voltage_sources = (VoltageSource, :voltage_sources),
-    untyped = (UntypedObject, :untyped_objects),
+    untyped_objects = (UntypedObject, :untyped_objects),
     commands = (SourceCommand, :commands),
     options = (Pair{String,String}, :options),
 )

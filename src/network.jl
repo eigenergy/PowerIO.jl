@@ -555,7 +555,7 @@ Base.propertynames(::DetailedConnectivity, private::Bool=false) = private ? (:co
 # --- element collections ----------------------------------------------------
 
 """
-    Elements{T} <: AbstractVector{T}
+    Elements{T,N} <: AbstractVector{T}
 
 The elements of one network table. `length`, 1-based indexing, iteration,
 `filter`, `collect`, and broadcasting all work; each index fills one C view and

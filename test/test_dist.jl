@@ -12,9 +12,9 @@
             @test net.base_frequency == 60.0
             @test net.geo === nothing
             @test propertynames(net) == (:name, :base_frequency, :source_format, :geo,
-                                         :buses, :linecodes, :lines, :switches, :transformers, :loads,
+                                         :buses, :line_codes, :lines, :switches, :transformers, :loads,
                                          :generators, :ibrs, :control_profiles, :shunts, :capacitors,
-                                         :voltage_sources, :untyped, :commands, :options)
+                                         :voltage_sources, :untyped_objects, :commands, :options)
             @test occursin("4 buses, 1 lines", sprint(show, net))
         end
 
@@ -24,8 +24,8 @@
             @test net.buses[1].terminals == ["1", "2", "3", "4"]
             @test net.buses[2].terminals == ["1", "2", "3"]
 
-            @test length(net.linecodes) == 1
-            lc = net.linecodes[1]
+            @test length(net.line_codes) == 1
+            lc = net.line_codes[1]
             @test lc.name == "lc3"
             @test lc.conductor_count == 3
             @test size(lc.resistance) == (3, 3)
@@ -66,7 +66,7 @@
 
             @test Dict(net.options) == Dict("defaultbasefrequency" => "60", "voltagebases" => "12.47")
             @test [c.verb for c in net.commands] == ["calcvoltagebases", "solve"]
-            @test isempty(net.untyped)
+            @test isempty(net.untyped_objects)
             @test isempty(net.generators) && isempty(net.ibrs) && isempty(net.control_profiles)
             @test isempty(net.shunts) && isempty(net.capacitors)
         end

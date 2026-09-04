@@ -28,7 +28,7 @@ payload now comes from typed C views.
 | 0.10 | 0.11 |
 |---|---|
 | `buses(net)`, `branches(net)`, `generators(net)`, `loads(net)`, `shunts(net)`, `storage(net)`, `hvdc(net)`, `switches(net)` | `net.buses`, `net.branches`, `net.generators`, `net.loads`, `net.shunts`, `net.storage`, `net.hvdc`, `net.switches` |
-| `lines(net)`, `linecodes(net)`, `transformers(net)`, `ibrs(net)`, `control_profiles(net)`, `capacitors(net)`, `voltage_sources(net)`, `untyped(net)` | `net.lines`, `net.linecodes`, `net.transformers`, `net.ibrs`, `net.control_profiles`, `net.capacitors`, `net.voltage_sources`, `net.untyped` |
+| `lines(net)`, `linecodes(net)`, `transformers(net)`, `ibrs(net)`, `control_profiles(net)`, `capacitors(net)`, `voltage_sources(net)`, `untyped(net)` | `net.lines`, `net.line_codes`, `net.transformers`, `net.ibrs`, `net.control_profiles`, `net.capacitors`, `net.voltage_sources`, `net.untyped_objects` |
 | `n_buses(net)`, `n_branches(net)`, `n_generators(net)`, `n_switches(net)` | `length(net.buses)`, `length(net.branches)`, ... |
 | `base_mva(net)`, `base_frequency(net)`, `network_name(net)` | `net.base_mva`, `net.base_frequency`, `net.name` |
 | `net.data.buses[1].vm` (a `JSON3.Object`) | `net.buses[1].vm_pu` (a `Bus`) |
