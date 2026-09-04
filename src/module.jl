@@ -182,9 +182,11 @@ end
     deserialize(io::IO) -> PioModule
     deserialize(bytes::AbstractVector{UInt8}) -> PioModule
 
-Read one PowerIO IR document (`"schema": "powerio.module"`, `"version": 1`)
-written by [`serialize`](@ref). PowerIO IR is not a grid exchange format;
-[`parse`](@ref) does not accept it.
+Read one PowerIO IR document written by [`serialize`](@ref): `"schema":
+"powerio.module"` and a `"version"` naming the PowerIO release that wrote it.
+The library reads the documents of its own compatible release line no newer
+than itself and refuses any other, naming the version it found. PowerIO IR is
+not a grid exchange format; [`parse`](@ref) does not accept it.
 """
 function deserialize(path::AbstractString)
     lib = _checked_lib()

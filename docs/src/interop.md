@@ -59,7 +59,9 @@ it, and a build without it reports a coded parse error naming the feature.
 
 `serialize` and `deserialize` pass a complete module, with its diagnostics and
 history, to another PowerIO consumer in Rust, Python, Julia, or C. The document
-shape is `"schema": "powerio.module"`, `"version": 1`.
+shape is `"schema": "powerio.module"` and a `"version"` naming the PowerIO
+release that wrote it, which [`library_version`](@ref) reports; a library reads
+the documents of its own compatible release line no newer than itself.
 
 ```@docs
 to_powermodels

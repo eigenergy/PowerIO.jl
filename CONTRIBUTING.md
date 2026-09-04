@@ -19,7 +19,7 @@ artifact is used.
 ## ABI lockstep
 
 The binding targets exactly one C ABI version (`PIO_ABI_VERSION` in
-`src/capi.jl`, 7 for PowerIO 1.0); a mismatched library is refused at first
+`src/capi.jl`, 7 for PowerIO 0.11); a mismatched library is refused at first
 use with an error naming both versions. Every `pio_*` entry point the binding
 calls appears as a Symbol literal in `src/`, and powerio's
 `scripts/check-capi-v7.sh` checks that list against the header, so a renamed

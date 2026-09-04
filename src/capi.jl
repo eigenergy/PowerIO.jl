@@ -146,7 +146,7 @@ abi_version(lib::AbstractString) =
     library_version() -> String
 
 The powerio crate version string the resolved library reports, such as
-`"1.0.0"`. Informational; [`abi_version`](@ref) is the compatibility check.
+`"0.11.0"`. Informational; [`abi_version`](@ref) is the compatibility check.
 """
 function library_version(lib::AbstractString=_lib())
     _ensure_compatible(lib)

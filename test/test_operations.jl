@@ -114,7 +114,8 @@
             @test length(ir.artifacts) == 1
             doc = JSON3.read(ir.text)
             @test doc.schema == "powerio.module"
-            @test doc.version == 1
+            # PowerIO IR names the release that wrote it.
+            @test doc.version == library_version()
             @test doc.value.type == "powerio.BalancedNetwork"
 
             back = deserialize(Vector{UInt8}(ir.text))

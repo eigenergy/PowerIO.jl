@@ -1,11 +1,13 @@
 # Changelog
 
-## 1.0.0
+## 0.11.0
 
-PowerIO.jl 1.0 binds PowerIO 1.0 over C ABI 7. This is a breaking release: the
+PowerIO.jl 0.11 binds PowerIO 0.11 over C ABI 7. This is a breaking release: the
 0.10 binding read every table from a network's JSON payload through accessor
 functions, and ABI 7 replaces that layer with typed element views. The public
-API follows the cross language vocabulary of PowerIO 1.0.
+API follows the cross language vocabulary of PowerIO 0.11. The binding stays
+pre-1.0 with the library it wraps: 0.11.x is the compatibility focused
+stabilization line for the candidate 1.0 API.
 
 - `parse(source; format, name)` replaces `parse_file` and `parse_text`. It
   extends `Base.parse` over a path, an `IO`, or bytes and returns a
@@ -24,7 +26,9 @@ API follows the cross language vocabulary of PowerIO 1.0.
 - `emit(m, format, destination)` returns an `EmitResult` with `artifacts`,
   `layout`, `fidelity`, `diagnostics`, and `text`. `serialize` and `deserialize`
   move PowerIO IR; `to_json`, `from_json`, and the `pio-json` format token are
-  removed.
+  removed. A PowerIO IR document states the PowerIO release that wrote it, which
+  `library_version()` reports, and the library reads the documents of its own
+  compatible release line no newer than itself.
 - `TimeSeries` supports `length`, 1-based indexing, and iteration;
   `ScenarioSet` supports `keys`, `values`, `haskey`, indexing by id, and
   iteration over pairs. `list_states` and `export_state` are removed.

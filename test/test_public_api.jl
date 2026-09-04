@@ -50,7 +50,7 @@ const EXPORTED_NAMES = Set([
     :set_library!, :clear_library!, :abi_version, :library_version, :library_available,
 ])
 
-# Names the 0.10 binding exported and 1.0 removes. None may be defined.
+# Names the 0.10 binding exported and 0.11 removes. None may be defined.
 const RETIRED_NAMES = [
     :parse_file, :parse_text, :parse_bytes, :write_file, :kind, :inspect, :source_format,
     :resolve_format, :FormatInfo, :list_states, :export_state, :to_balanced,

@@ -1,6 +1,6 @@
-# Migrating to 1.0
+# Migrating from 0.10 to 0.11
 
-PowerIO.jl 1.0 binds PowerIO 1.0 over C ABI 7. Element tables are properties
+PowerIO.jl 0.11 binds PowerIO 0.11 over C ABI 7. Element tables are properties
 that return typed Julia structs, the operations follow the cross language
 vocabulary (`parse`, `emit`, `serialize`, `deserialize`, `calc_*`, `to_*`,
 `apply_updates!`), and everything the 0.10 binding read from a network's JSON
@@ -8,7 +8,7 @@ payload now comes from typed C views.
 
 ## Parsing and writing
 
-| 0.10 | 1.0 |
+| 0.10 | 0.11 |
 |---|---|
 | `parse_file(path; format)` | `parse(path; format)` |
 | `parse_text(text; name, format)` | `parse(IOBuffer(text); name, format)` or `parse(codeunits(text); ...)` |
@@ -23,7 +23,7 @@ payload now comes from typed C views.
 
 ## Network access
 
-| 0.10 | 1.0 |
+| 0.10 | 0.11 |
 |---|---|
 | `buses(net)`, `branches(net)`, `generators(net)`, `loads(net)`, `shunts(net)`, `storage(net)`, `hvdc(net)`, `switches(net)` | `net.buses`, `net.branches`, `net.generators`, `net.loads`, `net.shunts`, `net.storage`, `net.hvdc`, `net.switches` |
 | `lines(net)`, `linecodes(net)`, `transformers(net)`, `ibrs(net)`, `control_profiles(net)`, `capacitors(net)`, `voltage_sources(net)`, `untyped(net)` | `net.lines`, `net.linecodes`, `net.transformers`, `net.ibrs`, `net.control_profiles`, `net.capacitors`, `net.voltage_sources`, `net.untyped` |
@@ -45,7 +45,7 @@ Element struct fields use the C view names: `vm_pu` for `vm`, `va_degrees` for
 
 ## Collections and calculations
 
-| 0.10 | 1.0 |
+| 0.10 | 0.11 |
 |---|---|
 | `list_states(m)`, `export_state(m; time=i)` | `series[i]` on a `TimeSeries`, `scenarios[id]` on a `ScenarioSet` |
 | `to_balanced(m)`, `to_balanced_report(m)` | removed: not part of the C ABI |
@@ -56,13 +56,13 @@ Element struct fields use the C view names: `vm_pu` for `vm`, `va_degrees` for
 
 ## Feature probes
 
-| 0.10 | 1.0 |
+| 0.10 | 0.11 |
 |---|---|
 | `features()`, `has_feature`, `build_info`, `schema_versions` | removed: ABI 7 declares one fixed symbol table |
 | `arrow_available`, `matrix_available`, `gridfm_available`, `dist_available`, `prob_available` | removed; a build without `gridfm` reports a coded parse error |
 | `abi_version() == 6` | `abi_version() == 7` |
 
-## New in 1.0
+## New in 0.11
 
 - `apply_updates!` with typed updates ([Updates](updates.md)).
 - `to_dc_pf_instance` and the other five constructions.

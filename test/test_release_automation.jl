@@ -71,7 +71,7 @@ end
 function _parked_reason(report)
     try
         ArtifactUpdater.validate_candidate(
-            report, "v1.0.0"; binding_abi=UInt32(7))
+            report, "v0.11.0"; binding_abi=UInt32(7))
         return nothing
     catch err
         err isa ArtifactUpdater.ParkedGate || rethrow()
@@ -79,7 +79,7 @@ function _parked_reason(report)
     end
 end
 
-function _candidate(; version="1.0.0", abi=UInt32(7),
+function _candidate(; version="0.11.0", abi=UInt32(7),
                     symbols=copy(ArtifactUpdater.KNOWN_SYMBOLS), gridfm_available=true)
     ArtifactUpdater.CandidateReport(version, abi, symbols, gridfm_available)
 end
@@ -105,8 +105,8 @@ end
 @testset "release intent and state machine" begin
     live = ReleaseState.read_intent()
     @test live.state in ("draft", "ready")
-    @test live.julia_version == ReleaseState.project_version() == v"1.0.0"
-    @test live.powerio_tag == "v1.0.0"
+    @test live.julia_version == ReleaseState.project_version() == v"0.11.0"
+    @test live.powerio_tag == "v0.11.0"
     @test ReleaseState.changelog_section().version == live.julia_version
     expected = live.state == "draft" ? "waiting_intent" : "ready"
     @test ReleaseState.evaluate_initial_state("schedule"; intent=live).status == expected
@@ -267,7 +267,7 @@ end
 
 @testset "artifact candidate gates" begin
     @test ArtifactUpdater.validate_candidate(
-        _candidate(), "v1.0.0"; binding_abi=UInt32(7)) isa
+        _candidate(), "v0.11.0"; binding_abi=UInt32(7)) isa
           ArtifactUpdater.CandidateReport
     @test _parked_reason(_candidate(abi=UInt32(6))) == "core_abi_mismatch"
     @test _parked_reason(_candidate(version="0.10.0")) == "schema_version_mismatch"

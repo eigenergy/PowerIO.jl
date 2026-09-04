@@ -2,9 +2,9 @@
 
 Release announcements. See [CHANGELOG.md](CHANGELOG.md) for the complete, itemized history.
 
-## 1.0.0
+## 0.11.0
 
-PowerIO.jl 1.0 binds PowerIO 1.0 over C ABI 7.
+PowerIO.jl 0.11 binds PowerIO 0.11 over C ABI 7.
 
 - `parse(source)` returns a `PioModule{T}`; `emit`, `serialize`, and
   `deserialize` write it out.
@@ -13,7 +13,7 @@ PowerIO.jl 1.0 binds PowerIO 1.0 over C ABI 7.
 - Time series and scenario sets index like Julia collections; calculation
   instances and solutions are typed values.
 - Typed updates change a module in place through `apply_updates!`.
-- See [Migrating to 1.0](https://eigenergy.github.io/PowerIO.jl/migration-1.0/)
+- See [Migrating from 0.10 to 0.11](https://eigenergy.github.io/PowerIO.jl/migration-0.11/)
   for every removed name and its replacement.
 
 ## 0.10.0

@@ -26,7 +26,7 @@ makedocs(;
         "Updates" => "updates.md",
         "Interop" => "interop.md",
         "Developer Guides" => [
-            "Migrating to 1.0" => "migration-1.0.md",
+            "Migrating from 0.10 to 0.11" => "migration-0.11.md",
             "Binary distribution" => "binary.md",
             "Memory safety" => "memory-safety.md",
             "Language map" => "languages.md",

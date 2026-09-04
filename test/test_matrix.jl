@@ -1,4 +1,4 @@
-# Reference values: the Python binding (`powerio` 1.0.0) on the same fixtures,
+# Reference values: the Python binding (`powerio` 0.11.0) on the same fixtures,
 # and the coordinate lists the powerio matrix crate wrote for case9 and case30.
 
 function coo_from_fixture(path)

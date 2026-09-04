@@ -8,7 +8,7 @@ case = parse("case118.m")
 case isa PioModule{BalancedNetwork}    # true
 case.value                              # the BalancedNetwork
 case.diagnostics                        # Vector{Diagnostic}
-case.producer                           # Producer("powerio", "1.0.0")
+case.producer                           # Producer("powerio", "0.11.0")
 case.sources                            # the files it was read from
 case.history                            # the operations applied so far
 ```
@@ -99,8 +99,9 @@ the single in-memory UTF-8 file, or `nothing`.
 ## PowerIO IR
 
 PowerIO IR is PowerIO's own serialization of a module: one JSON document
-(`"schema": "powerio.module"`, `"version": 1`) holding the typed value with its
-diagnostics, producer, sources, source mappings, history, and extensions.
+(`"schema": "powerio.module"`, and a `"version"` naming the PowerIO release
+that wrote it) holding the typed value with its diagnostics, producer, sources,
+source mappings, history, and extensions.
 [`serialize`](@ref) writes it and [`deserialize`](@ref) reads it.
 
 ```julia

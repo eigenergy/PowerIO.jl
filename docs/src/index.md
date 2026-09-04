@@ -57,7 +57,7 @@ Element tables are properties of a network (`net.buses`, `net.branches`,
 - [Matrices](matrices.md): the DC calculations and the admittance matrices.
 - [Updates](updates.md): typed updates and `apply_updates!`.
 - [Interop](interop.md): PowerModels.jl, ExaModelsPower, GridFM.
-- Developer guides: [migrating to 1.0](migration-1.0.md), the
+- Developer guides: [migrating to 0.11](migration-0.11.md), the
   [binary distribution](binary.md), [memory safety](memory-safety.md), the
   [language map](languages.md), and the [API reference](api.md).
 
