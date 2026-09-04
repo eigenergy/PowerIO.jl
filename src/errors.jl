@@ -24,12 +24,15 @@ end
 
 # Convert a `PioError *` into a `PowerIOError`, releasing the C error.
 function _take_error(lib::AbstractString, err::Ptr{Cvoid})
-    code = _str(ccall(_library_symbol(lib, :pio_error_code), PioStringView, (Ptr{Cvoid},), err))
-    message = _str(ccall(_library_symbol(lib, :pio_error_message), PioStringView, (Ptr{Cvoid},), err))
-    diagnostics = _diagnostics(lib, ccall(_library_symbol(lib, :pio_error_diagnostics), Ptr{Cvoid},
-                                           (Ptr{Cvoid},), err))
-    ccall(_library_symbol(lib, :pio_error_release), Cvoid, (Ptr{Cvoid},), err)
-    return PowerIOError(code, message, diagnostics)
+    try
+        code = _str(ccall(_library_symbol(lib, :pio_error_code), PioStringView, (Ptr{Cvoid},), err))
+        message = _str(ccall(_library_symbol(lib, :pio_error_message), PioStringView, (Ptr{Cvoid},), err))
+        diagnostics = _diagnostics(lib, ccall(_library_symbol(lib, :pio_error_diagnostics), Ptr{Cvoid},
+                                               (Ptr{Cvoid},), err))
+        return PowerIOError(code, message, diagnostics)
+    finally
+        ccall(_library_symbol(lib, :pio_error_release), Cvoid, (Ptr{Cvoid},), err)
+    end
 end
 
 # Run `f(err)` where `err` is the `PioError **` output parameter, throwing the

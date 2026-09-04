@@ -16,7 +16,7 @@ One typed value together with the records that describe how it was produced.
 
 [`parse`](@ref) and [`deserialize`](@ref) return modules. [`emit`](@ref) and
 [`serialize`](@ref) consume them. [`apply_updates!`](@ref) changes the value in
-place and refreshes `m.value`.
+place and refreshes `m.value`; it needs exclusive use of `m` while it runs.
 """
 mutable struct PioModule{T}
     handle::ModuleHandle
@@ -129,7 +129,7 @@ end
 
 function _parse_source(lib::AbstractString, source::SourceHandle, format)
     fmt = format === nothing ? "" : String(format)
-    ptr = GC.@preserve source _checked(lib) do err
+    ptr = GC.@preserve source fmt _checked(lib) do err
         ccall(_library_symbol(lib, :pio_parse), Ptr{Cvoid},
               (Ptr{Cvoid}, Ptr{UInt8}, Csize_t, Ref{Ptr{Cvoid}}),
               _ptr(source), format === nothing ? C_NULL : pointer(fmt), sizeof(fmt), err)
