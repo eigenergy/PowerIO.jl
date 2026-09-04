@@ -109,16 +109,10 @@ jobs:
             using PowerIO
             version = ENV["VERSION"]
             PowerIO.library_available() || error("artifact failed the core ABI handshake")
-            f = PowerIO.features()
-            all(values(f)) || error("artifact is missing a usable feature: $f")
-            for name in ("arrow", "matrix", "gridfm", "dist", "prob")
-                PowerIO.has_feature(name) || error("artifact does not report feature $name")
-            end
-            PowerIO.schema_versions().powerio_version == version ||
-                error("schema report does not identify powerio $version")
-            info = PowerIO.build_info()
-            info === nothing && error("artifact has no build information")
-            String(info.powerio_version) == version || error("build report version mismatch")
+            PowerIO.abi_version() == PowerIO.PIO_ABI_VERSION ||
+                error("artifact reports C ABI $(PowerIO.abi_version()), not $(PowerIO.PIO_ABI_VERSION)")
+            PowerIO.library_version() == version ||
+                error("artifact reports powerio $(PowerIO.library_version()), not $version")
           '
           julia --project=. -e 'using Pkg; Pkg.test()'
           git diff --quiet || {

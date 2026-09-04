@@ -1,32 +1,46 @@
-# Language APIs
+# Language map
 
-The cross language naming table (Rust, Python, Julia, C ABI) lives in the
-powerio repository:
-[docs/src/languages.md](https://github.com/eigenergy/powerio/blob/main/docs/src/languages.md).
+The Rust, Python, Julia, and C APIs share one vocabulary. The complete table is
+in the powerio documentation
+([Rust, Python, Julia, and C](https://powerio.dev/languages.html)); this page
+states what is specific to Julia.
 
-Julia-specific notes:
+| Meaning | Julia | Python | C ABI 7 |
+|---|---|---|---|
+| acquire a path | `parse("case.m")` | `parse(Path("case.m"))` | `pio_source_open` |
+| acquire memory | `parse(io; name)`, `parse(bytes; name)` | pass a file or bytes-like object | `pio_source_from_memory` |
+| parse | `parse(source; format)` | `parse(source, format=...)` | `pio_parse` |
+| module value | `m.value` | `module.value` | `pio_module_value` |
+| module diagnostics | `m.diagnostics` | `module.diagnostics` | `pio_module_diagnostics` |
+| emit a format | `emit(m, format, destination)` | `emit(module, format, destination)` | `pio_emit` |
+| serialize IR | `serialize(m, destination)` | `serialize(module, destination)` | `pio_module_serialize` |
+| deserialize IR | `deserialize(source)` | `deserialize(source)` | `pio_module_deserialize` |
+| apply updates | `apply_updates!(m, updates)` | `apply_updates(module, updates)` | `pio_apply_updates` |
+| bus table | `net.buses` (`Elements{Bus}`) | `network.buses` (list of dicts) | `pio_balanced_network_bus_count`, `pio_balanced_network_bus_at` |
+| time series entry | `series[1]` | `series[0]` | `pio_time_series_get(series, 0)` |
+| scenario entry | `scenarios["7"]` | `scenarios["7"]` | `pio_scenario_set_get` |
 
-- Julia adds `parse_bytes(io; format=...)` because multiple dispatch is the
-  natural way to express IO input.
-- Julia does not use `convert` / `convert!` for file format conversion. In
-  Julia, `Base.convert` means type conversion and `!` marks mutation; PowerIO
-  returns new values.
+## Julia specifics
 
-## The ABI v6 vocabulary
-
-The stored module and DC data surfaces spell one vocabulary in every
-language. The Julia names below are the same words the Rust `DcNetworkData`
-fields, the Python `dc_data` dictionary keys, and the C `pio_dc_data_*`
-accessors use, and the susceptance formula names (`series_susceptance`,
-`tap_adjusted_reactance`, `reactance_only`) are shared verbatim.
-
-| Julia | C | Python |
-|---|---|---|
-| `parse_file` / `write_json` | `pio_parse_file` / `pio_module_write_json` | `powerio.parse` / `PioModule.to_json` |
-| `kind` | `pio_module_kind` | `PioModule.kind` |
-| `state_inventory` / `select_state` | `pio_module_state_inventory_json` / `pio_module_export_state` | `.state_inventory()` / `.export_state()` |
-| `dc_data` | `pio_dc_data_build` | `BalancedNetwork.dc_data` |
-| `susceptance` | `pio_dc_data_susceptance` | `data["susceptance"]` |
-| `from_indices` / `to_indices` | `pio_dc_data_from_indices` / `..._to_indices` | `data["from_indices"]` / `data["to_indices"]` |
-| `row_ids` / `bus_ids` | `pio_dc_data_row_ids` / `..._bus_ids` | `data["row_ids"]` / `data["bus_ids"]` |
-| `omitted` | `pio_dc_data_omitted_ids` + `..._omitted_reasons` | `data["omitted_ids"]` + `data["omitted_reasons"]` |
+- `parse` extends `Base.parse` with methods for a path string, an `IO`, and a
+  byte vector. No Base method takes one positional argument, so existing code
+  is unaffected, and the bare name works after `using PowerIO`.
+- Type discovery is dispatch: `PioModule{BalancedNetwork}`,
+  `PioModule{TimeSeries{BalancedNetwork}}`, and so on. There is no kind enum.
+- Tables are properties returning `AbstractVector`s of immutable structs.
+  Field names follow the C header (`vm_pu`, `active_power_mw`); Python uses the
+  MATPOWER short names (`vm`, `pg`).
+- Indices are 1-based: collection entries, sparse matrix positions, and the
+  `to_dense` bus rows. Bus ids and component ids are source identifiers and
+  do not change at the language boundary.
+- Errors are `PowerIOError` exceptions carrying the code, message, and
+  diagnostics; Python raises `PowerIOError` subclasses; C writes one `PioError`.
+- Mutating operations end in `!`: `apply_updates!`, `set_library!`,
+  `repair_powermodels_angle_bounds!`.
+- Only Rust and C have a `Source` type, because those languages need an
+  explicit owner for acquired bytes. A Julia path, `IO`, or byte vector already
+  states where the bytes come from and who owns them.
+- The admittance matrices (`calc_admittance_matrix`, `calc_bprime_matrix`,
+  `calc_bdoubleprime_matrix`) are assembled in Julia; Python reaches the Rust
+  implementation directly. The eight DC calculations come from the library in
+  every language.

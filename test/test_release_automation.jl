@@ -71,7 +71,7 @@ end
 function _parked_reason(report)
     try
         ArtifactUpdater.validate_candidate(
-            report, "v0.10.0"; binding_abi=UInt32(6))
+            report, "v0.11.0"; binding_abi=UInt32(7))
         return nothing
     catch err
         err isa ArtifactUpdater.ParkedGate || rethrow()
@@ -79,24 +79,12 @@ function _parked_reason(report)
     end
 end
 
-function _candidate(; version="0.10.0", abi=UInt32(6),
-                    features=Dict(name => true for name in ArtifactUpdater.REQUIRED_FEATURES),
-                    symbols=copy(ArtifactUpdater.KNOWN_SYMBOLS), matrix_available=true,
-                    schema=Dict(:powerio_version => "0.10.0", :abi => 6,
-                                :bmopf_schema => "draft"),
-                    build=Dict(
-                        :powerio_version => "0.10.0",
-                        :abi => 6,
-                        :features => Dict(Symbol(name) => true for name in
-                                          ArtifactUpdater.REQUIRED_FEATURES),
-                        :foreign_schemas => Dict(:bmopf => "draft"),
-                        :error_categories => ["parse"],
-                        :diagnostic_namespaces => ["READ"],
-                        :json_classes => ["model-json"],
-                    ))
-    ArtifactUpdater.CandidateReport(
-        version, abi, features, symbols, matrix_available, schema, build)
+function _candidate(; version="0.11.0", abi=UInt32(7),
+                    symbols=copy(ArtifactUpdater.KNOWN_SYMBOLS), gridfm_available=true)
+    ArtifactUpdater.CandidateReport(version, abi, symbols, gridfm_available)
 end
+
+_without(symbol::Symbol) = setdiff(copy(ArtifactUpdater.KNOWN_SYMBOLS), Set((symbol,)))
 
 @testset "invalid release intent" begin
     mktempdir() do dir
@@ -117,6 +105,9 @@ end
 @testset "release intent and state machine" begin
     live = ReleaseState.read_intent()
     @test live.state in ("draft", "ready")
+    @test live.julia_version == ReleaseState.project_version() == v"0.11.0"
+    @test live.powerio_tag == "v0.11.0"
+    @test ReleaseState.changelog_section().version == live.julia_version
     expected = live.state == "draft" ? "waiting_intent" : "ready"
     @test ReleaseState.evaluate_initial_state("schedule"; intent=live).status == expected
     @test ReleaseState.evaluate_initial_state(
@@ -276,27 +267,30 @@ end
 
 @testset "artifact candidate gates" begin
     @test ArtifactUpdater.validate_candidate(
-        _candidate(), "v0.10.0"; binding_abi=UInt32(6)) isa
+        _candidate(), "v0.11.0"; binding_abi=UInt32(7)) isa
           ArtifactUpdater.CandidateReport
-    @test _parked_reason(_candidate(abi=UInt32(5))) == "core_abi_mismatch"
-    @test _parked_reason(_candidate(version="0.8.3")) == "schema_version_mismatch"
-
-    no_version = setdiff(copy(ArtifactUpdater.KNOWN_SYMBOLS), Set((:pio_version,)))
-    @test _parked_reason(_candidate(symbols=no_version)) == "required_symbol_missing"
-
-    no_feature = Dict(name => name != "prob" for name in ArtifactUpdater.REQUIRED_FEATURES)
-    @test _parked_reason(_candidate(features=no_feature)) == "required_feature_missing"
-    no_prob = setdiff(
-        copy(ArtifactUpdater.KNOWN_SYMBOLS),
-        Set((:pio_dc_data_build,)),
-    )
-    @test _parked_reason(_candidate(symbols=no_prob)) == "required_symbol_missing"
-    @test _parked_reason(_candidate(schema=nothing)) == "schema_report_invalid"
-    @test _parked_reason(_candidate(schema=Dict(
-        :powerio_version => "0.8.3", :abi => 6, :bmopf_schema => "draft"))) ==
-          "schema_version_mismatch"
-    @test_throws ErrorException ArtifactUpdater._parse_report_json(
-        "{not-json", :pio_schema_versions_json)
+    @test _parked_reason(_candidate(abi=UInt32(6))) == "core_abi_mismatch"
+    @test _parked_reason(_candidate(version="0.10.0")) == "schema_version_mismatch"
+    @test _parked_reason(_candidate(gridfm_available=false)) == "required_feature_missing"
+    for symbol in (:pio_version, :pio_parse, :pio_module_value, :pio_emit, :pio_module_serialize,
+                   :pio_module_deserialize, :pio_calc_incidence_matrix, :pio_apply_updates,
+                   :pio_balanced_network_bus_at, :pio_multiconductor_network_counts)
+        @test _parked_reason(_candidate(symbols=_without(symbol))) == "required_symbol_missing"
+    end
+    @test ArtifactUpdater.REQUIRED_FEATURES == ("arrow", "matrix", "gridfm", "dist", "prob")
+    @test isfile(joinpath(ArtifactUpdater.GRIDFM_FIXTURE, "gridfm_meta.json"))
+    # The binding's ABI constant is what the gate compares a release binary against.
+    @test ArtifactUpdater._binding_abi() == PowerIO.PIO_ABI_VERSION == UInt32(7)
+    if LIBRARY_AVAILABLE
+        handle = Libdl.dlopen(PowerIO._lib())
+        try
+            @test ArtifactUpdater._parses_gridfm(handle) isa Bool
+            @test all(Libdl.dlsym(handle, sym; throw_error=false) !== nothing
+                      for sym in ArtifactUpdater.CORE_SYMBOLS)
+        finally
+            Libdl.dlclose(handle)
+        end
+    end
 
     mktempdir() do dir
         artifact = joinpath(dir, "Artifacts.toml")

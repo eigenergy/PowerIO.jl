@@ -5,7 +5,6 @@ module PowerIOArtifactUpdater
 using Downloads
 using SHA
 using TOML
-import JSON3
 import Libdl
 import Pkg.GitTools
 
@@ -13,8 +12,7 @@ include(joinpath(@__DIR__, "release_state.jl"))
 using .PowerIOReleaseState: write_status_atomic
 
 export CandidateReport, ParkedGate, PLATFORMS, REQUIRED_FEATURES,
-       REPRESENTATIVE_SYMBOLS, install_ready!, main, run_update,
-       validate_candidate
+       install_ready!, main, run_update, validate_candidate
 
 const ROOT = normpath(joinpath(@__DIR__, ".."))
 const REPO = "eigenergy/powerio"
@@ -29,29 +27,41 @@ const PLATFORMS = [
     ("x86_64-w64-mingw32", ["arch = \"x86_64\"", "os = \"windows\""]),
 ]
 
+# The release build features of powerio-capi. ABI 7 declares one fixed symbol
+# table whatever the features, so the binary is checked by behavior: a release
+# library must parse the GridFM fixture, which only the `gridfm` feature enables.
 const REQUIRED_FEATURES = ("arrow", "matrix", "gridfm", "dist", "prob")
+# One entry point per operation family the binding depends on.
 const CORE_SYMBOLS = Set((
     :pio_version,
     :pio_abi_version,
-    :pio_has_feature,
-    :pio_schema_versions_json,
-    :pio_build_info,
     :pio_string_release,
-    :pio_parse_file,
-    :pio_module_release,
+    :pio_source_open,
+    :pio_source_from_memory,
+    :pio_parse,
+    :pio_module_value,
     :pio_module_diagnostics,
+    :pio_module_release,
+    :pio_module_serialize,
+    :pio_module_deserialize,
+    :pio_value_type_name,
+    :pio_value_balanced_network,
+    :pio_value_multiconductor_network,
+    :pio_balanced_network_bus_count,
+    :pio_balanced_network_bus_at,
+    :pio_multiconductor_network_counts,
+    :pio_multiconductor_network_bus_at,
+    :pio_emit,
+    :pio_emit_result_artifact,
+    :pio_calc_incidence_matrix,
+    :pio_calc_branch_flow_dc,
+    :pio_apply_updates,
+    :pio_time_series_get,
+    :pio_scenario_set_get,
+    :pio_calculation_solution_get_values,
 ))
-const REPRESENTATIVE_SYMBOLS = Dict(
-    "arrow" => (:pio_balanced_network_to_arrow, :pio_arrow_catalog_json),
-    "matrix" => (),
-    "gridfm" => (),
-    "dist" => (:pio_module_multiconductor_network, :pio_multiconductor_network_to_json),
-    "prob" => (:pio_dc_data_build, :pio_dc_data_release),
-)
-const KNOWN_SYMBOLS = union(
-    CORE_SYMBOLS,
-    Set(Iterators.flatten(values(REPRESENTATIVE_SYMBOLS))),
-)
+const KNOWN_SYMBOLS = CORE_SYMBOLS
+const GRIDFM_FIXTURE = joinpath(ROOT, "test", "data", "case14_gridfm", "raw")
 
 struct ParkedGate <: Exception
     reason::String
@@ -64,14 +74,13 @@ Base.showerror(io::IO, err::ParkedGate) =
 _park(reason::AbstractString, detail::AbstractString) =
     throw(ParkedGate(String(reason), String(detail)))
 
+# What one release library reports: its version string, ABI number, the core
+# entry points it exports, and whether it parses the GridFM fixture.
 struct CandidateReport
     version::String
     abi::UInt32
-    features::Dict{String,Bool}
     symbols::Set{Symbol}
-    matrix_available::Bool
-    schema
-    build
+    gridfm_available::Bool
 end
 
 function _binding_const(name::AbstractString, files)
@@ -87,38 +96,6 @@ end
 
 _binding_abi() = _binding_const("PIO_ABI_VERSION", ("capi.jl", "PowerIO.jl"))
 
-function _lookup(obj, key::Symbol, default=nothing)
-    obj === nothing && return default
-    try
-        return get(obj, key, default)
-    catch
-        try
-            return get(obj, String(key), default)
-        catch
-            return default
-        end
-    end
-end
-
-function _object_like(obj)
-    obj === nothing && return false
-    try
-        keys(obj)
-        return true
-    catch
-        return false
-    end
-end
-
-function _nonempty_collection(value)
-    value === nothing && return false
-    try
-        return !isempty(value)
-    catch
-        return false
-    end
-end
-
 function validate_candidate(report::CandidateReport, tag::AbstractString;
                             binding_abi::UInt32=_binding_abi())
     missing_core = sort!(collect(setdiff(CORE_SYMBOLS, report.symbols)); by=string)
@@ -132,55 +109,9 @@ function validate_candidate(report::CandidateReport, tag::AbstractString;
         "schema_version_mismatch",
         "pio_version reports $(report.version), requested $version")
 
-    for feature in REQUIRED_FEATURES
-        get(report.features, feature, false) || _park(
-            "required_feature_missing", "binary does not report feature $feature")
-    end
-    for feature in REQUIRED_FEATURES, symbol in REPRESENTATIVE_SYMBOLS[feature]
-        symbol in report.symbols || _park(
-            "required_symbol_missing", "feature $feature is missing symbol $symbol")
-    end
-    report.matrix_available || _park(
-        "required_feature_missing", "the matrix feature reports false")
-
-    _object_like(report.schema) || _park(
-        "schema_report_invalid", "pio_schema_versions_json is not an object")
-    _object_like(report.build) || _park(
-        "schema_report_invalid", "pio_build_info is not an object")
-    schema_version = _lookup(report.schema, :powerio_version)
-    build_version = _lookup(report.build, :powerio_version)
-    schema_version isa AbstractString || _park(
-        "schema_report_invalid", "schema report has no powerio_version string")
-    build_version isa AbstractString || _park(
-        "schema_report_invalid", "build report has no powerio_version string")
-    String(schema_version) == version || _park(
-        "schema_version_mismatch", "schema report is $schema_version, requested $version")
-    String(build_version) == version || _park(
-        "schema_version_mismatch", "build report is $build_version, requested $version")
-    _lookup(report.schema, :abi) == Int(binding_abi) || _park(
-        "core_abi_mismatch", "schema report ABI does not match binding ABI $binding_abi")
-    _lookup(report.build, :abi) == Int(binding_abi) || _park(
-        "core_abi_mismatch", "build report ABI does not match binding ABI $binding_abi")
-
-    build_features = _lookup(report.build, :features)
-    _object_like(build_features) || _park(
-        "schema_report_invalid", "build report has no features object")
-    for feature in REQUIRED_FEATURES
-        _lookup(build_features, Symbol(feature), false) === true || _park(
-            "required_feature_missing", "build report does not enable feature $feature")
-    end
-    bmopf = _lookup(report.schema, :bmopf_schema)
-    bmopf isa AbstractString && !isempty(bmopf) || _park(
-        "schema_report_invalid", "schema report has no BMOPF schema version")
-    foreign = _lookup(report.build, :foreign_schemas)
-    _object_like(foreign) || _park(
-        "schema_report_invalid", "build report has no foreign_schemas object")
-    _lookup(foreign, :bmopf) == bmopf || _park(
-        "schema_report_invalid", "schema and build reports disagree on BMOPF")
-    for key in (:error_categories, :diagnostic_namespaces, :json_classes)
-        _nonempty_collection(_lookup(report.build, key)) || _park(
-            "schema_report_invalid", "build report has no nonempty $key list")
-    end
+    report.gridfm_available || _park(
+        "required_feature_missing",
+        "the library does not parse the GridFM fixture; the gridfm feature is absent")
     return report
 end
 
@@ -192,22 +123,35 @@ function _host_triplet()
     return ""
 end
 
-function _owned_json(handle, symbol::Symbol)
-    ptr = ccall(Libdl.dlsym(handle, symbol), Cstring, ())
-    ptr == C_NULL && return nothing
-    text = unsafe_string(ptr)
-    ccall(Libdl.dlsym(handle, :pio_string_release), Cvoid, (Cstring,), ptr)
-    return _parse_report_json(text, symbol)
+# A borrowed (pointer, length) string, the return type of `pio_version`.
+struct _StringView
+    data::Ptr{UInt8}
+    len::Csize_t
 end
 
-function _parse_report_json(text::AbstractString, symbol::Symbol)
-    # Malformed report bytes are a runtime parse failure, not a semantic schema
-    # disagreement. They stay hard failures and never create a parked status.
-    try
-        return JSON3.read(text)
-    catch err
-        error("$symbol returned invalid JSON: $(sprint(showerror, err))")
+_string(v::_StringView) = (v.data == C_NULL || v.len == 0) ? "" : unsafe_string(v.data, Int(v.len))
+
+# Parse the GridFM fixture through the library under inspection; true when a
+# module comes back. Any error handle is released.
+function _parses_gridfm(handle)
+    path = GRIDFM_FIXTURE
+    err = Ref{Ptr{Cvoid}}(C_NULL)
+    source = ccall(Libdl.dlsym(handle, :pio_source_open), Ptr{Cvoid},
+                   (Ptr{UInt8}, Csize_t, Ref{Ptr{Cvoid}}), path, sizeof(path), err)
+    if source == C_NULL
+        err[] == C_NULL || ccall(Libdl.dlsym(handle, :pio_error_release), Cvoid, (Ptr{Cvoid},), err[])
+        return false
     end
+    format = "gridfm"
+    module_ptr = ccall(Libdl.dlsym(handle, :pio_parse), Ptr{Cvoid},
+                       (Ptr{Cvoid}, Ptr{UInt8}, Csize_t, Ref{Ptr{Cvoid}}), source, format, sizeof(format), err)
+    ccall(Libdl.dlsym(handle, :pio_source_release), Cvoid, (Ptr{Cvoid},), source)
+    if module_ptr == C_NULL
+        err[] == C_NULL || ccall(Libdl.dlsym(handle, :pio_error_release), Cvoid, (Ptr{Cvoid},), err[])
+        return false
+    end
+    ccall(Libdl.dlsym(handle, :pio_module_release), Cvoid, (Ptr{Cvoid},), module_ptr)
+    return true
 end
 
 function _inspect_library(unpack::AbstractString, triplet::AbstractString,
@@ -222,19 +166,9 @@ function _inspect_library(unpack::AbstractString, triplet::AbstractString,
         missing_core = setdiff(CORE_SYMBOLS, symbols)
         isempty(missing_core) || _park(
             "required_symbol_missing", "missing core symbol $(first(missing_core))")
-        version_ptr = ccall(Libdl.dlsym(handle, :pio_version), Cstring, ())
-        version_ptr == C_NULL && _park(
-            "schema_report_invalid", "pio_version returned null")
-        version = unsafe_string(version_ptr)
+        version = _string(ccall(Libdl.dlsym(handle, :pio_version), _StringView, ()))
         abi = ccall(Libdl.dlsym(handle, :pio_abi_version), UInt32, ())
-        features = Dict(feature =>
-            ccall(Libdl.dlsym(handle, :pio_has_feature), Cint,
-                  (Cstring,), feature) == 1 for feature in REQUIRED_FEATURES)
-        matrix_available = get(features, "matrix", false)
-        schema = _owned_json(handle, :pio_schema_versions_json)
-        build = _owned_json(handle, :pio_build_info)
-        report = CandidateReport(
-            version, abi, features, symbols, matrix_available, schema, build)
+        report = CandidateReport(version, abi, symbols, _parses_gridfm(handle))
         return validate_candidate(report, tag)
     finally
         Libdl.dlclose(handle)

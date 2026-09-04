@@ -1,101 +1,33 @@
 # API reference
 
-## The module
+Every exported name, grouped by source file. The guides link to these entries.
+
+## The package
 
 ```@docs
-PowerIO.PowerIO
+PowerIO
 ```
 
-## Modules and parsing
+## Parsing
 
-[`parse_file`](@ref), [`PioModule`](@ref), the diagnostic records, and the
-module operations are documented on [Modules](modules.md).
+```@docs
+Base.parse(::AbstractString)
+```
 
-## Networks, conversion, serialization
+## Display and identity
 
 ```@autodocs
 Modules = [PowerIO]
-Pages = ["network.jl"]
+Pages = ["display.jl", "handles.jl"]
 ```
 
-## Accessors
+## Everything else
 
-```@autodocs
-Modules = [PowerIO]
-Pages = ["accessors.jl"]
-```
+The remaining docstrings appear on their guide pages: [Modules](modules.md),
+[Networks](networks.md), [Distribution](distribution.md),
+[Collections and instances](collections.md), [Matrices](matrices.md),
+[Updates](updates.md), [Interop](interop.md), and
+[Binary distribution](binary.md).
 
-## Graph projections
-
-```@autodocs
-Modules = [PowerIO]
-Pages = ["graphs.jl"]
-```
-
-## Dense numeric extraction
-
-```@autodocs
-Modules = [PowerIO]
-Pages = ["dense.jl"]
-```
-
-## Matrices
-
-```@autodocs
-Modules = [PowerIO]
-Pages = ["matrix.jl"]
-```
-
-## Arrow export
-
-```@autodocs
-Modules = [PowerIO]
-Pages = ["arrow.jl"]
-```
-
-## PowerModels.jl bridge
-
-```@autodocs
-Modules = [PowerIO]
-Pages = ["powermodels.jl"]
-```
-
-## ExaModelsPower / PowerData bridge
-
-```@autodocs
-Modules = [PowerIO]
-Pages = ["exa.jl"]
-```
-
-## Distribution networks
-
-```@autodocs
-Modules = [PowerIO]
-Pages = ["dist.jl"]
-```
-
-## Modules and typed values
-
-[`parse_file`](@ref), [`PioModule`](@ref), the typed records, and the DC
-branch data surface are documented on [Modules](modules.md).
-
-## GridFM reader
-
-```@autodocs
-Modules = [PowerIO]
-Pages = ["gridfm.jl"]
-```
-
-## Feature probes
-
-```@autodocs
-Modules = [PowerIO]
-Pages = ["features.jl"]
-```
-
-## Library resolution and ABI
-
-```@autodocs
-Modules = [PowerIO]
-Pages = ["capi.jl"]
+```@index
 ```

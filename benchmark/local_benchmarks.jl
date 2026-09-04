@@ -1,5 +1,9 @@
+# Local timing of the binding against the powerio test cases in a sibling
+# checkout: parse, element access, dense tables, the admittance matrix, and the
+# multiconductor reader. Run with `julia --project=. benchmark/local_benchmarks.jl`
+# after building the C library.
+
 using BenchmarkTools
-using JSON3
 using Logging
 using PowerIO
 
@@ -8,92 +12,11 @@ const POWERIO_ROOT = normpath(joinpath(ROOT, "..", "powerio"))
 const BALANCED_CASE = joinpath(POWERIO_ROOT, "tests", "data", "case2869pegase.m")
 const DIST_CASE = joinpath(POWERIO_ROOT, "tests", "data", "dist", "opendss", "ieee13", "IEEE13Nodeckt.dss")
 
-const HAS_SERDE = try
-    @eval using Serde
-    true
-catch
-    false
-end
-
 const HAS_PMD = try
     @eval using PowerModelsDistribution
     true
 catch
     false
-end
-
-const MaybeFloat = Union{Nothing,Float64}
-
-if HAS_SERDE
-    struct BenchBus
-        id::Int
-        kind::String
-        vm::Float64
-        va::Float64
-        base_kv::Float64
-        vmax::Float64
-        vmin::Float64
-        area::Int
-        zone::Int
-    end
-
-    struct BenchBranch
-        from::Int
-        to::Int
-        r::Float64
-        x::Float64
-        b::Float64
-        rate_a::Float64
-        rate_b::Float64
-        rate_c::Float64
-        tap::Float64
-        shift::Float64
-        in_service::Bool
-        angmin::Float64
-        angmax::Float64
-    end
-
-    struct BenchGen
-        bus::Int
-        pg::Float64
-        qg::Float64
-        pmax::Float64
-        pmin::Float64
-        qmax::MaybeFloat
-        qmin::MaybeFloat
-        vg::Float64
-        mbase::Float64
-        in_service::Bool
-    end
-
-    struct BenchLoad
-        bus::Int
-        p::Float64
-        q::Float64
-        in_service::Bool
-    end
-
-    struct BenchShunt
-        bus::Int
-        g::Float64
-        b::Float64
-        in_service::Bool
-    end
-
-    struct BenchNetwork
-        name::String
-        base_mva::Float64
-        base_frequency::Float64
-        buses::Vector{BenchBus}
-        loads::Vector{BenchLoad}
-        shunts::Vector{BenchShunt}
-        branches::Vector{BenchBranch}
-        switches::Vector{Any}
-        generators::Vector{BenchGen}
-        storage::Vector{Any}
-        hvdc::Vector{Any}
-        source_format::String
-    end
 end
 
 function trial(label, bench)
@@ -104,11 +27,6 @@ function trial(label, bench)
             lpad(round(best.memory / 1024 / 1024; digits=3), 10), " MiB")
 end
 
-_name(net) = :name in propertynames(net) ? net.name : PowerIO.network_name(net)
-_source_format(net) = :source_format in propertynames(net) ? net.source_format : PowerIO.source_format(net)
-_base_mva(net) = :base_mva in propertynames(net) ? net.base_mva : PowerIO.base_mva(net)
-_base_frequency(net) = :base_frequency in propertynames(net) ? net.base_frequency : PowerIO.base_frequency(net)
-
 function main()
     println("PowerIO library: ", PowerIO._lib())
     println("PowerIO library version: ", PowerIO.library_version())
@@ -118,37 +36,25 @@ function main()
     println(rpad("benchmark", 44), lpad("time", 10), "      ",
             lpad("allocs", 10), "      ", lpad("memory", 10))
 
-    balanced = PowerIO.parse_file(BALANCED_CASE)
-    balanced_json = PowerIO.to_json(balanced)
-    dist = PowerIO.parse_file(PowerIO.MulticonductorNetwork, DIST_CASE)
+    balanced = parse(BALANCED_CASE).value
+    dist = parse(DIST_CASE).value
 
-    trial("balanced parse_file(case2869pegase)", @benchmarkable PowerIO.parse_file($BALANCED_CASE))
-    trial("balanced parse_file + net.data", @benchmarkable begin
-        net = PowerIO.parse_file($BALANCED_CASE)
-        net.data
+    trial("balanced parse(case2869pegase)", @benchmarkable parse($BALANCED_CASE))
+    trial("balanced collect(net.buses)", @benchmarkable collect($balanced.buses))
+    trial("balanced collect(net.branches)", @benchmarkable collect($balanced.branches))
+    trial("balanced counts + show", @benchmarkable begin
+        (length($balanced.buses), length($balanced.branches), $balanced.base_mva, sprint(show, $balanced))
     end)
-    trial("balanced metadata + show", @benchmarkable begin
-        net = PowerIO.parse_file($BALANCED_CASE)
-        (_name(net), _source_format(net), _base_mva(net), PowerIO.n_buses(net), sprint(show, net))
-    end)
-    trial("balanced calc_admittance_matrix(path)", @benchmarkable PowerIO.calc_admittance_matrix($BALANCED_CASE))
-    trial("balanced to_arrow(:bus)", @benchmarkable PowerIO.to_arrow($balanced, :bus))
-    trial("balanced to_arrow(:branch)", @benchmarkable PowerIO.to_arrow($balanced, :branch))
-    trial("JSON3.read balanced payload", @benchmarkable JSON3.read($balanced_json))
-    if HAS_SERDE
-        trial("Serde typed balanced payload", @benchmarkable Serde.deser_json(BenchNetwork, $balanced_json))
-    else
-        println(rpad("Serde typed balanced payload", 44), " skipped: Serde not loaded")
-    end
+    trial("balanced to_dense", @benchmarkable to_dense($balanced))
+    trial("balanced calc_admittance_matrix", @benchmarkable calc_admittance_matrix($balanced))
+    trial("balanced calc_bus_susceptance_matrix", @benchmarkable calc_bus_susceptance_matrix($balanced))
+    trial("balanced emit matpower", @benchmarkable emit(parse($BALANCED_CASE), "matpower"))
 
-    trial("multiconductor parse_file(ieee13)", @benchmarkable PowerIO.parse_file(PowerIO.MulticonductorNetwork, $DIST_CASE))
-    trial("multiconductor parse_file + net.data", @benchmarkable begin
-        net = PowerIO.parse_file(PowerIO.MulticonductorNetwork, $DIST_CASE)
-        net.data
-    end)
-    trial("multiconductor metadata + show", @benchmarkable begin
-        net = PowerIO.parse_file(PowerIO.MulticonductorNetwork, $DIST_CASE)
-        (_name(net), _source_format(net), _base_frequency(net), PowerIO.n_buses(net), sprint(show, net))
+    trial("multiconductor parse(ieee13)", @benchmarkable parse($DIST_CASE))
+    trial("multiconductor collect(net.lines)", @benchmarkable collect($dist.lines))
+    trial("multiconductor collect(net.linecodes)", @benchmarkable collect($dist.linecodes))
+    trial("multiconductor counts + show", @benchmarkable begin
+        (length($dist.buses), length($dist.lines), $dist.base_frequency, sprint(show, $dist))
     end)
 
     if HAS_PMD

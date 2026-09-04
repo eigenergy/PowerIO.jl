@@ -1,52 +1,42 @@
-# --- graph projections -----------------------------------------------------
+# Graph projections of both network types as plain Julia values.
 
 """
-    to_graph(net::BalancedNetwork)
+    to_graph(net::BalancedNetwork) -> NamedTuple
+    to_graph(net::MulticonductorNetwork) -> NamedTuple
 
-Return the bus and in-service branch graph projection as a JSON3 object.
-`buses` includes every bus in dense order with source bus ids preserved; `edges`
-are in-service branches, with parallel branches kept as separate edges.
+The bus graph of a network. `buses` lists every bus with its `id`, 1-based
+`index` in the bus table, and for balanced networks its `kind` and `name`.
+`edges` lists the connections that carry power: in-service branches for a
+balanced network; lines, closed switches, and transformer winding pairs for a
+multiconductor network. Each edge has a `kind`, its 1-based `index` in the
+source table, and `from` and `to` bus ids. Parallel elements stay separate
+edges.
 """
 function to_graph(net::BalancedNetwork)
-    buses_out = [(;
-        id = Int(b.id),
-        index = i - 1,
-        kind = String(b.kind),
-        name = (n = get(b, :name, nothing); n === nothing ? "" : String(n)),
-    ) for (i, b) in pairs(net.data.buses)]
-
-    edges_out = NamedTuple[]
-    for (i, br) in pairs(net.data.branches)
-        get(br, :in_service, true) || continue
-        push!(edges_out, (;
-            kind = "branch",
-            index = i - 1,
-            from = Int(br.from),
-            to = Int(br.to),
-        ))
-    end
-
-    return JSON3.read(JSON3.write((; buses = buses_out, edges = edges_out)))
+    buses = [(; id = b.id, index = k, kind = b.bus_type, name = something(b.name, ""))
+             for (k, b) in enumerate(net.buses)]
+    edges = [(; kind = "branch", index = k, from = br.from_bus_id, to = br.to_bus_id)
+             for (k, br) in enumerate(net.branches) if br.in_service]
+    return (; buses, edges)
 end
 
-"""
-    to_graph(net::MulticonductorNetwork)
-
-Return the collapsed bus and terminal graph projection as a JSON3 object.
-Needs a live handle from [`parse_file`](@ref) or [`parse_bytes`](@ref), and a
-library exporting `pio_multiconductor_network_graph_json`.
-"""
 function to_graph(net::MulticonductorNetwork)
-    h = _live_dist_handle(net, "to_graph")
-    lib = getfield(h, :lib)
-    _exports_symbol(:pio_multiconductor_network_graph_json, lib) || error(
-        "PowerIO.to_graph: the C ABI at \"$lib\" does not export " *
-        "pio_multiconductor_network_graph_json. Update the powerio-capi artifact or local library.")
-    s = GC.@preserve h _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_multiconductor_network_graph_json), Cstring,
-              (Ptr{Cvoid}, Ptr{Ptr{Cvoid}}), h.ptr, err)
+    buses = [(; id = b.id, index = k) for (k, b) in enumerate(net.buses)]
+    edges = NamedTuple{(:kind, :index, :from, :to),Tuple{String,Int,String,String}}[]
+    for (k, line) in enumerate(net.lines)
+        push!(edges, (; kind = "line", index = k, from = line.bus_from, to = line.bus_to))
     end
-    s == C_NULL && error("PowerIO.to_graph: the projection was refused")
-    text = _take_string(lib, s)
-    return JSON3.read(text)
+    for (k, sw) in enumerate(net.switches)
+        sw.open && continue
+        push!(edges, (; kind = "switch", index = k, from = sw.bus_from, to = sw.bus_to))
+    end
+    for (k, xf) in enumerate(net.transformers)
+        windings = xf.windings
+        for w in 2:length(windings)
+            push!(edges, (; kind = "transformer", index = k, from = windings[1].bus, to = windings[w].bus))
+        end
+    end
+    return (; buses, edges)
 end
+
+to_graph(m::PioModule{<:Union{BalancedNetwork,MulticonductorNetwork}}) = to_graph(m.value)

@@ -7,8 +7,9 @@ name: Benchmarks
 # skips and passes. The cdylib is stashed outside the workspace so it survives the
 # action's own checkouts.
 on:
+  # No branch filter: a stacked pull request must run this too, or a
+  # regression lands unmeasured on the branch its parent merges into.
   pull_request:
-    branches: [main]
 
 permissions:
   pull-requests: write

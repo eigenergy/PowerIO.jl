@@ -1,436 +1,834 @@
-# --- public API ---------------------------------------------------------
+# `BalancedNetwork`: properties over the network handle, element
+# collections, and the immutable element structs they produce.
+#
+# Every element struct repeats the C view's field names without the `has_*`
+# companions: an absent optional is `nothing`. Nested tables the C ABI exposes
+# through secondary `_at` calls (branch ratings, generator capabilities, shunt
+# blocks, transformer windings, route points) are materialized as fields.
+# Bus ids are source bus numbers. Loads, shunts, and generators are one row per
+# element and several rows can share a bus.
 
 """
-    BalancedNetwork
+    ComponentId(component_type, local_id)
 
-A parsed balanced transmission case. Values stay in raw MATPOWER units with
-1-based bus ids, mirroring `powerio`'s `BalancedNetwork`: buses, loads, shunts,
-branches, generators, storage, and hvdc tables plus `base_mva`, `name`, and
-`source_format`.
-
-A `BalancedNetwork` from [`parse_file`](@ref) keeps a live Rust
-[`BalancedNetworkHandle`](@ref) (`net.handle`) and leaves `net.data` empty until
-the first rich payload access. The first `net.data` access reads the materialized
-JSON payload through the C ABI and caches it. The `to_*` transforms ([`to_normalized`](@ref),
-[`to_dense`](@ref), [`to_matpower`](@ref), [`to_arrow`](@ref)) work from the live
-handle. The handle's finalizer frees the Rust case once the `BalancedNetwork` is
-unreachable. A `BalancedNetwork` constructed from a bare `JSON3.Object` has
-`handle === nothing`; table access and [`to_json`](@ref) work on it, while
-handle-only transforms error.
-
-Because `data` is lazy, explicitly calling `finalize(net.handle)` before the first
-`net.data` access leaves nothing to read: the data-backed accessors (`net.data`,
-`n_buses`, `show`, `to_json`) then raise a "handle was finalized" error. Access the
-values you need before finalizing the handle; letting the finalizer run at GC is the
-normal path and never hits this.
+Stable identity of one component: its structural type (`"bus"`, `"load"`,
+`"generator"`, `"branch"`, `"switch"`, ...) and its local identity. An
+element's `component_id` field is the local identity, so
+`ComponentId("load", load.component_id)` names that load in an update.
 """
-mutable struct BalancedNetwork
-    data::Union{JSON3.Object,Nothing}
-    handle::Union{BalancedNetworkHandle,Nothing}
-    summary::Union{JSON3.Object,Nothing}
-end
-BalancedNetwork(data::JSON3.Object) = BalancedNetwork(data, nothing, nothing)
-BalancedNetwork(h::BalancedNetworkHandle) = BalancedNetwork(nothing, h, nothing)
-BalancedNetwork(data::Union{JSON3.Object,Nothing}, handle::Union{BalancedNetworkHandle,Nothing}) =
-    BalancedNetwork(data, handle, nothing)
-
-function _materialized_data(net::BalancedNetwork)
-    data = getfield(net, :data)
-    data !== nothing && return data
-    h = _live_handle(net, "data")
-    data = JSON3.read(_to_json(h))
-    setfield!(net, :data, data)
-    return data
+struct ComponentId
+    component_type::String
+    local_id::String
 end
 
-"""
-    warnings(net::BalancedNetwork) -> Vector{String}
+_component_id(v::PioComponentIdView) = ComponentId(_str(v.component_type), _str(v.local_id))
 
-The reader's findings as rendered `CODE: message` lines, the convenience
-twin of the typed records on [`diagnostics`](@ref). Needs a live handle.
 """
-function warnings(net::BalancedNetwork)
-    h = _live_handle(net, "warnings")
-    return String[string(d.code, ": ", d.message) for d in _handle_diagnostics(h)]
+    TerminalReference(equipment, terminal)
+
+A numbered terminal of one piece of equipment.
+"""
+struct TerminalReference
+    equipment::ComponentId
+    terminal::Int
 end
+
+_terminal_reference(v::PioTerminalReferenceView, present::Bool) =
+    present ? TerminalReference(_component_id(v.equipment), Int(v.terminal)) : nothing
+
+"""
+    Location(x, y, kind)
+
+One point in the network coordinate space. `kind` names the point kind when
+the source states one.
+"""
+struct Location
+    x::Float64
+    y::Float64
+    kind::Union{String,Nothing}
+end
+
+_location(v::Union{PioBalancedLocationView,PioMulticonductorLocationView}, present::Bool) =
+    present ? Location(v.x, v.y, _optional_str(v.kind, v.has_kind)) : nothing
+
+"""
+    Geo
+
+Coordinate metadata of a network: the coordinate `space`, its `crs` and
+`kind` when stated, and the canvas size (`canvas_width`, `canvas_height`,
+`canvas_units`) for display coordinates.
+"""
+struct Geo
+    space::String
+    crs::Union{String,Nothing}
+    kind::Union{String,Nothing}
+    canvas_width::Union{Float64,Nothing}
+    canvas_height::Union{Float64,Nothing}
+    canvas_units::Union{String,Nothing}
+end
+
+function _geo(v::Union{PioBalancedGeoView,PioMulticonductorGeoView})
+    v.has_geo || return nothing
+    return Geo(_str(v.space), _optional_str(v.crs, v.has_crs), _optional_str(v.kind, v.has_kind),
+               _optional(v.canvas_width, v.has_canvas && v.has_canvas_width),
+               _optional(v.canvas_height, v.has_canvas && v.has_canvas_height),
+               _optional_str(v.canvas_units, v.has_canvas && v.has_canvas_units))
+end
+
+# --- element structs ------------------------------------------------------
+
+"""
+    Bus
+
+One balanced bus. `id` is the source bus number; `bus_type` is `"PQ"`, `"PV"`,
+`"REF"`, or `"ISOLATED"`; voltages are per unit and degrees.
+"""
+struct Bus
+    id::Int
+    component_id::Union{String,Nothing}
+    bus_type::String
+    vm_pu::Float64
+    va_degrees::Float64
+    base_kv::Float64
+    vmax_pu::Float64
+    vmin_pu::Float64
+    emergency_vmax_pu::Union{Float64,Nothing}
+    emergency_vmin_pu::Union{Float64,Nothing}
+    area::Int
+    zone::Int
+    name::Union{String,Nothing}
+    location::Union{Location,Nothing}
+end
+
+"""
+    LoadVoltageModel
+
+Voltage dependence of one load: `kind` names the model; the constant power,
+constant current, and constant impedance shares and the exponential terms
+follow the C view field for field.
+"""
+struct LoadVoltageModel
+    kind::String
+    p_constant_power_mw::Float64
+    q_constant_power_mvar::Float64
+    p_constant_current_mw::Float64
+    q_constant_current_mvar::Float64
+    p_constant_impedance_mw::Float64
+    q_constant_impedance_mvar::Float64
+    exponential_p_mw::Float64
+    exponential_q_mvar::Float64
+    gamma_p::Float64
+    gamma_q::Float64
+    nominal_voltage_pu::Union{Float64,Nothing}
+    load_type::Union{Int,Nothing}
+    scaling::Union{Float64,Nothing}
+end
+
+"""
+    Load
+
+One balanced load at `bus_id`: `p_mw`, `q_mvar`, `in_service`, and its
+`voltage_model`.
+"""
+struct Load
+    component_id::Union{String,Nothing}
+    bus_id::Int
+    p_mw::Float64
+    q_mvar::Float64
+    in_service::Bool
+    voltage_model::LoadVoltageModel
+end
+
+"""
+    ShuntBlock(steps, conductance_mw, susceptance_mvar)
+
+One block of a switched shunt.
+"""
+struct ShuntBlock
+    steps::Int
+    conductance_mw::Float64
+    susceptance_mvar::Float64
+end
+
+"""
+    ShuntControl
+
+Switched shunt control: `mode`, the voltage band `vmax_pu` and `vmin_pu`, the
+controlled `bus_id` when it differs from the shunt's bus, the reactive range
+percent, and the switchable `blocks`.
+"""
+struct ShuntControl
+    mode::String
+    vmax_pu::Float64
+    vmin_pu::Float64
+    bus_id::Union{Int,Nothing}
+    reactive_range_percent::Float64
+    blocks::Vector{ShuntBlock}
+end
+
+"""
+    Shunt
+
+One balanced shunt at `bus_id`: `conductance_mw` and `susceptance_mvar` at
+nominal voltage, `in_service`, the `section_count` when stated, and the
+switched shunt `control` when present.
+"""
+struct Shunt
+    component_id::Union{String,Nothing}
+    bus_id::Int
+    conductance_mw::Float64
+    susceptance_mvar::Float64
+    in_service::Bool
+    section_count::Union{Int,Nothing}
+    control::Union{ShuntControl,Nothing}
+end
+
+"""
+    StaticVarCompensator
+
+One balanced static VAR compensator.
+"""
+struct StaticVarCompensator
+    component_id::Union{String,Nothing}
+    bus_id::Int
+    minimum_susceptance_siemens::Float64
+    maximum_susceptance_siemens::Float64
+    voltage_setpoint_kv::Float64
+    reactive_power_setpoint_mvar::Float64
+    regulation_mode::String
+    regulating::Bool
+    regulating_terminal::Union{TerminalReference,Nothing}
+    active_power_mw::Float64
+    reactive_power_mvar::Float64
+    in_service::Bool
+end
+
+"""
+    TransformerControl
+
+Automatic tap or phase control of a transformer branch or winding.
+"""
+struct TransformerControl
+    mode::String
+    enabled::Bool
+    controlled_bus_id::Union{Int,Nothing}
+    controlled_bus_on_winding_side::Bool
+    regulating_terminal::Union{TerminalReference,Nothing}
+    tap_min::Float64
+    tap_max::Float64
+    band_min::Float64
+    band_max::Float64
+    tap_position_count::Int
+    mva_base::Float64
+    winding_connection_angle::Union{Float64,Nothing}
+end
+
+function _transformer_control(v::PioTransformerControlView, present::Bool)
+    present || return nothing
+    return TransformerControl(_str(v.mode), v.enabled,
+                              _optional(Int(v.controlled_bus_id), v.has_controlled_bus),
+                              v.controlled_bus_on_winding_side,
+                              _terminal_reference(v.regulating_terminal, v.has_regulating_terminal),
+                              v.tap_min, v.tap_max, v.band_min, v.band_max,
+                              Int(v.tap_position_count), v.mva_base,
+                              _optional(v.winding_connection_angle, v.has_winding_connection_angle))
+end
+
+"""
+    BranchRating(name, rate_mva)
+
+One named MVA rating of a branch beyond ratings A, B, and C.
+"""
+struct BranchRating
+    name::String
+    rate_mva::Float64
+end
+
+"""
+    Branch
+
+One balanced branch or two winding transformer between `from_bus_id` and
+`to_bus_id`. Impedances and charging are per unit on the system base;
+`total_charging_susceptance_pu` is the whole line charging and the four
+terminal terms give its split; `tap_ratio` is the source value (0 means 1) and
+`effective_tap_ratio` the value in effect; `phase_shift_degrees`, the angle
+limits, ratings A, B, C in MVA, further named `ratings`, optional
+`current_ratings` (A, B, C in amperes), the transformer `control`, and the
+geographic `route`.
+"""
+struct Branch
+    component_id::Union{String,Nothing}
+    name::Union{String,Nothing}
+    from_bus_id::Int
+    to_bus_id::Int
+    resistance_pu::Float64
+    reactance_pu::Float64
+    total_charging_susceptance_pu::Float64
+    terminal_charging_is_explicit::Bool
+    from_conductance_pu::Float64
+    from_susceptance_pu::Float64
+    to_conductance_pu::Float64
+    to_susceptance_pu::Float64
+    rate_a_mva::Float64
+    rate_b_mva::Float64
+    rate_c_mva::Float64
+    ratings::Vector{BranchRating}
+    current_ratings::Union{NTuple{3,Float64},Nothing}
+    tap_ratio::Float64
+    effective_tap_ratio::Float64
+    phase_shift_degrees::Float64
+    in_service::Bool
+    angle_min_degrees::Float64
+    angle_max_degrees::Float64
+    control::Union{TransformerControl,Nothing}
+    route::Union{Vector{Location},Nothing}
+end
+
+"""
+    GeneratorCost
+
+One MATPOWER style cost curve: `model` (1 piecewise linear, 2 polynomial),
+`startup` and `shutdown` costs, `ncost`, and the `coefficients`.
+"""
+struct GeneratorCost
+    model::Int
+    startup::Float64
+    shutdown::Float64
+    ncost::Int
+    coefficients::Vector{Float64}
+end
+
+_generator_cost(v::PioGeneratorCostView, present::Bool) =
+    present ? GeneratorCost(Int(v.model), v.startup, v.shutdown, Int(v.ncost), _f64s(v.coefficients)) : nothing
+
+"""
+    ActivePowerControl
+
+Governor and distributed slack settings of a generator or storage element.
+"""
+struct ActivePowerControl
+    participate::Bool
+    droop_percent::Union{Float64,Nothing}
+    participation_factor::Union{Float64,Nothing}
+    minimum_target_active_power_mw::Union{Float64,Nothing}
+    maximum_target_active_power_mw::Union{Float64,Nothing}
+end
+
+function _active_power_control(v::PioActivePowerControlView, present::Bool)
+    present || return nothing
+    return ActivePowerControl(v.participate,
+                              _optional(v.droop_percent, v.has_droop_percent),
+                              _optional(v.participation_factor, v.has_participation_factor),
+                              _optional(v.minimum_target_active_power_mw, v.has_minimum_target_active_power),
+                              _optional(v.maximum_target_active_power_mw, v.has_maximum_target_active_power))
+end
+
+"""
+    GeneratorCapability(name, value)
+
+One optional generator capability or ramp field; `value` is `nothing` when
+the source leaves it unset.
+"""
+struct GeneratorCapability
+    name::String
+    value::Union{Float64,Nothing}
+end
+
+"""
+    Generator
+
+One balanced generator at `bus_id`: dispatch, limits, voltage setpoint,
+machine base, service status, `cost`, the `regulated_bus_id` when it differs
+from the connection bus, `capabilities`, `active_power_control`, and the
+voltage regulation state.
+"""
+struct Generator
+    component_id::Union{String,Nothing}
+    bus_id::Int
+    energy_source::String
+    active_power_mw::Float64
+    reactive_power_mvar::Float64
+    active_power_max_mw::Float64
+    active_power_min_mw::Float64
+    reactive_power_max_mvar::Float64
+    reactive_power_min_mvar::Float64
+    voltage_setpoint_pu::Float64
+    machine_base_mva::Float64
+    in_service::Bool
+    cost::Union{GeneratorCost,Nothing}
+    regulated_bus_id::Union{Int,Nothing}
+    capabilities::Vector{GeneratorCapability}
+    active_power_control::Union{ActivePowerControl,Nothing}
+    voltage_regulation_on::Bool
+    regulating_terminal::Union{TerminalReference,Nothing}
+end
+
+"""
+    Storage
+
+One balanced storage element at `bus_id`.
+"""
+struct Storage
+    component_id::Union{String,Nothing}
+    bus_id::Int
+    active_power_mw::Float64
+    reactive_power_mvar::Float64
+    energy_mwh::Float64
+    energy_rating_mwh::Float64
+    charge_rating_mw::Float64
+    discharge_rating_mw::Float64
+    charge_efficiency::Float64
+    discharge_efficiency::Float64
+    thermal_rating_mva::Float64
+    current_rating::Union{Float64,Nothing}
+    reactive_power_min_mvar::Float64
+    reactive_power_max_mvar::Float64
+    resistance_pu::Float64
+    reactance_pu::Float64
+    active_power_loss_mw::Float64
+    reactive_power_loss_mvar::Float64
+    in_service::Bool
+    active_power_control::Union{ActivePowerControl,Nothing}
+end
+
+"""
+    Switch
+
+One balanced transmission switch between `from_bus_id` and `to_bus_id`.
+"""
+struct Switch
+    component_id::Union{String,Nothing}
+    from_bus_id::Int
+    to_bus_id::Int
+    closed::Bool
+    thermal_rating_mva::Union{Float64,Nothing}
+    current_rating_a::Union{Float64,Nothing}
+    from_active_power_mw::Union{Float64,Nothing}
+    from_reactive_power_mvar::Union{Float64,Nothing}
+    to_active_power_mw::Union{Float64,Nothing}
+    to_reactive_power_mvar::Union{Float64,Nothing}
+end
+
+"""
+    HvdcConverter
+
+One AC terminal converter station of an HVDC line.
+"""
+struct HvdcConverter
+    component::ComponentId
+    kind::String
+    loss_factor_percent::Float64
+    voltage_regulator_on::Union{Bool,Nothing}
+    voltage_setpoint_kv::Union{Float64,Nothing}
+    reactive_power_setpoint_mvar::Union{Float64,Nothing}
+    power_factor::Union{Float64,Nothing}
+    regulating_terminal::Union{TerminalReference,Nothing}
+end
+
+function _hvdc_converter(v::PioBalancedHvdcConverterView, present::Bool)
+    present || return nothing
+    return HvdcConverter(_component_id(v.component), _str(v.kind), v.loss_factor_percent,
+                         _optional(v.voltage_regulator_on, v.has_voltage_regulator_on),
+                         _optional(v.voltage_setpoint_kv, v.has_voltage_setpoint),
+                         _optional(v.reactive_power_setpoint_mvar, v.has_reactive_power_setpoint),
+                         _optional(v.power_factor, v.has_power_factor),
+                         _terminal_reference(v.regulating_terminal, v.has_regulating_terminal))
+end
+
+"""
+    Hvdc
+
+One balanced two terminal HVDC line.
+"""
+struct Hvdc
+    component_id::Union{String,Nothing}
+    from_bus_id::Int
+    to_bus_id::Int
+    in_service::Bool
+    from_active_power_mw::Float64
+    to_active_power_mw::Float64
+    from_reactive_power_mvar::Float64
+    to_reactive_power_mvar::Float64
+    from_voltage_pu::Float64
+    to_voltage_pu::Float64
+    minimum_active_power_mw::Float64
+    maximum_active_power_mw::Float64
+    minimum_from_reactive_power_mvar::Float64
+    maximum_from_reactive_power_mvar::Float64
+    minimum_to_reactive_power_mvar::Float64
+    maximum_to_reactive_power_mvar::Float64
+    constant_loss_mw::Float64
+    proportional_loss::Float64
+    resistance_ohm::Union{Float64,Nothing}
+    nominal_voltage_kv::Union{Float64,Nothing}
+    converters_mode::Union{String,Nothing}
+    converter1::Union{HvdcConverter,Nothing}
+    converter2::Union{HvdcConverter,Nothing}
+    cost::Union{GeneratorCost,Nothing}
+end
+
+"""
+    TransformerWinding
+
+One winding of a three winding transformer.
+"""
+struct TransformerWinding
+    bus_id::Int
+    tap_ratio::Float64
+    phase_shift_degrees::Float64
+    nominal_voltage_kv::Float64
+    rating_a_mva::Float64
+    rating_b_mva::Float64
+    rating_c_mva::Float64
+    control::Union{TransformerControl,Nothing}
+end
+
+"""
+    TransformerImpedance(resistance_pu, reactance_pu, base_mva)
+
+One pairwise impedance of a three winding transformer.
+"""
+struct TransformerImpedance
+    resistance_pu::Float64
+    reactance_pu::Float64
+    base_mva::Float64
+end
+
+"""
+    ThreeWindingTransformer
+
+One balanced three winding transformer: its `windings`, pairwise
+`impedances`, star point voltage, magnetizing branch, and service status.
+"""
+struct ThreeWindingTransformer
+    component_id::Union{String,Nothing}
+    name::Union{String,Nothing}
+    windings::Vector{TransformerWinding}
+    impedances::Vector{TransformerImpedance}
+    star_voltage_magnitude_pu::Float64
+    star_voltage_angle_degrees::Float64
+    magnetizing_conductance_pu::Float64
+    magnetizing_susceptance_pu::Float64
+    in_service::Bool
+end
+
+"""
+    Area
+
+One balanced control area.
+"""
+struct Area
+    number::Int
+    slack_bus_id::Union{Int,Nothing}
+    net_interchange_mw::Float64
+    tolerance_mw::Float64
+    name::Union{String,Nothing}
+    component_id::Union{String,Nothing}
+    area_type::Union{String,Nothing}
+end
+
+"""
+    DetailedConnectivity
+
+Source neutral detailed connectivity retained from node breaker formats such
+as XIIDM and CGMES. `dc.counts` is a `NamedTuple` of table lengths. The typed
+tables are not bound in this release.
+"""
+struct DetailedConnectivity
+    handle::DetailedConnectivityHandle
+end
+
+function Base.getproperty(dc::DetailedConnectivity, name::Symbol)
+    name === :counts || return getfield(dc, name)
+    h = getfield(dc, :handle)
+    lib = getfield(h, :lib)
+    v = GC.@preserve h _fill(PioDetailedConnectivityCountsView, lib) do out, err
+        ccall(_library_symbol(lib, :pio_detailed_connectivity_counts), Bool,
+              (Ptr{Cvoid}, Ref{PioDetailedConnectivityCountsView}, Ref{Ptr{Cvoid}}), _ptr(h), out, err)
+    end
+    names = fieldnames(PioDetailedConnectivityCountsView)
+    return NamedTuple{names}(map(f -> Int(getfield(v, f)), names))
+end
+
+Base.propertynames(::DetailedConnectivity, private::Bool=false) = private ? (:counts, :handle) : (:counts,)
+
+# --- element collections ----------------------------------------------------
+
+"""
+    Elements{T} <: AbstractVector{T}
+
+The elements of one network table. `length`, 1-based indexing, iteration,
+`filter`, `collect`, and broadcasting all work; each index fills one C view and
+converts it to an immutable element struct.
+"""
+struct Elements{T,N} <: AbstractVector{T}
+    network::N
+    count::Int
+end
+
+Base.size(v::Elements) = (v.count,)
+Base.IndexStyle(::Type{<:Elements}) = IndexLinear()
+function Base.getindex(v::Elements{T}, i::Int) where {T}
+    @boundscheck checkbounds(v, i)
+    return _element(T, v.network, i - 1)
+end
+Base.summary(io::IO, v::Elements{T}) where {T} = print(io, length(v), "-element Elements{", T, "}")
+
+# One typed view fill. `sym` names the `_at` entry point, `p` the network
+# pointer, and the indices are zero based.
+function _at(::Type{V}, sym::Symbol, lib, p::Ptr{Cvoid}, i::Integer) where {V}
+    return _fill(V, lib) do out, err
+        ccall(_library_symbol(lib, sym), Bool,
+              (Ptr{Cvoid}, Csize_t, Ref{V}, Ref{Ptr{Cvoid}}), p, Csize_t(i), out, err)
+    end
+end
+function _at(::Type{V}, sym::Symbol, lib, p::Ptr{Cvoid}, i::Integer, j::Integer) where {V}
+    return _fill(V, lib) do out, err
+        ccall(_library_symbol(lib, sym), Bool,
+              (Ptr{Cvoid}, Csize_t, Csize_t, Ref{V}, Ref{Ptr{Cvoid}}), p, Csize_t(i), Csize_t(j), out, err)
+    end
+end
+function _at(::Type{V}, sym::Symbol, lib, p::Ptr{Cvoid}, i::Integer, j::Integer, k::Integer) where {V}
+    return _fill(V, lib) do out, err
+        ccall(_library_symbol(lib, sym), Bool,
+              (Ptr{Cvoid}, Csize_t, Csize_t, Csize_t, Ref{V}, Ref{Ptr{Cvoid}}),
+              p, Csize_t(i), Csize_t(j), Csize_t(k), out, err)
+    end
+end
+
+_count(sym::Symbol, lib, p::Ptr{Cvoid}) =
+    Int(ccall(_library_symbol(lib, sym), Csize_t, (Ptr{Cvoid},), p))
+
+# --- BalancedNetwork properties ----------------------------------------------
+
+const _BALANCED_TABLES = (
+    buses = (Bus, :pio_balanced_network_bus_count),
+    branches = (Branch, :pio_balanced_network_branch_count),
+    generators = (Generator, :pio_balanced_network_generator_count),
+    loads = (Load, :pio_balanced_network_load_count),
+    shunts = (Shunt, :pio_balanced_network_shunt_count),
+    static_var_compensators = (StaticVarCompensator, :pio_balanced_network_static_var_compensator_count),
+    storage = (Storage, :pio_balanced_network_storage_count),
+    switches = (Switch, :pio_balanced_network_switch_count),
+    hvdc = (Hvdc, :pio_balanced_network_hvdc_count),
+    transformers_3w = (ThreeWindingTransformer, :pio_balanced_network_three_winding_transformer_count),
+    areas = (Area, :pio_balanced_network_area_count),
+)
+
+const _BALANCED_SCALARS = (:name, :base_mva, :base_frequency, :geo, :detailed_connectivity)
 
 function Base.getproperty(net::BalancedNetwork, name::Symbol)
-    name === :data && return _materialized_data(net)
-    name === :name && return network_name(net)
-    name === :source_format && return source_format(net)
-    name === :warnings && return warnings(net)
-    name === :base_mva && return base_mva(net)
-    name === :base_frequency && return base_frequency(net)
-    name === :buses && return buses(net)
-    name === :branches && return branches(net)
-    name === :generators && return generators(net)
-    name === :loads && return loads(net)
-    name === :shunts && return shunts(net)
-    name === :storage && return storage(net)
-    name === :hvdc && return hvdc(net)
-    name === :switches && return net.data.switches
-    name === :transformers_3w && return net.data.transformers_3w
-    name === :areas && return net.data.areas
+    h = getfield(net, :handle)
+    lib = getfield(h, :lib)
+    if haskey(_BALANCED_TABLES, name)
+        T, count_sym = _BALANCED_TABLES[name]
+        n = GC.@preserve h _count(count_sym, lib, _ptr(h))
+        return Elements{T,BalancedNetwork}(net, n)
+    elseif name === :name
+        return GC.@preserve h _str(ccall(_library_symbol(lib, :pio_balanced_network_name), PioStringView,
+                                         (Ptr{Cvoid},), _ptr(h)))
+    elseif name === :base_mva
+        return GC.@preserve h ccall(_library_symbol(lib, :pio_balanced_network_base_mva), Float64,
+                                    (Ptr{Cvoid},), _ptr(h))
+    elseif name === :base_frequency
+        return GC.@preserve h ccall(_library_symbol(lib, :pio_balanced_network_base_frequency_hz), Float64,
+                                    (Ptr{Cvoid},), _ptr(h))
+    elseif name === :geo
+        v = GC.@preserve h _fill(PioBalancedGeoView, lib) do out, err
+            ccall(_library_symbol(lib, :pio_balanced_network_geo), Bool,
+                  (Ptr{Cvoid}, Ref{PioBalancedGeoView}, Ref{Ptr{Cvoid}}), _ptr(h), out, err)
+        end
+        return _geo(v)
+    elseif name === :detailed_connectivity
+        return GC.@preserve h begin
+            has = ccall(_library_symbol(lib, :pio_balanced_network_has_detailed_connectivity), Bool,
+                        (Ptr{Cvoid},), _ptr(h))
+            has || return nothing
+            ptr = ccall(_library_symbol(lib, :pio_balanced_network_detailed_connectivity), Ptr{Cvoid},
+                        (Ptr{Cvoid},), _ptr(h))
+            ptr == C_NULL ? nothing : DetailedConnectivity(DetailedConnectivityHandle(ptr, lib))
+        end
+    end
     return getfield(net, name)
 end
 
-function Base.propertynames(::BalancedNetwork, private::Bool=false)
-    public = (:name, :source_format, :warnings, :base_mva, :base_frequency, :buses,
-              :branches, :generators, :loads, :shunts, :storage, :hvdc,
-              :switches, :transformers_3w, :areas, :data)
-    return private ? (public..., :handle, :summary) : public
+Base.propertynames(::BalancedNetwork, private::Bool=false) =
+    private ? (_BALANCED_SCALARS..., keys(_BALANCED_TABLES)..., :handle, :owner) :
+              (_BALANCED_SCALARS..., keys(_BALANCED_TABLES)...)
+
+_lib_of(net::BalancedNetwork) = getfield(getfield(net, :handle), :lib)
+
+# --- element conversions -----------------------------------------------------
+
+# Run `f(lib, p)` with the network pointer preserved for the duration.
+function _with_network(f, net::BalancedNetwork)
+    h = getfield(net, :handle)
+    return GC.@preserve h f(getfield(h, :lib), _ptr(h))
 end
 
-function _balanced_summary_json(h::BalancedNetworkHandle)
-    lib = getfield(h, :lib)
-    text = GC.@preserve h begin
-        raw = _v6_call(lib) do err
-            ccall(_library_symbol(lib, :pio_balanced_network_summary_json), Cstring,
-                  (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), h.ptr, err)
+_element(::Type{Bus}, net::BalancedNetwork, i) = _with_network(net) do lib, p
+    v = _at(PioBalancedBusView, :pio_balanced_network_bus_at, lib, p, i)
+    Bus(Int(v.id), _optional_str(v.component_id, v.has_component_id), _str(v.bus_type),
+        v.vm_pu, v.va_degrees, v.base_kv, v.vmax_pu, v.vmin_pu,
+        _optional(v.emergency_vmax_pu, v.has_emergency_voltage_limits),
+        _optional(v.emergency_vmin_pu, v.has_emergency_voltage_limits),
+        Int(v.area), Int(v.zone), _optional_str(v.name, v.has_name),
+        _location(v.location, v.has_location))
+end
+
+_element(::Type{Load}, net::BalancedNetwork, i) = _with_network(net) do lib, p
+    v = _at(PioBalancedLoadView, :pio_balanced_network_load_at, lib, p, i)
+    m = v.voltage_model
+    model = LoadVoltageModel(_str(m.kind), m.p_constant_power_mw, m.q_constant_power_mvar,
+                             m.p_constant_current_mw, m.q_constant_current_mvar,
+                             m.p_constant_impedance_mw, m.q_constant_impedance_mvar,
+                             m.exponential_p_mw, m.exponential_q_mvar, m.gamma_p, m.gamma_q,
+                             _optional(m.nominal_voltage_pu, m.has_nominal_voltage),
+                             _optional(Int(m.load_type), m.has_load_type),
+                             _optional(m.scaling, m.has_scaling))
+    Load(_optional_str(v.component_id, v.has_component_id), Int(v.bus_id), v.p_mw, v.q_mvar,
+         v.in_service, model)
+end
+
+_element(::Type{Shunt}, net::BalancedNetwork, i) = _with_network(net) do lib, p
+    v = _at(PioBalancedShuntView, :pio_balanced_network_shunt_at, lib, p, i)
+    control = if v.has_control
+        blocks = map(0:Int(v.control_block_count)-1) do j
+            b = _at(PioShuntBlockView, :pio_balanced_network_shunt_block_at, lib, p, i, j)
+            ShuntBlock(Int(b.steps), b.conductance_mw, b.susceptance_mvar)
         end
-        _take_string(lib, raw)
-    end
-    return JSON3.read(text)
-end
-
-_payload_value(data::JSON3.Object, key::Symbol, default) =
-    haskey(data, key) ? getproperty(data, key) : default
-
-# Model JSON written before powerio 0.9 spells `source_format` as the bare Rust
-# variant name; 0.9 writes the same lowercase token every `from` accepts. Read
-# both, report the token.
-const _LEGACY_SOURCE_FORMATS = Dict(
-    "Matpower" => "matpower",
-    "PowerModelsJson" => "powermodels-json",
-    "EgretJson" => "egret-json",
-    "Psse" => "psse",
-    "PowerWorld" => "powerworld",
-    "PandapowerJson" => "pandapower-json",
-    "Pslf" => "pslf",
-    "PowerWorldBinary" => "powerworld-pwb",
-    "InMemory" => "in-memory",
-    "Normalized" => "normalized",
-    "Gridfm" => "gridfm",
-    "PypsaCsv" => "pypsa-csv",
-    "Goc3Json" => "goc3-json",
-    "SurgeJson" => "surge-json",
-    "DeepMindOpfDataJson" => "opfdata-json",
-)
-
-_source_format_token(value) =
-    value isa AbstractString ? get(_LEGACY_SOURCE_FORMATS, String(value), String(value)) : value
-
-# A missing key and an explicit JSON `null` both count as zero, so a summary
-# never throws on a document an accessor tolerates.
-function _payload_len(data::JSON3.Object, key::Symbol)
-    value = _payload_value(data, key, nothing)
-    return value === nothing ? 0 : length(value)
-end
-
-function _summary_from_data(data::JSON3.Object, ::Type{BalancedNetwork})
-    reference_ids = Int[]
-    for bus in _payload_value(data, :buses, ())
-        _payload_value(bus, :kind, nothing) == "REF" && push!(reference_ids, Int(bus.id))
-    end
-    counts = (;
-        buses = _payload_len(data, :buses),
-        loads = _payload_len(data, :loads),
-        shunts = _payload_len(data, :shunts),
-        branches = _payload_len(data, :branches),
-        switches = _payload_len(data, :switches),
-        generators = _payload_len(data, :generators),
-        storage = _payload_len(data, :storage),
-        hvdc = _payload_len(data, :hvdc),
-        transformers_3w = _payload_len(data, :transformers_3w),
-        areas = _payload_len(data, :areas),
-        warnings = _payload_len(data, :warnings),
-    )
-    return JSON3.read(JSON3.write((;
-        powerio_version = something(schema_versions().powerio_version, ""),
-        name = _payload_value(data, :name, ""),
-        source_format = _source_format_token(_payload_value(data, :source_format, "in-memory")),
-        base_mva = _payload_value(data, :base_mva, 0.0),
-        base_frequency = _payload_value(data, :base_frequency, 60.0),
-        counts,
-        topology = (;
-            reference_bus_ids = reference_ids,
-            reference_bus_indices = nothing,
-            n_components = nothing,
-            is_radial = nothing,
-        ),
-    )))
-end
-
-function _summary(net::BalancedNetwork)
-    summary = getfield(net, :summary)
-    summary !== nothing && return summary
-    h = getfield(net, :handle)
-    if h !== nothing && h.ptr != C_NULL
-        summary = _balanced_summary_json(h)
+        ShuntControl(_str(v.control_mode), v.control_vmax_pu, v.control_vmin_pu,
+                     _optional(Int(v.control_bus_id), v.has_control_bus),
+                     v.control_reactive_range_percent, blocks)
     else
-        summary = _summary_from_data(net.data, BalancedNetwork)
+        nothing
     end
-    setfield!(net, :summary, summary)
-    return summary
+    Shunt(_optional_str(v.component_id, v.has_component_id), Int(v.bus_id),
+          v.conductance_mw, v.susceptance_mvar, v.in_service,
+          _optional(Int(v.section_count), v.has_section_count), control)
 end
 
+_element(::Type{StaticVarCompensator}, net::BalancedNetwork, i) = _with_network(net) do lib, p
+    v = _at(PioBalancedStaticVarCompensatorView, :pio_balanced_network_static_var_compensator_at, lib, p, i)
+    StaticVarCompensator(_optional_str(v.component_id, v.has_component_id), Int(v.bus_id),
+                         v.minimum_susceptance_siemens, v.maximum_susceptance_siemens,
+                         v.voltage_setpoint_kv, v.reactive_power_setpoint_mvar,
+                         _str(v.regulation_mode), v.regulating,
+                         _terminal_reference(v.regulating_terminal, v.has_regulating_terminal),
+                         v.active_power_mw, v.reactive_power_mvar, v.in_service)
+end
 
-
-"""
-    from_json(text) -> BalancedNetwork
-
-Rebuild a live [`BalancedNetwork`](@ref) from the JSON transport produced by
-[`to_json`](@ref). The result has a Rust handle, so `to_*` transforms work on it.
-"""
-function from_json(text::AbstractString)
-    lib = _lib()
-    _ensure_compatible(lib)
-    _network_free_fn(lib)
-    ptr = _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_balanced_network_from_json), Ptr{Cvoid},
-              (Cstring, Ref{Ptr{Cvoid}}), String(text), err)
+_element(::Type{Branch}, net::BalancedNetwork, i) = _with_network(net) do lib, p
+    v = _at(PioBalancedBranchView, :pio_balanced_network_branch_at, lib, p, i)
+    ratings = map(0:Int(v.additional_rating_count)-1) do j
+        r = _at(PioBranchRatingView, :pio_balanced_network_branch_rating_at, lib, p, i, j)
+        BranchRating(_str(r.name), r.rate_mva)
     end
-    return BalancedNetwork(BalancedNetworkHandle(ptr, lib))
-end
-
-# The live Rust handle a BalancedNetwork-first transform needs; a manually constructed
-# BalancedNetwork has none, and a finalized handle is non-`nothing` but null. Name the
-# function that needs it, and separate the two null cases so the finalized one points
-# at the fix (materialize before finalizing) instead of "reparse it".
-function _live_handle(net::BalancedNetwork, fname::AbstractString)
-    h = getfield(net, :handle)
-    h === nothing && error(
-        "PowerIO.$fname: this BalancedNetwork has no live network handle (produce it with parse_file, parse_bytes, or from_json).")
-    h.ptr == C_NULL && error(
-        "PowerIO.$fname: this BalancedNetwork's handle was finalized; access the data you need " *
-        "(e.g. net.data, to_json(net)) before calling finalize(net.handle).")
-    return h
-end
-
-# Derive a normalized handle from a live one via `pio_balanced_network_normalize` (a read-only
-# borrow of the source case, so the source handle stays valid). GC.@preserve:
-# Julia frees an object after its last use, not at end of call, so without it a
-# GC triggered between extracting `h.ptr` and the ccall could finalize `h` and
-# hand the Rust side a freed pointer. Every helper that lowers a handle to a raw
-# pointer carries the same guard.
-const POWER_MODELS_ANGLE_BOUND_PAD = 1.0472
-
-# `PioNormalizeOptions`, the extensible options struct `pio_balanced_network_normalize` reads.
-# `struct_size` first, appended fields only, and a zero filled struct is every
-# default: a zero `angle_bound_pad` is not a legal pad, so it means the default.
-struct PioNormalizeOptions
-    struct_size::Csize_t
-    clamp_angle_bounds::Cint
-    reserved::Cint
-    angle_bound_pad::Cdouble
-end
-
-@assert sizeof(PioNormalizeOptions) == 2 * sizeof(Csize_t) + sizeof(Cdouble) "PioNormalizeOptions size mismatch"
-
-function _normalize_handle(h::BalancedNetworkHandle;
-                           clamp_angle_bounds::Bool=false,
-                           angle_bound_pad::Union{Nothing,Real}=nothing)
-    lib = getfield(h, :lib)
-    _network_free_fn(lib)
-    opts = PioNormalizeOptions(sizeof(PioNormalizeOptions),
-                               clamp_angle_bounds ? Cint(1) : Cint(0), Cint(0),
-                               angle_bound_pad === nothing ? 0.0 : Cdouble(angle_bound_pad))
-    ptr = GC.@preserve h _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_balanced_network_normalize), Ptr{Cvoid},
-              (Ptr{Cvoid}, Ref{PioNormalizeOptions}, Ref{Ptr{Cvoid}}),
-              h.ptr, opts, err)
+    route = if v.has_route
+        map(0:Int(v.route_point_count)-1) do j
+            pt = _at(PioBalancedLocationView, :pio_balanced_network_branch_route_point_at, lib, p, i, j)
+            Location(pt.x, pt.y, _optional_str(pt.kind, pt.has_kind))
+        end
+    else
+        nothing
     end
-    return BalancedNetworkHandle(ptr, lib)
+    Branch(_optional_str(v.component_id, v.has_component_id), _optional_str(v.name, v.has_name),
+           Int(v.from_bus_id), Int(v.to_bus_id), v.resistance_pu, v.reactance_pu,
+           v.total_charging_susceptance_pu, v.terminal_charging_is_explicit,
+           v.from_conductance_pu, v.from_susceptance_pu, v.to_conductance_pu, v.to_susceptance_pu,
+           v.rate_a_mva, v.rate_b_mva, v.rate_c_mva, ratings,
+           _optional((v.current_rating_a, v.current_rating_b, v.current_rating_c), v.has_current_ratings),
+           v.tap_ratio, v.effective_tap_ratio, v.phase_shift_degrees, v.in_service,
+           v.angle_min_degrees, v.angle_max_degrees,
+           _transformer_control(v.control, v.has_control), route)
+end
+
+_element(::Type{Generator}, net::BalancedNetwork, i) = _with_network(net) do lib, p
+    v = _at(PioBalancedGeneratorView, :pio_balanced_network_generator_at, lib, p, i)
+    capabilities = map(0:Int(v.capability_count)-1) do j
+        c = _at(PioGeneratorCapabilityView, :pio_balanced_network_generator_capability_at, lib, p, i, j)
+        GeneratorCapability(_str(c.name), _optional(c.value, c.has_value))
+    end
+    Generator(_optional_str(v.component_id, v.has_component_id), Int(v.bus_id), _str(v.energy_source),
+              v.active_power_mw, v.reactive_power_mvar, v.active_power_max_mw, v.active_power_min_mw,
+              v.reactive_power_max_mvar, v.reactive_power_min_mvar, v.voltage_setpoint_pu,
+              v.machine_base_mva, v.in_service, _generator_cost(v.cost, v.has_cost),
+              _optional(Int(v.regulated_bus_id), v.has_regulated_bus), capabilities,
+              _active_power_control(v.active_power_control, v.has_active_power_control),
+              v.voltage_regulation_on,
+              _terminal_reference(v.regulating_terminal, v.has_regulating_terminal))
+end
+
+_element(::Type{Storage}, net::BalancedNetwork, i) = _with_network(net) do lib, p
+    v = _at(PioBalancedStorageView, :pio_balanced_network_storage_at, lib, p, i)
+    Storage(_optional_str(v.component_id, v.has_component_id), Int(v.bus_id),
+            v.active_power_mw, v.reactive_power_mvar, v.energy_mwh, v.energy_rating_mwh,
+            v.charge_rating_mw, v.discharge_rating_mw, v.charge_efficiency, v.discharge_efficiency,
+            v.thermal_rating_mva, _optional(v.current_rating, v.has_current_rating),
+            v.reactive_power_min_mvar, v.reactive_power_max_mvar, v.resistance_pu, v.reactance_pu,
+            v.active_power_loss_mw, v.reactive_power_loss_mvar, v.in_service,
+            _active_power_control(v.active_power_control, v.has_active_power_control))
+end
+
+_element(::Type{Switch}, net::BalancedNetwork, i) = _with_network(net) do lib, p
+    v = _at(PioBalancedSwitchView, :pio_balanced_network_switch_at, lib, p, i)
+    Switch(_optional_str(v.component_id, v.has_component_id), Int(v.from_bus_id), Int(v.to_bus_id),
+           v.closed, _optional(v.thermal_rating_mva, v.has_thermal_rating),
+           _optional(v.current_rating_a, v.has_current_rating),
+           _optional(v.from_active_power_mw, v.has_from_active_power),
+           _optional(v.from_reactive_power_mvar, v.has_from_reactive_power),
+           _optional(v.to_active_power_mw, v.has_to_active_power),
+           _optional(v.to_reactive_power_mvar, v.has_to_reactive_power))
+end
+
+_element(::Type{Hvdc}, net::BalancedNetwork, i) = _with_network(net) do lib, p
+    v = _at(PioBalancedHvdcView, :pio_balanced_network_hvdc_at, lib, p, i)
+    Hvdc(_optional_str(v.component_id, v.has_component_id), Int(v.from_bus_id), Int(v.to_bus_id),
+         v.in_service, v.from_active_power_mw, v.to_active_power_mw,
+         v.from_reactive_power_mvar, v.to_reactive_power_mvar, v.from_voltage_pu, v.to_voltage_pu,
+         v.minimum_active_power_mw, v.maximum_active_power_mw,
+         v.minimum_from_reactive_power_mvar, v.maximum_from_reactive_power_mvar,
+         v.minimum_to_reactive_power_mvar, v.maximum_to_reactive_power_mvar,
+         v.constant_loss_mw, v.proportional_loss,
+         _optional(v.resistance_ohm, v.has_resistance),
+         _optional(v.nominal_voltage_kv, v.has_nominal_voltage),
+         _optional_str(v.converters_mode, v.has_converters_mode),
+         _hvdc_converter(v.converter1, v.has_converter1),
+         _hvdc_converter(v.converter2, v.has_converter2),
+         _generator_cost(v.cost, v.has_cost))
+end
+
+_element(::Type{ThreeWindingTransformer}, net::BalancedNetwork, i) = _with_network(net) do lib, p
+    v = _at(PioBalancedThreeWindingTransformerView, :pio_balanced_network_three_winding_transformer_at, lib, p, i)
+    windings = map(0:Int(v.winding_count)-1) do j
+        w = _at(PioThreeWindingTransformerWindingView,
+                :pio_balanced_network_three_winding_transformer_winding_at, lib, p, i, j)
+        TransformerWinding(Int(w.bus_id), w.tap_ratio, w.phase_shift_degrees, w.nominal_voltage_kv,
+                           w.rating_a_mva, w.rating_b_mva, w.rating_c_mva,
+                           _transformer_control(w.control, w.has_control))
+    end
+    impedances = map(0:Int(v.impedance_count)-1) do j
+        z = _at(PioThreeWindingTransformerImpedanceView,
+                :pio_balanced_network_three_winding_transformer_impedance_at, lib, p, i, j)
+        TransformerImpedance(z.resistance_pu, z.reactance_pu, z.base_mva)
+    end
+    ThreeWindingTransformer(_optional_str(v.component_id, v.has_component_id),
+                            _optional_str(v.name, v.has_name), windings, impedances,
+                            v.star_voltage_magnitude_pu, v.star_voltage_angle_degrees,
+                            v.magnetizing_conductance_pu, v.magnetizing_susceptance_pu, v.in_service)
+end
+
+_element(::Type{Area}, net::BalancedNetwork, i) = _with_network(net) do lib, p
+    v = _at(PioBalancedAreaView, :pio_balanced_network_area_at, lib, p, i)
+    Area(Int(v.number), _optional(Int(v.slack_bus_id), v.has_slack_bus), v.net_interchange_mw,
+         v.tolerance_mw, _optional_str(v.name, v.has_name),
+         _optional_str(v.component_id, v.has_component_id),
+         _optional_str(v.area_type, v.has_area_type))
 end
 
 """
-    to_normalized(net::BalancedNetwork; clamp_angle_bounds=false, angle_bound_pad=nothing) -> BalancedNetwork
+    reference_bus_ids(net::BalancedNetwork) -> Vector{Int}
 
-A computation-ready copy of `net`: per unit (powers ÷ `base_mva`), angles in
-radians, transformer tap `0 → 1`, out-of-service and isolated elements dropped,
-source bus ids preserved, and bus types inferred (a bus with a surviving generator
-keeps `REF` if the source marked it so, else becomes `PV`; a generator-less bus
-becomes `PQ`). `source_format` of the result is `"normalized"`.
-
-Needs `net`'s live Rust handle (from [`parse_file`](@ref)). Errors if `base_mva` is
-not positive or no reference bus can be established. `clamp_angle_bounds=true`
-also applies the PowerModels angle difference repair in the Rust normalize pass.
+The ids of the buses whose type is `"REF"`, in table order.
 """
-function to_normalized(net::BalancedNetwork; clamp_angle_bounds::Bool=false,
-                       angle_bound_pad::Union{Nothing,Real}=nothing)
-    h = _live_handle(net, "to_normalized")
-    hn = _normalize_handle(h; clamp_angle_bounds=clamp_angle_bounds,
-                           angle_bound_pad=angle_bound_pad)
-    return BalancedNetwork(hn)
-end
-
-"""
-    to_json(net::BalancedNetwork) -> String
-
-Serialize `net` to the C ABI's JSON transport, the same text [`from_json`](@ref)
-reads back. Uses the live handle when present, else the cached `net.data`.
-"""
-function to_json(net::BalancedNetwork)
-    h = getfield(net, :handle)
-    # With a live handle, serialize straight from Rust. Otherwise fall back to the
-    # payload: a handleless BalancedNetwork carries `data` eagerly, and a live one
-    # caches `data` on first access. The only gap is a handle finalized before that
-    # first access — `net.data` then re-materializes through the freed handle and
-    # `_live_handle` raises the "finalized" error; materialize before finalizing.
-    return (h === nothing || h.ptr == C_NULL) ? JSON3.write(net.data) : _to_json(h)
-end
-
-# Serialize a bare network handle: wrap it as a module sharing the handle's
-# records, then run the one module write. `want_findings=false` passes NULL
-# for the findings channel.
-function _format_from_handle(h::BalancedNetworkHandle, to::AbstractString, what::AbstractString;
-                             want_warnings::Bool=true)
-    lib = getfield(h, :lib)
-    module_ptr = GC.@preserve h _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_of_balanced_network), Ptr{Cvoid},
-              (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), h.ptr, err)
-    end
-    handle = StoredModule(module_ptr, lib)
-    out_diagnostics = Ref{Ptr{Cvoid}}(C_NULL)
-    s = GC.@preserve handle _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_write_str), Cstring,
-              (Ptr{Cvoid}, Cstring, Ref{Ptr{Cvoid}}, Ref{Ptr{Cvoid}}),
-              _module_ptr(handle), String(to), out_diagnostics, err)
-    end
-    text = _take_string(lib, s)
-    findings = want_warnings ? _diagnostics_of(_ -> out_diagnostics[], lib) : Diagnostic[]
-    want_warnings || out_diagnostics[] == C_NULL ||
-        ccall(_library_symbol(lib, :pio_diagnostics_release), Cvoid, (Ptr{Cvoid},), out_diagnostics[])
-    return (text, findings)
-end
-
-# `matpower` flows through the one string-keyed writer like every other format
-# (v4 retired the per-format `pio_to_matpower`). The writer warns whenever the
-# source was not MATPOWER, so discard the channel rather than collect it.
-"""
-    to_matpower(net::BalancedNetwork) -> String
-
-Serialize `net` to MATPOWER `.m` text, byte exact when the input was MATPOWER. For a
-file in one shot use [`convert_file`](@ref)`(path, "matpower")`.
-"""
-to_matpower(net::BalancedNetwork) =
-    first(_format_from_handle(_live_handle(net, "to_matpower"), "matpower",
-                              repr(network_name(net)); want_warnings=false))
-
-"""
-    to_format(net::BalancedNetwork, to) -> (text, warnings)
-    to_format(net::MulticonductorNetwork, to) -> (text, warnings)
-
-Serialize a parsed network to format `to` without reparsing the input file.
-Returns the target text and any fidelity warnings, a `Vector{`[`Diagnostic`](@ref)`}`
-whose elements read as `CODE: message` lines and carry the record's fields.
-Dispatches on the handle type, so a [`MulticonductorNetwork`](@ref) writes the
-distribution formats.
-"""
-to_format(net::BalancedNetwork, to::AbstractString) =
-    _format_from_handle(_live_handle(net, "to_format"), to, repr(network_name(net)))
-
-
-"""
-    convert_file(path, to; from=nothing) -> (text, warnings)
-    convert_file(MulticonductorNetwork, path, to; from=nothing) -> (text, warnings)
-
-Convert `path` to format `to`, routing on the formats like [`parse_file`](@ref):
-distribution tokens and `.dss` paths go through the multiconductor converter,
-and a cross-model request (e.g. `.dss` to `"matpower"`) is a directed error —
-lowering is explicit, through the package pass. Within the transmission family
-supported writer pairs convert. A same format conversion is byte exact; a cross
-format one reports whatever the target can't carry in `warnings`. Tokens
-(case-insensitive): `"matpower"`/`"m"`, `"powermodels-json"`/`"powermodels"`/`"pm"`,
-`"egret-json"`/`"egret"`, `"psse"`/`"raw"`, `"powerworld"`/`"aux"`,
-`"pslf"`/`"epc"`, `"pandapower-json"`/`"pandapower"`, `"surge-json"`/`"surge"`,
-`"pypsa-csv"`. `from` overrides extension inference (needed to tell egret,
-PowerModels, pandapower, and Surge `.json` files apart). Pass
-[`MulticonductorNetwork`](@ref) first to convert a distribution case.
-"""
-function convert_file(path::AbstractString, to::AbstractString; from=nothing)
-    dist_to = _is_dist_format(to)
-    dist_src = (from !== nothing && _is_dist_format(from)) ||
-               (from === nothing && _is_dss_path(path))
-    if dist_to
-        # A balanced source cannot become multiconductor; a `.json`/unknown
-        # source goes to the distribution converter, whose own inference and
-        # errors apply.
-        balanced_src = (from !== nothing && !_is_dist_format(from)) ||
-                       (from === nothing &&
-                        lowercase(splitext(String(path))[2]) in (".m", ".raw", ".aux", ".epc", ".pwb"))
-        balanced_src && _cross_model_error("convert_file")
-        return convert_file(MulticonductorNetwork, path, to; from=from)
-    end
-    dist_src && _cross_model_error("convert_file")
-    lib = _lib()
-    _ensure_compatible(lib)
-    out_diagnostics = Ref{Ptr{Cvoid}}(C_NULL)
-    # Pass the format hint as a `String` (ccall roots it) or `C_NULL` for inference.
-    fromc = from === nothing ? C_NULL : String(from)
-    s = _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_convert_file), Cstring,
-              (Cstring, Cstring, Cstring, Ptr{Cvoid}, Ref{Ptr{Cvoid}}, Ref{Ptr{Cvoid}}),
-              path, fromc, to, C_NULL, out_diagnostics, err)
-    end
-    text = _take_string(lib, s)
-    return (text, _diagnostics_of(_ -> out_diagnostics[], lib))
-end
-# Explicit transmission marker, symmetric with `convert_file(MulticonductorNetwork, ...)`.
-convert_file(::Type{BalancedNetwork}, path::AbstractString, to::AbstractString; from=nothing) =
-    convert_file(path, to; from=from)
-
-"""
-    convert_str(text, to; from) -> (text, warnings)
-    convert_str(MulticonductorNetwork, text, to; from) -> (text, warnings)
-
-Convert in-memory case `text` to format `to` — the string sibling of
-[`convert_file`](@ref) (`pio_convert_str`). `from` is required for a transmission
-case (there is no path to infer from): the source format token. Pass
-[`MulticonductorNetwork`](@ref) first for a distribution case.
-"""
-function convert_str(text::AbstractString, to::AbstractString; from::AbstractString)
-    dist_to = _is_dist_format(to)
-    dist_from = _is_dist_format(from)
-    dist_to && dist_from && return convert_str(MulticonductorNetwork, text, to; from=from)
-    (dist_to || dist_from) && _cross_model_error("convert_str")
-    lib = _lib()
-    _ensure_compatible(lib)
-    out_diagnostics = Ref{Ptr{Cvoid}}(C_NULL)
-    s = _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_convert_str), Cstring,
-              (Cstring, Cstring, Cstring, Ptr{Cvoid}, Ref{Ptr{Cvoid}}, Ref{Ptr{Cvoid}}),
-              String(text), String(from), to, C_NULL, out_diagnostics, err)
-    end
-    out = _take_string(lib, s)
-    return (out, _diagnostics_of(_ -> out_diagnostics[], lib))
-end
-
-"""
-    write_pypsa_csv_folder(net::BalancedNetwork, out_dir) -> (out_dir, warnings)
-
-Write `net` as a PyPSA CSV folder at `out_dir` — the
-directory inverse of `parse_file(out_dir; from="pypsa-csv")`, where the
-other writers (`to_format`, `convert_file`) emit a single text document. The
-folder is staged completely and committed only when nothing exists at
-`out_dir`; an existing entry there is refused rather than replaced. Returns
-the output directory and any fidelity warnings the writer reports for fields the
-PyPSA static-network CSV schema can't carry. Needs `net`'s live Rust handle
-(from [`parse_file`](@ref)).
-"""
-function write_pypsa_csv_folder(net::BalancedNetwork, out_dir::AbstractString)
-    h = _live_handle(net, "write_pypsa_csv_folder")
-    lib = getfield(h, :lib)
-    module_ptr = GC.@preserve h _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_of_balanced_network), Ptr{Cvoid},
-              (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), h.ptr, err)
-    end
-    handle = StoredModule(module_ptr, lib)
-    out_diagnostics = Ref{Ptr{Cvoid}}(C_NULL)
-    GC.@preserve handle _v6_call(lib) do err
-        ccall(_library_symbol(lib, :pio_module_write_file), Cint,
-              (Ptr{Cvoid}, Cstring, Cstring, Ref{Ptr{Cvoid}}, Ref{Ptr{Cvoid}}),
-              _module_ptr(handle), "pypsa-csv", String(out_dir), out_diagnostics, err)
-    end
-    return (String(out_dir), _diagnostics_of(_ -> out_diagnostics[], lib))
-end
+reference_bus_ids(net::BalancedNetwork) = [b.id for b in net.buses if b.bus_type == "REF"]

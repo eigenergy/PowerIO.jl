@@ -1,34 +1,25 @@
 """
     PowerIO
 
-Julia binding of the PowerIO power system data compiler. One call parses a
-supported source into a typed module:
+Julia binding of PowerIO, the power system data compiler, over C ABI 7.
 
 ```julia
 using PowerIO
-case = parse_file("case9.m")       # PioModule{BalancedNetwork}
-feeder = parse_file("switch.dss")  # PioModule{MulticonductorNetwork}
-case.value                         # the typed value; clones share its native allocation
-diagnostics(case)                  # the reader's findings, native records
-write_file(case, "copy.m")         # byte exact same format echo
+case = parse("case9.m")             # PioModule{BalancedNetwork}
+net = case.value
+length(net.buses)                   # 9
+net.branches[1].reactance_pu
+case.diagnostics                    # the reader's findings
+emit(case, "matpower", "copy.m")    # same format: writes the original file unchanged
+result = emit(case, "psse")         # another format, in memory
+result.text
+serialize(case, "case9.pio.json")   # PowerIO IR
 ```
 
-The value kind is detected from the source: balanced network formats
-(MATPOWER, PSS/E, PowerWorld, PSLF EPC, PowerModels JSON, Egret JSON,
-pandapower JSON, PyPSA CSV, Surge JSON), multiconductor distribution formats
-(OpenDSS, PMD engineering JSON), calculation formats (DOE GO Challenge 3 →
-`AcScucInstance`, BMOPF → `McAcOpfInstance`, DeepMind OPFData →
-`AcOpfSolution`), time series and scenario profiles (PyPSA snapshot axes,
-Egret time keys, GridFM Parquet datasets), and the stored `.pio.json`
-document. `m.value` is the typed value. Matrix and conversion functions
-dispatch on network values, while inspection, state selection, and writing
-take the module itself.
-
-The binding uses the `powerio-capi` C ABI (version 6): every handle keeps
-its owning library, borrowed numerical views root their owner, and failures
-carry structured [`Diagnostic`](@ref) records through
-[`PowerIOCError`](@ref). At first use the binding checks the library's ABI
-version and refuses a stale or mismatched library with both versions named.
+`parse` reads a grid exchange source into a typed module. `emit` writes one.
+`serialize` and `deserialize` move PowerIO IR between PowerIO consumers.
+`calc_*` functions compute matrices and vectors. `to_*` functions construct
+another value type in memory. `apply_updates!` changes a module in place.
 
 The C library resolves automatically: the bundled artifact, or a sibling
 powerio build during development. Point at a custom build with
@@ -43,83 +34,82 @@ using Preferences: @load_preference, load_preference, set_preferences!
 import Libdl
 import SparseArrays
 
-# The typed module surface: the ordinary path after `using PowerIO`.
-export PioModule, parse_file, parse_bytes, kind, diagnostics,
-       write_file, write_str, write_json, inspect, source_format,
-       state_inventory, select_state, lower_to_balanced, lowering_readiness
+# Operations. `parse` extends `Base.parse` and is not exported.
+export PioModule, emit, serialize, deserialize
 
-# The value families a module can hold.
-export BalancedNetwork, MulticonductorNetwork, TimeSeries, ScenarioSet,
-       OperatingPoint, UnknownValue,
+# Values.
+export BalancedNetwork, MulticonductorNetwork, TimeSeries, ScenarioSet, OperatingPoint,
        DcPfInstance, AcPfInstance, DcOpfInstance, AcOpfInstance,
        McAcPfInstance, McAcOpfInstance, AcScucInstance,
-       DcPfSolution, AcPfSolution, DcOpfSolution, AcOpfSolution,
-       McAcPfSolution, McAcOpfSolution, AcScucSolution
+       DcPfSolution, AcPfSolution, DcOpfSolution, AcOpfSolution, SocwrOpfSolution,
+       McAcPfSolution, McAcOpfSolution, AcScucSolution, UnknownValue
 
-# Structured findings and failures.
-export Diagnostic, SourceSpan, PowerIOCError
+# Records and results.
+export Diagnostic, SourceSpan, PowerIOError, EmitResult, Artifact,
+       Producer, ModuleSource, HistoryEntry
 
-# Conversion and serialization over networks.
-export convert_file, convert_str, to_format, to_normalized,
-       to_json, from_json, to_matpower, write_pypsa_csv_folder
+# Balanced network elements.
+export Elements, ComponentId, TerminalReference, Location, Geo, DetailedConnectivity,
+       Bus, Branch, Generator, Load, Shunt, StaticVarCompensator, Storage, Switch, Hvdc,
+       ThreeWindingTransformer, Area,
+       LoadVoltageModel, ShuntBlock, ShuntControl, TransformerControl, BranchRating,
+       GeneratorCost, GeneratorCapability, ActivePowerControl, HvdcConverter,
+       TransformerWinding, TransformerImpedance, reference_bus_ids
 
-# Reading a parsed network.
-export warnings, buses, branches, generators, loads, shunts, storage, hvdc,
-       lines, linecodes, switches, transformers, ibrs, control_profiles,
-       capacitors, untyped,
-       n_buses, n_branches, n_gens, n_switches, base_mva, base_frequency,
-       network_name, reference_bus_id, reference_bus_indices, n_components,
-       is_radial, bus_type_code
+# Multiconductor network elements.
+export MulticonductorBus, MulticonductorLineCode, MulticonductorLine, MulticonductorSwitch,
+       MulticonductorTransformer, MulticonductorTransformerWinding, MulticonductorLoad,
+       MulticonductorGenerator, InverterBasedResource, ControlProfile, VoltVarControl,
+       VoltWattControl, MulticonductorShunt, MulticonductorCapacitor, VoltageSource,
+       UntypedObject, SourceCommand
 
-# C library resolution.
-export set_library!, clear_library!, abi_version, library_version,
-       library_available, prob_available
-# The module's descriptive records: typed history and source rows.
-export ModuleHistoryEntry, ModuleSource, history, sources
+# Dense tables and graph projections.
+export to_dense, to_graph
 
-# Assembled DC matrices over the DC data spans.
-export incidence_matrix, susceptance_laplacian, flow_matrix, bus_injection
+# Matrices and vectors.
+export calc_incidence_matrix, calc_branch_susceptances, calc_bus_susceptance_matrix,
+       calc_branch_flow_matrix, calc_branch_phase_shift_injection, calc_bus_phase_shift_injection,
+       calc_branch_flow_dc, calc_bus_injection_dc,
+       calc_admittance_matrix, calc_bprime_matrix, calc_bdoubleprime_matrix, BusMappedMatrix
 
-# DC branch data and borrowed numerical views.
-export DcData, dc_data, BorrowedVector, branch_flow,
-       n_rows, from_indices, to_indices, susceptance, shift,
-       shift_injection, row_ids, bus_ids, omitted, formula
+# Calculation constructions and solution access.
+export to_dc_pf_instance, to_ac_pf_instance, to_dc_opf_instance, to_ac_opf_instance,
+       to_mc_ac_pf_instance, to_mc_ac_opf_instance, time_count
 
-# Materialized numeric views.
-export to_dense, to_arrow, ArrowTable, release_c_data, arrow_catalog
+# Typed updates.
+export ActivePower, ReactivePower, ApparentPower, OperatingPointUpdate, NetworkUpdate,
+       UpdateReport, UpdateChange, apply_updates!,
+       set_load_active_power, set_load_reactive_power, set_generator_active_power,
+       set_generator_reactive_power, set_generator_voltage_magnitude, set_generator_in_service,
+       set_branch_in_service, set_transformer_tap_ratio, set_transformer_phase_shift_degrees,
+       set_switch_closed, set_branch_thermal_rating
 
-# Sparse system matrices (Rust matrix feature).
-export calc_admittance_matrix, calc_susceptance_matrix, calc_incidence_matrix,
-       calc_bprime_matrix, calc_bdoubleprime_matrix, BusMappedMatrix
+# Solver and modeling bridges.
+export to_powermodels, from_powermodels, build_powermodels_ref, repair_powermodels_angle_bounds!,
+       to_powerdata, to_ac_power_data
 
-# Ecosystem bridges (PowerModels, ExaModels, gridfm).
-export to_powermodels, from_powermodels, to_powerdata, parse_ac_power_data,
-       read_gridfm, read_gridfm_scenarios, build_powermodels_ref,
-       repair_powermodels_angle_bounds!
+# Library resolution.
+export set_library!, clear_library!, abi_version, library_version, library_available
 
-# Distribution availability and feature probes.
-export dist_available, to_graph, features, has_feature, schema_versions,
-       build_info, arrow_available, gridfm_available, matrix_available
-
-# Writer findings use the same structured Diagnostic records as parsing.
-export write_report_str
-
-include("capi.jl")        # library resolution, ABI handshake, handle types
-include("diagnostics.jl") # native Diagnostic records over the structured C list
-include("v6.jl")          # error handles, stored module handles, DC branch data
-include("network.jl")     # BalancedNetwork and the convert / serialize verbs
-include("accessors.jl")   # element tables and scalar accessors
-include("dense.jl")       # to_dense: numeric tables straight from the C extractors
-include("powermodels.jl") # PowerModels.jl network data bridge
-include("exa.jl")         # ExaModels bridge: to_powerdata / parse_ac_power_data
-include("arrow.jl")       # Arrow C Data Interface export (feature arrow)
-include("matrix.jl")      # sparse matrices computed by the Rust matrix API
-include("gridfm.jl")      # GridFM Parquet datasets through the module surface
-include("dist.jl")        # MulticonductorNetwork distribution API (feature dist)
-include("parse.jl")       # the typed value accessors behind PioModule wrapping
-include("module.jl")      # PioModule{T}, parse_file, and the module operations
-include("display.jl")     # compact and multiline display for parsed networks
-include("graphs.jl")      # graph projections for balanced and multiconductor models
-include("features.jl")    # public feature probe summary
+include("views.jl")          # C struct mirrors and span conversions
+include("capi.jl")           # library resolution and the ABI handshake
+include("handles.jl")        # owned handle types with release finalizers
+include("diagnostics.jl")    # Diagnostic and SourceSpan
+include("errors.jl")         # PowerIOError and the checked call helpers
+include("values.jl")         # the value type tree and structural name dispatch
+include("module.jl")         # PioModule, parse, deserialize, records
+include("emit.jl")           # emit, serialize, EmitResult, Artifact
+include("network.jl")        # BalancedNetwork properties and element structs
+include("multiconductor.jl") # MulticonductorNetwork properties and element structs
+include("dense.jl")          # to_dense
+include("graphs.jl")         # to_graph
+include("collections.jl")    # TimeSeries, ScenarioSet, OperatingPoint
+include("instances.jl")      # calculation instances, solutions, to_*_instance
+include("updates.jl")        # typed updates and apply_updates!
+include("calc.jl")           # the eight DC calculations from the library
+include("ybus.jl")           # admittance matrices assembled in Julia
+include("powermodels.jl")    # PowerModels.jl network data bridge
+include("exa.jl")            # ExaModelsPower bridge and LoadSeries
+include("display.jl")        # show methods
 
 end # module

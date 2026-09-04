@@ -2,38 +2,45 @@
 
 ## Setup
 
-PowerIO.jl wraps the powerio Rust core through its C ABI. Develop against a
+PowerIO.jl wraps the powerio Rust library through its C ABI. Develop against a
 sibling checkout; the library resolves automatically from
 `../powerio/target/{release,debug}`:
 
 ```
 git clone https://github.com/eigenergy/powerio ../powerio
-cargo build -p powerio-capi --release --features arrow,matrix,gridfm,dist,pkg,prob   # in ../powerio
-julia --project=. -e 'using Pkg; Pkg.test()'
+cargo build -p powerio-capi --release --features arrow,matrix,gridfm,dist,prob   # in ../powerio
+julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 ```
 
-`POWERIO_CAPI=/path/to/libpowerio_capi.dylib` or `PowerIO.set_library!(path)`
-override the resolution; without a dev build, the bundled lazy artifact is used.
+`POWERIO_CAPI=/path/to/libpowerio_capi.so` or `PowerIO.set_library!(path)`
+override the resolution; without a development build, the bundled lazy
+artifact is used.
 
 ## ABI lockstep
 
-The binding targets exactly one core C ABI version (`PIO_ABI_VERSION` in
-`src/capi.jl`); a mismatched library is refused at first use with an error
-stating both versions. The distribution surface has its own
-`PIO_DIST_ABI_VERSION` in `src/dist.jl`. The package surface is additive and
-feature probed through `pio_package_*`; no third ABI integer is used. When
-powerio bumps either ABI, update the matching constant and any renamed ccalls
-here, verify the full suite against the matching powerio branch, and merge the
-two changes back to back. The ABI history is in powerio's
-`powerio-capi/README.md`.
+The binding targets exactly one C ABI version (`PIO_ABI_VERSION` in
+`src/capi.jl`, 7 for PowerIO 0.11); a mismatched library is refused at first
+use with an error naming both versions. Every `pio_*` entry point the binding
+calls appears as a Symbol literal in `src/`, and powerio's
+`scripts/check-capi-v7.sh` checks that list against the header, so a renamed
+or removed entry point fails the powerio pull request that changed it. When
+powerio bumps the ABI, update the constant, the struct mirrors in
+`src/views.jl`, and the renamed calls here, run the full suite against the
+matching powerio branch, and merge the two changes back to back.
+
+Companion branches: a powerio pull request that changes the shared surface
+pushes a PowerIO.jl branch with the same name, and powerio's Julia binding job
+tests against it. `.github/powerio-companion` names the powerio branch this
+branch is tested against when no same named branch exists.
 
 ## Memory safety conventions
 
-Every pointer from the C ABI is owned by a finalizer-backed handle
-(`BalancedNetworkHandle`, `MulticonductorNetworkHandle`) or copied out before the producer is released. `to_arrow`
-returns owned columns by default; the zero-copy path (`copy=false`) is opt-in
-and documented on `ArrowTable`. Keep new ccall sites inside this pattern:
-no `unsafe_wrap` of foreign memory escapes without an owner.
+Every pointer from the C library is owned by a finalizer backed handle type
+(`src/handles.jl`), and every value handed to Julia code is copied out of the
+borrowed C views before the call returns. Keep new call sites inside this
+pattern: run the call under `GC.@preserve` of the handle, and never let an
+`unsafe_wrap` of library memory escape. See the memory safety page in the
+documentation.
 
 ## Releasing
 
@@ -58,31 +65,29 @@ schedule and a no input manual dispatch retry the same intent. The workflow:
 
 1. Requires the exact published powerio release, which must not be a
    prerelease, and all five platform assets. A missing or draft release waits
-   without changing the tree;
-   a dispatch for another tag is ignored.
-2. Runs `gen/update_artifacts.jl` in memory, then checks core ABI 5,
-   distribution ABI 1, the schema and build reports, and the `arrow`, `matrix`,
-   `gridfm`, `dist`, `pkg`, and `prob` features and representative symbols.
-   Semantic mismatches report a stable `parked` reason and leave
-   `Artifacts.toml` byte identical. Download, registry, archive, or parse
-   errors fail the run.
-3. Resolves the generated artifact, checks every public feature probe, and
-   runs the full test suite. It commits only `Artifacts.toml`, and pushes only
-   if `origin/main` still equals the commit the run tested. A race fails; the
-   schedule retries from the new main without rebasing a bot commit.
+   without changing the tree; a dispatch for another tag is ignored.
+2. Runs `gen/update_artifacts.jl` in memory. It loads the host library and
+   checks the ABI number, the version string against the tag, the core entry
+   points the binding calls, and that the library parses the GridFM fixture.
+   A mismatch reports a stable `parked` reason and leaves `Artifacts.toml`
+   byte identical. Download, registry, archive, or parse errors fail the run.
+3. Resolves the generated artifact and runs the full test suite. It commits
+   only `Artifacts.toml`, and pushes only if `origin/main` still equals the
+   commit the run tested. A race fails; the schedule retries from the new main
+   without rebasing a bot commit.
 4. Dispatches "Register Package" with the exact tested SHA. Registration
-checks that the SHA is still `origin/main`, revalidates the intent, artifact,
-release, General transition, feature reports, and tests, then posts the
-`@JuliaRegistrator register` comment on that SHA. It never edits or commits,
-and queued retries suppress a duplicate bot comment for six hours.
+   checks that the SHA is still `origin/main`, revalidates the intent,
+   artifact, release, General transition, and tests, then posts the
+   `@JuliaRegistrator register` comment on that SHA. It never edits or
+   commits, and queued retries suppress a duplicate bot comment for six hours.
 
 The intended version must be the next patch, minor, or major release after the
 maximum PowerIO version in General. A breaking transition needs "breaking" in
-its top changelog section. If the version is already in General,
-the updater neither repins nor registers; it dispatches TagBot only when the
-Julia GitHub release is missing. Registration also makes that intent terminal:
-later development can change the source digest without breaking the scheduled
-job or the TagBot repair path.
+its top changelog section. If the version is already in General, the updater
+neither repins nor registers; it dispatches TagBot only when the Julia GitHub
+release is missing. Registration also makes that intent terminal: later
+development can change the source digest without breaking the scheduled job
+or the TagBot repair path.
 
 For local generator diagnostics, supply a status path explicitly:
 
@@ -107,6 +112,12 @@ Actions secret, then run the TagBot workflow manually. If that still fails,
 run `gh release create v0.0.1 --target a6a9b00a --generate-notes` locally.
 Set `TAGBOT_SSH` to a write deploy key, or reuse `DOCUMENTER_KEY`, so TagBot
 can push release tags through SSH.
+
+## Writing
+
+Comments and documentation state what the code does and why it is correct,
+in plain words: no history of how it came to be, no first person, no em
+dashes, no filler.
 
 ## Docs
 

@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.11.0
+
+PowerIO.jl 0.11 binds PowerIO 0.11 over C ABI 7. This is a breaking release: the
+0.10 binding read every table from a network's JSON payload through accessor
+functions, and ABI 7 replaces that layer with typed element views. The public
+API follows the cross language vocabulary of PowerIO 0.11. The binding stays
+pre-1.0 with the library it wraps: 0.11.x is the compatibility focused
+stabilization line for the candidate 1.0 API.
+
+- `parse(source; format, name)` replaces `parse_file` and `parse_text`. It
+  extends `Base.parse` over a path, an `IO`, or bytes and returns a
+  `PioModule{T}` whose parameter is the value type: `BalancedNetwork`,
+  `MulticonductorNetwork`, `TimeSeries{T}`, `ScenarioSet{T}`,
+  `OperatingPoint{N}`, the seven calculation instances, or the eight solutions.
+- Element tables are properties: `net.buses`, `net.branches`, `net.generators`,
+  `net.loads`, `net.shunts`, `net.storage`, `net.switches`, `net.hvdc`,
+  `net.transformers_3w`, `net.areas` on a `BalancedNetwork`; `net.lines`,
+  `net.linecodes`, `net.transformers`, `net.loads`, and the other conductor
+  level tables on a `MulticonductorNetwork`. Each returns an `Elements{T}`
+  vector of immutable structs (`Bus`, `Branch`, `Generator`,
+  `MulticonductorLine`, ...) whose field names follow the C header. The
+  accessor functions (`buses(net)`, `n_buses(net)`, `base_mva(net)`, ...) and
+  the `net.data` JSON payload are removed.
+- `emit(m, format, destination)` returns an `EmitResult` with `artifacts`,
+  `layout`, `fidelity`, `diagnostics`, and `text`. `serialize` and `deserialize`
+  move PowerIO IR; `to_json`, `from_json`, and the `pio-json` format token are
+  removed. A PowerIO IR document states the PowerIO release that wrote it, which
+  `library_version()` reports, and the library reads the documents of its own
+  compatible release line no newer than itself.
+- `TimeSeries` supports `length`, 1-based indexing, and iteration;
+  `ScenarioSet` supports `keys`, `values`, `haskey`, indexing by id, and
+  iteration over pairs. `list_states` and `export_state` are removed.
+- Calculation instances expose `.network`; solutions expose `.instance`,
+  `.termination`, `.objective`, and `solution[quantity]`. `to_dc_pf_instance`,
+  `to_ac_pf_instance`, `to_dc_opf_instance`, `to_ac_opf_instance`,
+  `to_mc_ac_pf_instance`, and `to_mc_ac_opf_instance` construct instance
+  modules.
+- Typed updates: `ComponentId`, `ActivePower`, `ReactivePower`,
+  `ApparentPower`, the `set_*` update constructors, and `apply_updates!`,
+  which validates a batch, applies it atomically, refreshes `m.value`, and
+  returns an `UpdateReport`.
+- The eight DC calculations (`calc_incidence_matrix`,
+  `calc_branch_susceptances`, `calc_bus_susceptance_matrix`,
+  `calc_branch_flow_matrix`, `calc_branch_phase_shift_injection`,
+  `calc_bus_phase_shift_injection`, `calc_branch_flow_dc`,
+  `calc_bus_injection_dc`) come from the library. `calc_admittance_matrix`,
+  `calc_bprime_matrix`, and `calc_bdoubleprime_matrix` are assembled in Julia
+  from the element tables following MATPOWER's `makeYbus`.
+- `m.producer`, `m.sources`, and `m.history` are typed records.
+- Removed with no ABI 7 counterpart: `to_normalized`, `to_balanced`,
+  `to_balanced_report`, `resolve_format`, `FormatInfo`, `features`,
+  `has_feature`, `build_info`, `schema_versions`, the `*_available` probes,
+  `to_arrow`, `ArrowTable`, `arrow_catalog`, `n_islands`, `is_radial`,
+  `reference_bus_positions`, `to_bus_type_code`, `kind`, `inspect`.
+- The 49 typed detailed connectivity tables, the OPF preparations, and the
+  multiconductor admittance matrix are not bound in this release; binding them
+  later is additive.
+- The PowerModels bridge (`to_powermodels`, `from_powermodels`,
+  `build_powermodels_ref`, `repair_powermodels_angle_bounds!`) and the
+  ExaModelsPower bridge (`to_powerdata`, `to_ac_power_data`, `LoadSeries`) are
+  rebuilt over the element tables. `from_powermodels` returns a module.
+- Release validation checks a binary for ABI 7, the version string, the core
+  entry points, and GridFM parsing.
+
 ## 0.10.0
 
 PowerIO 0.10 is the public beta of the 1.0 API. API corrections may land before 1.0.0 as downstream integrations exercise the new design.
