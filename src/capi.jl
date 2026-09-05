@@ -68,13 +68,15 @@ function clear_library!(; persist::Bool=false)
 end
 
 function _lib()
-    isempty(_SESSION_LIBRARY[]) || return _SESSION_LIBRARY[]
-    isempty(_ENV_LIBRARY[]) || return _ENV_LIBRARY[]
-    isempty(_PREFERRED_LIBRARY[]) || return _PREFERRED_LIBRARY[]
-    sib = _sibling_lib()
-    isempty(sib) || return sib
-    isempty(_RESOLVED[]) || return _RESOLVED[]
-    return _RESOLVED[] = _artifact_lib()  # resolve once; bounds a failed lazy fetch to one attempt
+    lock(_LIB_HANDLES_LOCK) do
+        isempty(_SESSION_LIBRARY[]) || return _SESSION_LIBRARY[]
+        isempty(_ENV_LIBRARY[]) || return _ENV_LIBRARY[]
+        isempty(_PREFERRED_LIBRARY[]) || return _PREFERRED_LIBRARY[]
+        sib = _sibling_lib()
+        isempty(sib) || return sib
+        isempty(_RESOLVED[]) || return _RESOLVED[]
+        return _RESOLVED[] = _artifact_lib()  # resolve once; bounds a failed lazy fetch to one attempt
+    end
 end
 
 function _library_handle(lib::AbstractString)
@@ -108,10 +110,13 @@ function _artifact_lib()
     end
 end
 
-# When this package sits beside a `powerio` checkout, resolve the locally built
-# cdylib from `../powerio/target/{release,debug}`. Release wins over debug;
-# returns "" when no sibling build is present.
+# When a development checkout of this package sits beside a `powerio`
+# checkout, resolve the locally built cdylib from
+# `../powerio/target/{release,debug}`. Release wins over debug; returns ""
+# when no sibling build is present. A registry install has no `.git` and
+# never loads a library from this unpinned path.
 function _sibling_lib()
+    isdir(joinpath(dirname(@__DIR__), ".git")) || return ""
     base = joinpath(dirname(dirname(@__DIR__)), "powerio", "target")
     lib = "libpowerio_capi.$(Libdl.dlext)"
     for profile in ("release", "debug")
@@ -158,21 +163,23 @@ end
 # runs this first.
 function _ensure_compatible(lib::AbstractString=_lib())
     lib = String(lib)
-    _ABI_OK[] && _ABI_OK_LIB[] == lib && return
-    got = try
-        abi_version(lib)
-    catch
-        error("PowerIO: the C ABI at \"$lib\" has no pio_abi_version. Build " *
-              "powerio-capi (`cargo build -p powerio-capi --release` in a powerio " *
-              "checkout), or check that the library path can be loaded.")
+    lock(_LIB_HANDLES_LOCK) do
+        _ABI_OK[] && _ABI_OK_LIB[] == lib && return
+        got = try
+            abi_version(lib)
+        catch
+            error("PowerIO: the C ABI at \"$lib\" has no pio_abi_version. Build " *
+                  "powerio-capi (`cargo build -p powerio-capi --release` in a powerio " *
+                  "checkout), or check that the library path can be loaded.")
+        end
+        got == PIO_ABI_VERSION || error(
+            "PowerIO: C ABI version mismatch: the library at \"$lib\" reports ABI $got, " *
+            "this PowerIO.jl targets ABI $(Int(PIO_ABI_VERSION)). Rebuild powerio-capi " *
+            "from a matching commit, or update PowerIO.jl.")
+        _ABI_OK[] = true
+        _ABI_OK_LIB[] = lib
+        return
     end
-    got == PIO_ABI_VERSION || error(
-        "PowerIO: C ABI version mismatch: the library at \"$lib\" reports ABI $got, " *
-        "this PowerIO.jl targets ABI $(Int(PIO_ABI_VERSION)). Rebuild powerio-capi " *
-        "from a matching commit, or update PowerIO.jl.")
-    _ABI_OK[] = true
-    _ABI_OK_LIB[] = lib
-    return
 end
 
 """
