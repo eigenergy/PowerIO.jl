@@ -257,8 +257,8 @@ end
 """
     VoltageSource
 
-One ideal voltage source with per terminal magnitude (volts) and angle
-(radians).
+One ideal voltage source with per terminal magnitude (volts), angle
+(radians), and optional per-phase energy cost rates (dollars/kWh).
 """
 struct VoltageSource
     name::String
@@ -266,6 +266,7 @@ struct VoltageSource
     terminals::Vector{String}
     voltage_magnitude_v::Vector{Float64}
     voltage_angle_rad::Vector{Float64}
+    energy_cost_rate_per_kwh::Union{Vector{Float64},Nothing}
 end
 
 """
@@ -543,7 +544,8 @@ _element(::Type{VoltageSource}, net::MulticonductorNetwork, i) = _with_network(n
     v = _at(PioVoltageSourceView, :pio_multiconductor_network_voltage_source_at, lib, p, i)
     VoltageSource(_str(v.name), _str(v.bus),
                   _terminals(:pio_multiconductor_network_voltage_source_terminal_at, lib, p, i, v.terminal_map_count),
-                  _f64s(v.voltage_magnitude_v), _f64s(v.voltage_angle_rad))
+                  _f64s(v.voltage_magnitude_v), _f64s(v.voltage_angle_rad),
+                  _optional_f64s(v.energy_cost_rate_per_kwh, v.has_energy_cost_rate))
 end
 
 _element(::Type{UntypedObject}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p

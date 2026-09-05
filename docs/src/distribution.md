@@ -71,10 +71,10 @@ serialization of a module, diagnostics and history included, for handing a
 module to another PowerIO consumer. It is not an exchange format, and no other
 tool reads it.
 
-BMOPF 0.2.0 output follows an explicitly pinned proposal, subject to Task Force
+BMOPF 0.2.0 output follows draft BMOPF 0.2, subject to Task Force
 review. Its metadata identifies the immutable schema and producer provenance.
-Explicit profile selection converts the typed value even when its source is BMOPF.
-Fields outside the 0.1.0 profile move to `extras`, with relocation diagnostics.
+Explicit schema-version selection converts the typed value even when its source is BMOPF.
+Fields outside the 0.1.0 schema move to `extras`, with relocation diagnostics.
 
 Bus `phase_to_ground_voltage_min_v` and `phase_to_ground_voltage_max_v` contain
 unequal phase limits in volts. Their entries follow bus terminal order, excluding
@@ -108,3 +108,9 @@ VoltageSource
 UntypedObject
 SourceCommand
 ```
+
+Source energy prices from draft BMOPF 0.2 are available as
+`net.voltage_sources[i].energy_cost_rate_per_kwh`. The optional vector follows
+phase order in the source terminal map, excluding neutral terminals. Its unit is \$/kWh.
+The prices survive PowerIO IR serialization; using them in an objective remains
+the responsibility of the selected calculation.

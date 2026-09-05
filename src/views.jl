@@ -779,6 +779,8 @@ struct PioVoltageSourceView
     terminal_map_count::Csize_t
     voltage_magnitude_v::PioF64View
     voltage_angle_rad::PioF64View
+    energy_cost_rate_per_kwh::PioF64View
+    has_energy_cost_rate::Bool
 end
 
 struct PioMulticonductorUntypedObjectView
