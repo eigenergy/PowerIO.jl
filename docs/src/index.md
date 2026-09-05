@@ -2,14 +2,19 @@
 
 PowerIO.jl is the Julia binding of [PowerIO](https://github.com/eigenergy/powerio),
 a compiler for power system data. It reads grid exchange formats (MATPOWER,
-PSS/E RAW and RAWX, XIIDM, CGMES, PowerWorld, PSLF, PyPSA, GridFM, OpenDSS,
-PMD JSON, BMOPF, and the PowerModels, Egret, and pandapower JSON dialects) into
+PSS/E RAW and RAWX, XIIDM and JIIDM, CGMES, UCTE-DEF, IEEE CDF, PowerWorld,
+PSLF, PyPSA, GridFM, OpenDSS, PMD JSON, BMOPF, and the PowerModels, Egret,
+pandapower, and Surge JSON dialects) into
 typed Julia values, writes them back out, and computes the matrices power flow
 and optimization code needs.
 
 ```julia
 using Pkg; Pkg.add("PowerIO")
 ```
+
+Requires Julia 1.9 or newer. Save
+[case9.m](https://github.com/eigenergy/powerio/blob/main/tests/data/case9.m)
+in your working directory before running the example below.
 
 ```julia
 using PowerIO
@@ -49,6 +54,7 @@ Element tables are properties of a network (`net.buses`, `net.branches`,
 
 ## Pages
 
+- Upgrading an application: [Migrating to 0.11](migration-0.11.md).
 - [Modules](modules.md): `PioModule`, sources, diagnostics, `emit`, PowerIO IR.
 - [Networks](networks.md): `BalancedNetwork` and its element structs.
 - [Distribution](distribution.md): `MulticonductorNetwork`.
@@ -60,6 +66,18 @@ Element tables are properties of a network (`net.buses`, `net.branches`,
 - Developer guides: [migrating to 0.11](migration-0.11.md), the
   [binary distribution](binary.md), [memory safety](memory-safety.md), the
   [language map](languages.md), and the [API reference](api.md).
+
+## Version compatibility
+
+| Version | Describes |
+|---|---|
+| PowerIO.jl 0.11 / PowerIO 0.11 | The package APIs documented here |
+| PowerIO IR generation 2 | The document written by `serialize` |
+| C ABI 7 | The interface to the native library |
+
+Use a matching 0.11 library when developing this binding. Regenerate stored
+0.10 modules from their original grid data before loading them in 0.11.
+The [migration guide](migration-0.11.md) lists the API replacements.
 
 ## The C library
 
