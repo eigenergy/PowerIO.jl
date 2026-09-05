@@ -22,15 +22,18 @@ optimization code needs.
 ```julia
 using PowerIO
 
-case = parse("case14.m")             # PioModule{BalancedNetwork}
+case = parse("case9.m")              # PioModule{BalancedNetwork}
 net = case.value
-length(net.buses)                    # 14
+length(net.buses)                    # 9
 net.branches[1].reactance_pu
 case.diagnostics                     # Vector{Diagnostic}
 emit(case, "matpower", "copy.m")     # same format: the original file, unchanged
 emit(case, "psse").text              # another format
 Y = calc_admittance_matrix(net)      # BusMappedMatrix{ComplexF64}
 ```
+
+Save [case9.m](https://github.com/eigenergy/powerio/blob/main/tests/data/case9.m)
+in your working directory to run the example, or use the path to your own case.
 
 [Read the documentation](https://eigenergy.github.io/PowerIO.jl).
 
@@ -40,23 +43,31 @@ Y = calc_admittance_matrix(net)      # BusMappedMatrix{ComplexF64}
 pkg> add PowerIO
 ```
 
-The C library ships as a lazy artifact for Linux, macOS, and Windows on
-`x86_64` and `aarch64`, so nothing compiles when you install.
+Requires Julia 1.9 or newer. The native library downloads on first use, with
+prebuilt binaries for Linux with glibc (`x86_64`, `aarch64`), macOS
+(`x86_64`, Apple silicon), and Windows (`x86_64`).
+
+For an existing 0.10 application, follow the
+[migration guide](https://eigenergy.github.io/PowerIO.jl/dev/migration-0.11/).
+PowerIO.jl 0.11 uses PowerIO 0.11, PowerIO IR generation 2, and C ABI 7.
 
 ## Formats
 
 Balanced (transmission) sources parse into a `BalancedNetwork`: MATPOWER,
-PSS/E RAW revisions 33 to 35 and RAWX 35, XIIDM 1.12 to 1.17, CGMES 2.4.15 and
-3.0, PowerWorld AUX and PWB, PSLF EPC, and the PowerModels, Egret, and
-pandapower JSON dialects. Multiconductor (distribution) sources parse into a
+PSS/E RAW revisions 32 to 35 and RAWX 35, XIIDM and JIIDM 1.0 to 1.17,
+CGMES 2.4.15 and 3.0, UCTE-DEF, IEEE Common Data Format, PowerWorld AUX and
+PWB, PSLF EPC, and the PowerModels, Egret, pandapower, and Surge JSON
+dialects. Multiconductor (distribution) sources parse into a
 `MulticonductorNetwork`: OpenDSS, PMD JSON, and BMOPF. PyPSA folders with
 several snapshots give a `TimeSeries`, GridFM datasets a `ScenarioSet`, and GO
 Challenge 3 and OPFData files give calculation instances and solutions.
 
-`emit` writes MATPOWER, PSS/E RAW and RAWX, XIIDM, CGMES, PowerWorld AUX,
-PowerModels JSON, PyPSA CSV, GridFM, OpenDSS, PMD JSON, and BMOPF. If you write
-a module back in the format it came from and nothing changed, you get the
-original file.
+The [format guide](https://eigenergy.github.io/powerio/guide/format-fidelity.html)
+lists the format tokens, read and write coverage, and conversion limits.
+PWB, IEEE CDF, and OPFData are read only. A PowerWorld PWD display produces a
+geographic layer. For a format with a writer, `emit` can return retained
+source bytes when the module is unchanged; `result.fidelity` identifies
+that case, and `result.diagnostics` reports any conversion losses.
 
 ## Operations
 
@@ -72,6 +83,17 @@ original file.
 Element tables such as `net.buses`, `net.branches`, and `net.lines` are
 properties that behave as Julia vectors of immutable structs, with 1-based
 indices.
+
+## Save a module
+
+```julia
+serialize(case, "case9.pio.json")
+restored = deserialize("case9.pio.json")   # PioModule{BalancedNetwork}
+```
+
+PowerIO IR keeps the typed value with its diagnostics and history. Original
+source bytes stay in the running process, so `emit` produces fresh output
+after deserialization. Use `emit` to export data to another grid tool.
 
 ## Development
 

@@ -8,7 +8,7 @@ sibling checkout; the library resolves automatically from
 
 ```
 git clone https://github.com/eigenergy/powerio ../powerio
-cargo build -p powerio-capi --release --features arrow,matrix,gridfm,dist,prob   # in ../powerio
+(cd ../powerio && cargo build -p powerio-capi --release --features arrow,matrix,gridfm,dist,prob)
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 ```
 

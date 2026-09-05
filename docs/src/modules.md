@@ -24,12 +24,13 @@ summarize(m::PioModule{<:TimeSeries}) = length(m.value)
 
 | Source | Value type |
 |---|---|
-| MATPOWER, PSS/E RAW and RAWX, XIIDM, CGMES, PowerWorld, PSLF EPC, PowerModels JSON, Egret JSON, pandapower JSON, PyPSA CSV (one snapshot) | `BalancedNetwork` |
+| MATPOWER, PSS/E RAW and RAWX, XIIDM and JIIDM, CGMES, UCTE-DEF, IEEE CDF, PowerWorld AUX and PWB, PSLF EPC, PowerModels JSON, Egret JSON, pandapower JSON, Surge JSON, PyPSA CSV (one snapshot) | `BalancedNetwork` |
 | OpenDSS, PMD JSON, BMOPF | `MulticonductorNetwork` |
-| PyPSA CSV with several snapshots | `TimeSeries{BalancedNetwork}` |
+| PyPSA CSV with several snapshots | `TimeSeries{BalancedNetwork}` or `TimeSeries{OperatingPoint{BalancedNetwork}}`, depending on which quantities vary |
 | GridFM Parquet | `ScenarioSet{BalancedNetwork}` |
 | GO Challenge 3 problem, or problem and solution | `AcScucInstance`, `AcScucSolution` |
 | OPFData | `AcOpfSolution` |
+| Geographic data or a PowerWorld PWD display | `UnknownValue` with `type_name == "powerio.GeoLayer"` |
 
 If the library hands back a value type this release does not bind, you get an
 [`UnknownValue`](@ref) with its structural type name.
