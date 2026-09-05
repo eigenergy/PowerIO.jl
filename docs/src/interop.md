@@ -13,9 +13,9 @@
 ## PowerModels.jl
 
 `to_powermodels` writes the module through the PowerModels JSON writer and
-returns the network data dictionary PowerModels.jl consumes: per unit powers,
-radian angles, string keyed component tables. `from_powermodels` parses such a
-dictionary (or its JSON text) back into a `PioModule{BalancedNetwork}`.
+returns the network data dictionary PowerModels.jl reads: per unit powers,
+angles in radians, string keyed component tables. `from_powermodels` parses
+such a dictionary (or its JSON text) back into a `PioModule{BalancedNetwork}`.
 
 ```julia
 case = parse("case14.m")
@@ -33,9 +33,9 @@ bounds the way `PowerModels.correct_voltage_angle_differences!` does.
 ## ExaModelsPower.jl
 
 `to_powerdata` returns ExaPowerIO's `PowerData` layout (`bus`, `gen`,
-`branch`, `arc`, `storage` rows with the fields ExaModelsPower reads);
+`branch`, `arc`, `storage` rows with the fields ExaModelsPower reads), and
 `to_ac_power_data` adds the bound and initial value vectors its `build_*_opf`
-functions consume. Powers are per unit, angles are radians, and bus references
+functions take. Powers are per unit, angles are radians, and bus references
 are positions in the bus table.
 
 ```julia
@@ -50,19 +50,19 @@ id keyed table, or two files.
 
 ## GridFM
 
-A GridFM Parquet dataset parses into a `ScenarioSet{BalancedNetwork}`; each
-scenario is a network. `emit(m, "gridfm", dir)` writes a dataset. Both need a
-powerio library built with the `gridfm` feature; the release binaries include
-it, and a build without it reports a coded parse error naming the feature.
+A GridFM Parquet dataset parses into a `ScenarioSet{BalancedNetwork}` with one
+network per scenario, and `emit(m, "gridfm", dir)` writes a dataset. Both need
+a powerio library built with the `gridfm` feature. The release binaries
+include it; a build without it reports a coded parse error naming the feature.
 
 ## PowerIO IR
 
 `serialize` and `deserialize` pass a complete module, with its diagnostics and
 history, to another PowerIO consumer in Rust, Python, Julia, or C. The document
-shape is `"schema": "pio-ir"` and integer generation `"version": 2`. The
-producer record separately names the PowerIO release that wrote it;
-[`library_version`](@ref) reports this library's own release. PowerIO 0.11 reads
-generation 2 and refuses other generations.
+is JSON with `"schema": "pio-ir"` and an integer generation, `"version": 2`.
+The producer record separately names the PowerIO release that wrote it, and
+[`library_version`](@ref) tells you this library's own release. PowerIO 0.11
+reads generation 2 and refuses any other.
 
 ```@docs
 to_powermodels

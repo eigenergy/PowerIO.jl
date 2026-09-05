@@ -1,7 +1,7 @@
 # Binary distribution
 
-PowerIO.jl wraps the Rust `powerio-capi` library, shipped as a prebuilt binary
-for each platform; users never compile it.
+PowerIO.jl wraps the Rust `powerio-capi` library. On a supported platform it
+arrives as a prebuilt binary, so you do not compile anything.
 
 ## Pipeline
 
@@ -18,13 +18,17 @@ for each platform; users never compile it.
    `gen/update_artifacts.jl` to build `Artifacts.toml`. Before writing, the
    generator loads the host library and checks its ABI number (7), its version
    string against the tag, the core entry points the binding calls, and that
-   it parses the GridFM fixture. A mismatch parks the update with
-   `Artifacts.toml` untouched. The workflow tests the exact result, commits
-   only `Artifacts.toml`, pushes only when `main` has not moved, and
-   dispatches registration for that exact SHA. See CONTRIBUTING.md for the
-   state machine and recovery commands.
-3. `Artifacts.toml` is lazy: nothing downloads at `Pkg.add`; the tarball for the
-   current platform is fetched on the first call that needs the library.
+   it parses the GridFM fixture. If any of those checks fail, the update is
+   parked and `Artifacts.toml` is left untouched. The workflow tests the exact
+   result, commits only `Artifacts.toml`, pushes only when `main` has not
+   moved, and dispatches registration for that exact SHA. See CONTRIBUTING.md
+   for the state machine and recovery commands.
+3. `Artifacts.toml` is lazy, so `Pkg.add` downloads nothing; the tarball for
+   your platform is fetched on the first call that needs the library.
+
+A `PowerIO_jll` built from `gen/build_tarballs.jl` (the BinaryBuilder recipe)
+is the planned long term distribution; current releases use the artifact
+pipeline above.
 
 ## Resolution order
 
@@ -37,8 +41,8 @@ The library resolves in this order:
 4. the `powerio_capi` artifact,
 5. a plain `libpowerio_capi` on the loader path.
 
-On an unsupported platform the artifact lookup fails and the fallbacks keep a
-local build working.
+On an unsupported platform the artifact lookup fails, and the other entries
+let you keep working from a local build.
 
 ```julia
 using PowerIO
@@ -46,12 +50,6 @@ using PowerIO
 set_library!("/path/to/libpowerio_capi.dylib"; persist=true)
 clear_library!(persist=true)
 ```
-
-## JLL
-
-A `PowerIO_jll` built from `gen/build_tarballs.jl` (the BinaryBuilder recipe)
-is the planned long term distribution; current releases use the artifact
-pipeline above.
 
 ```@docs
 set_library!

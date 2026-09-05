@@ -1,8 +1,9 @@
 # Updates
 
 Typed updates change a module in place. Each update names a component by
-[`ComponentId`](@ref), carries an absolute value with an explicit unit, and is
-applied as part of a batch that is validated as a whole.
+[`ComponentId`](@ref) and gives an absolute value with an explicit unit. You
+apply updates as a batch, and the batch is validated as a whole before
+anything changes.
 
 ```julia
 case = parse("case9.m")
@@ -19,11 +20,9 @@ report.changes[1].field            # "load_active_power"
 case.value.loads[1].p_mw           # 91.5
 ```
 
-## Quantities
-
-[`ActivePower`](@ref), [`ReactivePower`](@ref), and [`ApparentPower`](@ref)
-take exactly one unit keyword: `ActivePower(watts=...)` or
-`ActivePower(megawatts=...)`, `ReactivePower(vars=...)` or
+The quantity types [`ActivePower`](@ref), [`ReactivePower`](@ref), and
+[`ApparentPower`](@ref) take exactly one unit keyword: `ActivePower(watts=...)`
+or `ActivePower(megawatts=...)`, `ReactivePower(vars=...)` or
 `ReactivePower(megavars=...)`, `ApparentPower(volt_amperes=...)` or
 `ApparentPower(megavolt_amperes=...)`.
 
@@ -40,18 +39,18 @@ Operating point updates:
 | [`set_transformer_tap_ratio`](@ref), [`set_transformer_phase_shift_degrees`](@ref) | a transformer branch |
 | [`set_switch_closed`](@ref) | a switch position |
 
-Network update: [`set_branch_thermal_rating`](@ref). The power setters accept
-`terminal=` to address one terminal of a multiconductor element.
+The network update is [`set_branch_thermal_rating`](@ref). The power setters
+accept `terminal=` to address one terminal of a multiconductor element.
 
 ## Applying a batch
 
-[`apply_updates!`](@ref) validates every update before changing anything. A
+[`apply_updates!`](@ref) validates every update before changing anything, so a
 batch with an unknown component or an invalid value throws
 [`PowerIOError`](@ref) and leaves the module as it was. On success the module's
-value is refreshed, so `case.value` reflects the change; a `BalancedNetwork`
-obtained before the call keeps the pre-update data. The returned
-[`UpdateReport`](@ref) lists every [`UpdateChange`](@ref) and whether a service
-status or switch change altered the energized topology.
+value is refreshed and `case.value` reflects the change; a `BalancedNetwork`
+you obtained before the call keeps the data from before it. The returned
+[`UpdateReport`](@ref) lists every [`UpdateChange`](@ref) and says whether a
+service status or switch change altered the energized topology.
 
 Component ids for MATPOWER sources follow the reader's convention: loads and
 generators are `"bus-N"`, branches are `"F-T"`. Read the `component_id` field

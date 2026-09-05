@@ -23,11 +23,11 @@ net.transformers_3w            # Elements{ThreeWindingTransformer}
 net.areas
 ```
 
-Each table is an [`Elements`](@ref) vector: `length`, 1-based indexing,
+Each table is an [`Elements`](@ref) vector, so `length`, 1-based indexing,
 iteration, `filter`, `collect`, and broadcasting work as on any Julia vector.
 Every index reads one element from the C library and returns an immutable
-struct, so `collect(net.buses)` materializes a table once when it will be read
-many times.
+struct, so if you will read a table many times, `collect(net.buses)` copies it
+out once.
 
 ```julia
 length(net.buses)
@@ -42,7 +42,7 @@ sum(g.active_power_max_mw for g in net.generators)
 Field names follow the C view names in `powerio.h`, with units in the name:
 `vm_pu`, `va_degrees`, `base_kv`, `resistance_pu`, `active_power_mw`,
 `reactive_power_mvar`. An optional field is `nothing` when the source does not
-state it.
+give it.
 
 - [`Bus`](@ref): `id` (the source bus number), `bus_type` (`"PQ"`, `"PV"`,
   `"REF"`, `"ISOLATED"`), voltage and limits, `area`, `zone`, `name`,
@@ -56,21 +56,22 @@ state it.
   `machine_base_mva`, `cost`, `regulated_bus_id`, `capabilities`,
   `active_power_control`.
 - [`Load`](@ref) and [`Shunt`](@ref): one row per element at `bus_id`; several
-  can share a bus. `Shunt.control` carries switched shunt blocks.
+  can share a bus. `Shunt.control` contains the switched shunt blocks.
 - [`StaticVarCompensator`](@ref), [`Storage`](@ref), [`Switch`](@ref),
   [`Hvdc`](@ref), [`ThreeWindingTransformer`](@ref) (with `windings` and
   pairwise `impedances`), [`Area`](@ref).
 
-Bus references in every table are source bus ids, not positions. Build the map
-once when positions are needed:
+Bus references in every table are source bus ids rather than positions. When
+you need positions, build the map once:
 
 ```julia
 row = Dict(b.id => k for (k, b) in enumerate(net.buses))
 from = [row[br.from_bus_id] for br in net.branches]
 ```
 
-An element's `component_id` is its local identity; `ComponentId("load",
-load.component_id)` names it in an [update](updates.md).
+An element's `component_id` is its own identifier, and
+`ComponentId("load", load.component_id)` is how an [update](updates.md) refers
+to it.
 
 ## Dense tables
 
@@ -82,7 +83,7 @@ per generator `pg`, `pmax`, and per bus demand and shunt sums.
 
 ## Detailed connectivity
 
-Node breaker formats (XIIDM, CGMES) carry substations, voltage levels,
+Node breaker formats (XIIDM, CGMES) have substations, voltage levels,
 terminals, switches, and operational limits beyond the bus branch tables.
 `net.detailed_connectivity` is `nothing` for a bus branch source and a
 [`DetailedConnectivity`](@ref) otherwise; its `counts` property lists the
