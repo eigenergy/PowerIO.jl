@@ -6,8 +6,8 @@
     MulticonductorBus
 
 One multiconductor bus: its `id`, `terminals`, `grounded_terminals`, and the
-voltage limits the source states (volts; per terminal vectors for the phase
-limits).
+voltage limits the source states (volts). Phase vectors follow terminal order
+with neutral and earth terminals excluded. Scalar bounds apply uniformly.
 """
 struct MulticonductorBus
     id::String
@@ -15,6 +15,8 @@ struct MulticonductorBus
     grounded_terminals::Vector{String}
     voltage_min_v::Union{Float64,Nothing}
     voltage_max_v::Union{Float64,Nothing}
+    phase_to_ground_voltage_min_v::Union{Vector{Float64},Nothing}
+    phase_to_ground_voltage_max_v::Union{Vector{Float64},Nothing}
     phase_to_neutral_voltage_min_v::Union{Vector{Float64},Nothing}
     phase_to_neutral_voltage_max_v::Union{Vector{Float64},Nothing}
     phase_to_phase_voltage_min_v::Union{Vector{Float64},Nothing}
@@ -255,8 +257,8 @@ end
 """
     VoltageSource
 
-One ideal voltage source with per terminal magnitude (volts) and angle
-(radians).
+One ideal voltage source with per terminal magnitude (volts), angle
+(radians), and optional per-phase energy cost rates (dollars/kWh).
 """
 struct VoltageSource
     name::String
@@ -264,6 +266,7 @@ struct VoltageSource
     terminals::Vector{String}
     voltage_magnitude_v::Vector{Float64}
     voltage_angle_rad::Vector{Float64}
+    energy_cost_rate_per_kwh::Union{Vector{Float64},Nothing}
 end
 
 """
@@ -397,6 +400,8 @@ _element(::Type{MulticonductorBus}, net::MulticonductorNetwork, i) = _with_netwo
                       _terminals(:pio_multiconductor_network_bus_grounded_terminal_at, lib, p, i, v.grounded_terminal_count),
                       _optional(v.voltage_min_v, v.has_voltage_min),
                       _optional(v.voltage_max_v, v.has_voltage_max),
+                      _optional_f64s(v.phase_to_ground_voltage_min_v, v.has_phase_to_ground_voltage_min),
+                      _optional_f64s(v.phase_to_ground_voltage_max_v, v.has_phase_to_ground_voltage_max),
                       _optional_f64s(v.phase_to_neutral_voltage_min_v, v.has_phase_to_neutral_voltage_min),
                       _optional_f64s(v.phase_to_neutral_voltage_max_v, v.has_phase_to_neutral_voltage_max),
                       _optional_f64s(v.phase_to_phase_voltage_min_v, v.has_phase_to_phase_voltage_min),
@@ -539,7 +544,8 @@ _element(::Type{VoltageSource}, net::MulticonductorNetwork, i) = _with_network(n
     v = _at(PioVoltageSourceView, :pio_multiconductor_network_voltage_source_at, lib, p, i)
     VoltageSource(_str(v.name), _str(v.bus),
                   _terminals(:pio_multiconductor_network_voltage_source_terminal_at, lib, p, i, v.terminal_map_count),
-                  _f64s(v.voltage_magnitude_v), _f64s(v.voltage_angle_rad))
+                  _f64s(v.voltage_magnitude_v), _f64s(v.voltage_angle_rad),
+                  _optional_f64s(v.energy_cost_rate_per_kwh, v.has_energy_cost_rate))
 end
 
 _element(::Type{UntypedObject}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p

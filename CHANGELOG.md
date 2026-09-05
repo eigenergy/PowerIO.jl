@@ -2,6 +2,16 @@
 
 ## 0.11.0
 
+- Expose optional voltage-source `energy_cost_rate_per_kwh` vectors in
+  phase order, excluding neutral, with IR persistence and owner-rooted access.
+
+- The unreleased ABI 7 bus view includes unequal phase-to-ground voltage bounds
+  as typed vectors; PowerIO IR generation 2 preserves them during conversion.
+- `emit(m, "bmopf-json@0.1.0")` and `emit(m, "bmopf-json@0.2.0")` select an
+  explicit BMOPF schema version. Draft BMOPF 0.2 remains a Task Force proposal,
+  independent of ratification. Same-format emission without a schema override keeps
+  source fidelity.
+
 PowerIO.jl 0.11 binds PowerIO 0.11 over C ABI 7. This is a breaking release: the
 0.10 binding read every table from a network's JSON payload through accessor
 functions, and ABI 7 replaces that layer with typed element views. The public

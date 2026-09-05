@@ -106,3 +106,36 @@
         end
     end
 end
+
+@testset "BMOPF phase bounds, energy prices and schema versions" begin
+    if !LIBRARY_AVAILABLE
+        @test_skip "libpowerio_capi unavailable"
+    else
+        text = """
+        {"meta":{"\$schema":"https://raw.githubusercontent.com/distribution-system-opt/dsopt-schema/main/schema/bmopf/0.2.0/bmopf.schema.json","schema_version":"0.2.0","frequency":50},
+         "terminal_conventions":{"phase":["a","b"],"neutral":["n"]},
+         "bus":{"b":{"terminal_names":["a","b","n"],"v_min":[210,215],"v_max":[250,245]}},
+         "voltage_source":{"s":{"bus":"b","terminal_map":["a","b","n"],"v_magnitude":[230,230,0],"v_angle":[0,3.14159,0],"energy_cost_rate":[0.1,0.2]}}}
+        """
+        module_ = parse(IOBuffer(text); format="bmopf", name="phase-bounds.json")
+        network = module_.value
+        @test network isa MulticonductorNetwork
+        @test network.voltage_sources[1].energy_cost_rate_per_kwh == [0.1,0.2]
+        @test network.buses[1].voltage_min_v === nothing
+        @test network.buses[1].phase_to_ground_voltage_min_v == [210,215]
+        @test network.buses[1].phase_to_ground_voltage_max_v == [250,245]
+        restored = deserialize(Vector{UInt8}(serialize(module_).text))
+        @test restored.value.buses[1].phase_to_ground_voltage_min_v == [210,215]
+        @test restored.value.voltage_sources[1].energy_cost_rate_per_kwh == [0.1,0.2]
+        @test emit(module_, "bmopf").text == text
+        for version in ("0.1.0", "0.2.0")
+            output = JSON3.read(emit(module_, "bmopf-json@" * version).text)
+            @test occursin("/" * version * "/", output.meta[Symbol("\$schema")])
+            @test output.bus.b.v_min == [210,215]
+        end
+        module_ = nothing
+        GC.gc()
+        @test network.voltage_sources[1].energy_cost_rate_per_kwh == [0.1,0.2]
+        @test network.buses[1].phase_to_ground_voltage_max_v == [250,245]
+    end
+end
