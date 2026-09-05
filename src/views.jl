@@ -570,6 +570,10 @@ struct PioMulticonductorBusView
     has_voltage_min::Bool
     voltage_max_v::Float64
     has_voltage_max::Bool
+    phase_to_ground_voltage_min_v::PioF64View
+    has_phase_to_ground_voltage_min::Bool
+    phase_to_ground_voltage_max_v::PioF64View
+    has_phase_to_ground_voltage_max::Bool
     phase_to_neutral_voltage_min_v::PioF64View
     has_phase_to_neutral_voltage_min::Bool
     phase_to_neutral_voltage_max_v::PioF64View

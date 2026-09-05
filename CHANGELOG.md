@@ -2,6 +2,13 @@
 
 ## 0.11.0
 
+- The unreleased ABI 7 bus view includes unequal phase-to-ground voltage bounds
+  as typed vectors; PowerIO IR generation 2 preserves them during conversion.
+- `emit(m, "bmopf-json@0.1.0")` and `emit(m, "bmopf-json@0.2.0")` select an
+  explicit BMOPF output profile. Version 0.2.0 is a pinned Task Force proposal,
+  independent of ratification. Same-format emission without a profile keeps
+  source fidelity.
+
 PowerIO.jl 0.11 binds PowerIO 0.11 over C ABI 7. This is a breaking release: the
 0.10 binding read every table from a network's JSON payload through accessor
 functions, and ABI 7 replaces that layer with typed element views. The public

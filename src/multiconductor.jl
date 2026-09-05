@@ -6,8 +6,8 @@
     MulticonductorBus
 
 One multiconductor bus: its `id`, `terminals`, `grounded_terminals`, and the
-voltage limits the source states (volts; per terminal vectors for the phase
-limits).
+voltage limits the source states (volts). Phase vectors follow terminal order
+with neutral and earth terminals excluded. Scalar bounds apply uniformly.
 """
 struct MulticonductorBus
     id::String
@@ -15,6 +15,8 @@ struct MulticonductorBus
     grounded_terminals::Vector{String}
     voltage_min_v::Union{Float64,Nothing}
     voltage_max_v::Union{Float64,Nothing}
+    phase_to_ground_voltage_min_v::Union{Vector{Float64},Nothing}
+    phase_to_ground_voltage_max_v::Union{Vector{Float64},Nothing}
     phase_to_neutral_voltage_min_v::Union{Vector{Float64},Nothing}
     phase_to_neutral_voltage_max_v::Union{Vector{Float64},Nothing}
     phase_to_phase_voltage_min_v::Union{Vector{Float64},Nothing}
@@ -397,6 +399,8 @@ _element(::Type{MulticonductorBus}, net::MulticonductorNetwork, i) = _with_netwo
                       _terminals(:pio_multiconductor_network_bus_grounded_terminal_at, lib, p, i, v.grounded_terminal_count),
                       _optional(v.voltage_min_v, v.has_voltage_min),
                       _optional(v.voltage_max_v, v.has_voltage_max),
+                      _optional_f64s(v.phase_to_ground_voltage_min_v, v.has_phase_to_ground_voltage_min),
+                      _optional_f64s(v.phase_to_ground_voltage_max_v, v.has_phase_to_ground_voltage_max),
                       _optional_f64s(v.phase_to_neutral_voltage_min_v, v.has_phase_to_neutral_voltage_min),
                       _optional_f64s(v.phase_to_neutral_voltage_max_v, v.has_phase_to_neutral_voltage_max),
                       _optional_f64s(v.phase_to_phase_voltage_min_v, v.has_phase_to_phase_voltage_min),
