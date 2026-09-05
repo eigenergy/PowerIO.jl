@@ -32,7 +32,8 @@ The library resolves in this order:
 
 1. `set_library!(path)` or the `POWERIO_CAPI` environment variable,
 2. the saved Preferences.jl `library` override,
-3. a sibling `powerio` checkout's `target/{release,debug}` build,
+3. a sibling `powerio` checkout's `target/{release,debug}` build, only when
+   this package is itself a git checkout,
 4. the `powerio_capi` artifact,
 5. a plain `libpowerio_capi` on the loader path.
 

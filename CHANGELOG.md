@@ -29,6 +29,8 @@ stabilization line for the candidate 1.0 API.
   and `UpdateReport` supports `report[i]` beside `length` and iteration.
 - `apply_updates!` documents that it needs exclusive use of the module while it
   runs. A C error is released even when decoding its diagnostics throws.
+- The sibling `powerio` build is probed only from a git checkout of this
+  package, and library resolution and the ABI handshake run under one lock.
 - `emit(m, format, destination)` returns an `EmitResult` with `artifacts`,
   `layout`, `fidelity`, `diagnostics`, and `text`. `serialize` and `deserialize`
   move PowerIO IR; `to_json`, `from_json`, and the `pio-json` format token are
