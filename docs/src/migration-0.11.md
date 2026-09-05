@@ -1,10 +1,10 @@
 # Migrating from 0.10 to 0.11
 
 PowerIO.jl 0.11 binds PowerIO 0.11 over C ABI 7. Element tables are properties
-that return typed Julia structs, the operations follow the cross language
-vocabulary (`parse`, `emit`, `serialize`, `deserialize`, `calc_*`, `to_*`,
-`apply_updates!`), and everything the 0.10 binding read from a network's JSON
-payload now comes from typed C views.
+that return typed Julia structs, the operations use the same names as the
+Rust, Python, and C APIs (`parse`, `emit`, `serialize`, `deserialize`,
+`calc_*`, `to_*`, `apply_updates!`), and everything the 0.10 binding read from
+a network's JSON payload now comes from typed C views.
 
 ## Parsing and writing
 

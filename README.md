@@ -1,5 +1,11 @@
 # PowerIO.jl
 
+[![CI](https://github.com/eigenergy/PowerIO.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/eigenergy/PowerIO.jl/actions/workflows/CI.yml)
+[![Stable docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://eigenergy.github.io/PowerIO.jl/stable/)
+[![Dev docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://eigenergy.github.io/PowerIO.jl/dev/)
+[![Version](https://juliahub.com/docs/General/PowerIO/stable/version.svg)](https://juliahub.com/ui/Packages/General/PowerIO)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 <p align="center">
   <img
     src="https://raw.githubusercontent.com/eigenergy/powerio/main/docs/src/assets/powerio-logo.svg"
@@ -35,7 +41,7 @@ pkg> add PowerIO
 ```
 
 The C library ships as a lazy artifact for Linux, macOS, and Windows on
-`x86_64` and `aarch64`; nothing compiles on install.
+`x86_64` and `aarch64`, so nothing compiles when you install.
 
 ## Formats
 
@@ -43,14 +49,14 @@ Balanced (transmission) sources parse into a `BalancedNetwork`: MATPOWER,
 PSS/E RAW revisions 33 to 35 and RAWX 35, XIIDM 1.12 to 1.17, CGMES 2.4.15 and
 3.0, PowerWorld AUX and PWB, PSLF EPC, and the PowerModels, Egret, and
 pandapower JSON dialects. Multiconductor (distribution) sources parse into a
-`MulticonductorNetwork`: OpenDSS, PMD JSON, BMOPF. PyPSA folders with several
-snapshots give a `TimeSeries`, GridFM datasets a `ScenarioSet`, and GO
+`MulticonductorNetwork`: OpenDSS, PMD JSON, and BMOPF. PyPSA folders with
+several snapshots give a `TimeSeries`, GridFM datasets a `ScenarioSet`, and GO
 Challenge 3 and OPFData files give calculation instances and solutions.
 
 `emit` writes MATPOWER, PSS/E RAW and RAWX, XIIDM, CGMES, PowerWorld AUX,
-PowerModels JSON, PyPSA CSV, GridFM, OpenDSS, PMD JSON, and BMOPF. A module
-written back in its own format reproduces the original file when nothing
-changed.
+PowerModels JSON, PyPSA CSV, GridFM, OpenDSS, PMD JSON, and BMOPF. If you write
+a module back in the format it came from and nothing changed, you get the
+original file.
 
 ## Operations
 
@@ -63,13 +69,14 @@ changed.
 | `to_*(m)` | construct another value in memory |
 | `apply_updates!(m, updates)` | change a module in place |
 
-Element tables are properties (`net.buses`, `net.branches`, `net.lines`) that
-behave as Julia vectors of immutable structs; indices are 1-based.
+Element tables such as `net.buses`, `net.branches`, and `net.lines` are
+properties that behave as Julia vectors of immutable structs, with 1-based
+indices.
 
 ## Development
 
-PowerIO.jl calls the powerio C library (C ABI 7). With a sibling `powerio`
-checkout:
+PowerIO.jl calls the powerio C library (C ABI 7). To work against a local
+build, clone `powerio` next to this checkout and build it:
 
 ```sh
 git clone https://github.com/eigenergy/powerio ../powerio
@@ -77,8 +84,8 @@ git clone https://github.com/eigenergy/powerio ../powerio
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 ```
 
-The library resolves from `../powerio/target/release` automatically. Point at
-another build with `POWERIO_CAPI=/path/to/libpowerio_capi.so` or
+The package finds `../powerio/target/release` on its own. To use another
+build, set `POWERIO_CAPI=/path/to/libpowerio_capi.so` or call
 `PowerIO.set_library!(path)`. See CONTRIBUTING.md for the release flow.
 
 ## License

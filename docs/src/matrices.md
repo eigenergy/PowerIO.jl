@@ -1,15 +1,16 @@
 # Matrices
 
-Two groups of calculations take a `BalancedNetwork` or a
+The calculations on this page take a `BalancedNetwork` or a
 `PioModule{BalancedNetwork}` and return `SparseMatrixCSC` or `Vector{Float64}`
-values with 1-based indices.
+values with 1-based indices. The DC calculations come from the powerio
+library; the admittance matrices are assembled in Julia.
 
 ## DC calculations
 
-The eight DC calculations are computed by the powerio library and share their
-names with the Rust, Python, and C APIs. With `A` the branch by bus incidence
-matrix (`+1` at the from bus, `-1` at the to bus of every in-service branch)
-and `b` the branch susceptances:
+The powerio library computes the eight DC calculations, under the same names
+as the Rust, Python, and C APIs. With `A` the branch by bus incidence matrix
+(`+1` at the from bus, `-1` at the to bus of every in-service branch) and `b`
+the branch susceptances:
 
 ```julia
 A  = calc_incidence_matrix(net)            # branches by buses
@@ -55,13 +56,13 @@ calc_admittance_matrix("case9.m")          # parse, then assemble
 ```
 
 [`calc_bprime_matrix`](@ref) and [`calc_bdoubleprime_matrix`](@ref) are the
-fast decoupled `B'` and `B''` matrices: the same kernel with charging, taps,
-shifts, shunts, and series resistance switched as MATPOWER's `makeB` does,
-negated. `scheme=:bx` (the default) or `:xb` selects where the series
-resistance is dropped.
+fast decoupled `B'` and `B''` matrices. They use the same kernel, with
+charging, taps, shifts, shunts, and series resistance switched on or off as
+MATPOWER's `makeB` does, and the result negated. `scheme=:bx` (the default) or
+`:xb` selects where the series resistance is dropped.
 
 A branch whose impedance magnitude is below the divisibility threshold is an
-error unless `skip_zero_impedance=true` drops it.
+error unless you pass `skip_zero_impedance=true`, which drops it.
 
 ```@docs
 calc_incidence_matrix

@@ -29,9 +29,9 @@ result.diagnostics                   # what PSS/E cannot carry
 serialize(case, "case9.pio.json")    # PowerIO IR, for other PowerIO consumers
 ```
 
-## The vocabulary
+## Operations
 
-Five operations cover the binding:
+The operations share their names with the Rust, Python, and C APIs:
 
 | Operation | What it does |
 |---|---|
@@ -44,8 +44,8 @@ Five operations cover the binding:
 
 Element tables are properties of a network (`net.buses`, `net.branches`,
 `net.lines`) and behave as Julia vectors of immutable structs. Indices are
-1-based everywhere. `parse` extends `Base.parse`, so the bare name works after
-`using PowerIO`.
+1-based, in the tables and in the sparse matrices alike. `parse` extends
+`Base.parse`, so the bare name works after `using PowerIO`.
 
 ## Pages
 
@@ -63,9 +63,10 @@ Element tables are properties of a network (`net.buses`, `net.branches`,
 
 ## The C library
 
-PowerIO.jl calls the powerio C library (`libpowerio_capi`, C ABI 7). The
-library resolves automatically: the bundled artifact on a supported platform,
-or a sibling `powerio` checkout's build during development. Point at another
-build with [`set_library!`](@ref) or the `POWERIO_CAPI` environment variable.
-[`library_available`](@ref) reports whether a compatible library resolved and
-[`abi_version`](@ref) the ABI number it was built with.
+PowerIO.jl calls the powerio C library (`libpowerio_capi`, C ABI 7). You do
+not normally have to find it yourself: on a supported platform the bundled
+artifact is used, and during development a sibling `powerio` checkout's build
+is picked up. To point at another build, call [`set_library!`](@ref) or set
+the `POWERIO_CAPI` environment variable. [`library_available`](@ref) tells you
+whether a compatible library was found, and [`abi_version`](@ref) which ABI
+number it was built with.

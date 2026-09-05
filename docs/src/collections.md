@@ -5,7 +5,8 @@
 A PyPSA folder with several snapshots parses into a
 [`TimeSeries`](@ref)`{BalancedNetwork}`; a GridFM dataset parses into a
 [`ScenarioSet`](@ref)`{BalancedNetwork}`. Both hold typed values and follow
-Julia's collection conventions.
+Julia's collection conventions, a `TimeSeries` indexed by position and a
+`ScenarioSet` by string key.
 
 ```julia
 series = parse("pypsa_folder/").value    # TimeSeries{BalancedNetwork}
@@ -24,14 +25,14 @@ for (id, net) in scenarios
 end
 ```
 
-Entries are read from the collection without copying a network. An
-[`OperatingPoint`](@ref) exposes its `network`.
+Reading an entry does not copy the network. An [`OperatingPoint`](@ref) has a
+`network` property.
 
 ## Calculation instances and solutions
 
 A calculation instance pairs a network with the specification of one
-calculation. `instance.network` is the network. Construct one from a network
-module:
+calculation, and `instance.network` gives you that network back. You construct
+one from a network module:
 
 ```julia
 case = parse("case9.m")
@@ -49,10 +50,11 @@ serialize(opf, "case9_dcopf.pio.json")
 | `to_mc_ac_pf_instance`, `to_mc_ac_opf_instance` | `McAcPfInstance`, `McAcOpfInstance` over a `MulticonductorNetwork` |
 
 A solution answers an instance. `solution.instance` is that instance,
-`solution.termination` the solver status (`"converged"`, `"iteration_limit"`,
+`solution.termination` is the solver status (`"converged"`, `"iteration_limit"`,
 `"infeasible"`, `"unbounded"`, `"failed"`, `"not_reported"`), and
-`solution.objective` the reported objective or `nothing`. Named quantities are
-read by name, one `Vector{Float64}` in table order:
+`solution.objective` is the reported objective or `nothing`. You read a named
+quantity by indexing with its name and get one `Vector{Float64}` in table
+order:
 
 ```julia
 solution = parse("example_0.json").value  # AcOpfSolution from OPFData
@@ -68,8 +70,8 @@ scuc["bus_voltage_magnitude", 1]          # time position 1
 ```
 
 An unknown quantity name throws [`PowerIOError`](@ref) with code
-`REQUEST.CAPI.QUANTITY_UNKNOWN`. [`SocwrOpfSolution`](@ref) records a second
-order cone relaxation of an AC OPF instance; it reports
+`REQUEST.CAPI.QUANTITY_UNKNOWN`. A [`SocwrOpfSolution`](@ref) comes from a
+second order cone relaxation of an AC OPF instance, so it reports an
 `objective_lower_bound` and is not an AC feasible point.
 
 ```@docs
