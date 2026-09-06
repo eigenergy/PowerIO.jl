@@ -2,6 +2,16 @@
 
 Release announcements. See [CHANGELOG.md](CHANGELOG.md) for the complete, itemized history.
 
+## 0.11.1
+
+Fixes from the PowerDiff.jl port: `to_powerdata` states angles in radians,
+carries `cost.model`, validates only in-service rows, and refuses a zero
+impedance branch with the same `BUILD.OPERATOR.ZERO_IMPEDANCE` error the DC
+calculations and admittance matrices report. `calc_dc_index_map` names the bus
+and branch axes of every DC calculation, every `calc_*` accepts
+`skip_zero_impedance`, and `calc_branch_admittances` returns the per branch
+primitive admittances.
+
 ## 0.11.0
 
 PowerIO.jl 0.11 binds PowerIO 0.11 over C ABI 7.

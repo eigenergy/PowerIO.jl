@@ -88,6 +88,34 @@ end
             @test to_powerdata(net; T=Float32).baseMVA isa Float32
             @test_throws ArgumentError to_powerdata(fixture("dist", "switch.dss"))
 
+            # Angles are radians throughout the layout (#138); the generator
+            # row carries the source cost model (#142).
+            @test all(b.va ≈ deg2rad(src.va_degrees) for (b, src) in zip(pd.bus, net.buses))
+            @test all(g.model == 2 for g in pd.gen)
+
+            # An out of service row cannot refuse the conversion (#143).
+            oos = parse(fixture("oos_cubic_cost.m")).value
+            @test !oos.generators[2].in_service
+            pdo = to_powerdata(oos)
+            @test [g.status for g in pdo.gen] == [1, 0]
+            @test pdo.gen[1].model_poly && pdo.gen[1].n == 3
+            @test pdo.gen[2].model == 2 && pdo.gen[2].c == (0.0, 0.0, 0.0)
+            @test to_powerdata(oos; strict=false).gen[2].status == 0
+
+            # A zero impedance branch follows the DC calculation convention (#140).
+            tie = parse(fixture("zero_impedance.m")).value
+            err = try
+                to_powerdata(tie)
+                nothing
+            catch e
+                e
+            end
+            @test err isa PowerIOError && err.code == "BUILD.OPERATOR.ZERO_IMPEDANCE"
+            opened = to_powerdata(tie; zero_impedance=:open)
+            @test opened.branch[1].c1 == 0.0 && opened.branch[1].c3 == 0.0
+            @test opened.branch[1].c6 ≈ 0.01 && opened.branch[1].c8 ≈ 0.01
+            @test_throws ArgumentError to_powerdata(tie; zero_impedance=:drop)
+
             ac = to_ac_power_data(net)
             @test ac.baseMVA == [100.0]
             @test ac.ref_buses == [1]

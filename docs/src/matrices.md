@@ -65,6 +65,7 @@ A branch whose impedance magnitude is below the divisibility threshold is an
 error unless you pass `skip_zero_impedance=true`, which drops it.
 
 ```@docs
+calc_dc_index_map
 calc_incidence_matrix
 calc_branch_susceptances
 calc_bus_susceptance_matrix
@@ -76,5 +77,6 @@ calc_bus_injection_dc
 calc_admittance_matrix
 calc_bprime_matrix
 calc_bdoubleprime_matrix
+calc_branch_admittances
 BusMappedMatrix
 ```
