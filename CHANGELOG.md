@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.11.1
+
+- `to_powerdata` returns `bus.va` in radians, as its docstring states and as
+  the branch `shift`, `angmin`, and `angmax` fields already did (#138).
+- `to_powerdata` generator rows carry `model`: 0 without a cost record,
+  otherwise `cost.model` verbatim, so a piecewise linear cost is detectable
+  from the row (#142).
+- `to_powerdata` validates only rows that are in service; an out of service
+  generator, branch, load, shunt, or storage row is copied with its `status`
+  and cannot refuse the conversion. `strict=false` copies in-service rows as
+  stated too (#143).
+- A zero impedance branch behaves the same way on every surface: the DC
+  `calc_*` family, `calc_admittance_matrix`, `calc_bprime_matrix`,
+  `calc_bdoubleprime_matrix`, and `to_powerdata` throw `PowerIOError` with
+  code `BUILD.OPERATOR.ZERO_IMPEDANCE`, and every one of them accepts
+  `skip_zero_impedance=true`; `to_powerdata(net; zero_impedance=:open)` keeps
+  the former open circuit substitution as an explicit choice. The Julia
+  assembled matrices no longer throw `ArgumentError` (#140).
+- `calc_dc_index_map` names the axes every DC calculation shares:
+  `idx_to_bus`, `bus_to_idx`, `idx_to_branch`, `branch_ids`, and
+  `skipped_branch_rows`. Each `calc_*` docstring states the row and column
+  selection. The binding builds the operators once through the
+  `pio_calc_dc_operators` handle PowerIO 0.11.1 adds (#139).
+- `calc_branch_admittances` returns `(y_ff, y_ft, y_tf, y_tt)` per in-service
+  branch, and `to_powerdata` documents how `c1..c8` correspond to them (#141).
+- Binds PowerIO 0.11.1 over C ABI 7.
+
 ## 0.11.0
 
 - Expose optional voltage-source `energy_cost_rate_per_kwh` vectors in
