@@ -103,8 +103,10 @@ The axes every DC calculation shares, as a named tuple:
 - `skipped_branch_rows`: the 1-based positions of the zero impedance branches
   dropped under `skip_zero_impedance=true`, empty otherwise.
 
-The same selection applies to the `c1..c8` rows of [`to_powerdata`](@ref)
-after its own `status` filter. $_DC_FORMULA_DOC
+This axis is the DC calculations' own. Neither [`to_powerdata`](@ref), whose
+branch rows follow `net.branches` in table order with one row per branch and
+its own `status` field, nor [`calc_branch_admittances`](@ref), whose rows
+follow `net.branches` over the in-service branches, shares it. $_DC_FORMULA_DOC
 """
 function calc_dc_index_map(net; formula::AbstractString="series_susceptance",
                            skip_zero_impedance::Bool=false)

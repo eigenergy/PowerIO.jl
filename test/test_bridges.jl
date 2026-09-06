@@ -111,6 +111,15 @@ end
                 e
             end
             @test err isa PowerIOError && err.code == "BUILD.OPERATOR.ZERO_IMPEDANCE"
+            # `strict=false` relaxes the field checks, not the zero impedance one.
+            @test_throws PowerIOError to_powerdata(tie; strict=false)
+            lax = try
+                to_powerdata(tie; strict=false)
+                nothing
+            catch e
+                e
+            end
+            @test lax isa PowerIOError && lax.code == "BUILD.OPERATOR.ZERO_IMPEDANCE"
             opened = to_powerdata(tie; zero_impedance=:open)
             @test opened.branch[1].c1 == 0.0 && opened.branch[1].c3 == 0.0
             @test opened.branch[1].c6 ≈ 0.01 && opened.branch[1].c8 ≈ 0.01

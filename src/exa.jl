@@ -75,14 +75,12 @@ _bound_field(x::Real, ::Type{T}, element::AbstractString, field::Symbol, checked
 # The eight admittance coefficients ExaModelsPower reads per branch:
 # `c1 + im*c2 = y_tf`, `c3 + im*c4 = y_ft`, `c5 + im*c6 = y_ff`, `c7 + im*c8 = y_tt`
 # in MATPOWER's `makeYbus` notation, the same values `calc_branch_admittances`
-# returns. `open=true` states a zero impedance branch as an open circuit (the
-# series admittance zero, the charging kept); otherwise the caller has refused
-# it already.
-function _branch_coeffs(r::T, x::T, b_fr::T, b_to::T, g_fr::T, g_to::T, tap::T, shift::T;
-                        open::Bool=false) where {T<:Real}
-    zero_impedance = hypot(r, x) < _MIN_DIVISIBLE_MAGNITUDE
-    y = if zero_impedance
-        open || throw(_zero_impedance_error("?", "?", "?"))
+# returns. A zero impedance branch reaching here is stated as an open circuit
+# (the series admittance zero, the charging kept), the `zero_impedance=:open`
+# path; `zero_impedance=:error` refuses it at the call site, with the branch
+# and its buses named.
+function _branch_coeffs(r::T, x::T, b_fr::T, b_to::T, g_fr::T, g_to::T, tap::T, shift::T) where {T<:Real}
+    y = if hypot(r, x) < _MIN_DIVISIBLE_MAGNITUDE
         zero(Complex{T})
     else
         inv(complex(r, x))
@@ -223,7 +221,7 @@ function to_powerdata(net::BalancedNetwork; T::Type{<:Real}=Float64, strict::Boo
         if br.in_service && zero_impedance === :error && hypot(r, x) < _MIN_DIVISIBLE_MAGNITUDE
             throw(_zero_impedance_error(i, br.from_bus_id, br.to_bus_id))
         end
-        c1, c2, c3, c4, c5, c6, c7, c8 = _branch_coeffs(r, x, b_fr, b_to, g_fr, g_to, tap, shift; open=true)
+        c1, c2, c3, c4, c5, c6, c7, c8 = _branch_coeffs(r, x, b_fr, b_to, g_fr, g_to, tap, shift)
         (; i, f_bus = f, t_bus = t, br_r = r, br_x = x, b_fr, b_to, g_fr, g_to,
            rate_a = _bound_field(br.rate_a_mva, T, label, :rate_a, checked) / base,
            rate_b = _bound_field(br.rate_b_mva, T, label, :rate_b, checked) / base,

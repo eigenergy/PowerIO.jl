@@ -26,8 +26,11 @@ p  = calc_bus_injection_dc(net, va)        # -(B * va) + pb
 ```
 
 `formula="series_susceptance"` (the default) uses the imaginary part of the
-series admittance as the branch susceptance. Rows follow the bus and branch
-tables of the network.
+series admittance as the branch susceptance. A bus axis covers every bus in
+table order; a branch axis covers the in-service, non self loop branches in
+table order, with three winding transformer windings after the branches.
+[`calc_dc_index_map`](@ref) names both axes. The admittance matrices below and
+[`to_powerdata`](@ref) do not share the branch axis.
 
 ## Admittance matrices
 

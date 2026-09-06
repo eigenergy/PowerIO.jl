@@ -180,9 +180,11 @@ end
 The primitive admittance of every in-service branch as `(y_ff, y_ft, y_tf, y_tt)`
 in per unit on the system base, the four coefficients MATPOWER's `makeYbus`
 adds into `Y[f,f]`, `Y[f,t]`, `Y[t,f]`, and `Y[t,t]`. Rows follow
-`net.branches` in table order over the in-service branches, the selection
-[`calc_dc_index_map`](@ref) reports; a skipped zero impedance branch has no
-row. Bus shunts are not included. Returns a `Vector{NTuple{4,ComplexF64}}`.
+`net.branches` in table order over the in-service branches; a skipped zero
+impedance branch has no row. That is not the branch axis
+[`calc_dc_index_map`](@ref) reports, which omits self loop branches and
+appends three winding transformer windings after the branches. Bus shunts are
+not included. Returns a `Vector{NTuple{4,ComplexF64}}`.
 [`to_powerdata`](@ref) states the same values as `c5 + im*c6 = y_ff`,
 `c3 + im*c4 = y_ft`, `c1 + im*c2 = y_tf`, and `c7 + im*c8 = y_tt`.
 """
