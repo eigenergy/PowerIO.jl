@@ -35,4 +35,6 @@ makedocs(;
     ],
 )
 
-deploydocs(; repo = "github.com/eigenergy/PowerIO.jl.git", devbranch = "main")
+if get(ENV, "GITHUB_ACTIONS", "false") == "true"
+    deploydocs(; repo = "github.com/eigenergy/PowerIO.jl.git", devbranch = "main")
+end
