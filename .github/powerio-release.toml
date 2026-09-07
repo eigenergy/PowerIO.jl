@@ -4,4 +4,4 @@ schema = 1
 state = "draft"
 julia_version = "0.11.1"
 powerio_tag = "v0.11.1"
-source_digest = "sha256:1067946d318998e061ff033a5e26706d474719d305516b03e69024f029bf299a"
+source_digest = "sha256:a1c6b291fe1529e6434d78662d7186038b5bb9972cee4a0425a7a35fbd816c5b"
