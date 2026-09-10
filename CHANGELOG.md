@@ -2,6 +2,12 @@
 
 ## 0.11.1
 
+- Bind LinDist3Flow OPF instances and solutions through additive C ABI 7
+  accessors. Metadata records physical node and conductor axes; solution
+  quantities return owned vectors in squared volts, watts, and vars.
+- Read PowerIO IR generations 2 and 3 through the library. The companion
+  PowerIO build writes generation 3; older libraries cannot read it.
+
 - Preserve BMOPF bus coordinates and line paths through typed access, PowerIO IR,
   and explicit schema-version output with PowerIO 0.11.1. Read geographic bus
   locations from supported New England PWB records without changing C ABI 7.

@@ -40,9 +40,9 @@ export PioModule, emit, serialize, deserialize
 # Values.
 export BalancedNetwork, MulticonductorNetwork, TimeSeries, ScenarioSet, OperatingPoint,
        DcPfInstance, AcPfInstance, DcOpfInstance, AcOpfInstance,
-       McAcPfInstance, McAcOpfInstance, AcScucInstance,
+       McAcPfInstance, McAcOpfInstance, LinDist3FlowOpfInstance, AcScucInstance,
        DcPfSolution, AcPfSolution, DcOpfSolution, AcOpfSolution, SocwrOpfSolution,
-       McAcPfSolution, McAcOpfSolution, AcScucSolution, UnknownValue
+       McAcPfSolution, McAcOpfSolution, LinDist3FlowOpfSolution, AcScucSolution, UnknownValue
 
 # Records and results.
 export Diagnostic, SourceSpan, PowerIOError, EmitResult, Artifact,
@@ -75,7 +75,7 @@ export calc_incidence_matrix, calc_branch_susceptances, calc_bus_susceptance_mat
 
 # Calculation constructions and solution access.
 export to_dc_pf_instance, to_ac_pf_instance, to_dc_opf_instance, to_ac_opf_instance,
-       to_mc_ac_pf_instance, to_mc_ac_opf_instance, time_count
+       to_mc_ac_pf_instance, to_mc_ac_opf_instance, to_lindist3flow_opf_instance, time_count
 
 # Typed updates.
 export ActivePower, ReactivePower, ApparentPower, OperatingPointUpdate, NetworkUpdate,

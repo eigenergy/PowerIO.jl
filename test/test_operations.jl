@@ -114,7 +114,7 @@
             @test length(ir.artifacts) == 1
             doc = JSON3.read(ir.text)
             @test doc.schema == "pio-ir"
-            @test doc.version == 2
+            @test doc.version == 3
             # The IR generation and producing release are independent.
             @test doc.producer.name == "powerio"
             @test doc.producer.version == library_version()
@@ -152,7 +152,7 @@
                 Dict("schema" => schema, "version" => version),
             )
             for (schema, version, remedy) in
-                (("pio-ir", 3, "upgrade PowerIO"),
+                (("pio-ir", 4, "upgrade PowerIO"),
                  ("pio-ir", 1, "regenerate this document"),
                  ("powerio.module", 1, "regenerate this document"))
                 err = try
