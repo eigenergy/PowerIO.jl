@@ -59,10 +59,10 @@ include it; a build without it reports a coded parse error naming the feature.
 
 `serialize` and `deserialize` pass a complete module, with its diagnostics and
 history, to another PowerIO consumer in Rust, Python, Julia, or C. The document
-is JSON with `"schema": "pio-ir"` and an integer generation, `"version": 2`.
+is JSON with `"schema": "pio-ir"` and an integer generation, `"version": 3`.
 The producer record separately names the PowerIO release that wrote it, and
-[`library_version`](@ref) tells you this library's own release. PowerIO 0.11
-reads generation 2 and refuses any other.
+[`library_version`](@ref) reports the library's own release. PowerIO 0.11.1
+reads generations 2 and 3. Older releases cannot read later generations.
 
 ```@docs
 to_powermodels
