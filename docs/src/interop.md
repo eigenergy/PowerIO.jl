@@ -59,10 +59,11 @@ include it; a build without it reports a coded parse error naming the feature.
 
 `serialize` and `deserialize` pass a complete module, with its diagnostics and
 history, to another PowerIO consumer in Rust, Python, Julia, or C. The document
-is JSON with `"schema": "pio-ir"` and an integer generation, `"version": 3`.
+is JSON with `"schema": "pio-ir"` and an integer generation, `"version": 2`.
 The producer record separately names the PowerIO release that wrote it, and
 [`library_version`](@ref) reports the library's own release. PowerIO 0.11.1
-reads generations 2 and 3. Older releases cannot read later generations.
+reads generation 2. Existing types keep their representation; LinDist3Flow types require a
+reader implementing them.
 
 ```@docs
 to_powermodels

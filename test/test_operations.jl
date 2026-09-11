@@ -114,7 +114,7 @@
             @test length(ir.artifacts) == 1
             doc = JSON3.read(ir.text)
             @test doc.schema == "pio-ir"
-            @test doc.version == 3
+            @test doc.version == 2
             # The IR generation and producing release are independent.
             @test doc.producer.name == "powerio"
             @test doc.producer.version == library_version()

@@ -1,6 +1,6 @@
 {
   "schema": "pio-ir",
-  "version": 3,
+  "version": 2,
   "producer": {
     "name": "powerio-binding-fixture",
     "version": "1"

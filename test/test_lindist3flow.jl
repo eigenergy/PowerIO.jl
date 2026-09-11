@@ -41,9 +41,10 @@
         constructed = to_lindist3flow_opf_instance(network_module)
         @test constructed isa PioModule{LinDist3FlowOpfInstance}
         @test constructed.value.metadata.roots == [("source", "a")]
-        @test JSON3.read(serialize(constructed).text).version == 3
+        @test JSON3.read(serialize(constructed).text).version == 2
         document = JSON3.read(serialize(constructed).text, Dict{String,Any})
-        document["version"] = 2
+        @test deserialize(Vector{UInt8}(JSON3.write(document))) isa PioModule{LinDist3FlowOpfInstance}
+        document["version"] = 3
         @test_throws PowerIOError deserialize(Vector{UInt8}(JSON3.write(document)))
     end
 end

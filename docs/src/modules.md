@@ -102,14 +102,15 @@ the content of the single UTF-8 file when it was produced in memory, or
 ## PowerIO IR
 
 PowerIO IR is PowerIO's own serialization of a module: one JSON document
-(`"schema": "pio-ir"`, integer generation `"version": 3`) holding the typed
+(`"schema": "pio-ir"`, integer generation `"version": 2`) holding the typed
 value with its diagnostics, producer, sources, source mappings, history, and
 extensions. The producer record separately names the PowerIO release that
 wrote the document. [`serialize`](@ref) writes it and [`deserialize`](@ref)
 reads it.
 
-PowerIO 0.11.1 reads generations 2 and 3. The generation advances only when the
-serialized representation changes, and it is independent of the PowerIO
+PowerIO 0.11.1 reads generation 2. Additive structural types keep that
+generation; older readers reject types they do not implement. The generation advances only when the
+an existing serialized representation changes incompatibly, and it is independent of the PowerIO
 release and the C ABI; [`library_version`](@ref) reports the library release.
 A refused document names the generation it found and what to do about it: a
 later generation needs a newer PowerIO, and a document with any other
