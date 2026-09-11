@@ -66,6 +66,84 @@ end
             @test_throws PowerIOError calc_branch_flow_dc(net, zeros(3))
         end
 
+        @testset "DC index map" begin
+            axes = calc_dc_index_map(net)
+            @test axes.idx_to_bus == [b.id for b in net.buses]
+            @test axes.bus_to_idx[axes.idx_to_bus[3]] == 3
+            @test axes.idx_to_branch == 1:9
+            @test length(axes.branch_ids) == 9 && all(id -> id isa String, axes.branch_ids)
+            @test isempty(axes.skipped_branch_rows)
+            @test size(calc_incidence_matrix(net)) == (length(axes.branch_ids), length(axes.idx_to_bus))
+            @test calc_dc_index_map(m) == axes
+
+            # An out of service branch has no row; the map says which rows remain.
+            raw = parse(fixture("psse", "case3_3w_v33.raw")).value
+            raw_axes = calc_dc_index_map(raw)
+            @test length(raw_axes.branch_ids) == size(calc_incidence_matrix(raw), 1)
+            @test all(1 .<= raw_axes.idx_to_branch)
+        end
+
+        @testset "zero impedance branches" begin
+            tie = parse(fixture("zero_impedance.m")).value
+            err = try
+                calc_incidence_matrix(tie)
+                nothing
+            catch e
+                e
+            end
+            @test err isa PowerIOError && err.code == "BUILD.OPERATOR.ZERO_IMPEDANCE"
+            @test_throws PowerIOError calc_bus_susceptance_matrix(tie)
+            @test_throws PowerIOError calc_dc_index_map(tie)
+
+            axes = calc_dc_index_map(tie; skip_zero_impedance=true)
+            @test axes.skipped_branch_rows == [1]
+            @test axes.idx_to_branch == [2]
+            @test size(calc_incidence_matrix(tie; skip_zero_impedance=true)) == (1, 3)
+            @test length(calc_branch_susceptances(tie; skip_zero_impedance=true)) == 1
+            @test size(calc_bus_susceptance_matrix(tie; skip_zero_impedance=true)) == (3, 3)
+            @test length(calc_branch_flow_dc(tie, [0.0, 0.0, 0.1]; skip_zero_impedance=true)) == 1
+            @test length(calc_bus_injection_dc(tie, [0.0, 0.0, 0.1]; skip_zero_impedance=true)) == 3
+
+            # The Julia assembled matrices report the same code and honor the same option.
+            yerr = try
+                calc_admittance_matrix(tie)
+                nothing
+            catch e
+                e
+            end
+            @test yerr isa PowerIOError && yerr.code == "BUILD.OPERATOR.ZERO_IMPEDANCE"
+            @test_throws PowerIOError calc_bprime_matrix(tie)
+            @test size(calc_admittance_matrix(tie; skip_zero_impedance=true)) == (3, 3)
+            @test length(calc_branch_admittances(tie; skip_zero_impedance=true)) == 1
+            @test_throws PowerIOError calc_branch_admittances(tie)
+        end
+
+        @testset "branch admittances" begin
+            prims = calc_branch_admittances(net)
+            @test length(prims) == 9
+            @test all(p -> p isa NTuple{4,ComplexF64}, prims)
+            Y = calc_admittance_matrix(net)
+            rebuilt = zeros(ComplexF64, 9, 9)
+            for (k, br) in enumerate(net.branches)
+                i = Y.bus_to_idx[br.from_bus_id]
+                j = Y.bus_to_idx[br.to_bus_id]
+                y_ff, y_ft, y_tf, y_tt = prims[k]
+                rebuilt[i, i] += y_ff
+                rebuilt[j, j] += y_tt
+                rebuilt[i, j] += y_ft
+                rebuilt[j, i] += y_tf
+            end
+            @test rebuilt ≈ Matrix(Y.matrix)   # case9 has no bus shunts
+            pd = to_powerdata(net)
+            for (k, row) in enumerate(pd.branch)
+                y_ff, y_ft, y_tf, y_tt = prims[k]
+                @test complex(row.c1, row.c2) ≈ y_tf
+                @test complex(row.c3, row.c4) ≈ y_ft
+                @test complex(row.c5, row.c6) ≈ y_ff
+                @test complex(row.c7, row.c8) ≈ y_tt
+            end
+        end
+
         @testset "admittance matrix" begin
             Y = calc_admittance_matrix(net)
             @test Y isa BusMappedMatrix{ComplexF64}

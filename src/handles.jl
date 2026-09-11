@@ -60,6 +60,7 @@ end
 @handle CalculationUpdateHandle :pio_calculation_update_release "One update ready to apply."
 @handle UpdateReportHandle :pio_update_report_release "Report of one applied update batch."
 @handle UpdateChangeHandle :pio_update_change_release "One change from an update report."
+@handle DcOperatorsHandle :pio_dc_operators_release "DC operators built once over a balanced network."
 @handle SparseMatrixHandle :pio_sparse_matrix_release "Owned CSR matrix."
 @handle VectorHandle :pio_vector_release "Owned double vector."
 @handle StringHandle :pio_string_release "Owned string."

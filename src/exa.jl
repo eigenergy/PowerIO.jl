@@ -33,28 +33,58 @@ function _quadratic_cost_coeffs(coeffs::Vector{T}, base::T) where {T<:Real}
     return vals
 end
 
-function _cost_tuple(g::Generator, ::Type{T}, base::T) where {T<:Real}
+# `(model_poly, startup, shutdown, ncost, (c2, c1, c0), model)`. `model` is 0
+# for a generator without a cost record and `cost.model` verbatim otherwise,
+# so a consumer can tell a piecewise linear cost (1) from a polynomial one (2)
+# and from an unrecognized model without reading `net.generators` again.
+function _cost_tuple(g::Generator, ::Type{T}, base::T; validate::Bool=true) where {T<:Real}
     cost = g.cost
-    cost === nothing && return (false, zero(T), zero(T), 0, (zero(T), zero(T), zero(T)))
+    cost === nothing && return (false, zero(T), zero(T), 0, (zero(T), zero(T), zero(T)), 0)
+    if !validate
+        # An out of service generator is reported with its status and is never
+        # solved, so its cost record is copied without the checks a dispatched
+        # row must pass.
+        return (cost.model == 2, T(cost.startup), T(cost.shutdown), cost.model == 2 ? 3 : cost.ncost,
+                (zero(T), zero(T), zero(T)), cost.model)
+    end
     coeffs = T[_finite(c, T, "generator cost", :coefficients) for c in cost.coefficients]
     startup = _finite(cost.startup, T, "generator cost", :startup)
     shutdown = _finite(cost.shutdown, T, "generator cost", :shutdown)
     if cost.model == 2
         limit = min(cost.ncost, length(coeffs))
         vals = _quadratic_cost_coeffs(limit == 0 ? T[] : coeffs[1:limit], base)
-        return (true, startup, shutdown, 3, (vals[1], vals[2], vals[3]))
+        return (true, startup, shutdown, 3, (vals[1], vals[2], vals[3]), cost.model)
     end
     limit = cost.model == 1 ? min(2 * cost.ncost, length(coeffs)) : length(coeffs)
     vals = [zero(T), zero(T), zero(T)]
     for i in 1:min(3, limit)
         vals[i] = coeffs[i]
     end
-    return (false, startup, shutdown, cost.ncost, (vals[1], vals[2], vals[3]))
+    return (false, startup, shutdown, cost.ncost, (vals[1], vals[2], vals[3]), cost.model)
 end
 
-# The eight admittance coefficients ExaModelsPower reads per branch.
+# A field of a row the caller will filter out by `status`: copied as stated,
+# never validated, so one non-finite value in an unused row cannot refuse the
+# conversion. `strict=false` extends the same treatment to in-service rows.
+_stated(x::Real, ::Type{T}) where {T<:Real} = T(x)
+_field(x::Real, ::Type{T}, element::AbstractString, field::Symbol, checked::Bool) where {T<:Real} =
+    checked ? _finite(x, T, element, field) : _stated(x, T)
+_bound_field(x::Real, ::Type{T}, element::AbstractString, field::Symbol, checked::Bool) where {T<:Real} =
+    checked ? _bound(x, T, element, field) : _stated(x, T)
+
+# The eight admittance coefficients ExaModelsPower reads per branch:
+# `c1 + im*c2 = y_tf`, `c3 + im*c4 = y_ft`, `c5 + im*c6 = y_ff`, `c7 + im*c8 = y_tt`
+# in MATPOWER's `makeYbus` notation, the same values `calc_branch_admittances`
+# returns. A zero impedance branch reaching here is stated as an open circuit
+# (the series admittance zero, the charging kept), the `zero_impedance=:open`
+# path; `zero_impedance=:error` refuses it at the call site, with the branch
+# and its buses named.
 function _branch_coeffs(r::T, x::T, b_fr::T, b_to::T, g_fr::T, g_to::T, tap::T, shift::T) where {T<:Real}
-    y = iszero(r) && iszero(x) ? zero(Complex{T}) : inv(complex(r, x))
+    y = if hypot(r, x) < _MIN_DIVISIBLE_MAGNITUDE
+        zero(Complex{T})
+    else
+        inv(complex(r, x))
+    end
     isfinite(real(y)) && isfinite(imag(y)) || (y = zero(Complex{T}))
     g = real(y)
     b = imag(y)
@@ -70,23 +100,42 @@ _bus_type_code(bus_type::AbstractString) =
     bus_type == "PQ" ? 1 : bus_type == "PV" ? 2 : bus_type == "REF" ? 3 : 4
 
 """
-    to_powerdata(net; T=Float64) -> NamedTuple
-    to_powerdata(m::PioModule{BalancedNetwork}; T=Float64) -> NamedTuple
-    to_powerdata(path; format=nothing, T=Float64) -> NamedTuple
+    to_powerdata(net; T=Float64, strict=true, zero_impedance=:error) -> NamedTuple
+    to_powerdata(m::PioModule{BalancedNetwork}; kwargs...) -> NamedTuple
+    to_powerdata(path; format=nothing, kwargs...) -> NamedTuple
 
 The network in ExaPowerIO's `PowerData` layout: `version`, `baseMVA`, `bus`,
 `gen`, `branch`, `arc`, and `storage`, with the row fields ExaModelsPower reads.
-Powers are per unit on `baseMVA`, angles are radians, `bus_i` keeps the source
-bus id, and branch and generator bus references are 1-based positions in
-`bus`. Bus types are reconciled with the generator table: a bus with an
-in-service generator is at least PV, a bus without one is PQ, and when no bus is
-the reference the bus with the largest generator becomes it.
+Powers are per unit on `baseMVA`, angles are radians (`bus.va` included),
+`bus_i` keeps the source bus id, and branch and generator bus references are
+1-based positions in `bus`. Bus types are reconciled with the generator table:
+a bus with an in-service generator is at least PV, a bus without one is PQ, and
+when no bus is the reference the bus with the largest generator becomes it.
 
-A field may be `Inf` only where a source format spells an absent limit that way:
-generator and storage power limits, branch ratings, and angle difference bounds.
-Every other non-finite value is refused with the element and field named.
+Every row is emitted with its `status`; the caller selects on it. Validation
+runs only on rows that are in service: a field may be `Inf` only where a source
+format spells an absent limit that way (generator and storage power limits,
+branch ratings, and angle difference bounds), every other non-finite value is
+refused with the element and field named, and a polynomial cost that cannot
+fit a quadratic is refused. An out of service row is copied as stated, its
+cost coefficients zero. `strict=false` copies in-service rows as stated too.
+
+Each generator row carries `model`: 0 without a cost record, otherwise
+`cost.model` verbatim (1 piecewise linear, 2 polynomial), beside `model_poly`.
+
+Each branch row carries the eight admittance coefficients ExaModelsPower reads:
+`c1 + im*c2 = y_tf`, `c3 + im*c4 = y_ft`, `c5 + im*c6 = y_ff`, and
+`c7 + im*c8 = y_tt` in MATPOWER's `makeYbus` notation; see
+[`calc_branch_admittances`](@ref). An in-service branch with zero series
+impedance is a `PowerIOError` with code `BUILD.OPERATOR.ZERO_IMPEDANCE`
+(`zero_impedance=:error`, the convention of the DC calculations and
+[`calc_admittance_matrix`](@ref)); `zero_impedance=:open` states it as an open
+circuit instead, `c1..c4` zero and `c5..c8` carrying the charging alone.
 """
-function to_powerdata(net::BalancedNetwork; T::Type{<:Real}=Float64)
+function to_powerdata(net::BalancedNetwork; T::Type{<:Real}=Float64, strict::Bool=true,
+                      zero_impedance::Symbol=:error)
+    zero_impedance in (:error, :open) ||
+        throw(ArgumentError("PowerIO.to_powerdata: zero_impedance must be :error or :open, got $(repr(zero_impedance))"))
     base = _finite(net.base_mva, T, "network", :base_mva)
     buses = collect(net.buses)
     bus_ids = [b.id for b in buses]
@@ -107,26 +156,28 @@ function to_powerdata(net::BalancedNetwork; T::Type{<:Real}=Float64)
         bs[i] += _finite(s.susceptance_mvar, T, "shunt $k", :susceptance_mvar) / base
     end
 
-    bus_rows = [let label = "bus $(b.id)"
+    bus_rows = [let label = "bus $(b.id)", checked = strict
         (; i, bus_i = b.id, type = _bus_type_code(b.bus_type), pd = pd[i], qd = qd[i], gs = gs[i], bs = bs[i],
-           area = b.area, vm = _finite(b.vm_pu, T, label, :vm), va = _finite(b.va_degrees, T, label, :va),
-           baseKV = _finite(b.base_kv, T, label, :base_kv), zone = b.zone,
-           vmax = _finite(b.vmax_pu, T, label, :vmax), vmin = _finite(b.vmin_pu, T, label, :vmin))
+           area = b.area, vm = _field(b.vm_pu, T, label, :vm, checked),
+           va = deg2rad(_field(b.va_degrees, T, label, :va, checked)),
+           baseKV = _field(b.base_kv, T, label, :base_kv, checked), zone = b.zone,
+           vmax = _field(b.vmax_pu, T, label, :vmax, checked), vmin = _field(b.vmin_pu, T, label, :vmin, checked))
     end for (i, b) in enumerate(buses)]
 
     gens = collect(net.generators)
-    gen_rows = [let label = "generator $i", (model_poly, startup, shutdown, ncost, c) = _cost_tuple(g, T, base)
+    gen_rows = [let label = "generator $i", checked = strict && g.in_service,
+                    (model_poly, startup, shutdown, ncost, c, model) = _cost_tuple(g, T, base; validate=checked)
         (; i, bus = index[g.bus_id],
-           pg = _finite(g.active_power_mw, T, label, :pg) / base,
-           qg = _finite(g.reactive_power_mvar, T, label, :qg) / base,
-           qmax = _bound(g.reactive_power_max_mvar, T, label, :qmax) / base,
-           qmin = _bound(g.reactive_power_min_mvar, T, label, :qmin) / base,
-           vg = _finite(g.voltage_setpoint_pu, T, label, :vg),
-           mbase = _finite(g.machine_base_mva, T, label, :mbase),
+           pg = _field(g.active_power_mw, T, label, :pg, checked) / base,
+           qg = _field(g.reactive_power_mvar, T, label, :qg, checked) / base,
+           qmax = _bound_field(g.reactive_power_max_mvar, T, label, :qmax, checked) / base,
+           qmin = _bound_field(g.reactive_power_min_mvar, T, label, :qmin, checked) / base,
+           vg = _field(g.voltage_setpoint_pu, T, label, :vg, checked),
+           mbase = _field(g.machine_base_mva, T, label, :mbase, checked),
            status = Int(g.in_service),
-           pmax = _bound(g.active_power_max_mw, T, label, :pmax) / base,
-           pmin = _bound(g.active_power_min_mw, T, label, :pmin) / base,
-           model_poly, startup, shutdown, n = ncost, c)
+           pmax = _bound_field(g.active_power_max_mw, T, label, :pmax, checked) / base,
+           pmin = _bound_field(g.active_power_min_mw, T, label, :pmin, checked) / base,
+           model_poly, startup, shutdown, n = ncost, c, model)
     end for (i, g) in enumerate(gens)]
 
     has_gen = falses(n)
@@ -156,48 +207,51 @@ function to_powerdata(net::BalancedNetwork; T::Type{<:Real}=Float64)
 
     branches = collect(net.branches)
     m = length(branches)
-    branch_rows = [let label = "branch $i"
+    branch_rows = [let label = "branch $i", checked = strict && br.in_service
         f = index[br.from_bus_id]
         t = index[br.to_bus_id]
-        tap = _finite(br.effective_tap_ratio, T, label, :tap)
-        shift = deg2rad(_finite(br.phase_shift_degrees, T, label, :shift))
-        r = _finite(br.resistance_pu, T, label, :br_r)
-        x = _finite(br.reactance_pu, T, label, :br_x)
-        b_fr = _finite(br.from_susceptance_pu, T, label, :b_fr)
-        b_to = _finite(br.to_susceptance_pu, T, label, :b_to)
-        g_fr = _finite(br.from_conductance_pu, T, label, :g_fr)
-        g_to = _finite(br.to_conductance_pu, T, label, :g_to)
+        tap = _field(br.effective_tap_ratio, T, label, :tap, checked)
+        shift = deg2rad(_field(br.phase_shift_degrees, T, label, :shift, checked))
+        r = _field(br.resistance_pu, T, label, :br_r, checked)
+        x = _field(br.reactance_pu, T, label, :br_x, checked)
+        b_fr = _field(br.from_susceptance_pu, T, label, :b_fr, checked)
+        b_to = _field(br.to_susceptance_pu, T, label, :b_to, checked)
+        g_fr = _field(br.from_conductance_pu, T, label, :g_fr, checked)
+        g_to = _field(br.to_conductance_pu, T, label, :g_to, checked)
+        if br.in_service && zero_impedance === :error && hypot(r, x) < _MIN_DIVISIBLE_MAGNITUDE
+            throw(_zero_impedance_error(i, br.from_bus_id, br.to_bus_id))
+        end
         c1, c2, c3, c4, c5, c6, c7, c8 = _branch_coeffs(r, x, b_fr, b_to, g_fr, g_to, tap, shift)
         (; i, f_bus = f, t_bus = t, br_r = r, br_x = x, b_fr, b_to, g_fr, g_to,
-           rate_a = _bound(br.rate_a_mva, T, label, :rate_a) / base,
-           rate_b = _bound(br.rate_b_mva, T, label, :rate_b) / base,
-           rate_c = _bound(br.rate_c_mva, T, label, :rate_c) / base,
+           rate_a = _bound_field(br.rate_a_mva, T, label, :rate_a, checked) / base,
+           rate_b = _bound_field(br.rate_b_mva, T, label, :rate_b, checked) / base,
+           rate_c = _bound_field(br.rate_c_mva, T, label, :rate_c, checked) / base,
            tap, shift, status = Int(br.in_service),
-           angmin = deg2rad(_bound(br.angle_min_degrees, T, label, :angmin)),
-           angmax = deg2rad(_bound(br.angle_max_degrees, T, label, :angmax)),
+           angmin = deg2rad(_bound_field(br.angle_min_degrees, T, label, :angmin, checked)),
+           angmax = deg2rad(_bound_field(br.angle_max_degrees, T, label, :angmax, checked)),
            f_idx = i, t_idx = i + m, c1, c2, c3, c4, c5, c6, c7, c8)
     end for (i, br) in enumerate(branches)]
 
     arc_rows = vcat([(; i, bus = br.f_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)],
                     [(; i = i + m, bus = br.t_bus, rate_a = br.rate_a) for (i, br) in enumerate(branch_rows)])
 
-    storage_rows = [let label = "storage $i"
+    storage_rows = [let label = "storage $i", checked = strict && st.in_service
         (; i, storage_bus = st.bus_id,
-           Pexts = _finite(st.active_power_mw, T, label, :active_power_mw),
-           Qexts = _finite(st.reactive_power_mvar, T, label, :reactive_power_mvar),
-           energy = _finite(st.energy_mwh, T, label, :energy_mwh) / base,
-           energy_rating = _finite(st.energy_rating_mwh, T, label, :energy_rating_mwh) / base,
-           charge_rating = _finite(st.charge_rating_mw, T, label, :charge_rating_mw) / base,
-           discharge_rating = _finite(st.discharge_rating_mw, T, label, :discharge_rating_mw) / base,
-           charge_efficiency = _finite(st.charge_efficiency, T, label, :charge_efficiency),
-           discharge_efficiency = _finite(st.discharge_efficiency, T, label, :discharge_efficiency),
-           thermal_rating = _finite(st.thermal_rating_mva, T, label, :thermal_rating_mva) / base,
-           qmin = _bound(st.reactive_power_min_mvar, T, label, :qmin) / base,
-           qmax = _bound(st.reactive_power_max_mvar, T, label, :qmax) / base,
-           Zr = _finite(st.resistance_pu, T, label, :resistance_pu),
-           Zim = _finite(st.reactance_pu, T, label, :reactance_pu),
-           p_loss = _finite(st.active_power_loss_mw, T, label, :active_power_loss_mw),
-           q_loss = _finite(st.reactive_power_loss_mvar, T, label, :reactive_power_loss_mvar),
+           Pexts = _field(st.active_power_mw, T, label, :active_power_mw, checked),
+           Qexts = _field(st.reactive_power_mvar, T, label, :reactive_power_mvar, checked),
+           energy = _field(st.energy_mwh, T, label, :energy_mwh, checked) / base,
+           energy_rating = _field(st.energy_rating_mwh, T, label, :energy_rating_mwh, checked) / base,
+           charge_rating = _field(st.charge_rating_mw, T, label, :charge_rating_mw, checked) / base,
+           discharge_rating = _field(st.discharge_rating_mw, T, label, :discharge_rating_mw, checked) / base,
+           charge_efficiency = _field(st.charge_efficiency, T, label, :charge_efficiency, checked),
+           discharge_efficiency = _field(st.discharge_efficiency, T, label, :discharge_efficiency, checked),
+           thermal_rating = _field(st.thermal_rating_mva, T, label, :thermal_rating_mva, checked) / base,
+           qmin = _bound_field(st.reactive_power_min_mvar, T, label, :qmin, checked) / base,
+           qmax = _bound_field(st.reactive_power_max_mvar, T, label, :qmax, checked) / base,
+           Zr = _field(st.resistance_pu, T, label, :resistance_pu, checked),
+           Zim = _field(st.reactance_pu, T, label, :reactance_pu, checked),
+           p_loss = _field(st.active_power_loss_mw, T, label, :active_power_loss_mw, checked),
+           q_loss = _field(st.reactive_power_loss_mvar, T, label, :reactive_power_loss_mvar, checked),
            status = Int(st.in_service))
     end for (i, st) in enumerate(net.storage)]
 

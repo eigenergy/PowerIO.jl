@@ -69,8 +69,9 @@ export to_dense, to_graph
 # Matrices and vectors.
 export calc_incidence_matrix, calc_branch_susceptances, calc_bus_susceptance_matrix,
        calc_branch_flow_matrix, calc_branch_phase_shift_injection, calc_bus_phase_shift_injection,
-       calc_branch_flow_dc, calc_bus_injection_dc,
-       calc_admittance_matrix, calc_bprime_matrix, calc_bdoubleprime_matrix, BusMappedMatrix
+       calc_branch_flow_dc, calc_bus_injection_dc, calc_dc_index_map,
+       calc_admittance_matrix, calc_bprime_matrix, calc_bdoubleprime_matrix, calc_branch_admittances,
+       BusMappedMatrix
 
 # Calculation constructions and solution access.
 export to_dc_pf_instance, to_ac_pf_instance, to_dc_opf_instance, to_ac_opf_instance,

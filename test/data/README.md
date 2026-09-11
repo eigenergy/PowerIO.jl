@@ -3,8 +3,10 @@
 Everything here is for the test suite only; nothing ships in a release.
 
 - `case9.m`, `case14.m`, `case30.m`: MATPOWER cases, vendored byte exact from
-  the MATPOWER repository (BSD 3-Clause, PSERC and contributors). `norm_tiny.m`
-  and `angle_bounds_clamp.m` are small original cases.
+  the MATPOWER repository (BSD 3-Clause, PSERC and contributors). `norm_tiny.m`,
+  `angle_bounds_clamp.m`, `zero_impedance.m` (one zero impedance bus tie), and
+  `oos_cubic_cost.m` (an out of service generator with a cubic cost) are small
+  original cases.
 - `case14.pm.json`, `case14.egret.json`: PowerModels and Egret renderings of
   `case14.m`.
 - `psse/case3_3w_v33.raw`: an original three bus PSS/E RAW revision 33 case
