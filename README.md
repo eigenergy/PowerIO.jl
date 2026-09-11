@@ -49,7 +49,8 @@ prebuilt binaries for Linux with glibc (`x86_64`, `aarch64`), macOS
 
 For an existing 0.10 application, follow the
 [migration guide](https://eigenergy.github.io/PowerIO.jl/dev/migration-0.11/).
-PowerIO.jl 0.11 uses PowerIO 0.11, PowerIO IR generation 2, and C ABI 7.
+PowerIO.jl 0.11.1 uses PowerIO 0.11.1 and C ABI 7. The library writes PowerIO
+IR generation 2.
 
 ## Formats
 

@@ -76,6 +76,7 @@ for (name, doc) in (
         (:AcOpfInstance, "AC optimal power flow instance over a `BalancedNetwork`."),
         (:McAcPfInstance, "Multiconductor AC power flow instance over a `MulticonductorNetwork`."),
         (:McAcOpfInstance, "Multiconductor AC optimal power flow instance over a `MulticonductorNetwork`."),
+        (:LinDist3FlowOpfInstance, "Radial fixed-reference LinDist3Flow OPF instance over a `MulticonductorNetwork`."),
         (:AcScucInstance, "AC security constrained unit commitment instance over a `BalancedNetwork`."),
     )
     @eval begin
@@ -86,7 +87,7 @@ for (name, doc) in (
 end
 
 const CalculationInstance = Union{DcPfInstance,AcPfInstance,DcOpfInstance,AcOpfInstance,
-                                  McAcPfInstance,McAcOpfInstance,AcScucInstance}
+                                  McAcPfInstance,McAcOpfInstance,LinDist3FlowOpfInstance,AcScucInstance}
 
 # Calculation solutions: the instance they answer, the termination status, and
 # the reported quantities.
@@ -98,6 +99,7 @@ for (name, doc) in (
         (:SocwrOpfSolution, "Second order cone (SOCWR) relaxation of an AC OPF instance; not an AC feasible point."),
         (:McAcPfSolution, "Multiconductor AC power flow solution."),
         (:McAcOpfSolution, "Multiconductor AC optimal power flow solution."),
+        (:LinDist3FlowOpfSolution, "Radial fixed-reference LinDist3Flow OPF solution."),
         (:AcScucSolution, "AC security constrained unit commitment solution."),
     )
     @eval begin
@@ -108,7 +110,7 @@ for (name, doc) in (
 end
 
 const CalculationSolution = Union{DcPfSolution,AcPfSolution,DcOpfSolution,AcOpfSolution,
-                                  SocwrOpfSolution,McAcPfSolution,McAcOpfSolution,AcScucSolution}
+                                  SocwrOpfSolution,McAcPfSolution,McAcOpfSolution,LinDist3FlowOpfSolution,AcScucSolution}
 
 """
     UnknownValue
@@ -130,6 +132,7 @@ const _INSTANCE_TYPES = Dict(
     "powerio.AcOpfInstance" => (AcOpfInstance, :pio_value_ac_opf_instance),
     "powerio.McAcPfInstance" => (McAcPfInstance, :pio_value_mc_ac_pf_instance),
     "powerio.McAcOpfInstance" => (McAcOpfInstance, :pio_value_mc_ac_opf_instance),
+    "powerio.LinDist3FlowOpfInstance" => (LinDist3FlowOpfInstance, :pio_value_lindist3flow_opf_instance),
     "powerio.AcScucInstance" => (AcScucInstance, :pio_value_ac_scuc_instance),
 )
 
@@ -141,6 +144,7 @@ const _SOLUTION_TYPES = Dict(
     "powerio.SocwrOpfSolution" => (SocwrOpfSolution, :pio_value_socwr_opf_solution),
     "powerio.McAcPfSolution" => (McAcPfSolution, :pio_value_mc_ac_pf_solution),
     "powerio.McAcOpfSolution" => (McAcOpfSolution, :pio_value_mc_ac_opf_solution),
+    "powerio.LinDist3FlowOpfSolution" => (LinDist3FlowOpfSolution, :pio_value_lindist3flow_opf_solution),
     "powerio.AcScucSolution" => (AcScucSolution, :pio_value_ac_scuc_solution),
 )
 

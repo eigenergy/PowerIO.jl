@@ -108,8 +108,9 @@ extensions. The producer record separately names the PowerIO release that
 wrote the document. [`serialize`](@ref) writes it and [`deserialize`](@ref)
 reads it.
 
-PowerIO 0.11 reads generation 2. The generation advances only when the
-serialized representation changes, and it is independent of the PowerIO
+PowerIO 0.11.1 reads generation 2. Additive structural types keep that
+generation; older readers reject types they do not implement. The generation advances only when the
+an existing serialized representation changes incompatibly, and it is independent of the PowerIO
 release and the C ABI; [`library_version`](@ref) reports the library release.
 A refused document names the generation it found and what to do about it: a
 later generation needs a newer PowerIO, and a document with any other

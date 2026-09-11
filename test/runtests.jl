@@ -24,6 +24,7 @@ fixture(parts...) = joinpath(DATA, parts...)
     include("test_geography.jl")
     include("test_dist.jl")               # MulticonductorNetwork element tables
     include("test_collections.jl")        # TimeSeries, ScenarioSet, instances, solutions
+    include("test_lindist3flow.jl")
     include("test_updates.jl")            # typed updates and apply_updates!
     include("test_matrix.jl")             # DC calculations and admittance matrices
     include("test_bridges.jl")            # PowerModels and ExaModelsPower bridges

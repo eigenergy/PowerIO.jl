@@ -1,0 +1,217 @@
+{
+  "schema": "pio-ir",
+  "version": 2,
+  "producer": {
+    "name": "powerio-binding-fixture",
+    "version": "1"
+  },
+  "value": {
+    "type": "powerio.LinDist3FlowOpfSolution",
+    "data": {
+      "instance": {
+        "base": {
+          "network": {
+            "name": null,
+            "base_frequency": 60.0,
+            "buses": [
+              {
+                "id": "load",
+                "terminals": [
+                  "a"
+                ],
+                "grounded": [],
+                "v_min": null,
+                "v_max": null,
+                "vpn_min": null,
+                "vpn_max": null,
+                "vpp_min": null,
+                "vpp_max": null,
+                "extras": {}
+              },
+              {
+                "id": "source",
+                "terminals": [
+                  "a"
+                ],
+                "grounded": [],
+                "v_min": null,
+                "v_max": null,
+                "vpn_min": null,
+                "vpn_max": null,
+                "vpp_min": null,
+                "vpp_max": null,
+                "extras": {}
+              }
+            ],
+            "linecodes": [
+              {
+                "name": "lc",
+                "n_conductors": 1,
+                "r_series": [
+                  [
+                    0.2
+                  ]
+                ],
+                "x_series": [
+                  [
+                    0.1
+                  ]
+                ],
+                "g_from": [
+                  [
+                    0.0
+                  ]
+                ],
+                "b_from": [
+                  [
+                    0.0
+                  ]
+                ],
+                "g_to": [
+                  [
+                    0.0
+                  ]
+                ],
+                "b_to": [
+                  [
+                    0.0
+                  ]
+                ],
+                "i_max": null,
+                "s_max": null,
+                "extras": {}
+              }
+            ],
+            "lines": [
+              {
+                "name": "line",
+                "bus_from": "load",
+                "bus_to": "source",
+                "terminal_map_from": [
+                  "a"
+                ],
+                "terminal_map_to": [
+                  "a"
+                ],
+                "linecode": "lc",
+                "length": 1.0,
+                "extras": {}
+              }
+            ],
+            "switches": [],
+            "transformers": [],
+            "loads": [
+              {
+                "name": "demand",
+                "bus": "load",
+                "terminal_map": [
+                  "a"
+                ],
+                "configuration": "single_phase",
+                "p_nom": [
+                  1000.0
+                ],
+                "q_nom": [
+                  200.0
+                ],
+                "voltage_model": {
+                  "model": "constant_power",
+                  "v_nom": []
+                },
+                "extras": {}
+              }
+            ],
+            "generators": [],
+            "shunts": [],
+            "sources": [
+              {
+                "name": "grid",
+                "bus": "source",
+                "terminal_map": [
+                  "a"
+                ],
+                "v_magnitude": [
+                  230.0
+                ],
+                "v_angle": [
+                  0.0
+                ],
+                "energy_cost_rate": [
+                  1.0
+                ],
+                "extras": {}
+              }
+            ],
+            "untyped": [],
+            "commands": [],
+            "options": [],
+            "source_format": "bmopf-json",
+            "extras": {
+              "bmopf_terminal_conventions": {
+                "neutral": [
+                  "n"
+                ],
+                "phase": [
+                  "a"
+                ]
+              }
+            }
+          },
+          "objective": {
+            "terms": [
+              {
+                "term": "active_power_dispatch_cost"
+              }
+            ]
+          },
+          "constraints": {
+            "terminal_voltage_bounds": {
+              "select": "all"
+            },
+            "conductor_limits": {
+              "select": "all"
+            },
+            "generator_capability": {
+              "select": "all"
+            }
+          }
+        },
+        "options": {
+          "reference_policy": "auto",
+          "unsupported": "reject",
+          "require_neutral_provenance": false
+        }
+      },
+      "termination": {
+        "kind": "converged"
+      },
+      "residuals": {},
+      "producer": "synthetic",
+      "values": {
+        "terminal_voltage_magnitude_squared": [
+          52460.0,
+          52900.0
+        ],
+        "line_active_power": [
+          1000.0
+        ],
+        "line_reactive_power": [
+          200.0
+        ],
+        "generator_active_power": [],
+        "generator_reactive_power": [],
+        "source_active_power": [
+          1000.0
+        ],
+        "source_reactive_power": [
+          200.0
+        ]
+      },
+      "objective": 1.0
+    }
+  },
+  "sources": [],
+  "diagnostics": [],
+  "history": [],
+  "source_map": []
+}

@@ -1,7 +1,7 @@
 # Calculation instances and solutions, and the `to_*_instance` constructions.
 
-const _MULTICONDUCTOR_INSTANCES = Union{McAcPfInstance,McAcOpfInstance}
-const _MULTICONDUCTOR_SOLUTIONS = Union{McAcPfSolution,McAcOpfSolution}
+const _MULTICONDUCTOR_INSTANCES = Union{McAcPfInstance,McAcOpfInstance,LinDist3FlowOpfInstance}
+const _MULTICONDUCTOR_SOLUTIONS = Union{McAcPfSolution,McAcOpfSolution,LinDist3FlowOpfSolution}
 
 _network_type(::Type{<:_MULTICONDUCTOR_INSTANCES}) = MulticonductorNetwork
 _network_type(::Type{<:CalculationInstance}) = BalancedNetwork
@@ -14,6 +14,7 @@ _network_type(::Type{<:CalculationSolution}) = BalancedNetwork
 The network a calculation instance is defined over.
 """
 function Base.getproperty(instance::T, name::Symbol) where {T<:CalculationInstance}
+    name === :metadata && instance isa LinDist3FlowOpfInstance && return _lindist3flow_metadata(instance)
     name === :network || return getfield(instance, name)
     N = _network_type(T)
     sym = N === BalancedNetwork ? :pio_calculation_instance_balanced_network :
@@ -147,6 +148,7 @@ for (name, sym, doc) in (
         (:to_ac_opf_instance, :pio_module_to_ac_opf_instance, "an AC optimal power flow instance"),
         (:to_mc_ac_pf_instance, :pio_module_to_mc_ac_pf_instance, "a multiconductor AC power flow instance"),
         (:to_mc_ac_opf_instance, :pio_module_to_mc_ac_opf_instance, "a multiconductor AC optimal power flow instance"),
+        (:to_lindist3flow_opf_instance, :pio_module_to_lindist3flow_opf_instance, "a LinDist3Flow optimal power flow instance"),
     )
     @eval begin
         Core.@doc $("""
@@ -165,3 +167,67 @@ for (name, sym, doc) in (
         end
     end
 end
+
+struct PioLinDist3FlowNodeView
+    bus::PioStringView
+    terminal::PioStringView
+    reference_magnitude::Cdouble
+    reference_angle::Cdouble
+    is_root::Bool
+end
+
+struct PioLinDist3FlowConductorView
+    line::PioStringView
+    source_line_row::Csize_t
+    conductor_position::Csize_t
+    parent_bus::PioStringView
+    parent_terminal::PioStringView
+    child_bus::PioStringView
+    child_terminal::PioStringView
+    reversed::Bool
+end
+
+"""
+    instance::LinDist3FlowOpfInstance.metadata
+
+Owned node and conductor axes, roots, and fixed voltage phasors in volts and
+radians. Source line rows and conductor positions use Julia's 1-based indexing.
+Positive line power flows from parent to child.
+"""
+function _lindist3flow_metadata(instance::LinDist3FlowOpfInstance)
+    return _with_handle(instance) do lib, p
+        n = Int(ccall(_library_symbol(lib, :pio_lindist3flow_opf_instance_node_count),
+                      Csize_t, (Ptr{Cvoid},), p))
+        nodes = Tuple{String,String}[]
+        roots = Tuple{String,String}[]
+        voltages = Tuple{Float64,Float64}[]
+        for row in 0:n-1
+            value = _fill(PioLinDist3FlowNodeView, lib) do out, err
+                ccall(_library_symbol(lib, :pio_lindist3flow_opf_instance_node_at), Bool,
+                      (Ptr{Cvoid}, Csize_t, Ref{PioLinDist3FlowNodeView}, Ref{Ptr{Cvoid}}),
+                      p, Csize_t(row), out, err)
+            end
+            node = (_str(value.bus), _str(value.terminal))
+            push!(nodes, node)
+            value.is_root && push!(roots, node)
+            push!(voltages, (value.reference_magnitude, value.reference_angle))
+        end
+        m = Int(ccall(_library_symbol(lib, :pio_lindist3flow_opf_instance_conductor_count),
+                      Csize_t, (Ptr{Cvoid},), p))
+        conductors = map(0:m-1) do row
+            value = _fill(PioLinDist3FlowConductorView, lib) do out, err
+                ccall(_library_symbol(lib, :pio_lindist3flow_opf_instance_conductor_at), Bool,
+                      (Ptr{Cvoid}, Csize_t, Ref{PioLinDist3FlowConductorView}, Ref{Ptr{Cvoid}}),
+                      p, Csize_t(row), out, err)
+            end
+            (line=_str(value.line), source_line_row=Int(value.source_line_row) + 1,
+             conductor_position=Int(value.conductor_position) + 1,
+             parent=(_str(value.parent_bus), _str(value.parent_terminal)),
+             child=(_str(value.child_bus), _str(value.child_terminal)), reversed=value.reversed)
+        end
+        return (nodes=nodes, roots=roots, conductors=conductors, reference_voltages=voltages)
+    end
+end
+
+Base.propertynames(::LinDist3FlowOpfInstance, private::Bool=false) =
+    private ? (:network, :metadata, :handle) : (:network, :metadata)

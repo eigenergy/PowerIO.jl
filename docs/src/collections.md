@@ -48,6 +48,22 @@ serialize(opf, "case9_dcopf.pio.json")
 | `to_dc_pf_instance`, `to_ac_pf_instance` | `DcPfInstance`, `AcPfInstance` |
 | `to_dc_opf_instance`, `to_ac_opf_instance` | `DcOpfInstance`, `AcOpfInstance` |
 | `to_mc_ac_pf_instance`, `to_mc_ac_opf_instance` | `McAcPfInstance`, `McAcOpfInstance` over a `MulticonductorNetwork` |
+| `to_lindist3flow_opf_instance` | `LinDist3FlowOpfInstance` over a radial `MulticonductorNetwork` |
+
+A `LinDist3FlowOpfInstance` uses fixed reference phasors and lossless,
+linearized voltage drops. Its `metadata` property returns owned node and
+conductor identities, root nodes, and reference voltages in volts and radians.
+Conductor records identify parent and child terminals, reversal relative to
+the source line, and source line rows and conductor positions using Julia's
+1-based indexing. Positive line power flows from parent to child.
+
+`LinDist3FlowOpfSolution` quantities include `terminal_voltage_squared` in
+squared volts, and `line_active_power`, `line_reactive_power`,
+`source_active_power`, `source_reactive_power`, `generator_active_power`, and
+`generator_reactive_power` in watts and vars. Each vector follows its instance
+axes. These types use PowerIO IR generation 2 with distinct structural type
+names. Readers without LinDist3Flow support reject those types; existing types
+retain their representation.
 
 A solution answers an instance. `solution.instance` is that instance,
 `solution.termination` is the solver status (`"converged"`, `"iteration_limit"`,
@@ -84,6 +100,7 @@ DcOpfInstance
 AcOpfInstance
 McAcPfInstance
 McAcOpfInstance
+LinDist3FlowOpfInstance
 AcScucInstance
 DcPfSolution
 AcPfSolution
@@ -92,6 +109,7 @@ AcOpfSolution
 SocwrOpfSolution
 McAcPfSolution
 McAcOpfSolution
+LinDist3FlowOpfSolution
 AcScucSolution
 time_count
 to_dc_pf_instance
@@ -100,4 +118,5 @@ to_dc_opf_instance
 to_ac_opf_instance
 to_mc_ac_pf_instance
 to_mc_ac_opf_instance
+to_lindist3flow_opf_instance
 ```

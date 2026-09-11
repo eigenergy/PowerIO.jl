@@ -71,11 +71,11 @@ Element tables are properties of a network (`net.buses`, `net.branches`,
 
 | Version | Describes |
 |---|---|
-| PowerIO.jl 0.11 / PowerIO 0.11 | The package APIs documented here |
-| PowerIO IR generation 2 | The document written by `serialize` |
+| PowerIO.jl 0.11.1 / PowerIO 0.11.1 | The package APIs documented here |
+| PowerIO IR generation 2 | The document written by `serialize`; `deserialize` reads generation 2 |
 | C ABI 7 | The interface to the native library |
 
-Use a matching 0.11 library when developing this binding. Regenerate stored
+Use a matching 0.11.1 library when developing this binding. Regenerate stored
 0.10 modules from their original grid data before loading them in 0.11.
 The [migration guide](migration-0.11.md) lists the API replacements.
 

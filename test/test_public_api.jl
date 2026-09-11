@@ -7,9 +7,9 @@ const EXPORTED_NAMES = Set([
     # values
     :BalancedNetwork, :MulticonductorNetwork, :TimeSeries, :ScenarioSet, :OperatingPoint,
     :DcPfInstance, :AcPfInstance, :DcOpfInstance, :AcOpfInstance,
-    :McAcPfInstance, :McAcOpfInstance, :AcScucInstance,
+    :McAcPfInstance, :McAcOpfInstance, :LinDist3FlowOpfInstance, :AcScucInstance,
     :DcPfSolution, :AcPfSolution, :DcOpfSolution, :AcOpfSolution, :SocwrOpfSolution,
-    :McAcPfSolution, :McAcOpfSolution, :AcScucSolution, :UnknownValue,
+    :McAcPfSolution, :McAcOpfSolution, :LinDist3FlowOpfSolution, :AcScucSolution, :UnknownValue,
     # records and results
     :Diagnostic, :SourceSpan, :PowerIOError, :EmitResult, :Artifact,
     :Producer, :ModuleSource, :HistoryEntry,
@@ -36,7 +36,7 @@ const EXPORTED_NAMES = Set([
     :BusMappedMatrix,
     # calculation constructions and solution access
     :to_dc_pf_instance, :to_ac_pf_instance, :to_dc_opf_instance, :to_ac_opf_instance,
-    :to_mc_ac_pf_instance, :to_mc_ac_opf_instance, :time_count,
+    :to_mc_ac_pf_instance, :to_mc_ac_opf_instance, :to_lindist3flow_opf_instance, :time_count,
     # typed updates
     :ActivePower, :ReactivePower, :ApparentPower, :OperatingPointUpdate, :NetworkUpdate,
     :UpdateReport, :UpdateChange, :apply_updates!,

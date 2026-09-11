@@ -152,7 +152,7 @@
                 Dict("schema" => schema, "version" => version),
             )
             for (schema, version, remedy) in
-                (("pio-ir", 3, "upgrade PowerIO"),
+                (("pio-ir", 4, "upgrade PowerIO"),
                  ("pio-ir", 1, "regenerate this document"),
                  ("powerio.module", 1, "regenerate this document"))
                 err = try
