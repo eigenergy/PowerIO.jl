@@ -2,40 +2,38 @@
 
 ## 0.11.1
 
-- Bind LinDist3Flow OPF instances and solutions through additive C ABI 7
-  accessors. Metadata records physical node and conductor axes; solution
-  quantities return owned vectors in squared volts, watts, and vars.
-- Keep PowerIO IR generation 2 and existing record layouts. LinDist3Flow
-  adds two structural type names; readers without those types reject them.
+PowerIO.jl 0.11.1 binds PowerIO 0.11.1 with C ABI 7 and PowerIO IR generation
+2. Existing IR record layouts remain unchanged.
 
-- Preserve BMOPF bus coordinates and line paths through typed access, PowerIO IR,
-  and explicit schema-version output with PowerIO 0.11.1. Read geographic bus
-  locations from supported New England PWB records without changing C ABI 7.
+### Added
 
-- `to_powerdata` returns `bus.va` in radians, as its docstring states and as
-  the branch `shift`, `angmin`, and `angmax` fields already did (#138).
-- `to_powerdata` generator rows carry `model`: 0 without a cost record,
-  otherwise `cost.model` verbatim, so a piecewise linear cost is detectable
-  from the row (#142).
-- `to_powerdata` validates only rows that are in service; an out of service
-  generator, branch, load, shunt, or storage row is copied with its `status`
-  and cannot refuse the conversion. `strict=false` copies in-service rows as
-  stated too (#143).
-- A zero impedance branch behaves the same way on every surface: the DC
-  `calc_*` family, `calc_admittance_matrix`, `calc_bprime_matrix`,
-  `calc_bdoubleprime_matrix`, and `to_powerdata` throw `PowerIOError` with
-  code `BUILD.OPERATOR.ZERO_IMPEDANCE`, and every one of them accepts
-  `skip_zero_impedance=true`; `to_powerdata(net; zero_impedance=:open)` keeps
-  the former open circuit substitution as an explicit choice. The Julia
-  assembled matrices no longer throw `ArgumentError` (#140).
-- `calc_dc_index_map` names the axes every DC calculation shares:
-  `idx_to_bus`, `bus_to_idx`, `idx_to_branch`, `branch_ids`, and
-  `skipped_branch_rows`. Each `calc_*` docstring states the row and column
-  selection. The binding builds the operators once through the
-  `pio_calc_dc_operators` handle PowerIO 0.11.1 adds (#139).
-- `calc_branch_admittances` returns `(y_ff, y_ft, y_tf, y_tt)` per in-service
-  branch, and `to_powerdata` documents how `c1..c8` correspond to them (#141).
-- Binds PowerIO 0.11.1 over C ABI 7.
+- Bind LinDist3Flow OPF instances and solutions through typed accessors.
+  Metadata identifies physical nodes and conductors; solution quantities
+  return owned vectors in squared volts, watts, and vars. Reading the two new
+  structural types requires 0.11.1.
+- Preserve BMOPF bus coordinates and line paths through typed access, IR, and
+  explicit schema-version output. Read geographic bus locations from supported
+  PowerWorld PWB records.
+- Add `calc_dc_index_map` to identify matrix rows and columns, including
+  skipped branches. DC calculations share one `pio_calc_dc_operators` build
+  (#139).
+- Add `calc_branch_admittances`, returning `(y_ff, y_ft, y_tf, y_tt)` for each
+  in-service branch. Document their relationship to `to_powerdata`'s `c1..c8`
+  coefficients (#141).
+
+### Fixed
+
+- Return `to_powerdata` bus voltage angles in radians, matching its documented
+  units and the branch angle fields (#138).
+- Include the generator cost `model` in `to_powerdata` rows: `0` when no cost
+  record exists, otherwise the stored model number (#142).
+- Validate only in-service rows in `to_powerdata`, preserve inactive rows, and
+  honor `strict=false` (#143).
+- Report zero-impedance branches consistently with
+  `BUILD.OPERATOR.ZERO_IMPEDANCE` across DC, admittance, and FDPF calculations
+  and `to_powerdata`. Each accepts `skip_zero_impedance=true`;
+  `to_powerdata(net; zero_impedance=:open)` explicitly substitutes an open
+  circuit (#140).
 
 ## 0.11.0
 
