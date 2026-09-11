@@ -2,6 +2,10 @@
 
 ## 0.11.1
 
+- Preserve BMOPF bus coordinates and line paths through typed access, PowerIO IR,
+  and explicit schema-version output with PowerIO 0.11.1. Read geographic bus
+  locations from supported New England PWB records without changing C ABI 7.
+
 - `to_powerdata` returns `bus.va` in radians, as its docstring states and as
   the branch `shift`, `angmin`, and `angmax` fields already did (#138).
 - `to_powerdata` generator rows carry `model`: 0 without a cost record,

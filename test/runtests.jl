@@ -21,6 +21,7 @@ fixture(parts...) = joinpath(DATA, parts...)
     include("test_public_api.jl")         # the exported surface
     include("test_operations.jl")         # parse, emit, serialize, deserialize
     include("test_network.jl")            # BalancedNetwork element tables
+    include("test_geography.jl")
     include("test_dist.jl")               # MulticonductorNetwork element tables
     include("test_collections.jl")        # TimeSeries, ScenarioSet, instances, solutions
     include("test_updates.jl")            # typed updates and apply_updates!

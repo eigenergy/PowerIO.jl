@@ -123,3 +123,20 @@ reference_bus_ids
 to_dense
 to_graph
 ```
+
+## Geographic data
+
+`bus.location` provides x/y coordinates, and `net.geo` names their coordinate
+space. Balanced branches and multiconductor lines expose optional `route`
+points. Geographic x/y means longitude/latitude; drawing x/y retains drawing
+units. PowerIO IR preserves these values.
+
+PowerIO 0.11.1 reads supported PWB bus locations and the BMOPFTools proposed
+Point/LineString values. Explicit BMOPF output writes geometry under the
+schema-valid `extras.geojson` location. Same-type source emission retains source
+bytes; after changes, the typed coordinates determine the output.
+
+A geographic file or a PWD drawing currently appears as a `PioModule{UnknownValue}`
+with `type_name == "powerio.GeoLayer"`. It can still be serialized and emitted
+through the ordinary module methods. Typed bus locations and line paths remain
+available on the electrical networks.
