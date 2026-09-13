@@ -4,7 +4,7 @@
 
 function _with_handle(f, x)
     h = getfield(x, :handle)
-    return GC.@preserve h f(getfield(h, :lib), _ptr(h))
+    return @with_handles h f(getfield(h, :lib), _ptr(h))
 end
 
 # --- TimeSeries ---------------------------------------------------------------

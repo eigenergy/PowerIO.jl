@@ -3,8 +3,8 @@
 # Every C handle family has a retain and a release entry point. A Julia handle
 # owns one reference: its finalizer calls the family's release function through
 # the library that allocated it, so a `set_library!` swap after allocation
-# never crosses allocators. The release symbol is resolved before the handle is
-# constructed; a failed lookup cannot strand a pointer without a finalizer.
+# never crosses allocators. Library compatibility validation resolves all release
+# functions before allocation; each handle retains its matching release function.
 #
 # Owner rooting is a property of the C library, not of these wrappers: a
 # network handle borrowed from a module keeps that module's data alive after
@@ -12,24 +12,85 @@
 # own, in any order.
 
 abstract type Handle end
+const _HANDLE_RELEASE_SYMBOLS = Symbol[:pio_error_release]
+
+function _operation_handles(roots)
+    handles = Handle[]
+    for root in roots
+        if root isa Handle
+            push!(handles, root)
+        elseif root isa Tuple || root isa Vector{<:Handle}
+            append!(handles, _operation_handles(root))
+        end
+    end
+    unique!(handles)
+    sort!(handles; by=objectid)
+    if !isempty(handles)
+        lib = getfield(first(handles), :lib)
+        for h in handles
+            _require_library(lib, h)
+        end
+    end
+    return handles
+end
+
+function _require_library(lib::AbstractString, h::Handle)
+    getfield(h, :lib) == lib || throw(ArgumentError("PowerIO: handles must belong to the same library"))
+    return nothing
+end
+
+# Keep every owner alive while locking its native pointer and copying borrowed data.
+macro with_handles(args...)
+    roots, handles, acquired = gensym.((:roots, :handles, :acquired))
+    values = map(esc, args[1:end-1])
+    body = esc(args[end])
+    return quote
+        local $roots = ($(values...),)
+        GC.@preserve $roots begin
+            local $handles = _operation_handles($roots)
+            local $acquired = 0
+            try
+                for h in $handles
+                    lock(getfield(h, :operation_lock))
+                    $acquired += 1
+                end
+                $body
+            finally
+                for i in $acquired:-1:1
+                    unlock(getfield($handles[i], :operation_lock))
+                end
+            end
+        end
+    end
+end
+
+_with_handles(f, roots...) = @with_handles roots f()
+
+function _release_once!(h::Handle)
+    ptr = getfield(h, :ptr)
+    ptr == C_NULL && return nothing
+    setfield!(h, :ptr, C_NULL)
+    ccall(getfield(h, :release_function), Cvoid, (Ptr{Cvoid},), ptr)
+    return nothing
+end
 
 # Define one mutable handle type whose finalizer calls `release`. The release
 # symbol appears as a literal so the ABI coverage gate in the powerio repository
 # checks it against the header.
 macro handle(name, release, doc)
     quote
+        push!(_HANDLE_RELEASE_SYMBOLS, $release)
         Core.@doc $doc mutable struct $(esc(name)) <: Handle
             ptr::Ptr{Cvoid}
             lib::String
+            operation_lock::ReentrantLock
+            release_function::Ptr{Cvoid}
             function $(esc(name))(ptr::Ptr{Cvoid}, lib::AbstractString)
                 ptr == C_NULL && error("PowerIO: null $($(string(name)))")
                 lib = String(lib)
                 free = _library_symbol(lib, $release)
-                h = new(ptr, lib)
-                finalizer(h) do x
-                    x.ptr == C_NULL || ccall(free, Cvoid, (Ptr{Cvoid},), x.ptr)
-                    x.ptr = C_NULL
-                end
+                h = new(ptr, lib, ReentrantLock(), free)
+                finalizer(_release_once!, h)
                 return h
             end
         end
@@ -67,9 +128,9 @@ end
 @handle JsonValueHandle :pio_json_value_release "Owned structured JSON value."
 
 # Release a handle now instead of at finalization. Safe to call twice.
-release!(h::Handle) = (finalize(h); nothing)
+release!(h::Handle) = @with_handles h _release_once!(h)
 
-# Every ccall that takes a handle runs inside `GC.@preserve` of that handle;
+# Every ccall that takes a handle runs inside `@with_handles` of that handle;
 # `_ptr` reads the pointer and refuses a released one.
 function _ptr(h::Handle)
     p = getfield(h, :ptr)

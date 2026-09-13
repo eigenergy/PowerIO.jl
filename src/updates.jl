@@ -111,7 +111,7 @@ function _power_update(sym::Symbol, id::ComponentId, power, terminal, descriptio
     component = _component_handle(lib, id)
     quantity = _quantity_handle(lib, power)
     term = terminal === nothing ? _NO_TERMINAL : String(terminal)
-    ptr = GC.@preserve component quantity term _checked(lib) do err
+    ptr = @with_handles component quantity term _checked(lib) do err
         ccall(_library_symbol(lib, sym), Ptr{Cvoid},
               (Ptr{Cvoid}, Ptr{UInt8}, Csize_t, Ptr{Cvoid}, Ref{Ptr{Cvoid}}),
               _ptr(component), terminal === nothing ? C_NULL : pointer(term),
@@ -127,7 +127,7 @@ end
 function _scalar_update(sym::Symbol, id::ComponentId, value::Float64)
     lib = _checked_lib()
     component = _component_handle(lib, id)
-    ptr = GC.@preserve component _checked(lib) do err
+    ptr = @with_handles component _checked(lib) do err
         ccall(_library_symbol(lib, sym), Ptr{Cvoid}, (Ptr{Cvoid}, Float64, Ref{Ptr{Cvoid}}), _ptr(component), value, err)
     end
     release!(component)
@@ -136,7 +136,7 @@ end
 function _scalar_update(sym::Symbol, id::ComponentId, value::Bool)
     lib = _checked_lib()
     component = _component_handle(lib, id)
-    ptr = GC.@preserve component _checked(lib) do err
+    ptr = @with_handles component _checked(lib) do err
         ccall(_library_symbol(lib, sym), Ptr{Cvoid}, (Ptr{Cvoid}, Bool, Ref{Ptr{Cvoid}}), _ptr(component), value, err)
     end
     release!(component)
@@ -290,7 +290,8 @@ Base.getindex(r::UpdateReport, i::Integer) = r.changes[i]
 
 function _calculation_update(lib, u::OperatingPointUpdate)
     h = u.handle
-    ptr = GC.@preserve h _checked(lib) do err
+    _require_library(lib, h)
+    ptr = @with_handles h _checked(lib) do err
         ccall(_library_symbol(lib, :pio_calculation_update_from_operating_point), Ptr{Cvoid},
               (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _ptr(h), err)
     end
@@ -298,7 +299,8 @@ function _calculation_update(lib, u::OperatingPointUpdate)
 end
 function _calculation_update(lib, u::NetworkUpdate)
     h = u.handle
-    ptr = GC.@preserve h _checked(lib) do err
+    _require_library(lib, h)
+    ptr = @with_handles h _checked(lib) do err
         ccall(_library_symbol(lib, :pio_calculation_update_from_network), Ptr{Cvoid},
               (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _ptr(h), err)
     end
@@ -316,30 +318,37 @@ throws [`PowerIOError`](@ref) and leaves the module unchanged. On success
 `m.value` is refreshed; values obtained before the call keep the pre-update
 data.
 
-The call needs exclusive use of `m`: no other task may read `m.diagnostics`,
-`m.producer`, `m.sources`, or `m.history`, or pass `m` to [`emit`](@ref),
-[`serialize`](@ref), or another `apply_updates!`, until it returns. Values
-already obtained from `m` (a network and its elements) stay readable.
+Calls sharing the module handle are synchronized through mutation and value
+refresh. Values already obtained from `m` retain their pre-update data and
+remain independently readable.
 """
 function apply_updates!(m::PioModule, updates)
     lib = _lib_of(m)
-    handles = [_calculation_update(lib, u) for u in updates]
-    ptrs = Ptr{Cvoid}[_ptr(h) for h in handles]
-    mh = _handle(m)
-    report_ptr = GC.@preserve mh handles ptrs _checked(lib) do err
-        ccall(_library_symbol(lib, :pio_apply_updates), Ptr{Cvoid},
-              (Ptr{Cvoid}, Ptr{Ptr{Cvoid}}, Csize_t, Ref{Ptr{Cvoid}}),
-              _ptr(mh), ptrs, length(ptrs), err)
+    inputs = collect(updates)
+    handles = CalculationUpdateHandle[]
+    try
+        for u in inputs
+            push!(handles, _calculation_update(lib, u))
+        end
+        mh = _handle(m)
+        return @with_handles mh handles begin
+            ptrs = Ptr{Cvoid}[_ptr(h) for h in handles]
+            report_ptr = GC.@preserve ptrs _checked(lib) do err
+                ccall(_library_symbol(lib, :pio_apply_updates), Ptr{Cvoid},
+                      (Ptr{Cvoid}, Ptr{Ptr{Cvoid}}, Csize_t, Ref{Ptr{Cvoid}}),
+                      _ptr(mh), ptrs, length(ptrs), err)
+            end
+            setfield!(m, :value, _module_value(lib, mh))
+            _update_report(lib, report_ptr)
+        end
+    finally
+        foreach(release!, handles)
     end
-    foreach(release!, handles)
-    report = _update_report(lib, report_ptr)
-    setfield!(m, :value, _module_value(lib, mh))
-    return report
 end
 
 function _update_report(lib, ptr::Ptr{Cvoid})
     h = UpdateReportHandle(ptr, lib)
-    report = GC.@preserve h begin
+    report = @with_handles h begin
         p = _ptr(h)
         n = Int(ccall(_library_symbol(lib, :pio_update_report_len), Csize_t, (Ptr{Cvoid},), p))
         connectivity = ccall(_library_symbol(lib, :pio_update_report_connectivity_changed), Bool, (Ptr{Cvoid},), p)
@@ -349,11 +358,11 @@ function _update_report(lib, ptr::Ptr{Cvoid})
                       (Ptr{Cvoid}, Csize_t, Ref{Ptr{Cvoid}}), p, Csize_t(k - 1), err)
             end
             change = UpdateChangeHandle(cptr, lib)
-            out = GC.@preserve change begin
+            out = @with_handles change begin
                 cp = _ptr(change)
                 id = ComponentIdHandle(ccall(_library_symbol(lib, :pio_update_change_component_id), Ptr{Cvoid},
                                              (Ptr{Cvoid},), cp), lib)
-                component = GC.@preserve id ComponentId(
+                component = @with_handles id ComponentId(
                     _str(ccall(_library_symbol(lib, :pio_component_id_type), PioStringView, (Ptr{Cvoid},), _ptr(id))),
                     _str(ccall(_library_symbol(lib, :pio_component_id_local_id), PioStringView, (Ptr{Cvoid},), _ptr(id))))
                 release!(id)

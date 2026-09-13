@@ -14,9 +14,9 @@ the pointer, before the handle is constructed, so switching libraries with
 library. Every C call that takes a handle runs inside `GC.@preserve` of that
 handle.
 
-The library allows concurrent reads of one handle. Releasing a handle while
-another task is using it is a caller error, and the Julia wrappers add no
-lock, so share handles between tasks only for reads.
+Julia serializes operations and explicit release through the lock shared by
+each handle. A released handle refuses subsequent native calls. Distinct
+handles remain independently usable across tasks.
 
 ## Values that keep their module alive
 
@@ -44,3 +44,9 @@ returns; none of them points into library memory. A `Bus` read from
 `net.buses[1]` stays valid after the network is released. The cost is one
 allocation per element read, so if you will read a table many times,
 `collect(net.buses)` copies it out once.
+
+Calls through the same Julia handle serialize native pointer access and explicit
+release. Module updates hold this synchronization until `m.value` is refreshed.
+Distinct child handles retain independently readable snapshots. Borrowed strings
+and arrays are copied while their owning handle remains preserved and locked.
+Multiple handles passed to one operation must name the same allocation library.

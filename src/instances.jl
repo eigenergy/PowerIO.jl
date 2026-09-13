@@ -48,7 +48,7 @@ function Base.getproperty(solution::T, name::Symbol) where {T<:CalculationSoluti
                       (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), p, err)
             end
             handle = CalculationInstanceHandle(ptr, lib)
-            type_name = GC.@preserve handle _str(ccall(_library_symbol(lib, :pio_calculation_instance_type_name),
+            type_name = @with_handles handle _str(ccall(_library_symbol(lib, :pio_calculation_instance_type_name),
                                                        PioStringView, (Ptr{Cvoid},), _ptr(handle)))
             I = _julia_type(type_name)
             I === nothing && error("PowerIO: unknown calculation instance type $type_name")
@@ -130,7 +130,7 @@ end
 # Copy an owned `PioVector` and release it.
 function _take_vector(lib::AbstractString, ptr::Ptr{Cvoid})
     h = VectorHandle(ptr, lib)
-    values = GC.@preserve h _f64s(ccall(_library_symbol(lib, :pio_vector_values), PioF64View,
+    values = @with_handles h _f64s(ccall(_library_symbol(lib, :pio_vector_values), PioF64View,
                                         (Ptr{Cvoid},), _ptr(h)))
     release!(h)
     return values
@@ -159,7 +159,7 @@ for (name, sym, doc) in (
         """) function $name(m::PioModule)
             lib = _lib_of(m)
             h = _handle(m)
-            ptr = GC.@preserve h _checked(lib) do err
+            ptr = @with_handles h _checked(lib) do err
                 ccall(_library_symbol(lib, $(QuoteNode(sym))), Ptr{Cvoid},
                       (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _ptr(h), err)
             end

@@ -10,6 +10,7 @@ using SparseArrays
 # The C library under test. Every ccall test skips when no library resolves;
 # CI sets `POWERIO_CAPI` to a fresh `powerio-capi` build.
 const LIBRARY_AVAILABLE = PowerIO.library_available()
+get(ENV, "POWERIO_REQUIRE_LIBRARY", "0") == "1" && !LIBRARY_AVAILABLE && error("A compatible C library is required for this test run")
 LIBRARY_AVAILABLE || @info "PowerIO: no compatible libpowerio_capi resolved; ccall tests skip (set POWERIO_CAPI)"
 
 const DATA = joinpath(@__DIR__, "data")
@@ -25,6 +26,7 @@ fixture(parts...) = joinpath(DATA, parts...)
     include("test_dist.jl")               # MulticonductorNetwork element tables
     include("test_collections.jl")        # TimeSeries, ScenarioSet, instances, solutions
     include("test_lindist3flow.jl")
+    include("test_handle_operations.jl")
     include("test_updates.jl")            # typed updates and apply_updates!
     include("test_matrix.jl")             # DC calculations and admittance matrices
     include("test_bridges.jl")            # PowerModels and ExaModelsPower bridges

@@ -40,6 +40,7 @@ end
 # handed back untouched; callers that receive a NULL pointer with no error
 # treat it as absence.
 function _checked(f, lib::AbstractString)
+    _ensure_compatible(lib)
     err = Ref{Ptr{Cvoid}}(C_NULL)
     result = f(err)
     err[] == C_NULL || throw(_take_error(lib, err[]))

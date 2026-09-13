@@ -78,7 +78,7 @@ end
 # Read the artifacts of an emit result handle and release it.
 function _emit_result(lib::AbstractString, ptr::Ptr{Cvoid}, in_memory::Bool)
     h = EmitResultHandle(ptr, lib)
-    result = GC.@preserve h begin
+    result = @with_handles h begin
         p = _ptr(h)
         layout = _str(ccall(_library_symbol(lib, :pio_emit_result_layout), PioStringView, (Ptr{Cvoid},), p))
         fidelity = _str(ccall(_library_symbol(lib, :pio_emit_result_fidelity), PioStringView, (Ptr{Cvoid},), p))
@@ -89,7 +89,7 @@ function _emit_result(lib::AbstractString, ptr::Ptr{Cvoid}, in_memory::Bool)
                       (Ptr{Cvoid}, Csize_t, Ref{Ptr{Cvoid}}), p, Csize_t(k - 1), err)
             end
             f = ArtifactHandle(fptr, lib)
-            file = GC.@preserve f begin
+            file = @with_handles f begin
                 name = _str(ccall(_library_symbol(lib, :pio_artifact_name), PioStringView, (Ptr{Cvoid},), _ptr(f)))
                 if in_memory
                     Artifact(name, _bytes(ccall(_library_symbol(lib, :pio_artifact_bytes), PioByteView,
@@ -117,7 +117,7 @@ function _output(op, m::PioModule, destination, what::AbstractString, root::Abst
     h = _handle(m)
     if destination === nothing || destination isa IO
         dest = _destination_memory(lib, root)
-        result = GC.@preserve h dest _emit_result(lib, op(lib, _ptr(h), _ptr(dest)), true)
+        result = @with_handles h dest _emit_result(lib, op(lib, _ptr(h), _ptr(dest)), true)
         release!(dest)
         if destination isa IO
             length(result.artifacts) == 1 || throw(ArgumentError(
@@ -128,7 +128,7 @@ function _output(op, m::PioModule, destination, what::AbstractString, root::Abst
         return result
     elseif destination isa AbstractString
         dest = _destination_path(lib, destination)
-        result = GC.@preserve h dest _emit_result(lib, op(lib, _ptr(h), _ptr(dest)), false)
+        result = @with_handles h dest _emit_result(lib, op(lib, _ptr(h), _ptr(dest)), false)
         release!(dest)
         return result
     else

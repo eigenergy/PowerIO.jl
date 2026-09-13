@@ -170,7 +170,7 @@ end
 
 # Borrow one typed handle from a value handle through `sym`.
 function _borrow(lib::AbstractString, value::ValueHandle, sym::Symbol)
-    return GC.@preserve value _checked(lib) do err
+    return @with_handles value _checked(lib) do err
         ccall(_library_symbol(lib, sym), Ptr{Cvoid}, (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _ptr(value), err)
     end
 end
@@ -178,7 +178,7 @@ end
 # Wrap a value handle as the Julia value its structural type name selects.
 # `owner` is the module the value came from when there is one.
 function _wrap_value(lib::AbstractString, value::ValueHandle, owner::Union{ModuleHandle,Nothing})
-    name = GC.@preserve value _str(ccall(_library_symbol(lib, :pio_value_type_name), PioStringView,
+    name = @with_handles value _str(ccall(_library_symbol(lib, :pio_value_type_name), PioStringView,
                                          (Ptr{Cvoid},), _ptr(value)))
     T = _julia_type(name)
     T === nothing && return UnknownValue(name, value)

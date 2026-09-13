@@ -13,6 +13,8 @@ jobs:
       matrix:
         julia-version: ['1.9', '1']
     env:
+      JULIA_NUM_THREADS: "4"
+      POWERIO_REQUIRE_LIBRARY: "1"
       # secrets can't be read in `if:` directly; expose it as an env var to gate on.
       POWERIO_TOKEN: ${{ secrets.POWERIO_REPO_TOKEN }}
     steps:

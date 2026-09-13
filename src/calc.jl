@@ -5,7 +5,7 @@
 # Copy an owned CSR matrix into a `SparseMatrixCSC` and release it.
 function _take_sparse(lib::AbstractString, ptr::Ptr{Cvoid})
     h = SparseMatrixHandle(ptr, lib)
-    A = GC.@preserve h begin
+    A = @with_handles h begin
         p = _ptr(h)
         rows = Int(ccall(_library_symbol(lib, :pio_sparse_matrix_rows), Csize_t, (Ptr{Cvoid},), p))
         cols = Int(ccall(_library_symbol(lib, :pio_sparse_matrix_columns), Csize_t, (Ptr{Cvoid},), p))
@@ -42,7 +42,7 @@ end
 function _operators_sparse(sym::Symbol, net::BalancedNetwork, formula::AbstractString, skip::Bool)
     h = _dc_operators(net, formula, skip)
     lib = getfield(h, :lib)
-    ptr = GC.@preserve h _checked(lib) do err
+    ptr = @with_handles h _checked(lib) do err
         ccall(_library_symbol(lib, sym), Ptr{Cvoid}, (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _ptr(h), err)
     end
     A = _take_sparse(lib, ptr)
@@ -53,7 +53,7 @@ end
 function _operators_vector(sym::Symbol, net::BalancedNetwork, formula::AbstractString, skip::Bool)
     h = _dc_operators(net, formula, skip)
     lib = getfield(h, :lib)
-    ptr = GC.@preserve h _checked(lib) do err
+    ptr = @with_handles h _checked(lib) do err
         ccall(_library_symbol(lib, sym), Ptr{Cvoid}, (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _ptr(h), err)
     end
     values = _take_vector(lib, ptr)
@@ -66,7 +66,7 @@ function _operators_vector(sym::Symbol, net::BalancedNetwork, formula::AbstractS
     va = Vector{Float64}(angles)
     h = _dc_operators(net, formula, skip)
     lib = getfield(h, :lib)
-    ptr = GC.@preserve h va _checked(lib) do err
+    ptr = @with_handles h va _checked(lib) do err
         ccall(_library_symbol(lib, sym), Ptr{Cvoid},
               (Ptr{Cvoid}, Ptr{Float64}, Csize_t, Ref{Ptr{Cvoid}}), _ptr(h), va, length(va), err)
     end
@@ -113,7 +113,7 @@ function calc_dc_index_map(net; formula::AbstractString="series_susceptance",
     net = _network(net)
     h = _dc_operators(net, formula, skip_zero_impedance)
     lib = getfield(h, :lib)
-    result = GC.@preserve h begin
+    result = @with_handles h begin
         p = _ptr(h)
         idx_to_bus = _sizes(ccall(_library_symbol(lib, :pio_dc_operators_bus_ids), PioSizeView, (Ptr{Cvoid},), p))
         rows = _sizes(ccall(_library_symbol(lib, :pio_dc_operators_branch_rows), PioSizeView, (Ptr{Cvoid},), p))

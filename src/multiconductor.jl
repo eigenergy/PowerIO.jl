@@ -317,7 +317,7 @@ const _MC_SCALARS = (:name, :base_frequency, :source_format, :geo)
 function _mc_counts(net::MulticonductorNetwork)
     h = getfield(net, :handle)
     lib = getfield(h, :lib)
-    return GC.@preserve h _fill(PioMulticonductorNetworkCountsView, lib) do out, err
+    return @with_handles h _fill(PioMulticonductorNetworkCountsView, lib) do out, err
         ccall(_library_symbol(lib, :pio_multiconductor_network_counts), Bool,
               (Ptr{Cvoid}, Ref{PioMulticonductorNetworkCountsView}, Ref{Ptr{Cvoid}}), _ptr(h), out, err)
     end
@@ -330,27 +330,29 @@ function Base.getproperty(net::MulticonductorNetwork, name::Symbol)
         T, field = _MC_TABLES[name]
         return Elements{T,MulticonductorNetwork}(net, Int(getfield(_mc_counts(net), field)))
     elseif name === :name
-        return GC.@preserve h begin
+        return @with_handles h begin
             has = ccall(_library_symbol(lib, :pio_multiconductor_network_has_name), Bool, (Ptr{Cvoid},), _ptr(h))
             has ? _str(ccall(_library_symbol(lib, :pio_multiconductor_network_name), PioStringView,
                              (Ptr{Cvoid},), _ptr(h))) : nothing
         end
     elseif name === :source_format
-        return GC.@preserve h begin
+        return @with_handles h begin
             has = ccall(_library_symbol(lib, :pio_multiconductor_network_has_source_format), Bool,
                         (Ptr{Cvoid},), _ptr(h))
             has ? _str(ccall(_library_symbol(lib, :pio_multiconductor_network_source_format), PioStringView,
                              (Ptr{Cvoid},), _ptr(h))) : nothing
         end
     elseif name === :base_frequency
-        return GC.@preserve h ccall(_library_symbol(lib, :pio_multiconductor_network_base_frequency_hz), Float64,
+        return @with_handles h ccall(_library_symbol(lib, :pio_multiconductor_network_base_frequency_hz), Float64,
                                     (Ptr{Cvoid},), _ptr(h))
     elseif name === :geo
-        v = GC.@preserve h _fill(PioMulticonductorGeoView, lib) do out, err
-            ccall(_library_symbol(lib, :pio_multiconductor_network_geo), Bool,
-                  (Ptr{Cvoid}, Ref{PioMulticonductorGeoView}, Ref{Ptr{Cvoid}}), _ptr(h), out, err)
+        return @with_handles h begin
+            v = _fill(PioMulticonductorGeoView, lib) do out, err
+                ccall(_library_symbol(lib, :pio_multiconductor_network_geo), Bool,
+                      (Ptr{Cvoid}, Ref{PioMulticonductorGeoView}, Ref{Ptr{Cvoid}}), _ptr(h), out, err)
+            end
+            _geo(v)
         end
-        return _geo(v)
     end
     return getfield(net, name)
 end
@@ -363,7 +365,7 @@ _lib_of(net::MulticonductorNetwork) = getfield(getfield(net, :handle), :lib)
 
 function _with_network(f, net::MulticonductorNetwork)
     h = getfield(net, :handle)
-    return GC.@preserve h f(getfield(h, :lib), _ptr(h))
+    return @with_handles h f(getfield(h, :lib), _ptr(h))
 end
 
 # `count` terminal names through a two index string fill.

@@ -47,7 +47,7 @@ end
 function _diagnostics(lib::AbstractString, ptr::Ptr{Cvoid})
     ptr == C_NULL && return Diagnostic[]
     h = DiagnosticsHandle(ptr, lib)
-    out = GC.@preserve h _decode_diagnostics(lib, _ptr(h))
+    out = @with_handles h _decode_diagnostics(lib, _ptr(h))
     release!(h)
     return out
 end

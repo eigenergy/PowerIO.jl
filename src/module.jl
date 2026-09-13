@@ -16,7 +16,7 @@ One typed value together with the records that describe how it was produced.
 
 [`parse`](@ref) and [`deserialize`](@ref) return modules. [`emit`](@ref) and
 [`serialize`](@ref) consume them. [`apply_updates!`](@ref) changes the value in
-place and refreshes `m.value`; it needs exclusive use of `m` while it runs.
+place and refreshes `m.value`; access through the shared handle is synchronized.
 """
 mutable struct PioModule{T}
     handle::ModuleHandle
@@ -69,6 +69,9 @@ struct HistoryEntry
 end
 
 function Base.getproperty(m::PioModule, name::Symbol)
+    name === :value && return _with_handles(getfield(m, :handle)) do
+        getfield(m, :value)
+    end
     name === :diagnostics && return _module_diagnostics(m)
     name === :producer && return _module_producer(m)
     name === :sources && return _module_sources(m)
@@ -97,7 +100,7 @@ end
 function _source_from_memory(lib::AbstractString, name::AbstractString, bytes::AbstractVector{UInt8})
     name = String(name)
     data = bytes isa Vector{UInt8} ? bytes : Vector{UInt8}(bytes)
-    ptr = GC.@preserve data _checked(lib) do err
+    ptr = @with_handles data _checked(lib) do err
         ccall(_library_symbol(lib, :pio_source_from_memory), Ptr{Cvoid},
               (Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t, Ref{Ptr{Cvoid}}),
               name, sizeof(name), pointer(data), length(data), err)
@@ -122,14 +125,14 @@ function _wrap_module(lib::AbstractString, ptr::Ptr{Cvoid})
 end
 
 function _module_value(lib::AbstractString, handle::ModuleHandle)
-    vptr = GC.@preserve handle ccall(_library_symbol(lib, :pio_module_value), Ptr{Cvoid},
+    vptr = @with_handles handle ccall(_library_symbol(lib, :pio_module_value), Ptr{Cvoid},
                                      (Ptr{Cvoid},), _ptr(handle))
     return _wrap_value(lib, ValueHandle(vptr, lib), handle)
 end
 
 function _parse_source(lib::AbstractString, source::SourceHandle, format)
     fmt = format === nothing ? "" : String(format)
-    ptr = GC.@preserve source fmt _checked(lib) do err
+    ptr = @with_handles source fmt _checked(lib) do err
         ccall(_library_symbol(lib, :pio_parse), Ptr{Cvoid},
               (Ptr{Cvoid}, Ptr{UInt8}, Csize_t, Ref{Ptr{Cvoid}}),
               _ptr(source), format === nothing ? C_NULL : pointer(fmt), sizeof(fmt), err)
@@ -200,7 +203,7 @@ function deserialize(bytes::AbstractVector{UInt8})
 end
 
 function _deserialize_source(lib::AbstractString, source::SourceHandle)
-    ptr = GC.@preserve source _checked(lib) do err
+    ptr = @with_handles source _checked(lib) do err
         ccall(_library_symbol(lib, :pio_module_deserialize), Ptr{Cvoid},
               (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _ptr(source), err)
     end
@@ -213,7 +216,7 @@ end
 function _module_diagnostics(m::PioModule)
     lib = _lib_of(m)
     h = _handle(m)
-    ptr = GC.@preserve h ccall(_library_symbol(lib, :pio_module_diagnostics), Ptr{Cvoid},
+    ptr = @with_handles h ccall(_library_symbol(lib, :pio_module_diagnostics), Ptr{Cvoid},
                                (Ptr{Cvoid},), _ptr(h))
     return _diagnostics(lib, ptr)
 end
@@ -221,17 +224,19 @@ end
 function _module_producer(m::PioModule)
     lib = _lib_of(m)
     h = _handle(m)
-    view = GC.@preserve h _fill(PioModuleProducerView, lib) do out, err
-        ccall(_library_symbol(lib, :pio_module_producer), Bool,
-              (Ptr{Cvoid}, Ref{PioModuleProducerView}, Ref{Ptr{Cvoid}}), _ptr(h), out, err)
+    return @with_handles h begin
+        view = _fill(PioModuleProducerView, lib) do out, err
+            ccall(_library_symbol(lib, :pio_module_producer), Bool,
+                  (Ptr{Cvoid}, Ref{PioModuleProducerView}, Ref{Ptr{Cvoid}}), _ptr(h), out, err)
+        end
+        Producer(_str(view.name), _str(view.version))
     end
-    return Producer(_str(view.name), _str(view.version))
 end
 
 function _module_sources(m::PioModule)
     lib = _lib_of(m)
     h = _handle(m)
-    return GC.@preserve h begin
+    return @with_handles h begin
         p = _ptr(h)
         n = Int(ccall(_library_symbol(lib, :pio_module_source_count), Csize_t, (Ptr{Cvoid},), p))
         map(1:n) do k
@@ -251,7 +256,7 @@ end
 function _module_history(m::PioModule)
     lib = _lib_of(m)
     h = _handle(m)
-    return GC.@preserve h begin
+    return @with_handles h begin
         p = _ptr(h)
         n = Int(ccall(_library_symbol(lib, :pio_module_history_count), Csize_t, (Ptr{Cvoid},), p))
         map(1:n) do k

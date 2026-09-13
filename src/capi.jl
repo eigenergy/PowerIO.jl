@@ -37,14 +37,16 @@ override, and the bundled artifact. Pass `persist=true` to save the path in the
 active environment's `LocalPreferences.toml`.
 """
 function set_library!(path::AbstractString; persist::Bool=false)
-    _SESSION_LIBRARY[] = String(path)
-    if persist
-        set_preferences!(@__MODULE__, _LIBRARY_PREFERENCE => String(path); force=true)
-        _PREFERRED_LIBRARY[] = String(path)
+    lock(_LIB_HANDLES_LOCK) do
+        _SESSION_LIBRARY[] = String(path)
+        if persist
+            set_preferences!(@__MODULE__, _LIBRARY_PREFERENCE => String(path); force=true)
+            _PREFERRED_LIBRARY[] = String(path)
+        end
+        _ABI_OK[] = false  # the new library must pass its own handshake
+        _ABI_OK_LIB[] = ""
+        return
     end
-    _ABI_OK[] = false  # the new library must pass its own handshake
-    _ABI_OK_LIB[] = ""
-    return
 end
 
 """
@@ -55,16 +57,18 @@ saved Preferences.jl `library` override. `POWERIO_CAPI`, when set, still wins on
 this session's next call.
 """
 function clear_library!(; persist::Bool=false)
-    _SESSION_LIBRARY[] = ""
-    if persist
-        set_preferences!(@__MODULE__, _LIBRARY_PREFERENCE => missing; force=true)
-        value = load_preference(@__MODULE__, _LIBRARY_PREFERENCE, "";
-                                disable_invalidation=true)
-        _PREFERRED_LIBRARY[] = value isa AbstractString ? String(value) : ""
+    lock(_LIB_HANDLES_LOCK) do
+        _SESSION_LIBRARY[] = ""
+        if persist
+            set_preferences!(@__MODULE__, _LIBRARY_PREFERENCE => missing; force=true)
+            value = load_preference(@__MODULE__, _LIBRARY_PREFERENCE, "";
+                                    disable_invalidation=true)
+            _PREFERRED_LIBRARY[] = value isa AbstractString ? String(value) : ""
+        end
+        _ABI_OK[] = false
+        _ABI_OK_LIB[] = ""
+        return
     end
-    _ABI_OK[] = false
-    _ABI_OK_LIB[] = ""
-    return
 end
 
 function _lib()
@@ -176,6 +180,9 @@ function _ensure_compatible(lib::AbstractString=_lib())
             "PowerIO: C ABI version mismatch: the library at \"$lib\" reports ABI $got, " *
             "this PowerIO.jl targets ABI $(Int(PIO_ABI_VERSION)). Rebuild powerio-capi " *
             "from a matching commit, or update PowerIO.jl.")
+        for sym in _HANDLE_RELEASE_SYMBOLS
+            _library_symbol(lib, sym)
+        end
         _ABI_OK[] = true
         _ABI_OK_LIB[] = lib
         return
@@ -209,8 +216,10 @@ end
 function _take_string(lib::AbstractString, ptr::Ptr{Cvoid})
     ptr == C_NULL && return ""
     h = StringHandle(ptr, lib)
-    text = GC.@preserve h _str(ccall(_library_symbol(lib, :pio_string_view), PioStringView,
-                                     (Ptr{Cvoid},), _ptr(h)))
+    text = _with_handles(h) do
+        _str(ccall(_library_symbol(lib, :pio_string_view), PioStringView,
+                   (Ptr{Cvoid},), _ptr(h)))
+    end
     release!(h)
     return text
 end

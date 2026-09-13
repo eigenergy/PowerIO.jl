@@ -542,7 +542,7 @@ function Base.getproperty(dc::DetailedConnectivity, name::Symbol)
     name === :counts || return getfield(dc, name)
     h = getfield(dc, :handle)
     lib = getfield(h, :lib)
-    v = GC.@preserve h _fill(PioDetailedConnectivityCountsView, lib) do out, err
+    v = @with_handles h _fill(PioDetailedConnectivityCountsView, lib) do out, err
         ccall(_library_symbol(lib, :pio_detailed_connectivity_counts), Bool,
               (Ptr{Cvoid}, Ref{PioDetailedConnectivityCountsView}, Ref{Ptr{Cvoid}}), _ptr(h), out, err)
     end
@@ -622,25 +622,27 @@ function Base.getproperty(net::BalancedNetwork, name::Symbol)
     lib = getfield(h, :lib)
     if haskey(_BALANCED_TABLES, name)
         T, count_sym = _BALANCED_TABLES[name]
-        n = GC.@preserve h _count(count_sym, lib, _ptr(h))
+        n = @with_handles h _count(count_sym, lib, _ptr(h))
         return Elements{T,BalancedNetwork}(net, n)
     elseif name === :name
-        return GC.@preserve h _str(ccall(_library_symbol(lib, :pio_balanced_network_name), PioStringView,
+        return @with_handles h _str(ccall(_library_symbol(lib, :pio_balanced_network_name), PioStringView,
                                          (Ptr{Cvoid},), _ptr(h)))
     elseif name === :base_mva
-        return GC.@preserve h ccall(_library_symbol(lib, :pio_balanced_network_base_mva), Float64,
+        return @with_handles h ccall(_library_symbol(lib, :pio_balanced_network_base_mva), Float64,
                                     (Ptr{Cvoid},), _ptr(h))
     elseif name === :base_frequency
-        return GC.@preserve h ccall(_library_symbol(lib, :pio_balanced_network_base_frequency_hz), Float64,
+        return @with_handles h ccall(_library_symbol(lib, :pio_balanced_network_base_frequency_hz), Float64,
                                     (Ptr{Cvoid},), _ptr(h))
     elseif name === :geo
-        v = GC.@preserve h _fill(PioBalancedGeoView, lib) do out, err
-            ccall(_library_symbol(lib, :pio_balanced_network_geo), Bool,
-                  (Ptr{Cvoid}, Ref{PioBalancedGeoView}, Ref{Ptr{Cvoid}}), _ptr(h), out, err)
+        return @with_handles h begin
+            v = _fill(PioBalancedGeoView, lib) do out, err
+                ccall(_library_symbol(lib, :pio_balanced_network_geo), Bool,
+                      (Ptr{Cvoid}, Ref{PioBalancedGeoView}, Ref{Ptr{Cvoid}}), _ptr(h), out, err)
+            end
+            _geo(v)
         end
-        return _geo(v)
     elseif name === :detailed_connectivity
-        return GC.@preserve h begin
+        return @with_handles h begin
             has = ccall(_library_symbol(lib, :pio_balanced_network_has_detailed_connectivity), Bool,
                         (Ptr{Cvoid},), _ptr(h))
             has || return nothing
@@ -663,7 +665,7 @@ _lib_of(net::BalancedNetwork) = getfield(getfield(net, :handle), :lib)
 # Run `f(lib, p)` with the network pointer preserved for the duration.
 function _with_network(f, net::BalancedNetwork)
     h = getfield(net, :handle)
-    return GC.@preserve h f(getfield(h, :lib), _ptr(h))
+    return @with_handles h f(getfield(h, :lib), _ptr(h))
 end
 
 _element(::Type{Bus}, net::BalancedNetwork, i) = _with_network(net) do lib, p
