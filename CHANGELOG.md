@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.2
+
+- Maintenance updates and regression coverage.
+- Coordinate the Julia package with PowerIO 0.11.2 and its bundled BMOPF
+  schema snapshots and provenance.
+
+C ABI 7 and PowerIO IR generation 2 remain unchanged.
+
 ## 0.11.1
 
 PowerIO.jl 0.11.1 binds PowerIO 0.11.1 with C ABI 7 and PowerIO IR generation
