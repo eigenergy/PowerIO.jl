@@ -105,9 +105,11 @@ end
 @testset "release intent and state machine" begin
     live = ReleaseState.read_intent()
     @test live.state in ("draft", "ready")
-    @test live.julia_version == ReleaseState.project_version() == v"0.11.1"
-    @test live.powerio_tag == "v0.11.1"
-    @test ReleaseState.changelog_section().version == live.julia_version
+    @test live.powerio_tag == "v$(live.julia_version)"
+    if !isfile(joinpath(dirname(@__DIR__), ".github", "paired-release.json"))
+        @test live.julia_version == ReleaseState.project_version()
+        @test ReleaseState.changelog_section().version == live.julia_version
+    end
     expected = live.state == "draft" ? "waiting_intent" : "ready"
     @test ReleaseState.evaluate_initial_state("schedule"; intent=live).status == expected
     @test ReleaseState.evaluate_initial_state(
