@@ -74,3 +74,12 @@ abi_version
 library_version
 library_available
 ```
+
+## Paired release preparation
+
+The [paired release procedure](https://github.com/eigenergy/powerio/blob/main/docs/src/paired-releases.md)
+records exact source commits and tested binaries in a published manifest.
+It does not require manually editing a release intent or refreshing a source
+checksum. The legacy intent helper applies only before paired automation is
+activated. Registration uses the approved candidate commit, even if `main`
+has advanced; a separate PR synchronizes its artifact references afterward.
