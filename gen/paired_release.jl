@@ -25,7 +25,9 @@ function prepare(tag)
     occursin(r"^v[0-9]+\.[0-9]+\.[0-9]+$", tag) || error("tag must be vX.Y.Z")
     TOML.parsefile(joinpath(ROOT, "Project.toml"))["version"] == tag[2:end] ||
         error("Julia version differs from the paired release")
-    release = JSON3.read(read(`gh api repos/eigenergy/powerio/releases/tags/$tag`, String))
+    release_url = readchomp(`gh release view $tag --repo eigenergy/powerio --json apiUrl --jq .apiUrl`)
+    release = JSON3.read(read(`gh api $release_url`, String))
+    String(release.tag_name) == tag || error("release tag differs from the candidate")
     release.draft || error("candidate preparation requires a draft release")
     digests = validate_assets(release)
     mktempdir() do tmp
