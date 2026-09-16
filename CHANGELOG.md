@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.3
+
+- Coordinate the Julia package with PowerIO 0.11.3, whose C ABI 7 adds symbols
+  for PSS/E contingency analysis files additively.
+- The added contingency analysis symbols are not bound in Julia in this
+  release.
+
+C ABI 7 and PowerIO IR generation 2 remain unchanged.
+
 ## 0.11.2
 
 - Maintenance updates and regression coverage.
