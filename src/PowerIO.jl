@@ -117,13 +117,13 @@ export to_powermodels, from_powermodels, build_powermodels_ref, repair_powermode
 # Library resolution.
 export set_library!, clear_library!, abi_version, library_version, library_available
 
-# AC SCUC inputs and bus load updates.
+# AC SCUC inputs, bus load updates, diagnostic records.
 export ScucInputs, ScucDevice, ScucDevicePeriod, ScucEnergyCostBlock, ScucReserveCosts,
        ScucRampLimits, ScucReserveLimits, ScucInitialCommitment, ScucReactiveCapability,
        ScucStartupCostAdjustment, ScucStartupLimit, ScucEnergyRequirement, ScucShunt,
        ScucBranchSwitchingCost, ScucTransformerControl, ScucActiveReserveZone,
        ScucReactiveReserveZone, ScucContingency, ScucViolationCosts,
-       apply_bus_load_active_power
+       apply_bus_load_active_power, diagnostic_record, diagnostic_records
 
 include("capi.jl")           # library resolution, entry point calls, the ABI handshake
 include("handles.jl")        # owned handle types with release finalizers

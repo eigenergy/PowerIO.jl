@@ -129,6 +129,27 @@ both sides are PowerIO consumers and the diagnostics and history matter; use
 content, so a deserialized module writes canonical output rather than the
 original file.
 
+## The value's structural type name
+
+`m.type_name` is the library's own name for the module value's type, such as
+`"powerio.BalancedNetwork"` or `"powerio.DcOpfInstance"`. It is read from the
+module on access, so it stays correct after [`apply_updates!`](@ref) and it
+names a type this release does not bind, where `m.value` is an
+[`UnknownValue`](@ref).
+
+## Diagnostics as records
+
+[`diagnostic_record`](@ref) turns one [`Diagnostic`](@ref) into a JSON ready
+`Dict{String,Any}`, and [`diagnostic_records`](@ref) does the same for a
+collection. The keys match the Python binding, so the two write the same
+document. `"code"`, `"severity"`, `"message"`, and `"target"` are always
+present, the rest only when the diagnostic sets them.
+
+```julia
+using JSON3
+JSON3.write(diagnostic_records(case.diagnostics))
+```
+
 ## Constructions
 
 `to_dc_pf_instance`, `to_ac_pf_instance`, `to_dc_opf_instance`,
@@ -144,6 +165,8 @@ ModuleSource
 HistoryEntry
 Diagnostic
 SourceSpan
+diagnostic_record
+diagnostic_records
 PowerIOError
 UnknownValue
 emit

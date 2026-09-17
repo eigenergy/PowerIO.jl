@@ -11,6 +11,9 @@
   equally.
 - Read the network a calculation solution is defined over as
   `solution.network`, for every solution type.
+- Report the structural type name of a module's value as `m.type_name`.
+- Write diagnostics as JSON ready dictionaries with `diagnostic_record` and
+  `diagnostic_records`, using the same keys as the Python binding.
 - Generate the raw C layer. `src/LibPowerIO.jl` now comes from
   `powerio-capi/include/powerio.h` through `gen/generate.jl`, replacing the
   hand-written struct mirrors and call signatures, so a header change shows up
