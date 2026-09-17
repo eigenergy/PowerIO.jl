@@ -4,3 +4,4 @@ PowerIO = "05ed8b54-f668-4096-9d0d-e8c3dd9dc169"
 
 [compat]
 Documenter = "1"
+PowerIO = "0.11.2"
