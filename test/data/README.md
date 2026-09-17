@@ -11,6 +11,15 @@ Everything here is for the test suite only; nothing ships in a release.
   `case14.m`.
 - `psse/case3_3w_v33.raw`: an original three bus PSS/E RAW revision 33 case
   with one three winding transformer.
+- `psse/contingency/`: PSS/E contingency analysis fixtures copied byte exact
+  from the powerio repository, `tests/data/psse/contingency/`, where their
+  provenance is recorded. Every file is original to powerio. `resolve_cases.con`
+  states one case per binding rule and `resolve_v33.raw` is the five bus
+  network it resolves against. `expand.con` states one automatic specification
+  per target, `selectors.sub` every selector spelling, and `select_v33.raw` is
+  the six bus network they work over. `psse35_area.sub` is the header PSS/E 35
+  writes with one `AREA` subsystem; `generated.mon` and `blocks.mon` are the
+  statement and the block forms of a monitored element file.
 - `pypsa/example/`: written by PyPSA 1.2.2 `Network.export_to_csv_folder` for
   a three bus network. `pypsa/series/`: an original two snapshot folder whose
   load table varies per snapshot, so it parses as a time series.

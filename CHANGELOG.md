@@ -2,6 +2,16 @@
 
 ## 0.11.3
 
+- Bind the PSS/E contingency analysis files. `ContingencySet`, `SubsystemSet`,
+  and `MonitoredSet` read `.con`, `.sub`, and `.mon` text and write it back;
+  `resolve_contingencies` binds a set to a balanced network and reports every
+  action that named no element, `expand_contingencies` turns automatic
+  specifications into explicit cases, and `select_subsystem_buses` gives the
+  buses one named subsystem selects.
+- Bind the geographic layer. `parse_geo` reads a coordinate document and
+  `apply_geo_layer` places its coordinates on a balanced or multiconductor
+  network module, reporting what matched. A geographic file now parses as
+  `PioModule{GeoLayer}` instead of an `UnknownValue`.
 - Bind the detailed connectivity tables. `net.detailed_connectivity` now reads
   all 28 tables node breaker formats such as XIIDM and CGMES retain, from
   substations and voltage levels through terminals, switches, operational
@@ -27,12 +37,13 @@
   the binding or listed in `gen/unbound_entry_points.txt` with a reason.
 - Raise the Julia floor to 1.10.
 - Add Dependabot updates for GitHub Actions and the Julia environments.
-- Coordinate the Julia package with PowerIO 0.11.3, whose C ABI 7 adds symbols
-  for PSS/E contingency analysis files additively.
-- The added contingency analysis symbols are not bound in Julia in this
-  release.
+- Coordinate the Julia package with PowerIO 0.11.3, whose C ABI 7 adds the
+  contingency analysis, subsystem selection and geo layer entry points
+  additively. Every entry point Python reaches over the C ABI is now bound in
+  Julia, and `gen/unbound_entry_points.txt` states the reason for each one
+  that is not.
 
-C ABI 7 and PowerIO IR generation 2 remain unchanged.
+C ABI 7 and PowerIO IR version 2 remain unchanged.
 
 ## 0.11.2
 

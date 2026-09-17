@@ -65,6 +65,11 @@ const EXPORTED_NAMES = Set([
     :ScucReactiveReserveZone, :ScucContingency, :ScucViolationCosts,
     # bus load updates and diagnostic records
     :apply_bus_load_active_power, :diagnostic_record, :diagnostic_records,
+    # contingency analysis files and geographic layers
+    :ContingencySet, :SubsystemSet, :MonitoredSet, :ContingencyResolution,
+    :ContingencyCaseResult, :ContingencyComponent, :UnresolvedAction,
+    :resolve_contingencies, :expand_contingencies, :select_subsystem_buses,
+    :GeoLayer, :GeoApplyReport, :parse_geo, :apply_geo_layer,
 ])
 
 # Names the 0.10 binding exported and 0.11 removes. None may be defined.

@@ -126,53 +126,7 @@ pio_apparent_power_value	quantity unit and value readers are C only
 pio_reactive_power_unit	quantity unit and value readers are C only
 pio_reactive_power_value	quantity unit and value readers are C only
 
-# Pending 0.11.3 parity work. Each family needs Julia types and tests of its
-# own before the binding can call it.
-pio_balanced_network_select_subsystem_buses	pending 0.11.3 parity work: contingency sets
-pio_contingency_resolution_case_component	pending 0.11.3 parity work: contingency sets
-pio_contingency_resolution_case_component_count	pending 0.11.3 parity work: contingency sets
-pio_contingency_resolution_case_count	pending 0.11.3 parity work: contingency sets
-pio_contingency_resolution_case_is_resolved	pending 0.11.3 parity work: contingency sets
-pio_contingency_resolution_case_name	pending 0.11.3 parity work: contingency sets
-pio_contingency_resolution_case_unresolved_action	pending 0.11.3 parity work: contingency sets
-pio_contingency_resolution_case_unresolved_count	pending 0.11.3 parity work: contingency sets
-pio_contingency_resolution_case_unresolved_reason	pending 0.11.3 parity work: contingency sets
-pio_contingency_resolution_release	pending 0.11.3 parity work: contingency sets
-pio_contingency_resolution_resolved_count	pending 0.11.3 parity work: contingency sets
-pio_contingency_resolution_unrecognized_statement_count	pending 0.11.3 parity work: contingency sets
-pio_contingency_resolution_unresolved_count	pending 0.11.3 parity work: contingency sets
-pio_contingency_set_case_count	pending 0.11.3 parity work: contingency sets
-pio_contingency_set_case_name	pending 0.11.3 parity work: contingency sets
-pio_contingency_set_diagnostics	pending 0.11.3 parity work: contingency sets
-pio_contingency_set_expand	pending 0.11.3 parity work: contingency sets
-pio_contingency_set_parse	pending 0.11.3 parity work: contingency sets
-pio_contingency_set_release	pending 0.11.3 parity work: contingency sets
-pio_contingency_set_resolve	pending 0.11.3 parity work: contingency sets
-pio_contingency_set_to_con	pending 0.11.3 parity work: contingency sets
-pio_monitored_set_release	pending 0.11.3 parity work: contingency sets
-pio_monitored_set_statement_count	pending 0.11.3 parity work: contingency sets
-pio_monitored_set_to_mon	pending 0.11.3 parity work: contingency sets
-pio_subsystem_set_count	pending 0.11.3 parity work: contingency sets
-pio_subsystem_set_name	pending 0.11.3 parity work: contingency sets
-pio_subsystem_set_release	pending 0.11.3 parity work: contingency sets
-pio_subsystem_set_to_sub	pending 0.11.3 parity work: contingency sets
-pio_value_contingency_set	pending 0.11.3 parity work: contingency sets
-pio_value_monitored_set	pending 0.11.3 parity work: contingency sets
-pio_value_subsystem_set	pending 0.11.3 parity work: contingency sets
-pio_geo_apply_report_matched_branches	pending 0.11.3 parity work: the geographic layer
-pio_geo_apply_report_matched_buses	pending 0.11.3 parity work: the geographic layer
-pio_geo_apply_report_note_at	pending 0.11.3 parity work: the geographic layer
-pio_geo_apply_report_note_count	pending 0.11.3 parity work: the geographic layer
-pio_geo_apply_report_release	pending 0.11.3 parity work: the geographic layer
-pio_geo_apply_report_unlocated_branches	pending 0.11.3 parity work: the geographic layer
-pio_geo_apply_report_unlocated_buses	pending 0.11.3 parity work: the geographic layer
-pio_geo_apply_report_unmatched_features	pending 0.11.3 parity work: the geographic layer
-pio_geo_layer_diagnostics	pending 0.11.3 parity work: the geographic layer
-pio_geo_layer_parse	pending 0.11.3 parity work: the geographic layer
-pio_geo_layer_release	pending 0.11.3 parity work: the geographic layer
-pio_geo_layer_to_geojson	pending 0.11.3 parity work: the geographic layer
-pio_module_apply_geo_layer	pending 0.11.3 parity work: the geographic layer
-pio_value_geo_layer	pending 0.11.3 parity work: the geographic layer
+# Lookups by source identity. A Dict built over the decoded tables serves them.
 pio_ac_scuc_instance_contingency_get	a Dict over instance.inputs covers the lookup by source identity
 pio_ac_scuc_instance_device_get	a Dict over instance.inputs covers the lookup by source identity
 pio_ac_scuc_instance_shunt_get	a Dict over instance.inputs covers the lookup by source identity

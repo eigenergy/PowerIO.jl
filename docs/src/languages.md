@@ -19,6 +19,12 @@ covers what is specific to Julia.
 | bus table | `net.buses` (`Elements{Bus}`) | `network.buses` (list of dicts) | `pio_balanced_network_bus_count`, `pio_balanced_network_bus_at` |
 | time series entry | `series[1]` | `series[0]` | `pio_time_series_get(series, 0)` |
 | scenario entry | `scenarios["7"]` | `scenarios["7"]` | `pio_scenario_set_get` |
+| resolve contingencies | `resolve_contingencies(net, set)` | `network.resolve_contingencies(text)` | `pio_contingency_set_resolve` |
+| expand contingencies | `expand_contingencies(net, set, subsystems)` | `network.expand_contingencies(con, sub)` | `pio_contingency_set_expand` |
+| select subsystem buses | `select_subsystem_buses(net, subsystems, name)` | `network.select_subsystem_buses(sub, name)` | `pio_balanced_network_select_subsystem_buses` |
+| apply a geo layer | `apply_geo_layer(m, layer)` | `network.apply_geo_layer(text)` | `pio_module_apply_geo_layer` |
+| SCUC inputs | `instance.inputs` | `instance.inputs` | `pio_ac_scuc_instance_device_at` and siblings |
+| detailed connectivity | `net.detailed_connectivity.substations` | `network.detailed_connectivity["substations"]` | `pio_detailed_connectivity_substation_at` and siblings |
 
 ## Julia specifics
 

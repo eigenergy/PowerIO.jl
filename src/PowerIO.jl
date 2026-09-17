@@ -134,6 +134,12 @@ export ScucInputs, ScucDevice, ScucDevicePeriod, ScucEnergyCostBlock, ScucReserv
        ScucReactiveReserveZone, ScucContingency, ScucViolationCosts,
        apply_bus_load_active_power, diagnostic_record, diagnostic_records
 
+# Contingency analysis files and geographic layers.
+export ContingencySet, SubsystemSet, MonitoredSet, ContingencyResolution,
+       ContingencyCaseResult, ContingencyComponent, UnresolvedAction,
+       resolve_contingencies, expand_contingencies, select_subsystem_buses,
+       GeoLayer, GeoApplyReport, parse_geo, apply_geo_layer
+
 include("capi.jl")           # library resolution, entry point calls, the ABI handshake
 include("handles.jl")        # owned handle types with release finalizers
 include("diagnostics.jl")    # Diagnostic and SourceSpan
@@ -144,9 +150,11 @@ include("emit.jl")           # emit, serialize, EmitResult, Artifact
 include("network.jl")        # BalancedNetwork properties and element structs
 include("connectivity.jl")   # DetailedConnectivity tables and their record structs
 include("multiconductor.jl") # MulticonductorNetwork properties and element structs
+include("geo.jl")            # geographic layers and their application to a module
 include("dense.jl")          # to_dense
 include("graphs.jl")         # to_graph
 include("collections.jl")    # TimeSeries, ScenarioSet, OperatingPoint
+include("contingency.jl")    # PSS/E contingency, subsystem, and monitored sets
 include("instances.jl")      # calculation instances, solutions, to_*_instance
 include("scuc.jl")           # AC SCUC instance inputs
 include("updates.jl")        # typed updates and apply_updates!
