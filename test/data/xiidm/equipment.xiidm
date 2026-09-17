@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<iidm:network xmlns:iidm="http://www.powsybl.org/schema/iidm/equipment/1_12" id="equipment" caseDate="2021-01-03T00:00:00Z" forecastDistance="0" sourceFormat="test" minimumValidationLevel="EQUIPMENT">
+  <iidm:substation id="S"><iidm:voltageLevel id="VL" nominalV="225" topologyKind="NODE_BREAKER">
+    <iidm:nodeBreakerTopology><iidm:busbarSection id="BBS" node="0"/></iidm:nodeBreakerTopology>
+    <iidm:generator id="G" energySource="SOLAR" minP="0" maxP="100" voltageRegulatorOn="true" node="0">
+      <iidm:reactiveCapabilityCurve><iidm:property name="curve" value="retained"/><iidm:point p="0" minQ="-20" maxQ="20"><iidm:property name="point" value="first"/></iidm:point><iidm:point p="100" minQ="-10" maxQ="10"/></iidm:reactiveCapabilityCurve>
+    </iidm:generator>
+  </iidm:voltageLevel></iidm:substation>
+</iidm:network>

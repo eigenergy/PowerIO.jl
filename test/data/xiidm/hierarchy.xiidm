@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<iidm:network xmlns:iidm="http://www.powsybl.org/schema/iidm/1_17" id="details" caseDate="2026-01-01T00:00:00Z" forecastDistance="0" sourceFormat="test" minimumValidationLevel="STEADY_STATE_HYPOTHESIS">
+  <iidm:substation id="S" country="US" tso="MISO" geographicalTags="east">
+    <iidm:voltageLevel id="VL1" nominalV="132" topologyKind="BUS_BREAKER"><iidm:busBreakerTopology><iidm:bus id="B1"/></iidm:busBreakerTopology></iidm:voltageLevel>
+    <iidm:voltageLevel id="VL2" nominalV="33" topologyKind="BUS_BREAKER"><iidm:busBreakerTopology><iidm:bus id="B2"/></iidm:busBreakerTopology></iidm:voltageLevel>
+    <iidm:voltageLevel id="VL3" nominalV="11" topologyKind="BUS_BREAKER"><iidm:busBreakerTopology><iidm:bus id="B3"/></iidm:busBreakerTopology></iidm:voltageLevel>
+    <iidm:threeWindingsTransformer id="T3" ratedU0="132" ratedU1="132" ratedU2="33" ratedU3="11" r1="17.424" x1="34.848" r2="1.7424" x2="3.4848" r3="0.8712" x3="1.7424" bus1="B1" connectableBus1="B1" voltageLevelId1="VL1" bus2="B2" connectableBus2="B2" voltageLevelId2="VL2" bus3="B3" connectableBus3="B3" voltageLevelId3="VL3" selectedOperationalLimitsGroupIds1="normal">
+      <iidm:ratioTapChanger2 tapPosition="0" lowTapPosition="0" loadTapChangingCapabilities="false"><iidm:step rho="1.05"/></iidm:ratioTapChanger2>
+      <iidm:operationalLimitsGroup1 id="normal"><iidm:apparentPowerLimits permanentLimit="90"><iidm:temporaryLimit name="emergency" acceptableDuration="600" value="100"/></iidm:apparentPowerLimits></iidm:operationalLimitsGroup1>
+    </iidm:threeWindingsTransformer>
+  </iidm:substation>
+</iidm:network>
