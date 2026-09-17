@@ -49,6 +49,12 @@ const EXPORTED_NAMES = Set([
     :to_powerdata, :to_ac_power_data,
     # library resolution
     :set_library!, :clear_library!, :abi_version, :library_version, :library_available,
+    # AC SCUC instance inputs
+    :ScucInputs, :ScucDevice, :ScucDevicePeriod, :ScucEnergyCostBlock, :ScucReserveCosts,
+    :ScucRampLimits, :ScucReserveLimits, :ScucInitialCommitment, :ScucReactiveCapability,
+    :ScucStartupCostAdjustment, :ScucStartupLimit, :ScucEnergyRequirement, :ScucShunt,
+    :ScucBranchSwitchingCost, :ScucTransformerControl, :ScucActiveReserveZone,
+    :ScucReactiveReserveZone, :ScucContingency, :ScucViolationCosts,
 ])
 
 # Names the 0.10 binding exported and 0.11 removes. None may be defined.

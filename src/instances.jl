@@ -15,6 +15,7 @@ The network a calculation instance is defined over.
 """
 function Base.getproperty(instance::T, name::Symbol) where {T<:CalculationInstance}
     name === :metadata && instance isa LinDist3FlowOpfInstance && return _lindist3flow_metadata(instance)
+    name === :inputs && instance isa AcScucInstance && return _scuc_inputs(instance)
     name === :network || return getfield(instance, name)
     N = _network_type(T)
     entry = N === BalancedNetwork ? Val(:pio_calculation_instance_balanced_network) :
@@ -28,6 +29,8 @@ function Base.getproperty(instance::T, name::Symbol) where {T<:CalculationInstan
 end
 
 Base.propertynames(::CalculationInstance, private::Bool=false) = private ? (:network, :handle) : (:network,)
+Base.propertynames(::AcScucInstance, private::Bool=false) =
+    private ? (:network, :inputs, :handle) : (:network, :inputs)
 
 """
     solution.instance

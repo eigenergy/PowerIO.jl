@@ -2,6 +2,10 @@
 
 ## 0.11.3
 
+- Read the scheduling inputs of an AC SCUC instance through `instance.inputs`:
+  devices with their periods, energy cost blocks and reserve costs, shunts,
+  branch switching costs, transformer controls, active and reactive reserve
+  zones, contingencies, and the instance wide violation costs.
 - Generate the raw C layer. `src/LibPowerIO.jl` now comes from
   `powerio-capi/include/powerio.h` through `gen/generate.jl`, replacing the
   hand-written struct mirrors and call signatures, so a header change shows up

@@ -90,6 +90,69 @@ An unknown quantity name throws [`PowerIOError`](@ref) with code
 second order cone relaxation of an AC OPF instance, so it reports an
 `objective_lower_bound` and is not an AC feasible point.
 
+## AC SCUC inputs
+
+An [`AcScucInstance`](@ref) also carries the scheduling data of the unit
+commitment problem. `instance.inputs` reads it into a [`ScucInputs`](@ref)
+record: the collection sizes, the interval durations in hours, the input
+tables, and the instance wide violation costs. Times are hours, powers and
+energies per unit, and phase shifts radians.
+
+```julia
+instance = parse("goc3_small.json").value   # AcScucInstance
+inputs = instance.inputs
+inputs.dimensions.period_count              # 2
+inputs.interval_durations                   # [1.0, 1.0] hours
+
+device = inputs.devices[1]                  # ScucDevice
+device.id                                   # ComponentId("generator", "sd_00")
+device.kind                                 # "producer"
+device.minimum_up_time_hours
+device.periods[1].active_power_max_pu       # bounds in interval 1
+device.periods[1].energy_cost_blocks        # the piecewise energy price
+
+inputs.active_reserve_zones[1].buses        # Vector{ComponentId}
+inputs.contingencies[1].components          # what the contingency takes out
+inputs.violation_costs.active_power_balance
+```
+
+Every table is a plain `Vector`, so `filter`, `map`, and indexing all work, and
+a lookup by source identity is a `Dict` over the table:
+
+```julia
+by_uid = Dict(d.id.local_id => d for d in inputs.devices)
+by_uid["sd_00"].startup_cost
+```
+
+A device's [`ScucReactiveCapability`](@ref) states how its reactive range
+depends on its active power. `kind` selects which fields the input sets:
+`"none"` leaves all of them `nothing`, `"linear"` sets the intercept and
+`slope`, and `"bounded"` sets the two intercept bounds and the two slope
+bounds. The same reading is available through the instance a solution answers,
+as `solution.instance.inputs`.
+
+```@docs
+ScucInputs
+ScucDevice
+ScucDevicePeriod
+ScucEnergyCostBlock
+ScucReserveCosts
+ScucRampLimits
+ScucReserveLimits
+ScucInitialCommitment
+ScucReactiveCapability
+ScucStartupCostAdjustment
+ScucStartupLimit
+ScucEnergyRequirement
+ScucShunt
+ScucBranchSwitchingCost
+ScucTransformerControl
+ScucActiveReserveZone
+ScucReactiveReserveZone
+ScucContingency
+ScucViolationCosts
+```
+
 ```@docs
 TimeSeries
 ScenarioSet

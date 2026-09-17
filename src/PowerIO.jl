@@ -117,6 +117,13 @@ export to_powermodels, from_powermodels, build_powermodels_ref, repair_powermode
 # Library resolution.
 export set_library!, clear_library!, abi_version, library_version, library_available
 
+# AC SCUC inputs.
+export ScucInputs, ScucDevice, ScucDevicePeriod, ScucEnergyCostBlock, ScucReserveCosts,
+       ScucRampLimits, ScucReserveLimits, ScucInitialCommitment, ScucReactiveCapability,
+       ScucStartupCostAdjustment, ScucStartupLimit, ScucEnergyRequirement, ScucShunt,
+       ScucBranchSwitchingCost, ScucTransformerControl, ScucActiveReserveZone,
+       ScucReactiveReserveZone, ScucContingency, ScucViolationCosts
+
 include("capi.jl")           # library resolution, entry point calls, the ABI handshake
 include("handles.jl")        # owned handle types with release finalizers
 include("diagnostics.jl")    # Diagnostic and SourceSpan
@@ -130,6 +137,7 @@ include("dense.jl")          # to_dense
 include("graphs.jl")         # to_graph
 include("collections.jl")    # TimeSeries, ScenarioSet, OperatingPoint
 include("instances.jl")      # calculation instances, solutions, to_*_instance
+include("scuc.jl")           # AC SCUC instance inputs
 include("updates.jl")        # typed updates and apply_updates!
 include("calc.jl")           # the eight DC calculations from the library
 include("ybus.jl")           # admittance matrices assembled in Julia
