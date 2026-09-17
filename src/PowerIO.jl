@@ -117,6 +117,11 @@ export to_powermodels, from_powermodels, build_powermodels_ref, repair_powermode
 # Library resolution.
 export set_library!, clear_library!, abi_version, library_version, library_available
 
+# Contingency analysis files.
+export ContingencySet, SubsystemSet, MonitoredSet, ContingencyResolution,
+       ContingencyCaseResult, ContingencyComponent, UnresolvedAction,
+       resolve_contingencies, expand_contingencies, select_subsystem_buses
+
 include("capi.jl")           # library resolution, entry point calls, the ABI handshake
 include("handles.jl")        # owned handle types with release finalizers
 include("diagnostics.jl")    # Diagnostic and SourceSpan
@@ -129,6 +134,7 @@ include("multiconductor.jl") # MulticonductorNetwork properties and element stru
 include("dense.jl")          # to_dense
 include("graphs.jl")         # to_graph
 include("collections.jl")    # TimeSeries, ScenarioSet, OperatingPoint
+include("contingency.jl")    # PSS/E contingency, subsystem, and monitored sets
 include("instances.jl")      # calculation instances, solutions, to_*_instance
 include("updates.jl")        # typed updates and apply_updates!
 include("calc.jl")           # the eight DC calculations from the library

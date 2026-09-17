@@ -31,6 +31,7 @@ summarize(m::PioModule{<:TimeSeries}) = length(m.value)
 | GO Challenge 3 problem, or problem and solution | `AcScucInstance`, `AcScucSolution` |
 | OPFData | `AcOpfSolution` |
 | Geographic data or a PowerWorld PWD display | `UnknownValue` with `type_name == "powerio.GeoLayer"` |
+| PSS/E contingency analysis files: `.con`, `.sub`, `.mon` | `ContingencySet`, `SubsystemSet`, `MonitoredSet` |
 
 If the library hands back a value type this release does not bind, you get an
 [`UnknownValue`](@ref) with its structural type name.

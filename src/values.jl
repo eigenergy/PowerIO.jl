@@ -113,6 +113,47 @@ const CalculationSolution = Union{DcPfSolution,AcPfSolution,DcOpfSolution,AcOpfS
                                   SocwrOpfSolution,McAcPfSolution,McAcOpfSolution,LinDist3FlowOpfSolution,AcScucSolution}
 
 """
+    ContingencySet
+
+The cases of one PSS/E `.con` file. `set.cases` are the case names in the
+file's own order, `set.text` writes the set back as `.con` text,
+`set.diagnostics` are the reader's notes, and `length(set)` is the case count.
+[`resolve_contingencies`](@ref) binds a set to a network and
+[`expand_contingencies`](@ref) turns its automatic specifications into
+explicit cases.
+"""
+struct ContingencySet
+    handle::ContingencySetHandle
+    diagnostics::Vector{Diagnostic}
+end
+
+"""
+    SubsystemSet
+
+The bus selections of one PSS/E `.sub` file. `set.names` are the subsystem
+names in the file's own order, `set.text` writes the set back as `.sub` text,
+`set.diagnostics` are the reader's notes, and `length(set)` is the subsystem
+count. [`select_subsystem_buses`](@ref) evaluates one named subsystem against
+a network.
+"""
+struct SubsystemSet
+    handle::SubsystemSetHandle
+    diagnostics::Vector{Diagnostic}
+end
+
+"""
+    MonitoredSet
+
+The statements of one PSS/E `.mon` file. `set.statement_count` is how many
+statements the reader kept, `set.text` writes the set back as `.mon` text, and
+`set.diagnostics` are the reader's notes.
+"""
+struct MonitoredSet
+    handle::MonitoredSetHandle
+    diagnostics::Vector{Diagnostic}
+end
+
+"""
     UnknownValue
 
 A module value whose structural type name this PowerIO.jl release does not
@@ -154,6 +195,9 @@ const _SOLUTION_TYPES = Dict(
 function _julia_type(name::AbstractString)
     name == "powerio.BalancedNetwork" && return BalancedNetwork
     name == "powerio.MulticonductorNetwork" && return MulticonductorNetwork
+    name == "powerio.ContingencySet" && return ContingencySet
+    name == "powerio.SubsystemSet" && return SubsystemSet
+    name == "powerio.MonitoredSet" && return MonitoredSet
     haskey(_INSTANCE_TYPES, name) && return _INSTANCE_TYPES[name][1]
     haskey(_SOLUTION_TYPES, name) && return _SOLUTION_TYPES[name][1]
     for (prefix, wrapper) in (("powerio.TimeSeries<", TimeSeries),
@@ -190,6 +234,14 @@ _wrap_as(::Type{BalancedNetwork}, lib, value, owner) =
     BalancedNetwork(BalancedNetworkHandle(_borrow(lib, value, Val(:pio_value_balanced_network)), lib), owner)
 _wrap_as(::Type{MulticonductorNetwork}, lib, value, owner) =
     MulticonductorNetwork(MulticonductorNetworkHandle(_borrow(lib, value, Val(:pio_value_multiconductor_network)), lib), owner)
+# A contingency analysis file or a geographic layer carries no reader notes
+# when it comes from a module: the module holds them.
+_wrap_as(::Type{ContingencySet}, lib, value, owner) =
+    ContingencySet(ContingencySetHandle(_borrow(lib, value, Val(:pio_value_contingency_set)), lib), Diagnostic[])
+_wrap_as(::Type{SubsystemSet}, lib, value, owner) =
+    SubsystemSet(SubsystemSetHandle(_borrow(lib, value, Val(:pio_value_subsystem_set)), lib), Diagnostic[])
+_wrap_as(::Type{MonitoredSet}, lib, value, owner) =
+    MonitoredSet(MonitoredSetHandle(_borrow(lib, value, Val(:pio_value_monitored_set)), lib), Diagnostic[])
 _wrap_as(::Type{TimeSeries{T}}, lib, value, owner) where {T} =
     TimeSeries{T}(TimeSeriesHandle(_borrow(lib, value, Val(:pio_value_time_series)), lib))
 _wrap_as(::Type{ScenarioSet{T}}, lib, value, owner) where {T} =
@@ -210,6 +262,9 @@ end
 # The structural type name of a bound Julia type.
 _type_name(::Type{BalancedNetwork}) = "powerio.BalancedNetwork"
 _type_name(::Type{MulticonductorNetwork}) = "powerio.MulticonductorNetwork"
+_type_name(::Type{ContingencySet}) = "powerio.ContingencySet"
+_type_name(::Type{SubsystemSet}) = "powerio.SubsystemSet"
+_type_name(::Type{MonitoredSet}) = "powerio.MonitoredSet"
 _type_name(::Type{TimeSeries{T}}) where {T} = "powerio.TimeSeries<" * _type_name(T) * ">"
 _type_name(::Type{ScenarioSet{T}}) where {T} = "powerio.ScenarioSet<" * _type_name(T) * ">"
 _type_name(::Type{OperatingPoint{T}}) where {T} = "powerio.OperatingPoint<" * _type_name(T) * ">"

@@ -2,6 +2,12 @@
 
 ## 0.11.3
 
+- Bind the PSS/E contingency analysis files. `ContingencySet`, `SubsystemSet`,
+  and `MonitoredSet` read `.con`, `.sub`, and `.mon` text and write it back;
+  `resolve_contingencies` binds a set to a balanced network and reports every
+  action that named no element, `expand_contingencies` turns automatic
+  specifications into explicit cases, and `select_subsystem_buses` gives the
+  buses one named subsystem selects.
 - Generate the raw C layer. `src/LibPowerIO.jl` now comes from
   `powerio-capi/include/powerio.h` through `gen/generate.jl`, replacing the
   hand-written struct mirrors and call signatures, so a header change shows up

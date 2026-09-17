@@ -24,6 +24,7 @@ makedocs(;
         "Collections and instances" => "collections.md",
         "Matrices" => "matrices.md",
         "Updates" => "updates.md",
+        "Contingency analysis" => "contingency.md",
         "Interop" => "interop.md",
         "Developer Guides" => [
             "Migrating from 0.10 to 0.11" => "migration-0.11.md",

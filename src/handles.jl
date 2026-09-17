@@ -127,6 +127,10 @@ end
 @handle VectorHandle :pio_vector_release "Owned double vector."
 @handle StringHandle :pio_string_release "Owned string."
 @handle JsonValueHandle :pio_json_value_release "Owned structured JSON value."
+@handle ContingencySetHandle :pio_contingency_set_release "PSS/E contingency set; keeps its module alive."
+@handle SubsystemSetHandle :pio_subsystem_set_release "PSS/E subsystem set; keeps its module alive."
+@handle MonitoredSetHandle :pio_monitored_set_release "PSS/E monitored set; keeps its module alive."
+@handle ContingencyResolutionHandle :pio_contingency_resolution_release "One contingency set bound to one balanced network."
 
 # Release a handle now instead of at finalization. Safe to call twice.
 release!(h::Handle) = @with_handles h _release_once!(h)
