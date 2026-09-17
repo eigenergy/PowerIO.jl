@@ -1,7 +1,7 @@
 # Merge this file last. Any later tracked change except Artifacts.toml
 # invalidates source_digest and parks the release.
 schema = 1
-state = "draft"
+state = "ready"
 julia_version = "0.11.3"
 powerio_tag = "v0.11.3"
-source_digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+source_digest = "sha256:ed60daaaed27d3867b35b8cde640481b013bca3695376785c3c3d13e0434895b"
