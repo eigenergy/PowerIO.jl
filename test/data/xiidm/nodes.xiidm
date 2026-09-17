@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<iidm:network xmlns:iidm="http://www.powsybl.org/schema/iidm/1_17" id="nodes" caseDate="2025-01-01T00:00:00Z" forecastDistance="0" sourceFormat="test" minimumValidationLevel="STEADY_STATE_HYPOTHESIS">
+  <iidm:substation id="S">
+    <iidm:voltageLevel id="VL" nominalV="110" topologyKind="NODE_BREAKER">
+      <iidm:nodeBreakerTopology>
+        <iidm:bus v="110" angle="0" nodes="0,1,2"/>
+        <iidm:busbarSection id="BBS" node="2"/>
+        <iidm:switch id="BR" kind="BREAKER" open="false" node1="1" node2="2"/>
+        <iidm:internalConnection node1="0" node2="1"/>
+      </iidm:nodeBreakerTopology>
+      <iidm:generator id="G" energySource="OTHER" minP="0" maxP="10" voltageRegulatorOn="true" targetP="5" node="0"><iidm:minMaxReactiveLimits minQ="-2" maxQ="2"/></iidm:generator>
+    </iidm:voltageLevel>
+  </iidm:substation>
+</iidm:network>

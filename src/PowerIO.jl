@@ -117,6 +117,15 @@ export to_powermodels, from_powermodels, build_powermodels_ref, repair_powermode
 # Library resolution.
 export set_library!, clear_library!, abi_version, library_version, library_available
 
+# Detailed connectivity tables.
+export OmittedField, ComponentMetadata, ComponentAlias, ExternalIdentifier,
+       Subnetwork, CaseMetadata, Substation, VoltageLevel, BusBreakerBus, CalculatedBus,
+       ConnectivityNode, BusbarSection, Junction, DetailedTerminal, TopologySwitch,
+       TopologyEndpoint, InternalConnection, OperationalLimitGroup, LoadingLimits,
+       TemporaryLimit, TapChanger, TapChangerStep, EquipmentReactiveLimits, ReactiveLimits,
+       ReactiveCapabilityCurvePoint, BoundaryLine, BoundaryLineGeneration, TieLine,
+       DcConverterUnit, DcNode, DcEquipment, DcTerminal, AcDcConverter, DroopCurveSegment
+
 include("capi.jl")           # library resolution, entry point calls, the ABI handshake
 include("handles.jl")        # owned handle types with release finalizers
 include("diagnostics.jl")    # Diagnostic and SourceSpan
@@ -125,6 +134,7 @@ include("values.jl")         # the value type tree and structural name dispatch
 include("module.jl")         # PioModule, parse, deserialize, records
 include("emit.jl")           # emit, serialize, EmitResult, Artifact
 include("network.jl")        # BalancedNetwork properties and element structs
+include("connectivity.jl")   # DetailedConnectivity tables and their record structs
 include("multiconductor.jl") # MulticonductorNetwork properties and element structs
 include("dense.jl")          # to_dense
 include("graphs.jl")         # to_graph

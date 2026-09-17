@@ -25,3 +25,13 @@ Everything here is for the test suite only; nothing ships in a release.
   coordinate lists, written by the powerio matrix crate, for checking the
   Julia assembly.
 - `dist/`: OpenDSS feeders; provenance in `dist/README.md`.
+- `xiidm/`: five small XIIDM documents copied byte exact from the inline
+  sources of the detailed connectivity tests in `powerio-capi/src/lib.rs`, so
+  the Julia records pin the values the C tests pin. `hierarchy.xiidm` has a
+  substation with three voltage levels, a three winding transformer, an
+  apparent power limit group, and a ratio tap changer; `merged.xiidm` has two
+  subnetworks joined by a tie line over two boundary lines; `nodes.xiidm` has
+  a node breaker voltage level with a breaker and an internal connection;
+  `equipment.xiidm` is an equipment-only document with a reactive capability
+  curve; `dc.xiidm` has DC nodes, a DC line, ground and switch, and a voltage
+  source converter.

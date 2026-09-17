@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<iidm:network xmlns:iidm="http://www.powsybl.org/schema/iidm/1_17" id="Merged" caseDate="2026-01-01T00:00:00Z" forecastDistance="0" sourceFormat="root" minimumValidationLevel="STEADY_STATE_HYPOTHESIS">
+  <iidm:network id="A" caseDate="2026-01-01T01:00:00Z" forecastDistance="1" sourceFormat="part-a" minimumValidationLevel="STEADY_STATE_HYPOTHESIS">
+    <iidm:substation id="SA"><iidm:voltageLevel id="VA" nominalV="100" topologyKind="BUS_BREAKER"><iidm:busBreakerTopology><iidm:bus id="BA"/></iidm:busBreakerTopology><iidm:boundaryLine id="DLA" p0="5" q0="6" r="1" x="2" generationVoltageRegulationOn="true" generationMinP="0" generationMaxP="20" generationTargetP="10" generationTargetV="100" bus="BA" connectableBus="BA"><iidm:reactiveCapabilityCurve><iidm:property name="owner" value="RTE"/><iidm:point p="0" minQ="-10" maxQ="10"/><iidm:point p="10" minQ="0" maxQ="20"/></iidm:reactiveCapabilityCurve></iidm:boundaryLine></iidm:voltageLevel></iidm:substation>
+  </iidm:network>
+  <iidm:network id="B" caseDate="2026-01-01T02:00:00Z" forecastDistance="2" sourceFormat="part-b" minimumValidationLevel="STEADY_STATE_HYPOTHESIS">
+    <iidm:substation id="SB"><iidm:voltageLevel id="VB" nominalV="100" topologyKind="BUS_BREAKER"><iidm:busBreakerTopology><iidm:bus id="BB"/></iidm:busBreakerTopology><iidm:boundaryLine id="DLB" p0="-5" q0="-6" r="3" x="4" bus="BB" connectableBus="BB"/></iidm:voltageLevel></iidm:substation>
+  </iidm:network>
+  <iidm:tieLine id="TL" boundaryLineId1="DLA" boundaryLineId2="DLB"/>
+</iidm:network>

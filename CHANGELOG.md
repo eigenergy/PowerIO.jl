@@ -2,6 +2,11 @@
 
 ## 0.11.3
 
+- Bind the detailed connectivity tables. `net.detailed_connectivity` now reads
+  all 28 tables node breaker formats such as XIIDM and CGMES retain, from
+  substations and voltage levels through terminals, switches, operational
+  limits, and tap changers to boundary lines, tie lines, DC equipment, and
+  AC/DC converters, as `Elements` vectors of immutable records.
 - Generate the raw C layer. `src/LibPowerIO.jl` now comes from
   `powerio-capi/include/powerio.h` through `gen/generate.jl`, replacing the
   hand-written struct mirrors and call signatures, so a header change shows up
