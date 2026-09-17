@@ -122,8 +122,8 @@ macro capi(lib, call)
     callee = call.args[1]
     args = map(esc, call.args[2:end])
     callee isa QuoteNode &&
-        return :(LibPowerIO.$(callee.value)($(args...),
-                                            _library_symbol($(esc(lib)), $callee)))
+        return :(@inline LibPowerIO.$(callee.value)($(args...),
+                                                    _library_symbol($(esc(lib)), $callee)))
     return :(_capi($(esc(lib)), $(esc(callee)), $(args...)))
 end
 
@@ -132,8 +132,15 @@ end
 # per entry point and the call into `LibPowerIO` resolves at compile time. The
 # element tables read every row through this path, and a name passed as a plain
 # `Symbol` there costs a dynamic lookup and a boxed return on every field.
+#
+# The generated `LibPowerIO` method is one `@ccall`, but its inlining cost sits
+# above the default threshold, so the call-site `@inline` is what keeps it from
+# compiling to an `invoke`. Out-parameter cells reach a `ccall` that is inlined
+# into the caller as stack slots; reaching an `invoke` instead makes them
+# escape, and the element tables would heap-allocate an output cell and an
+# error cell on every row.
 @inline _capi(lib::AbstractString, ::Val{S}, args...) where {S} =
-    getfield(LibPowerIO, S)(args..., _library_symbol(lib, S))
+    @inline getfield(LibPowerIO, S)(args..., _library_symbol(lib, S))
 
 # The same for a name that is genuinely only known at run time, such as one
 # looked up in a table keyed by a structural type name.

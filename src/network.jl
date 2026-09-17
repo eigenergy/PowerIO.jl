@@ -769,14 +769,14 @@ _element(::Type{ThreeWindingTransformer}, net::BalancedNetwork, i) = _with_netwo
     v = _at(PioBalancedThreeWindingTransformerView, Val(:pio_balanced_network_three_winding_transformer_at), lib, p, i)
     windings = map(0:Int(v.winding_count)-1) do j
         w = _at(PioThreeWindingTransformerWindingView,
-                :pio_balanced_network_three_winding_transformer_winding_at, lib, p, i, j)
+                Val(:pio_balanced_network_three_winding_transformer_winding_at), lib, p, i, j)
         TransformerWinding(Int(w.bus_id), w.tap_ratio, w.phase_shift_degrees, w.nominal_voltage_kv,
                            w.rating_a_mva, w.rating_b_mva, w.rating_c_mva,
                            _transformer_control(w.control, w.has_control))
     end
     impedances = map(0:Int(v.impedance_count)-1) do j
         z = _at(PioThreeWindingTransformerImpedanceView,
-                :pio_balanced_network_three_winding_transformer_impedance_at, lib, p, i, j)
+                Val(:pio_balanced_network_three_winding_transformer_impedance_at), lib, p, i, j)
         TransformerImpedance(z.resistance_pu, z.reactance_pu, z.base_mva)
     end
     ThreeWindingTransformer(_optional_str(v.component_id, v.has_component_id),

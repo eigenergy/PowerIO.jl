@@ -48,11 +48,19 @@ end
 
 # Fill one output struct through a `bool f(..., T *output, PioError **error)`
 # entry point. `call(out, err)` performs the ccall.
+#
+# Both cells are created here rather than by routing the call through
+# `_checked`, and `call` is inlined, so that the cells and the `ccall` that
+# writes them share one frame. The optimizer then places them in stack slots
+# instead of on the heap, which the element tables read once per row. The
+# checks keep `_checked`'s order: a library-reported error wins over a bare
+# false return.
 function _fill(call, ::Type{T}, lib::AbstractString) where {T}
+    _ensure_compatible(lib)
     out = Ref{T}()
-    ok = _checked(lib) do err
-        call(out, err)
-    end
+    err = Ref{Ptr{PioError}}(C_NULL)
+    ok = @inline call(out, err)
+    err[] == C_NULL || throw(_take_error(lib, err[]))
     ok || error("PowerIO: the library reported failure without an error record")
     return out[]
 end
