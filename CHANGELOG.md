@@ -8,6 +8,10 @@
   action that named no element, `expand_contingencies` turns automatic
   specifications into explicit cases, and `select_subsystem_buses` gives the
   buses one named subsystem selects.
+- Bind the geographic layer. `parse_geo` reads a coordinate document and
+  `apply_geo_layer` places its coordinates on a balanced or multiconductor
+  network module, reporting what matched. A geographic file now parses as
+  `PioModule{GeoLayer}` instead of an `UnknownValue`.
 - Generate the raw C layer. `src/LibPowerIO.jl` now comes from
   `powerio-capi/include/powerio.h` through `gen/generate.jl`, replacing the
   hand-written struct mirrors and call signatures, so a header change shows up

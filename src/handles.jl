@@ -131,6 +131,8 @@ end
 @handle SubsystemSetHandle :pio_subsystem_set_release "PSS/E subsystem set; keeps its module alive."
 @handle MonitoredSetHandle :pio_monitored_set_release "PSS/E monitored set; keeps its module alive."
 @handle ContingencyResolutionHandle :pio_contingency_resolution_release "One contingency set bound to one balanced network."
+@handle GeoLayerHandle :pio_geo_layer_release "Geographic layer read from text or copied out of a module."
+@handle GeoApplyReportHandle :pio_geo_apply_report_release "What one geographic layer application matched and left unlocated."
 
 # Release a handle now instead of at finalization. Safe to call twice.
 release!(h::Handle) = @with_handles h _release_once!(h)

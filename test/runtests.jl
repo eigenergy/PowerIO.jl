@@ -30,6 +30,7 @@ fixture(parts...) = joinpath(DATA, parts...)
     include("test_handle_operations.jl")
     include("test_updates.jl")            # typed updates and apply_updates!
     include("test_contingency.jl")        # PSS/E contingency, subsystem, monitored sets
+    include("test_geo.jl")                # geographic layers
     include("test_matrix.jl")             # DC calculations and admittance matrices
     include("test_bridges.jl")            # PowerModels and ExaModelsPower bridges
     include("test_aqua.jl")               # Aqua quality checks

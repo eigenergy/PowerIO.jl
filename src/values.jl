@@ -154,6 +154,20 @@ struct MonitoredSet
 end
 
 """
+    GeoLayer
+
+One coordinate document kept beside a case: points for buses and routes for
+branches in a single coordinate space, keyed by element identity.
+`layer.geojson` writes the canonical GeoJSON FeatureCollection and
+`layer.diagnostics` are the reader's notes. [`parse_geo`](@ref) reads one from
+text and [`apply_geo_layer`](@ref) places its coordinates on a network module.
+"""
+struct GeoLayer
+    handle::GeoLayerHandle
+    diagnostics::Vector{Diagnostic}
+end
+
+"""
     UnknownValue
 
 A module value whose structural type name this PowerIO.jl release does not
@@ -198,6 +212,7 @@ function _julia_type(name::AbstractString)
     name == "powerio.ContingencySet" && return ContingencySet
     name == "powerio.SubsystemSet" && return SubsystemSet
     name == "powerio.MonitoredSet" && return MonitoredSet
+    name == "powerio.GeoLayer" && return GeoLayer
     haskey(_INSTANCE_TYPES, name) && return _INSTANCE_TYPES[name][1]
     haskey(_SOLUTION_TYPES, name) && return _SOLUTION_TYPES[name][1]
     for (prefix, wrapper) in (("powerio.TimeSeries<", TimeSeries),
@@ -242,6 +257,8 @@ _wrap_as(::Type{SubsystemSet}, lib, value, owner) =
     SubsystemSet(SubsystemSetHandle(_borrow(lib, value, Val(:pio_value_subsystem_set)), lib), Diagnostic[])
 _wrap_as(::Type{MonitoredSet}, lib, value, owner) =
     MonitoredSet(MonitoredSetHandle(_borrow(lib, value, Val(:pio_value_monitored_set)), lib), Diagnostic[])
+_wrap_as(::Type{GeoLayer}, lib, value, owner) =
+    GeoLayer(GeoLayerHandle(_borrow(lib, value, Val(:pio_value_geo_layer)), lib), Diagnostic[])
 _wrap_as(::Type{TimeSeries{T}}, lib, value, owner) where {T} =
     TimeSeries{T}(TimeSeriesHandle(_borrow(lib, value, Val(:pio_value_time_series)), lib))
 _wrap_as(::Type{ScenarioSet{T}}, lib, value, owner) where {T} =
@@ -265,6 +282,7 @@ _type_name(::Type{MulticonductorNetwork}) = "powerio.MulticonductorNetwork"
 _type_name(::Type{ContingencySet}) = "powerio.ContingencySet"
 _type_name(::Type{SubsystemSet}) = "powerio.SubsystemSet"
 _type_name(::Type{MonitoredSet}) = "powerio.MonitoredSet"
+_type_name(::Type{GeoLayer}) = "powerio.GeoLayer"
 _type_name(::Type{TimeSeries{T}}) where {T} = "powerio.TimeSeries<" * _type_name(T) * ">"
 _type_name(::Type{ScenarioSet{T}}) where {T} = "powerio.ScenarioSet<" * _type_name(T) * ">"
 _type_name(::Type{OperatingPoint{T}}) where {T} = "powerio.OperatingPoint<" * _type_name(T) * ">"

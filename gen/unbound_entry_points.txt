@@ -128,20 +128,6 @@ pio_reactive_power_value	quantity unit and value readers are C only
 
 # Pending 0.11.3 parity work. Each family needs Julia types and tests of its
 # own before the binding can call it.
-pio_geo_apply_report_matched_branches	pending 0.11.3 parity work: the geographic layer
-pio_geo_apply_report_matched_buses	pending 0.11.3 parity work: the geographic layer
-pio_geo_apply_report_note_at	pending 0.11.3 parity work: the geographic layer
-pio_geo_apply_report_note_count	pending 0.11.3 parity work: the geographic layer
-pio_geo_apply_report_release	pending 0.11.3 parity work: the geographic layer
-pio_geo_apply_report_unlocated_branches	pending 0.11.3 parity work: the geographic layer
-pio_geo_apply_report_unlocated_buses	pending 0.11.3 parity work: the geographic layer
-pio_geo_apply_report_unmatched_features	pending 0.11.3 parity work: the geographic layer
-pio_geo_layer_diagnostics	pending 0.11.3 parity work: the geographic layer
-pio_geo_layer_parse	pending 0.11.3 parity work: the geographic layer
-pio_geo_layer_release	pending 0.11.3 parity work: the geographic layer
-pio_geo_layer_to_geojson	pending 0.11.3 parity work: the geographic layer
-pio_module_apply_geo_layer	pending 0.11.3 parity work: the geographic layer
-pio_value_geo_layer	pending 0.11.3 parity work: the geographic layer
 pio_ac_scuc_instance_active_reserve_zone_at	pending 0.11.3 parity work: AC SCUC instance tables
 pio_ac_scuc_instance_active_reserve_zone_bus_at	pending 0.11.3 parity work: AC SCUC instance tables
 pio_ac_scuc_instance_active_reserve_zone_count	pending 0.11.3 parity work: AC SCUC instance tables

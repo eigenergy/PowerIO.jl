@@ -117,10 +117,11 @@ export to_powermodels, from_powermodels, build_powermodels_ref, repair_powermode
 # Library resolution.
 export set_library!, clear_library!, abi_version, library_version, library_available
 
-# Contingency analysis files.
+# Contingency analysis files and geographic layers.
 export ContingencySet, SubsystemSet, MonitoredSet, ContingencyResolution,
        ContingencyCaseResult, ContingencyComponent, UnresolvedAction,
-       resolve_contingencies, expand_contingencies, select_subsystem_buses
+       resolve_contingencies, expand_contingencies, select_subsystem_buses,
+       GeoLayer, GeoApplyReport, parse_geo, apply_geo_layer
 
 include("capi.jl")           # library resolution, entry point calls, the ABI handshake
 include("handles.jl")        # owned handle types with release finalizers
@@ -131,6 +132,7 @@ include("module.jl")         # PioModule, parse, deserialize, records
 include("emit.jl")           # emit, serialize, EmitResult, Artifact
 include("network.jl")        # BalancedNetwork properties and element structs
 include("multiconductor.jl") # MulticonductorNetwork properties and element structs
+include("geo.jl")            # geographic layers and their application to a module
 include("dense.jl")          # to_dense
 include("graphs.jl")         # to_graph
 include("collections.jl")    # TimeSeries, ScenarioSet, OperatingPoint
