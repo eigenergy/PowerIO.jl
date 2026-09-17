@@ -1,0 +1,36 @@
+# Clang.jl options for gen/generate.jl. The paths are relative to this file;
+# gen/generate.jl resolves them before running the generator.
+
+[general]
+library_name = "libpowerio_capi"
+output_file_path = "../src/LibPowerIO.jl"
+module_name = "LibPowerIO"
+jll_pkg_name = ""
+prologue_file_path = "prologue.jl"
+export_symbol_prefixes = ["pio_", "Pio", "PIO_"]
+# Order struct fields and emitted definitions by the header, not by a hash, so
+# regenerating the same header reproduces the same file byte for byte.
+use_deterministic_symbol = true
+auto_mutability = false
+# Emit a second method per entry point taking a function pointer as its last
+# argument. PowerIO resolves every symbol through dlsym against the library it
+# picked at run time and calls those methods.
+add_fptr_methods = true
+extract_c_comment_style = ""
+# The header declares no enums. Leaving the CEnum import out keeps it off the
+# package's dependencies; a header that later declares one fails the generated
+# module's load loudly, and the import and the dependency go back in together.
+print_using_CEnum = false
+
+[codegen]
+use_julia_bool = true
+use_ccall_macro = true
+opaque_as_mutable_struct = true
+always_NUL_terminated_string = false
+is_function_strictly_typed = false
+
+[codegen.macro]
+macro_mode = "basic"
+add_comment_for_skipped_macro = true
+ignore_header_guards = true
+ignore_pure_definition = true
