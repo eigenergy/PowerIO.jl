@@ -1,0 +1,263 @@
+# Entry points src/LibPowerIO.jl declares that the hand-written sources do not
+# call, one per line as `name<TAB>reason`. test/test_capi_coverage.jl fails when
+# a generated entry point is in neither this file nor the sources, so a new
+# powerio entry point has to be either bound or listed here with a reason.
+
+# Handle reference counting. A Julia handle owns exactly one reference and
+# releases it; nothing in the binding takes a second one.
+pio_ac_opf_preparation_retain	owns one reference, never retains
+pio_active_power_retain	owns one reference, never retains
+pio_apparent_power_retain	owns one reference, never retains
+pio_artifact_retain	owns one reference, never retains
+pio_balanced_network_retain	owns one reference, never retains
+pio_calculation_instance_retain	owns one reference, never retains
+pio_calculation_solution_retain	owns one reference, never retains
+pio_calculation_update_retain	owns one reference, never retains
+pio_component_id_retain	owns one reference, never retains
+pio_contingency_resolution_retain	owns one reference, never retains
+pio_contingency_set_retain	owns one reference, never retains
+pio_dc_operators_retain	owns one reference, never retains
+pio_dc_opf_preparation_retain	owns one reference, never retains
+pio_destination_retain	owns one reference, never retains
+pio_detailed_connectivity_retain	owns one reference, never retains
+pio_diagnostics_retain	owns one reference, never retains
+pio_emit_result_retain	owns one reference, never retains
+pio_error_retain	owns one reference, never retains
+pio_geo_apply_report_retain	owns one reference, never retains
+pio_geo_layer_retain	owns one reference, never retains
+pio_json_value_retain	owns one reference, never retains
+pio_module_retain	owns one reference, never retains
+pio_monitored_set_retain	owns one reference, never retains
+pio_multiconductor_network_retain	owns one reference, never retains
+pio_network_update_retain	owns one reference, never retains
+pio_operating_point_retain	owns one reference, never retains
+pio_operating_point_update_retain	owns one reference, never retains
+pio_reactive_power_retain	owns one reference, never retains
+pio_scenario_set_retain	owns one reference, never retains
+pio_source_retain	owns one reference, never retains
+pio_sparse_matrix_retain	owns one reference, never retains
+pio_string_retain	owns one reference, never retains
+pio_subsystem_set_retain	owns one reference, never retains
+pio_time_series_retain	owns one reference, never retains
+pio_update_change_retain	owns one reference, never retains
+pio_update_report_retain	owns one reference, never retains
+pio_value_retain	owns one reference, never retains
+pio_vector_retain	owns one reference, never retains
+
+# Superseded alternates. The binding calls the replacement instead.
+pio_calc_branch_flow_dc	superseded by the pio_dc_operators_* entry points
+pio_calc_branch_flow_matrix	superseded by the pio_dc_operators_* entry points
+pio_calc_branch_phase_shift_injection	superseded by the pio_dc_operators_* entry points
+pio_calc_branch_susceptances	superseded by the pio_dc_operators_* entry points
+pio_calc_bus_injection_dc	superseded by the pio_dc_operators_* entry points
+pio_calc_bus_phase_shift_injection	superseded by the pio_dc_operators_* entry points
+pio_calc_bus_susceptance_matrix	superseded by the pio_dc_operators_* entry points
+pio_calc_incidence_matrix	superseded by the pio_dc_operators_* entry points
+pio_multiconductor_network_bus_count	superseded by pio_multiconductor_network_counts
+pio_multiconductor_network_generator_count	superseded by pio_multiconductor_network_counts
+pio_multiconductor_network_line_count	superseded by pio_multiconductor_network_counts
+pio_multiconductor_network_load_count	superseded by pio_multiconductor_network_counts
+pio_value_is_type	superseded by comparing pio_value_type_name
+
+# Families the C ABI exposes that neither the Julia nor the Python binding
+# wraps. Reading them needs a Julia type for the result first.
+pio_ac_opf_preparation_branch_at	OPF preparation is C only
+pio_ac_opf_preparation_bus_at	OPF preparation is C only
+pio_ac_opf_preparation_generator_at	OPF preparation is C only
+pio_ac_opf_preparation_reference_buses	OPF preparation is C only
+pio_ac_opf_preparation_release	OPF preparation is C only
+pio_ac_opf_preparation_skipped_zero_impedance	OPF preparation is C only
+pio_ac_opf_preparation_storage_at	OPF preparation is C only
+pio_ac_opf_preparation_summary	OPF preparation is C only
+pio_build_ac_opf_preparation	OPF preparation is C only
+pio_build_dc_opf_preparation	OPF preparation is C only
+pio_dc_opf_preparation_branch_at	OPF preparation is C only
+pio_dc_opf_preparation_bus_at	OPF preparation is C only
+pio_dc_opf_preparation_generator_at	OPF preparation is C only
+pio_dc_opf_preparation_reference_buses	OPF preparation is C only
+pio_dc_opf_preparation_release	OPF preparation is C only
+pio_dc_opf_preparation_skipped_zero_impedance	OPF preparation is C only
+pio_dc_opf_preparation_summary	OPF preparation is C only
+pio_module_extension_at	module extensions and source maps are C only
+pio_module_extension_count	module extensions and source maps are C only
+pio_module_extension_value_at	module extensions and source maps are C only
+pio_module_source_map_at	module extensions and source maps are C only
+pio_module_source_map_count	module extensions and source maps are C only
+pio_module_source_map_span_at	module extensions and source maps are C only
+pio_module_history_parameter_value_at	history parameter values are C only
+pio_schema_report	the schema report is C only
+pio_mc_ac_pf_instance_active_control_at	multiconductor AC power flow instance tables are C only
+pio_mc_ac_pf_instance_active_control_count	multiconductor AC power flow instance tables are C only
+pio_mc_ac_pf_instance_isolated_terminal_at	multiconductor AC power flow instance tables are C only
+pio_mc_ac_pf_instance_isolated_terminal_count	multiconductor AC power flow instance tables are C only
+pio_mc_ac_pf_instance_load_at	multiconductor AC power flow instance tables are C only
+pio_mc_ac_pf_instance_load_count	multiconductor AC power flow instance tables are C only
+pio_mc_ac_pf_instance_load_terminal_at	multiconductor AC power flow instance tables are C only
+pio_mc_ac_pf_instance_source_at	multiconductor AC power flow instance tables are C only
+pio_mc_ac_pf_instance_source_count	multiconductor AC power flow instance tables are C only
+pio_mc_ac_pf_instance_source_terminal_at	multiconductor AC power flow instance tables are C only
+pio_calculation_instance_active_constraint_at	instance constraints, objective terms and initial points are C only
+pio_calculation_instance_active_constraint_count	instance constraints, objective terms and initial points are C only
+pio_calculation_instance_active_constraint_identity_at	instance constraints, objective terms and initial points are C only
+pio_calculation_instance_has_initial_point	instance constraints, objective terms and initial points are C only
+pio_calculation_instance_initial_point	instance constraints, objective terms and initial points are C only
+pio_calculation_instance_objective_term_at	instance constraints, objective terms and initial points are C only
+pio_calculation_instance_objective_term_count	instance constraints, objective terms and initial points are C only
+pio_ac_pf_instance_bus_specification_at	power flow bus specifications and susceptance formulas are C only
+pio_ac_pf_instance_bus_specification_count	power flow bus specifications and susceptance formulas are C only
+pio_dc_opf_instance_branch_susceptance_formula	power flow bus specifications and susceptance formulas are C only
+pio_dc_pf_instance_branch_susceptance_formula	power flow bus specifications and susceptance formulas are C only
+pio_dc_pf_instance_bus_specification_at	power flow bus specifications and susceptance formulas are C only
+pio_dc_pf_instance_bus_specification_count	power flow bus specifications and susceptance formulas are C only
+pio_json_value_array_at	JSON value accessors are C only
+pio_json_value_get	JSON value accessors are C only
+pio_json_value_object_entry_at	JSON value accessors are C only
+pio_json_value_object_value_at	JSON value accessors are C only
+pio_scenario_set_element_type	collection element type readers are C only
+pio_time_series_element_type	collection element type readers are C only
+pio_operating_point_get_value	operating point value and type name are C only
+pio_operating_point_type_name	operating point value and type name are C only
+pio_calculation_solution_type_name	the solution type name is C only
+pio_dc_operators_n_buses	the bus axis length comes from pio_dc_operators_bus_ids
+pio_active_power_unit	quantity unit and value readers are C only
+pio_active_power_value	quantity unit and value readers are C only
+pio_apparent_power_unit	quantity unit and value readers are C only
+pio_apparent_power_value	quantity unit and value readers are C only
+pio_reactive_power_unit	quantity unit and value readers are C only
+pio_reactive_power_value	quantity unit and value readers are C only
+
+# Pending 0.11.3 parity work. Each family needs Julia types and tests of its
+# own before the binding can call it.
+pio_balanced_network_select_subsystem_buses	pending 0.11.3 parity work: contingency sets
+pio_contingency_resolution_case_component	pending 0.11.3 parity work: contingency sets
+pio_contingency_resolution_case_component_count	pending 0.11.3 parity work: contingency sets
+pio_contingency_resolution_case_count	pending 0.11.3 parity work: contingency sets
+pio_contingency_resolution_case_is_resolved	pending 0.11.3 parity work: contingency sets
+pio_contingency_resolution_case_name	pending 0.11.3 parity work: contingency sets
+pio_contingency_resolution_case_unresolved_action	pending 0.11.3 parity work: contingency sets
+pio_contingency_resolution_case_unresolved_count	pending 0.11.3 parity work: contingency sets
+pio_contingency_resolution_case_unresolved_reason	pending 0.11.3 parity work: contingency sets
+pio_contingency_resolution_release	pending 0.11.3 parity work: contingency sets
+pio_contingency_resolution_resolved_count	pending 0.11.3 parity work: contingency sets
+pio_contingency_resolution_unrecognized_statement_count	pending 0.11.3 parity work: contingency sets
+pio_contingency_resolution_unresolved_count	pending 0.11.3 parity work: contingency sets
+pio_contingency_set_case_count	pending 0.11.3 parity work: contingency sets
+pio_contingency_set_case_name	pending 0.11.3 parity work: contingency sets
+pio_contingency_set_diagnostics	pending 0.11.3 parity work: contingency sets
+pio_contingency_set_expand	pending 0.11.3 parity work: contingency sets
+pio_contingency_set_parse	pending 0.11.3 parity work: contingency sets
+pio_contingency_set_release	pending 0.11.3 parity work: contingency sets
+pio_contingency_set_resolve	pending 0.11.3 parity work: contingency sets
+pio_contingency_set_to_con	pending 0.11.3 parity work: contingency sets
+pio_monitored_set_release	pending 0.11.3 parity work: contingency sets
+pio_monitored_set_statement_count	pending 0.11.3 parity work: contingency sets
+pio_monitored_set_to_mon	pending 0.11.3 parity work: contingency sets
+pio_subsystem_set_count	pending 0.11.3 parity work: contingency sets
+pio_subsystem_set_name	pending 0.11.3 parity work: contingency sets
+pio_subsystem_set_release	pending 0.11.3 parity work: contingency sets
+pio_subsystem_set_to_sub	pending 0.11.3 parity work: contingency sets
+pio_value_contingency_set	pending 0.11.3 parity work: contingency sets
+pio_value_monitored_set	pending 0.11.3 parity work: contingency sets
+pio_value_subsystem_set	pending 0.11.3 parity work: contingency sets
+pio_geo_apply_report_matched_branches	pending 0.11.3 parity work: the geographic layer
+pio_geo_apply_report_matched_buses	pending 0.11.3 parity work: the geographic layer
+pio_geo_apply_report_note_at	pending 0.11.3 parity work: the geographic layer
+pio_geo_apply_report_note_count	pending 0.11.3 parity work: the geographic layer
+pio_geo_apply_report_release	pending 0.11.3 parity work: the geographic layer
+pio_geo_apply_report_unlocated_branches	pending 0.11.3 parity work: the geographic layer
+pio_geo_apply_report_unlocated_buses	pending 0.11.3 parity work: the geographic layer
+pio_geo_apply_report_unmatched_features	pending 0.11.3 parity work: the geographic layer
+pio_geo_layer_diagnostics	pending 0.11.3 parity work: the geographic layer
+pio_geo_layer_parse	pending 0.11.3 parity work: the geographic layer
+pio_geo_layer_release	pending 0.11.3 parity work: the geographic layer
+pio_geo_layer_to_geojson	pending 0.11.3 parity work: the geographic layer
+pio_module_apply_geo_layer	pending 0.11.3 parity work: the geographic layer
+pio_value_geo_layer	pending 0.11.3 parity work: the geographic layer
+pio_ac_scuc_instance_active_reserve_zone_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_active_reserve_zone_bus_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_active_reserve_zone_count	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_active_reserve_zone_period_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_branch_switching_cost_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_branch_switching_cost_count	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_contingency_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_contingency_component_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_contingency_count	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_contingency_get	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_device_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_device_count	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_device_energy_cost_block_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_device_energy_cost_block_count	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_device_energy_lower_bound_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_device_energy_lower_bound_count	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_device_energy_upper_bound_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_device_energy_upper_bound_count	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_device_get	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_device_period_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_device_startup_cost_adjustment_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_device_startup_cost_adjustment_count	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_device_startup_limit_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_device_startup_limit_count	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_dimensions	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_interval_durations	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_reactive_reserve_zone_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_reactive_reserve_zone_bus_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_reactive_reserve_zone_count	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_reactive_reserve_zone_period_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_shunt_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_shunt_count	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_shunt_get	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_transformer_control_at	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_transformer_control_count	pending 0.11.3 parity work: AC SCUC instance tables
+pio_ac_scuc_instance_violation_costs	pending 0.11.3 parity work: AC SCUC instance tables
+pio_detailed_connectivity_boundary_line_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_boundary_line_reactive_capability_point_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_boundary_line_reactive_capability_point_property_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_boundary_line_reactive_limit_property_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_bus_breaker_bus_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_busbar_section_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_calculated_bus_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_calculated_bus_node_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_component_alias_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_component_metadata_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_component_property_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_dc_busbar_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_dc_converter_unit_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_dc_ground_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_dc_line_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_dc_node_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_dc_series_device_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_dc_switch_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_dc_topological_node_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_equipment_reactive_capability_point_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_equipment_reactive_capability_point_property_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_equipment_reactive_limit_property_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_equipment_reactive_limits_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_external_identifier_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_internal_connection_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_junction_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_line_commutated_converter_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_line_commutated_converter_droop_curve_segment_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_node_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_omitted_field_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_operational_limit_group_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_operational_limit_group_property_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_subnetwork_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_subnetwork_component_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_substation_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_substation_geographical_tag_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_switch_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_tap_changer_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_tap_changer_step_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_temporary_limit_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_terminal_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_tie_line_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_voltage_level_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_voltage_level_bus_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_voltage_source_converter_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_voltage_source_converter_droop_curve_segment_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_voltage_source_converter_reactive_capability_point_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_voltage_source_converter_reactive_capability_point_property_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_detailed_connectivity_voltage_source_converter_reactive_limit_property_at	pending 0.11.3 parity work: detailed connectivity tables
+pio_apply_bus_load_active_power	pending 0.11.3 parity work: remaining operations
+pio_calculation_solution_balanced_network	pending 0.11.3 parity work: remaining operations
+pio_calculation_solution_multiconductor_network	pending 0.11.3 parity work: remaining operations
