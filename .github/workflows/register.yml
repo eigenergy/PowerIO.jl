@@ -1,8 +1,9 @@
 name: Register Package
+run-name: Register PowerIO.jl ${{ inputs.version }} ${{ inputs.expected_sha }}
 
-# Register only a tested immutable main commit. Update artifacts supplies both
-# inputs; manual dispatch retries that same reviewed intent. This workflow does
-# not edit, commit, rebase, or push.
+# Register the tested commit approved by a release intent or paired manifest.
+# Requests use the repository's Actions identity. This workflow does not edit
+# or push source.
 on:
   workflow_dispatch:
     inputs:
@@ -10,7 +11,7 @@ on:
         description: Exact reviewed PowerIO version, without v
         required: true
       expected_sha:
-        description: Exact 40-character main commit tested by Update artifacts
+        description: Exact 40-character commit approved for registration
         required: true
 
 permissions:
@@ -23,6 +24,7 @@ concurrency:
 
 jobs:
   register:
+    if: vars.PAIRED_RELEASES != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -144,3 +146,53 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/commits/${EXPECTED_SHA}/comments" -f body="$body"
           echo "Posted the Registrator request on $EXPECTED_SHA." \
             | tee -a "$GITHUB_STEP_SUMMARY"
+
+  paired:
+    if: vars.PAIRED_RELEASES == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: eigenergy/powerio
+          ref: main
+          path: release-tools
+          persist-credentials: false
+      - name: Verify the published pair and requested commit
+        id: state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          python3 release-tools/scripts/paired_release.py status "v$VERSION" --expected-sha "$EXPECTED_SHA"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        if: steps.state.outputs.action == 'register'
+        with:
+          ref: ${{ inputs.expected_sha }}
+          path: PowerIO.jl
+          persist-credentials: false
+      - uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32
+        if: steps.state.outputs.action == 'register'
+        with:
+          version: '1'
+      - uses: julia-actions/cache@a45e8fa8be21c18a06b7177052533149e61e9b38
+        if: steps.state.outputs.action == 'register'
+      - name: Test the approved Julia tree using published artifacts
+        if: steps.state.outputs.action == 'register'
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          julia --project=PowerIO.jl -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
+          julia --project=PowerIO.jl -e 'using PowerIO; PowerIO.library_version() == ENV["VERSION"] || error("library version mismatch"); PowerIO.abi_version() == PowerIO.PIO_ABI_VERSION || error("ABI mismatch")'
+          git -C PowerIO.jl diff --exit-code
+      - name: Request registration from the repository's Actions identity
+        if: steps.state.outputs.action == 'register'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          python3 release-tools/scripts/paired_release.py request-registration "v$VERSION" \
+            --expected-sha "$EXPECTED_SHA" --julia-root PowerIO.jl | tee -a "$GITHUB_STEP_SUMMARY"
