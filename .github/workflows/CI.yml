@@ -22,7 +22,7 @@ jobs:
       - uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
         with:
           version: ${{ matrix.julia-version }}
-      - uses: julia-actions/cache@a45e8fa8be21c18a06b7177052533149e61e9b38 # v3.1.0
+      - uses: julia-actions/cache@a7bed9df697e5d7309d68afe7542a87621a8b6c8 # v3.3.0
       # Build the C ABI from a sibling powerio checkout so the ccall tests run for
       # real. The probe checks out eigenergy/powerio anonymously when it is public;
       # while it is private, add a token with read access to it as the
@@ -122,7 +122,7 @@ jobs:
       - uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
         with:
           version: '1'
-      - uses: julia-actions/cache@a45e8fa8be21c18a06b7177052533149e61e9b38 # v3.1.0
+      - uses: julia-actions/cache@a7bed9df697e5d7309d68afe7542a87621a8b6c8 # v3.3.0
       # The module loads without the C library (resolution is lazy and
       # doctest=false), so the docs build needs no Rust toolchain.
       - name: Instantiate docs environment
