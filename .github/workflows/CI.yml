@@ -18,7 +18,7 @@ jobs:
       # secrets can't be read in `if:` directly; expose it as an env var to gate on.
       POWERIO_TOKEN: ${{ secrets.POWERIO_REPO_TOKEN }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
         with:
           version: ${{ matrix.julia-version }}
@@ -66,7 +66,7 @@ jobs:
           fi
       - name: Check out powerio
         if: steps.powerio.outputs.available == 'true'
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: eigenergy/powerio
           path: powerio
@@ -118,7 +118,7 @@ jobs:
       contents: write
       statuses: write
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
         with:
           version: '1'
