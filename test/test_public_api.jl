@@ -57,6 +57,14 @@ const EXPORTED_NAMES = Set([
     :TemporaryLimit, :TapChanger, :TapChangerStep, :EquipmentReactiveLimits, :ReactiveLimits,
     :ReactiveCapabilityCurvePoint, :BoundaryLine, :BoundaryLineGeneration, :TieLine,
     :DcConverterUnit, :DcNode, :DcEquipment, :DcTerminal, :AcDcConverter, :DroopCurveSegment,
+    # AC SCUC instance inputs
+    :ScucInputs, :ScucDevice, :ScucDevicePeriod, :ScucEnergyCostBlock, :ScucReserveCosts,
+    :ScucRampLimits, :ScucReserveLimits, :ScucInitialCommitment, :ScucReactiveCapability,
+    :ScucStartupCostAdjustment, :ScucStartupLimit, :ScucEnergyRequirement, :ScucShunt,
+    :ScucBranchSwitchingCost, :ScucTransformerControl, :ScucActiveReserveZone,
+    :ScucReactiveReserveZone, :ScucContingency, :ScucViolationCosts,
+    # bus load updates and diagnostic records
+    :apply_bus_load_active_power, :diagnostic_record, :diagnostic_records,
 ])
 
 # Names the 0.10 binding exported and 0.11 removes. None may be defined.

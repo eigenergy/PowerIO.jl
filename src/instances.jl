@@ -15,6 +15,7 @@ The network a calculation instance is defined over.
 """
 function Base.getproperty(instance::T, name::Symbol) where {T<:CalculationInstance}
     name === :metadata && instance isa LinDist3FlowOpfInstance && return _lindist3flow_metadata(instance)
+    name === :inputs && instance isa AcScucInstance && return _scuc_inputs(instance)
     name === :network || return getfield(instance, name)
     N = _network_type(T)
     entry = N === BalancedNetwork ? Val(:pio_calculation_instance_balanced_network) :
@@ -28,17 +29,20 @@ function Base.getproperty(instance::T, name::Symbol) where {T<:CalculationInstan
 end
 
 Base.propertynames(::CalculationInstance, private::Bool=false) = private ? (:network, :handle) : (:network,)
+Base.propertynames(::AcScucInstance, private::Bool=false) =
+    private ? (:network, :inputs, :handle) : (:network, :inputs)
 
 """
     solution.instance
+    solution.network
     solution.termination
     solution.objective
 
-The instance a solution answers, the solver termination status (`"converged"`,
-`"iteration_limit"`, `"infeasible"`, `"unbounded"`, `"failed"`, or
-`"not_reported"`), and the reported objective value, or `nothing` when the
-solution carries none. `SocwrOpfSolution` reports `objective_lower_bound`
-instead of `objective`.
+The instance a solution answers, the network it is defined over, the solver
+termination status (`"converged"`, `"iteration_limit"`, `"infeasible"`,
+`"unbounded"`, `"failed"`, or `"not_reported"`), and the reported objective
+value, or `nothing` when the solution carries none. `SocwrOpfSolution` reports
+`objective_lower_bound` instead of `objective`.
 """
 function Base.getproperty(solution::T, name::Symbol) where {T<:CalculationSolution}
     if name === :instance
@@ -51,6 +55,16 @@ function Base.getproperty(solution::T, name::Symbol) where {T<:CalculationSoluti
             I = _julia_type(type_name)
             I === nothing && error("PowerIO: unknown calculation instance type $type_name")
             I(handle)
+        end
+    elseif name === :network
+        N = _network_type(T)
+        entry = N === BalancedNetwork ? Val(:pio_calculation_solution_balanced_network) :
+                Val(:pio_calculation_solution_multiconductor_network)
+        return _with_handle(solution) do lib, p
+            ptr = _checked(lib) do err
+                @capi lib entry(p, err)
+            end
+            _network_from(N, ptr, lib)
         end
     elseif name === :termination
         return _with_handle(solution) do lib, p
@@ -74,10 +88,11 @@ function Base.getproperty(solution::T, name::Symbol) where {T<:CalculationSoluti
 end
 
 Base.propertynames(::CalculationSolution, private::Bool=false) =
-    private ? (:instance, :termination, :objective, :handle) : (:instance, :termination, :objective)
+    private ? (:instance, :network, :termination, :objective, :handle) :
+              (:instance, :network, :termination, :objective)
 Base.propertynames(::SocwrOpfSolution, private::Bool=false) =
-    private ? (:instance, :termination, :objective_lower_bound, :handle) :
-              (:instance, :termination, :objective_lower_bound)
+    private ? (:instance, :network, :termination, :objective_lower_bound, :handle) :
+              (:instance, :network, :termination, :objective_lower_bound)
 
 """
     solution[quantity]

@@ -81,6 +81,61 @@
             @test m.value.generators[1].voltage_setpoint_pu == 1.05
         end
 
+        @testset "aggregate bus active demand" begin
+            # The entry point reads the demand of a calculation instance, so a
+            # module holding a bare network is refused by type.
+            bare = parse(fixture("case9.m"))
+            e = try
+                apply_bus_load_active_power(bare, 5, ActivePower(megawatts=125.0))
+            catch err
+                err
+            end
+            @test e isa PowerIOError
+            @test e.code == "REQUEST.CAPI.TYPE_MISMATCH"
+
+            m = to_dc_opf_instance(parse(fixture("case9.m")))
+            @test [l.p_mw for l in m.value.network.loads] == [90.0, 100.0, 125.0]
+            report = apply_bus_load_active_power(m, 5, ActivePower(megawatts=125.0))
+            @test report isa UpdateReport
+            @test length(report) == 1
+            @test !report.connectivity_changed
+            @test report.changes[1].component_id == ComponentId("load", "bus-5")
+            @test report.changes[1].field == "load_active_power"
+            @test report.changes[1].terminal === nothing
+            @test [l.p_mw for l in m.value.network.loads] == [125.0, 100.0, 125.0]
+            @test m.history[end].name == "apply_updates"
+
+            @test length(apply_bus_load_active_power(m, 7, ActivePower(watts=5.0e7))) == 1
+            @test m.value.network.loads[2].p_mw == 50.0
+
+            equal = to_dc_opf_instance(parse(fixture("case9.m")))
+            @test length(apply_bus_load_active_power(equal, 5, ActivePower(megawatts=80.0);
+                                                     allocation="equal")) == 1
+            @test equal.value.network.loads[1].p_mw == 80.0
+        end
+
+        @testset "an unknown allocation rule leaves the module unchanged" begin
+            m = to_dc_opf_instance(parse(fixture("case9.m")))
+            e = try
+                apply_bus_load_active_power(m, 5, ActivePower(megawatts=125.0);
+                                            allocation="first_load")
+            catch err
+                err
+            end
+            @test e isa PowerIOError
+            @test e.code == "REQUEST.CAPI.ALLOCATION_UNKNOWN"
+            @test m.value.network.loads[1].p_mw == 90.0
+
+            e = try
+                apply_bus_load_active_power(m, 999, ActivePower(megawatts=1.0))
+            catch err
+                err
+            end
+            @test e isa PowerIOError
+            @test e.code == "VALIDATE.UPDATE.COMPONENT_UNKNOWN"
+            @test m.value.network.loads[1].p_mw == 90.0
+        end
+
         @testset "every constructor builds an update" begin
             id = ComponentId("branch", "1-4")
             @test set_load_reactive_power(ComponentId("load", "bus-5"), ReactivePower(megavars=1.0)) isa OperatingPointUpdate

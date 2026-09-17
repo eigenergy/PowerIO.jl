@@ -7,6 +7,18 @@
   substations and voltage levels through terminals, switches, operational
   limits, and tap changers to boundary lines, tie lines, DC equipment, and
   AC/DC converters, as `Elements` vectors of immutable records.
+- Read the scheduling inputs of an AC SCUC instance through `instance.inputs`:
+  devices with their periods, energy cost blocks and reserve costs, shunts,
+  branch switching costs, transformer controls, active and reactive reserve
+  zones, contingencies, and the instance wide violation costs.
+- Set the total active demand at one bus with
+  `apply_bus_load_active_power`, spread over the loads there proportionally or
+  equally.
+- Read the network a calculation solution is defined over as
+  `solution.network`, for every solution type.
+- Report the structural type name of a module's value as `m.type_name`.
+- Write diagnostics as JSON ready dictionaries with `diagnostic_record` and
+  `diagnostic_records`, using the same keys as the Python binding.
 - Generate the raw C layer. `src/LibPowerIO.jl` now comes from
   `powerio-capi/include/powerio.h` through `gen/generate.jl`, replacing the
   hand-written struct mirrors and call signatures, so a header change shows up

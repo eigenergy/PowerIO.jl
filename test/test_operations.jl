@@ -16,8 +16,61 @@
             @test m.sources[1].format == "matpower"
             @test m.sources[1].byte_length == filesize(fixture("case9.m"))
             @test m.history isa Vector{HistoryEntry}
-            @test propertynames(m) == (:value, :diagnostics, :producer, :sources, :history)
+            @test propertynames(m) == (:value, :type_name, :diagnostics, :producer, :sources,
+                                       :history)
             @test occursin("PioModule{BalancedNetwork}", sprint(show, m))
+        end
+
+        @testset "a module names its value's structural type" begin
+            m = parse(fixture("case9.m"))
+            @test m.type_name == "powerio.BalancedNetwork"
+            # The name comes from the module, so it survives a mutation.
+            apply_updates!(m, [set_load_active_power(ComponentId("load", "bus-5"),
+                                                     ActivePower(megawatts=91.5))])
+            @test m.type_name == "powerio.BalancedNetwork"
+            @test parse(fixture("dist", "switch.dss")).type_name ==
+                  "powerio.MulticonductorNetwork"
+            @test to_dc_opf_instance(m).type_name == "powerio.DcOpfInstance"
+            @test parse(fixture("goc3")).type_name == "powerio.AcScucSolution"
+        end
+
+        @testset "diagnostics as JSON ready records" begin
+            result = emit(parse(fixture("case9.m")), "psse")
+            records = diagnostic_records(result.diagnostics)
+            @test records isa Vector{Dict{String,Any}}
+            @test length(records) == length(result.diagnostics)
+            for (record, d) in zip(records, result.diagnostics)
+                @test issubset(["code", "severity", "message", "target"], keys(record))
+                @test record["code"] == d.code
+                @test record["severity"] isa String
+                @test record["severity"] == String(d.severity)
+                @test record["message"] == d.message
+                @test JSON3.read(JSON3.write(record), Dict{String,Any}) == record
+            end
+            @test diagnostic_records(Diagnostic[]) == Dict{String,Any}[]
+
+            # An absent optional is left out; `target` is written as null.
+            bare = Diagnostic("READ.X.Y", :warning, "a message", nothing, nothing, nothing,
+                              SourceSpan[], String[], nothing)
+            record = diagnostic_record(bare)
+            @test sort!(collect(keys(record))) == ["code", "message", "severity", "target"]
+            @test record["target"] === nothing
+            @test occursin("\"target\":null", JSON3.write(record))
+
+            full = Diagnostic("READ.X.Y", :error, "a message", "d1", "bus 3", "fix it",
+                              [SourceSpan("case9.m", 0x0000000000000010,
+                                          0x0000000000000020)],
+                              ["d0"], Dict{String,Any}("count" => 2))
+            record = diagnostic_record(full)
+            @test record["id"] == "d1"
+            @test record["target"] == "bus 3"
+            @test record["suggested_action"] == "fix it"
+            @test record["related"] == ["d0"]
+            @test record["details"] == Dict{String,Any}("count" => 2)
+            @test record["spans"] == [Dict{String,Any}("source" => "case9.m",
+                                                       "byte_start" => 16, "byte_end" => 32)]
+            @test record["spans"][1]["byte_start"] isa Int
+            @test JSON3.read(JSON3.write(record), Dict{String,Any}) == record
         end
 
         @testset "parse a stream and bytes" begin

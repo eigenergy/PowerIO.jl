@@ -173,42 +173,6 @@ pio_geo_layer_release	pending 0.11.3 parity work: the geographic layer
 pio_geo_layer_to_geojson	pending 0.11.3 parity work: the geographic layer
 pio_module_apply_geo_layer	pending 0.11.3 parity work: the geographic layer
 pio_value_geo_layer	pending 0.11.3 parity work: the geographic layer
-pio_ac_scuc_instance_active_reserve_zone_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_active_reserve_zone_bus_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_active_reserve_zone_count	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_active_reserve_zone_period_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_branch_switching_cost_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_branch_switching_cost_count	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_contingency_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_contingency_component_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_contingency_count	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_contingency_get	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_device_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_device_count	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_device_energy_cost_block_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_device_energy_cost_block_count	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_device_energy_lower_bound_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_device_energy_lower_bound_count	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_device_energy_upper_bound_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_device_energy_upper_bound_count	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_device_get	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_device_period_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_device_startup_cost_adjustment_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_device_startup_cost_adjustment_count	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_device_startup_limit_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_device_startup_limit_count	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_dimensions	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_interval_durations	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_reactive_reserve_zone_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_reactive_reserve_zone_bus_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_reactive_reserve_zone_count	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_reactive_reserve_zone_period_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_shunt_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_shunt_count	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_shunt_get	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_transformer_control_at	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_transformer_control_count	pending 0.11.3 parity work: AC SCUC instance tables
-pio_ac_scuc_instance_violation_costs	pending 0.11.3 parity work: AC SCUC instance tables
-pio_apply_bus_load_active_power	pending 0.11.3 parity work: remaining operations
-pio_calculation_solution_balanced_network	pending 0.11.3 parity work: remaining operations
-pio_calculation_solution_multiconductor_network	pending 0.11.3 parity work: remaining operations
+pio_ac_scuc_instance_contingency_get	a Dict over instance.inputs covers the lookup by source identity
+pio_ac_scuc_instance_device_get	a Dict over instance.inputs covers the lookup by source identity
+pio_ac_scuc_instance_shunt_get	a Dict over instance.inputs covers the lookup by source identity

@@ -56,6 +56,30 @@ Component ids for MATPOWER sources follow the reader's convention: loads and
 generators are `"bus-N"`, branches are `"F-T"`. Read the `component_id` field
 of the element rather than assuming a convention.
 
+## Aggregate demand at one bus
+
+[`apply_bus_load_active_power`](@ref) sets the total active demand at one bus
+and spreads it over the loads there, which saves naming each load when a study
+moves demand by bus. The rule is
+`"proportional_to_current_active_power"`, which keeps each load's present
+share, or `"equal"`, which splits the total evenly. The module holds a
+calculation instance, `bus_id` is the source bus number, and the call reports
+the same [`UpdateReport`](@ref) as a batch of updates.
+
+```julia
+dc = to_dc_opf_instance(parse("case9.m"))
+report = apply_bus_load_active_power(dc, 5, ActivePower(megawatts=125.0))
+length(report)                            # one change per load moved
+dc.value.network.loads[1].p_mw            # 125.0
+
+apply_bus_load_active_power(dc, 5, ActivePower(megawatts=80.0); allocation="equal")
+```
+
+An unknown rule throws [`PowerIOError`](@ref) with code
+`REQUEST.CAPI.ALLOCATION_UNKNOWN`, a bus with no load gives
+`VALIDATE.UPDATE.COMPONENT_UNKNOWN`, and a module holding a bare network gives
+`REQUEST.CAPI.TYPE_MISMATCH`. Each leaves the module as it was.
+
 ```@docs
 ActivePower
 ReactivePower
@@ -74,6 +98,7 @@ set_transformer_phase_shift_degrees
 set_switch_closed
 set_branch_thermal_rating
 apply_updates!
+apply_bus_load_active_power
 UpdateReport
 UpdateChange
 ```

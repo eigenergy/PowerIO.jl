@@ -9,6 +9,9 @@ One typed value together with the records that describe how it was produced.
 - `m.value::T`: the value. Dispatch on `PioModule{BalancedNetwork}`,
   `PioModule{MulticonductorNetwork}`, `PioModule{TimeSeries{...}}`, and the
   other concrete parameters.
+- `m.type_name::String`: the library's structural type name for that value,
+  such as `"powerio.BalancedNetwork"`. It also names a type this release does
+  not bind, where `m.value` is an [`UnknownValue`](@ref).
 - `m.diagnostics::Vector{Diagnostic}`: the findings stored on the module.
 - `m.producer::Producer`: the program that produced the module.
 - `m.sources::Vector{ModuleSource}`: the sources it was read from.
@@ -72,6 +75,7 @@ function Base.getproperty(m::PioModule, name::Symbol)
     name === :value && return _with_handles(getfield(m, :handle)) do
         getfield(m, :value)
     end
+    name === :type_name && return _module_type_name(m)
     name === :diagnostics && return _module_diagnostics(m)
     name === :producer && return _module_producer(m)
     name === :sources && return _module_sources(m)
@@ -80,8 +84,8 @@ function Base.getproperty(m::PioModule, name::Symbol)
 end
 
 Base.propertynames(::PioModule, private::Bool=false) =
-    private ? (:value, :diagnostics, :producer, :sources, :history, :handle) :
-              (:value, :diagnostics, :producer, :sources, :history)
+    private ? (:value, :type_name, :diagnostics, :producer, :sources, :history, :handle) :
+              (:value, :type_name, :diagnostics, :producer, :sources, :history)
 
 _lib_of(m::PioModule) = getfield(getfield(m, :handle), :lib)
 _handle(m::PioModule) = getfield(m, :handle)
@@ -205,6 +209,20 @@ function _deserialize_source(lib::AbstractString, source::SourceHandle)
 end
 
 # --- records ---------------------------------------------------------------
+
+# The structural type name the library reports for the module's current value.
+# Reading it from the module rather than from `m.value` keeps it correct after
+# `apply_updates!` and for a value type this release does not bind.
+function _module_type_name(m::PioModule)
+    lib = _lib_of(m)
+    h = _handle(m)
+    return @with_handles h begin
+        value = ValueHandle(@capi(lib, :pio_module_value(_ptr(h))), lib)
+        name = @with_handles value _str(@capi lib :pio_value_type_name(_ptr(value)))
+        release!(value)
+        name
+    end
+end
 
 function _module_diagnostics(m::PioModule)
     lib = _lib_of(m)

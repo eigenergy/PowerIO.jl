@@ -92,3 +92,45 @@ function _decode_diagnostics(lib::AbstractString, p::Ptr{Cvoid})
     end
     return out
 end
+
+"""
+    diagnostic_record(d::Diagnostic) -> Dict{String,Any}
+
+One diagnostic as a JSON ready dictionary, matching what the Python binding
+writes. `"code"`, `"severity"`, `"message"`, and `"target"` are always
+present; a `target` of `nothing` serializes as `null`. `"id"`,
+`"suggested_action"`, and `"related"` follow when the diagnostic sets them,
+`"details"` when it carries structured details, and `"spans"` as `"source"`,
+`"byte_start"`, `"byte_end"` dictionaries when it carries at least one span.
+"""
+function diagnostic_record(d::Diagnostic)
+    record = Dict{String,Any}("code" => d.code, "severity" => String(d.severity),
+                              "message" => d.message, "target" => d.target)
+    if d.id !== nothing && !isempty(d.id)
+        record["id"] = d.id
+    end
+    if d.suggested_action !== nothing && !isempty(d.suggested_action)
+        record["suggested_action"] = d.suggested_action
+    end
+    if !isempty(d.related)
+        record["related"] = copy(d.related)
+    end
+    if d.details !== nothing
+        record["details"] = d.details
+    end
+    if !isempty(d.spans)
+        record["spans"] = [Dict{String,Any}("source" => span.source,
+                                            "byte_start" => Int(span.byte_start),
+                                            "byte_end" => Int(span.byte_end))
+                           for span in d.spans]
+    end
+    return record
+end
+
+"""
+    diagnostic_records(diagnostics) -> Vector{Dict{String,Any}}
+
+Every diagnostic as a JSON ready dictionary, in the order given. See
+[`diagnostic_record`](@ref).
+"""
+diagnostic_records(diagnostics) = Dict{String,Any}[diagnostic_record(d) for d in diagnostics]

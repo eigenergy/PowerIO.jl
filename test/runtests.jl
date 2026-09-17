@@ -30,6 +30,7 @@ fixture(parts...) = joinpath(DATA, parts...)
     include("test_handle_operations.jl")
     include("test_updates.jl")            # typed updates and apply_updates!
     include("test_connectivity.jl")       # DetailedConnectivity tables
+    include("test_scuc.jl")               # AC SCUC instance inputs
     include("test_matrix.jl")             # DC calculations and admittance matrices
     include("test_bridges.jl")            # PowerModels and ExaModelsPower bridges
     include("test_aqua.jl")               # Aqua quality checks

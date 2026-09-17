@@ -126,6 +126,14 @@ export OmittedField, ComponentMetadata, ComponentAlias, ExternalIdentifier,
        ReactiveCapabilityCurvePoint, BoundaryLine, BoundaryLineGeneration, TieLine,
        DcConverterUnit, DcNode, DcEquipment, DcTerminal, AcDcConverter, DroopCurveSegment
 
+# AC SCUC inputs, bus load updates, diagnostic records.
+export ScucInputs, ScucDevice, ScucDevicePeriod, ScucEnergyCostBlock, ScucReserveCosts,
+       ScucRampLimits, ScucReserveLimits, ScucInitialCommitment, ScucReactiveCapability,
+       ScucStartupCostAdjustment, ScucStartupLimit, ScucEnergyRequirement, ScucShunt,
+       ScucBranchSwitchingCost, ScucTransformerControl, ScucActiveReserveZone,
+       ScucReactiveReserveZone, ScucContingency, ScucViolationCosts,
+       apply_bus_load_active_power, diagnostic_record, diagnostic_records
+
 include("capi.jl")           # library resolution, entry point calls, the ABI handshake
 include("handles.jl")        # owned handle types with release finalizers
 include("diagnostics.jl")    # Diagnostic and SourceSpan
@@ -140,6 +148,7 @@ include("dense.jl")          # to_dense
 include("graphs.jl")         # to_graph
 include("collections.jl")    # TimeSeries, ScenarioSet, OperatingPoint
 include("instances.jl")      # calculation instances, solutions, to_*_instance
+include("scuc.jl")           # AC SCUC instance inputs
 include("updates.jl")        # typed updates and apply_updates!
 include("calc.jl")           # the eight DC calculations from the library
 include("ybus.jl")           # admittance matrices assembled in Julia

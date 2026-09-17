@@ -377,3 +377,42 @@ function _update_report(lib, ptr::Ptr)
     release!(h)
     return report
 end
+
+"""
+    apply_bus_load_active_power(m::PioModule, bus_id::Integer, total::ActivePower;
+                                allocation="proportional_to_current_active_power") -> UpdateReport
+
+Set the aggregate active demand at one bus to `total`, spreading it over the
+loads at that bus by the named rule. `"proportional_to_current_active_power"`
+keeps each load's share of the present demand; `"equal"` gives every load the
+same amount. Any other token throws [`PowerIOError`](@ref) with code
+`REQUEST.CAPI.ALLOCATION_UNKNOWN`.
+
+`m` holds a calculation instance, such as one [`to_dc_opf_instance`](@ref)
+constructed. A module holding a bare network reports
+`REQUEST.CAPI.TYPE_MISMATCH`, and `bus_id` is the source bus number.
+
+Like [`apply_updates!`](@ref) this validates before it changes anything, so an
+unknown bus or rule leaves the module untouched. On success `m.value` is
+refreshed and the returned [`UpdateReport`](@ref) lists one
+[`UpdateChange`](@ref) per load it moved.
+"""
+function apply_bus_load_active_power(m::PioModule, bus_id::Integer, total::ActivePower;
+                                     allocation::AbstractString="proportional_to_current_active_power")
+    lib = _lib_of(m)
+    quantity = _quantity_handle(lib, total)
+    rule = String(allocation)
+    try
+        mh = _handle(m)
+        return @with_handles mh quantity rule begin
+            report_ptr = _checked(lib) do err
+                @capi lib :pio_apply_bus_load_active_power(_ptr(mh), Csize_t(bus_id),
+                                                           _ptr(quantity), rule, sizeof(rule), err)
+            end
+            setfield!(m, :value, _module_value(lib, mh))
+            _update_report(lib, report_ptr)
+        end
+    finally
+        release!(quantity)
+    end
+end
