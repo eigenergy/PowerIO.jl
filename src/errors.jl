@@ -23,15 +23,14 @@ function Base.showerror(io::IO, e::PowerIOError)
 end
 
 # Convert a `PioError *` into a `PowerIOError`, releasing the C error.
-function _take_error(lib::AbstractString, err::Ptr{Cvoid})
+function _take_error(lib::AbstractString, err::Ptr{PioError})
     try
-        code = _str(ccall(_library_symbol(lib, :pio_error_code), PioStringView, (Ptr{Cvoid},), err))
-        message = _str(ccall(_library_symbol(lib, :pio_error_message), PioStringView, (Ptr{Cvoid},), err))
-        diagnostics = _diagnostics(lib, ccall(_library_symbol(lib, :pio_error_diagnostics), Ptr{Cvoid},
-                                               (Ptr{Cvoid},), err))
+        code = _str(@capi lib :pio_error_code(err))
+        message = _str(@capi lib :pio_error_message(err))
+        diagnostics = _diagnostics(lib, @capi lib :pio_error_diagnostics(err))
         return PowerIOError(code, message, diagnostics)
     finally
-        ccall(_library_symbol(lib, :pio_error_release), Cvoid, (Ptr{Cvoid},), err)
+        @capi lib :pio_error_release(err)
     end
 end
 
@@ -41,7 +40,7 @@ end
 # treat it as absence.
 function _checked(f, lib::AbstractString)
     _ensure_compatible(lib)
-    err = Ref{Ptr{Cvoid}}(C_NULL)
+    err = Ref{Ptr{PioError}}(C_NULL)
     result = f(err)
     err[] == C_NULL || throw(_take_error(lib, err[]))
     return result

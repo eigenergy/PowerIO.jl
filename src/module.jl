@@ -91,8 +91,7 @@ _handle(m::PioModule) = getfield(m, :handle)
 function _source_open(lib::AbstractString, path::AbstractString)
     path = String(path)
     ptr = _checked(lib) do err
-        ccall(_library_symbol(lib, :pio_source_open), Ptr{Cvoid},
-              (Ptr{UInt8}, Csize_t, Ref{Ptr{Cvoid}}), path, sizeof(path), err)
+        @capi lib :pio_source_open(path, sizeof(path), err)
     end
     return SourceHandle(ptr, lib)
 end
@@ -101,9 +100,7 @@ function _source_from_memory(lib::AbstractString, name::AbstractString, bytes::A
     name = String(name)
     data = bytes isa Vector{UInt8} ? bytes : Vector{UInt8}(bytes)
     ptr = @with_handles data _checked(lib) do err
-        ccall(_library_symbol(lib, :pio_source_from_memory), Ptr{Cvoid},
-              (Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t, Ref{Ptr{Cvoid}}),
-              name, sizeof(name), pointer(data), length(data), err)
+        @capi lib :pio_source_from_memory(name, sizeof(name), pointer(data), length(data), err)
     end
     return SourceHandle(ptr, lib)
 end
@@ -119,23 +116,20 @@ function _stream_name(io::IO)
 end
 
 # Wrap a module pointer, resolving the value type from its structural name.
-function _wrap_module(lib::AbstractString, ptr::Ptr{Cvoid})
+function _wrap_module(lib::AbstractString, ptr::Ptr)
     handle = ModuleHandle(ptr, lib)
     return PioModule(handle, _module_value(lib, handle))
 end
 
 function _module_value(lib::AbstractString, handle::ModuleHandle)
-    vptr = @with_handles handle ccall(_library_symbol(lib, :pio_module_value), Ptr{Cvoid},
-                                     (Ptr{Cvoid},), _ptr(handle))
+    vptr = @with_handles handle @capi lib :pio_module_value(_ptr(handle))
     return _wrap_value(lib, ValueHandle(vptr, lib), handle)
 end
 
 function _parse_source(lib::AbstractString, source::SourceHandle, format)
     fmt = format === nothing ? "" : String(format)
     ptr = @with_handles source fmt _checked(lib) do err
-        ccall(_library_symbol(lib, :pio_parse), Ptr{Cvoid},
-              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t, Ref{Ptr{Cvoid}}),
-              _ptr(source), format === nothing ? C_NULL : pointer(fmt), sizeof(fmt), err)
+        @capi lib :pio_parse(_ptr(source), format === nothing ? C_NULL : pointer(fmt), sizeof(fmt), err)
     end
     release!(source)
     return _wrap_module(lib, ptr)
@@ -204,8 +198,7 @@ end
 
 function _deserialize_source(lib::AbstractString, source::SourceHandle)
     ptr = @with_handles source _checked(lib) do err
-        ccall(_library_symbol(lib, :pio_module_deserialize), Ptr{Cvoid},
-              (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _ptr(source), err)
+        @capi lib :pio_module_deserialize(_ptr(source), err)
     end
     release!(source)
     return _wrap_module(lib, ptr)
@@ -216,8 +209,7 @@ end
 function _module_diagnostics(m::PioModule)
     lib = _lib_of(m)
     h = _handle(m)
-    ptr = @with_handles h ccall(_library_symbol(lib, :pio_module_diagnostics), Ptr{Cvoid},
-                               (Ptr{Cvoid},), _ptr(h))
+    ptr = @with_handles h @capi lib :pio_module_diagnostics(_ptr(h))
     return _diagnostics(lib, ptr)
 end
 
@@ -226,8 +218,7 @@ function _module_producer(m::PioModule)
     h = _handle(m)
     return @with_handles h begin
         view = _fill(PioModuleProducerView, lib) do out, err
-            ccall(_library_symbol(lib, :pio_module_producer), Bool,
-                  (Ptr{Cvoid}, Ref{PioModuleProducerView}, Ref{Ptr{Cvoid}}), _ptr(h), out, err)
+            @capi lib :pio_module_producer(_ptr(h), out, err)
         end
         Producer(_str(view.name), _str(view.version))
     end
@@ -238,12 +229,10 @@ function _module_sources(m::PioModule)
     h = _handle(m)
     return @with_handles h begin
         p = _ptr(h)
-        n = Int(ccall(_library_symbol(lib, :pio_module_source_count), Csize_t, (Ptr{Cvoid},), p))
+        n = Int(@capi lib :pio_module_source_count(p))
         map(1:n) do k
             v = _fill(PioModuleSourceView, lib) do out, err
-                ccall(_library_symbol(lib, :pio_module_source_at), Bool,
-                      (Ptr{Cvoid}, Csize_t, Ref{PioModuleSourceView}, Ref{Ptr{Cvoid}}),
-                      p, Csize_t(k - 1), out, err)
+                @capi lib :pio_module_source_at(p, Csize_t(k - 1), out, err)
             end
             ModuleSource(_str(v.id), _str(v.name), v.byte_length,
                          _optional_str(v.format, v.has_format),
@@ -258,30 +247,24 @@ function _module_history(m::PioModule)
     h = _handle(m)
     return @with_handles h begin
         p = _ptr(h)
-        n = Int(ccall(_library_symbol(lib, :pio_module_history_count), Csize_t, (Ptr{Cvoid},), p))
+        n = Int(@capi lib :pio_module_history_count(p))
         map(1:n) do k
             i = Csize_t(k - 1)
             v = _fill(PioModuleHistoryEntryView, lib) do out, err
-                ccall(_library_symbol(lib, :pio_module_history_at), Bool,
-                      (Ptr{Cvoid}, Csize_t, Ref{PioModuleHistoryEntryView}, Ref{Ptr{Cvoid}}),
-                      p, i, out, err)
+                @capi lib :pio_module_history_at(p, i, out, err)
             end
             parameters = Dict{String,String}()
             for j in 1:Int(v.parameter_count)
                 param = _fill(PioModuleHistoryParameterView, lib) do out, err
-                    ccall(_library_symbol(lib, :pio_module_history_parameter_at), Bool,
-                          (Ptr{Cvoid}, Csize_t, Csize_t, Ref{PioModuleHistoryParameterView}, Ref{Ptr{Cvoid}}),
-                          p, i, Csize_t(j - 1), out, err)
+                    @capi lib :pio_module_history_parameter_at(p, i, Csize_t(j - 1), out, err)
                 end
                 parameters[_str(param.name)] = _str(param.value_kind)
             end
             assumptions = [_str(_checked(lib) do err
-                ccall(_library_symbol(lib, :pio_module_history_assumption_at), PioStringView,
-                      (Ptr{Cvoid}, Csize_t, Csize_t, Ref{Ptr{Cvoid}}), p, i, Csize_t(j - 1), err)
+                @capi lib :pio_module_history_assumption_at(p, i, Csize_t(j - 1), err)
             end) for j in 1:Int(v.assumption_count)]
             losses = [_str(_checked(lib) do err
-                ccall(_library_symbol(lib, :pio_module_history_loss_at), PioStringView,
-                      (Ptr{Cvoid}, Csize_t, Csize_t, Ref{Ptr{Cvoid}}), p, i, Csize_t(j - 1), err)
+                @capi lib :pio_module_history_loss_at(p, i, Csize_t(j - 1), err)
             end) for j in 1:Int(v.loss_count)]
             HistoryEntry(_str(v.id), _str(v.kind), _str(v.name),
                          _optional_str(v.input_type, v.has_input_type),

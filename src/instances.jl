@@ -17,11 +17,11 @@ function Base.getproperty(instance::T, name::Symbol) where {T<:CalculationInstan
     name === :metadata && instance isa LinDist3FlowOpfInstance && return _lindist3flow_metadata(instance)
     name === :network || return getfield(instance, name)
     N = _network_type(T)
-    sym = N === BalancedNetwork ? :pio_calculation_instance_balanced_network :
-          :pio_calculation_instance_multiconductor_network
+    entry = N === BalancedNetwork ? Val(:pio_calculation_instance_balanced_network) :
+            Val(:pio_calculation_instance_multiconductor_network)
     return _with_handle(instance) do lib, p
         ptr = _checked(lib) do err
-            ccall(_library_symbol(lib, sym), Ptr{Cvoid}, (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), p, err)
+            @capi lib entry(p, err)
         end
         _network_from(N, ptr, lib)
     end
@@ -44,33 +44,29 @@ function Base.getproperty(solution::T, name::Symbol) where {T<:CalculationSoluti
     if name === :instance
         return _with_handle(solution) do lib, p
             ptr = _checked(lib) do err
-                ccall(_library_symbol(lib, :pio_calculation_solution_instance), Ptr{Cvoid},
-                      (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), p, err)
+                @capi lib :pio_calculation_solution_instance(p, err)
             end
             handle = CalculationInstanceHandle(ptr, lib)
-            type_name = @with_handles handle _str(ccall(_library_symbol(lib, :pio_calculation_instance_type_name),
-                                                       PioStringView, (Ptr{Cvoid},), _ptr(handle)))
+            type_name = @with_handles handle _str(@capi lib :pio_calculation_instance_type_name(_ptr(handle)))
             I = _julia_type(type_name)
             I === nothing && error("PowerIO: unknown calculation instance type $type_name")
             I(handle)
         end
     elseif name === :termination
         return _with_handle(solution) do lib, p
-            _str(ccall(_library_symbol(lib, :pio_calculation_solution_termination), PioStringView, (Ptr{Cvoid},), p))
+            _str(@capi lib :pio_calculation_solution_termination(p))
         end
     elseif name === :objective
         T === SocwrOpfSolution && return nothing
         return _with_handle(solution) do lib, p
             out = Ref{Float64}(0.0)
-            ok = ccall(_library_symbol(lib, :pio_calculation_solution_get_objective), Bool,
-                       (Ptr{Cvoid}, Ref{Float64}), p, out)
+            ok = @capi lib :pio_calculation_solution_get_objective(p, out)
             ok ? out[] : nothing
         end
     elseif name === :objective_lower_bound && T === SocwrOpfSolution
         return _with_handle(solution) do lib, p
             out = Ref{Float64}(0.0)
-            ok = ccall(_library_symbol(lib, :pio_socwr_opf_solution_get_objective_lower_bound), Bool,
-                       (Ptr{Cvoid}, Ref{Float64}), p, out)
+            ok = @capi lib :pio_socwr_opf_solution_get_objective_lower_bound(p, out)
             ok ? out[] : nothing
         end
     end
@@ -97,8 +93,7 @@ function Base.getindex(solution::CalculationSolution, quantity::AbstractString)
     quantity = String(quantity)
     return _with_handle(solution) do lib, p
         ptr = _checked(lib) do err
-            ccall(_library_symbol(lib, :pio_calculation_solution_get_values), Ptr{Cvoid},
-                  (Ptr{Cvoid}, Ptr{UInt8}, Csize_t, Ref{Ptr{Cvoid}}), p, quantity, sizeof(quantity), err)
+            @capi lib :pio_calculation_solution_get_values(p, quantity, sizeof(quantity), err)
         end
         _take_vector(lib, ptr)
     end
@@ -107,12 +102,11 @@ end
 function Base.getindex(solution::AcScucSolution, quantity::AbstractString, t::Integer)
     quantity = String(quantity)
     return _with_handle(solution) do lib, p
-        n = Int(ccall(_library_symbol(lib, :pio_ac_scuc_solution_time_count), Csize_t, (Ptr{Cvoid},), p))
+        n = Int(@capi lib :pio_ac_scuc_solution_time_count(p))
         1 <= t <= n || throw(BoundsError(1:n, t))
         ptr = _checked(lib) do err
-            ccall(_library_symbol(lib, :pio_ac_scuc_solution_get_values_at), Ptr{Cvoid},
-                  (Ptr{Cvoid}, Ptr{UInt8}, Csize_t, Csize_t, Ref{Ptr{Cvoid}}),
-                  p, quantity, sizeof(quantity), Csize_t(t - 1), err)
+            @capi lib :pio_ac_scuc_solution_get_values_at(p, quantity, sizeof(quantity), Csize_t(t - 1),
+                                                          err)
         end
         _take_vector(lib, ptr)
     end
@@ -124,14 +118,13 @@ end
 The number of time positions in an AC SCUC solution.
 """
 time_count(solution::AcScucSolution) = _with_handle(solution) do lib, p
-    Int(ccall(_library_symbol(lib, :pio_ac_scuc_solution_time_count), Csize_t, (Ptr{Cvoid},), p))
+    Int(@capi lib :pio_ac_scuc_solution_time_count(p))
 end
 
 # Copy an owned `PioVector` and release it.
-function _take_vector(lib::AbstractString, ptr::Ptr{Cvoid})
+function _take_vector(lib::AbstractString, ptr::Ptr)
     h = VectorHandle(ptr, lib)
-    values = @with_handles h _f64s(ccall(_library_symbol(lib, :pio_vector_values), PioF64View,
-                                        (Ptr{Cvoid},), _ptr(h)))
+    values = @with_handles h _f64s(@capi lib :pio_vector_values(_ptr(h)))
     release!(h)
     return values
 end
@@ -160,31 +153,11 @@ for (name, sym, doc) in (
             lib = _lib_of(m)
             h = _handle(m)
             ptr = @with_handles h _checked(lib) do err
-                ccall(_library_symbol(lib, $(QuoteNode(sym))), Ptr{Cvoid},
-                      (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _ptr(h), err)
+                @capi lib $(QuoteNode(sym))(_ptr(h), err)
             end
             return _wrap_module(lib, ptr)
         end
     end
-end
-
-struct PioLinDist3FlowNodeView
-    bus::PioStringView
-    terminal::PioStringView
-    reference_magnitude::Cdouble
-    reference_angle::Cdouble
-    is_root::Bool
-end
-
-struct PioLinDist3FlowConductorView
-    line::PioStringView
-    source_line_row::Csize_t
-    conductor_position::Csize_t
-    parent_bus::PioStringView
-    parent_terminal::PioStringView
-    child_bus::PioStringView
-    child_terminal::PioStringView
-    reversed::Bool
 end
 
 """
@@ -196,29 +169,23 @@ Positive line power flows from parent to child.
 """
 function _lindist3flow_metadata(instance::LinDist3FlowOpfInstance)
     return _with_handle(instance) do lib, p
-        n = Int(ccall(_library_symbol(lib, :pio_lindist3flow_opf_instance_node_count),
-                      Csize_t, (Ptr{Cvoid},), p))
+        n = Int(@capi lib :pio_lindist3flow_opf_instance_node_count(p))
         nodes = Tuple{String,String}[]
         roots = Tuple{String,String}[]
         voltages = Tuple{Float64,Float64}[]
         for row in 0:n-1
             value = _fill(PioLinDist3FlowNodeView, lib) do out, err
-                ccall(_library_symbol(lib, :pio_lindist3flow_opf_instance_node_at), Bool,
-                      (Ptr{Cvoid}, Csize_t, Ref{PioLinDist3FlowNodeView}, Ref{Ptr{Cvoid}}),
-                      p, Csize_t(row), out, err)
+                @capi lib :pio_lindist3flow_opf_instance_node_at(p, Csize_t(row), out, err)
             end
             node = (_str(value.bus), _str(value.terminal))
             push!(nodes, node)
             value.is_root && push!(roots, node)
             push!(voltages, (value.reference_magnitude, value.reference_angle))
         end
-        m = Int(ccall(_library_symbol(lib, :pio_lindist3flow_opf_instance_conductor_count),
-                      Csize_t, (Ptr{Cvoid},), p))
+        m = Int(@capi lib :pio_lindist3flow_opf_instance_conductor_count(p))
         conductors = map(0:m-1) do row
             value = _fill(PioLinDist3FlowConductorView, lib) do out, err
-                ccall(_library_symbol(lib, :pio_lindist3flow_opf_instance_conductor_at), Bool,
-                      (Ptr{Cvoid}, Csize_t, Ref{PioLinDist3FlowConductorView}, Ref{Ptr{Cvoid}}),
-                      p, Csize_t(row), out, err)
+                @capi lib :pio_lindist3flow_opf_instance_conductor_at(p, Csize_t(row), out, err)
             end
             (line=_str(value.line), source_line_row=Int(value.source_line_row) + 1,
              conductor_position=Int(value.conductor_position) + 1,

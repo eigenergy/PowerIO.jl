@@ -60,8 +60,7 @@ end
 function _destination_path(lib::AbstractString, path::AbstractString)
     path = String(path)
     ptr = _checked(lib) do err
-        ccall(_library_symbol(lib, :pio_destination_path), Ptr{Cvoid},
-              (Ptr{UInt8}, Csize_t, Ref{Ptr{Cvoid}}), path, sizeof(path), err)
+        @capi lib :pio_destination_path(path, sizeof(path), err)
     end
     return DestinationHandle(ptr, lib)
 end
@@ -69,31 +68,28 @@ end
 function _destination_memory(lib::AbstractString, root::AbstractString)
     root = String(root)
     ptr = _checked(lib) do err
-        ccall(_library_symbol(lib, :pio_destination_memory), Ptr{Cvoid},
-              (Ptr{UInt8}, Csize_t, Ref{Ptr{Cvoid}}), root, sizeof(root), err)
+        @capi lib :pio_destination_memory(root, sizeof(root), err)
     end
     return DestinationHandle(ptr, lib)
 end
 
 # Read the artifacts of an emit result handle and release it.
-function _emit_result(lib::AbstractString, ptr::Ptr{Cvoid}, in_memory::Bool)
+function _emit_result(lib::AbstractString, ptr::Ptr, in_memory::Bool)
     h = EmitResultHandle(ptr, lib)
     result = @with_handles h begin
         p = _ptr(h)
-        layout = _str(ccall(_library_symbol(lib, :pio_emit_result_layout), PioStringView, (Ptr{Cvoid},), p))
-        fidelity = _str(ccall(_library_symbol(lib, :pio_emit_result_fidelity), PioStringView, (Ptr{Cvoid},), p))
-        n = Int(ccall(_library_symbol(lib, :pio_emit_result_artifact_count), Csize_t, (Ptr{Cvoid},), p))
+        layout = _str(@capi lib :pio_emit_result_layout(p))
+        fidelity = _str(@capi lib :pio_emit_result_fidelity(p))
+        n = Int(@capi lib :pio_emit_result_artifact_count(p))
         artifacts = map(1:n) do k
             fptr = _checked(lib) do err
-                ccall(_library_symbol(lib, :pio_emit_result_artifact), Ptr{Cvoid},
-                      (Ptr{Cvoid}, Csize_t, Ref{Ptr{Cvoid}}), p, Csize_t(k - 1), err)
+                @capi lib :pio_emit_result_artifact(p, Csize_t(k - 1), err)
             end
             f = ArtifactHandle(fptr, lib)
             file = @with_handles f begin
-                name = _str(ccall(_library_symbol(lib, :pio_artifact_name), PioStringView, (Ptr{Cvoid},), _ptr(f)))
+                name = _str(@capi lib :pio_artifact_name(_ptr(f)))
                 if in_memory
-                    Artifact(name, _bytes(ccall(_library_symbol(lib, :pio_artifact_bytes), PioByteView,
-                                                   (Ptr{Cvoid},), _ptr(f))), nothing)
+                    Artifact(name, _bytes(@capi lib :pio_artifact_bytes(_ptr(f))), nothing)
                 else
                     Artifact(basename(name), nothing, name)
                 end
@@ -101,8 +97,7 @@ function _emit_result(lib::AbstractString, ptr::Ptr{Cvoid}, in_memory::Bool)
             release!(f)
             file
         end
-        diagnostics = _diagnostics(lib, ccall(_library_symbol(lib, :pio_emit_result_diagnostics), Ptr{Cvoid},
-                                              (Ptr{Cvoid},), p))
+        diagnostics = _diagnostics(lib, @capi lib :pio_emit_result_diagnostics(p))
         EmitResult(artifacts, layout, fidelity, diagnostics)
     end
     release!(h)
@@ -153,9 +148,7 @@ function emit(m::PioModule, format::AbstractString, destination=nothing)
     fmt = String(format)
     return _output(m, destination, "emit", "case") do lib, module_ptr, dest_ptr
         _checked(lib) do err
-            ccall(_library_symbol(lib, :pio_emit), Ptr{Cvoid},
-                  (Ptr{Cvoid}, Ptr{UInt8}, Csize_t, Ptr{Cvoid}, Ref{Ptr{Cvoid}}),
-                  module_ptr, fmt, sizeof(fmt), dest_ptr, err)
+            @capi lib :pio_emit(module_ptr, fmt, sizeof(fmt), dest_ptr, err)
         end
     end
 end
@@ -171,8 +164,7 @@ PowerIO values between PowerIO consumers; use [`emit`](@ref) for other tools.
 function serialize(m::PioModule, destination=nothing)
     return _output(m, destination, "serialize", "module.pio.json") do lib, module_ptr, dest_ptr
         _checked(lib) do err
-            ccall(_library_symbol(lib, :pio_module_serialize), Ptr{Cvoid},
-                  (Ptr{Cvoid}, Ptr{Cvoid}, Ref{Ptr{Cvoid}}), module_ptr, dest_ptr, err)
+            @capi lib :pio_module_serialize(module_ptr, dest_ptr, err)
         end
     end
 end

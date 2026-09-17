@@ -10,7 +10,7 @@ end
 # --- TimeSeries ---------------------------------------------------------------
 
 Base.length(s::TimeSeries) = _with_handle(s) do lib, p
-    Int(ccall(_library_symbol(lib, :pio_time_series_len), Csize_t, (Ptr{Cvoid},), p))
+    Int(@capi lib :pio_time_series_len(p))
 end
 Base.size(s::TimeSeries) = (length(s),)
 Base.firstindex(::TimeSeries) = 1
@@ -28,8 +28,7 @@ function Base.getindex(s::TimeSeries{T}, i::Integer) where {T}
     1 <= i <= length(s) || throw(BoundsError(s, i))
     return _with_handle(s) do lib, p
         vptr = _checked(lib) do err
-            ccall(_library_symbol(lib, :pio_time_series_get), Ptr{Cvoid},
-                  (Ptr{Cvoid}, Csize_t, Ref{Ptr{Cvoid}}), p, Csize_t(i - 1), err)
+            @capi lib :pio_time_series_get(p, Csize_t(i - 1), err)
         end
         _wrap_value(lib, ValueHandle(vptr, lib), nothing)::T
     end
@@ -42,7 +41,7 @@ Base.show(io::IO, s::TimeSeries{T}) where {T} = print(io, "TimeSeries{", T, "} w
 # --- ScenarioSet ---------------------------------------------------------------
 
 Base.length(s::ScenarioSet) = _with_handle(s) do lib, p
-    Int(ccall(_library_symbol(lib, :pio_scenario_set_len), Csize_t, (Ptr{Cvoid},), p))
+    Int(@capi lib :pio_scenario_set_len(p))
 end
 Base.isempty(s::ScenarioSet) = length(s) == 0
 Base.eltype(::Type{ScenarioSet{T}}) where {T} = Pair{String,T}
@@ -53,20 +52,17 @@ Base.eltype(::Type{ScenarioSet{T}}) where {T} = Pair{String,T}
 The scenario identifiers, in table order.
 """
 Base.keys(s::ScenarioSet) = _with_handle(s) do lib, p
-    n = Int(ccall(_library_symbol(lib, :pio_scenario_set_len), Csize_t, (Ptr{Cvoid},), p))
-    [_str(ccall(_library_symbol(lib, :pio_scenario_set_id_at), PioStringView,
-                (Ptr{Cvoid}, Csize_t), p, Csize_t(k - 1))) for k in 1:n]
+    n = Int(@capi lib :pio_scenario_set_len(p))
+    [_str(@capi lib :pio_scenario_set_id_at(p, Csize_t(k - 1))) for k in 1:n]
 end
 
 Base.haskey(s::ScenarioSet, id::AbstractString) = String(id) in keys(s)
 
 function _scenario_at(s::ScenarioSet{T}, k::Int) where {T}
     return _with_handle(s) do lib, p
-        id = _str(ccall(_library_symbol(lib, :pio_scenario_set_id_at), PioStringView,
-                        (Ptr{Cvoid}, Csize_t), p, Csize_t(k - 1)))
+        id = _str(@capi lib :pio_scenario_set_id_at(p, Csize_t(k - 1)))
         vptr = _checked(lib) do err
-            ccall(_library_symbol(lib, :pio_scenario_set_get_at), Ptr{Cvoid},
-                  (Ptr{Cvoid}, Csize_t, Ref{Ptr{Cvoid}}), p, Csize_t(k - 1), err)
+            @capi lib :pio_scenario_set_get_at(p, Csize_t(k - 1), err)
         end
         id => _wrap_value(lib, ValueHandle(vptr, lib), nothing)::T
     end
@@ -82,8 +78,7 @@ function Base.getindex(s::ScenarioSet{T}, id::AbstractString) where {T}
     id = String(id)
     return _with_handle(s) do lib, p
         vptr = _checked(lib) do err
-            ccall(_library_symbol(lib, :pio_scenario_set_get), Ptr{Cvoid},
-                  (Ptr{Cvoid}, Ptr{UInt8}, Csize_t, Ref{Ptr{Cvoid}}), p, id, sizeof(id), err)
+            @capi lib :pio_scenario_set_get(p, id, sizeof(id), err)
         end
         _wrap_value(lib, ValueHandle(vptr, lib), nothing)::T
     end
@@ -100,11 +95,11 @@ Base.show(io::IO, s::ScenarioSet{T}) where {T} = print(io, "ScenarioSet{", T, "}
 
 function Base.getproperty(point::OperatingPoint{N}, name::Symbol) where {N}
     name === :network || return getfield(point, name)
-    sym = N === BalancedNetwork ? :pio_operating_point_balanced_network :
-          :pio_operating_point_multiconductor_network
+    entry = N === BalancedNetwork ? Val(:pio_operating_point_balanced_network) :
+            Val(:pio_operating_point_multiconductor_network)
     return _with_handle(point) do lib, p
         ptr = _checked(lib) do err
-            ccall(_library_symbol(lib, sym), Ptr{Cvoid}, (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), p, err)
+            @capi lib entry(p, err)
         end
         _network_from(N, ptr, lib)
     end

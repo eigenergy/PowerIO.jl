@@ -168,18 +168,17 @@ function _julia_type(name::AbstractString)
     return nothing
 end
 
-# Borrow one typed handle from a value handle through `sym`.
-function _borrow(lib::AbstractString, value::ValueHandle, sym::Symbol)
+# Borrow one typed handle from a value handle through `entry`.
+function _borrow(lib::AbstractString, value::ValueHandle, entry)
     return @with_handles value _checked(lib) do err
-        ccall(_library_symbol(lib, sym), Ptr{Cvoid}, (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _ptr(value), err)
+        @capi lib entry(_ptr(value), err)
     end
 end
 
 # Wrap a value handle as the Julia value its structural type name selects.
 # `owner` is the module the value came from when there is one.
 function _wrap_value(lib::AbstractString, value::ValueHandle, owner::Union{ModuleHandle,Nothing})
-    name = @with_handles value _str(ccall(_library_symbol(lib, :pio_value_type_name), PioStringView,
-                                         (Ptr{Cvoid},), _ptr(value)))
+    name = @with_handles value _str(@capi lib :pio_value_type_name(_ptr(value)))
     T = _julia_type(name)
     T === nothing && return UnknownValue(name, value)
     wrapped = _wrap_as(T, lib, value, owner)
@@ -188,17 +187,17 @@ function _wrap_value(lib::AbstractString, value::ValueHandle, owner::Union{Modul
 end
 
 _wrap_as(::Type{BalancedNetwork}, lib, value, owner) =
-    BalancedNetwork(BalancedNetworkHandle(_borrow(lib, value, :pio_value_balanced_network), lib), owner)
+    BalancedNetwork(BalancedNetworkHandle(_borrow(lib, value, Val(:pio_value_balanced_network)), lib), owner)
 _wrap_as(::Type{MulticonductorNetwork}, lib, value, owner) =
-    MulticonductorNetwork(MulticonductorNetworkHandle(_borrow(lib, value, :pio_value_multiconductor_network), lib), owner)
+    MulticonductorNetwork(MulticonductorNetworkHandle(_borrow(lib, value, Val(:pio_value_multiconductor_network)), lib), owner)
 _wrap_as(::Type{TimeSeries{T}}, lib, value, owner) where {T} =
-    TimeSeries{T}(TimeSeriesHandle(_borrow(lib, value, :pio_value_time_series), lib))
+    TimeSeries{T}(TimeSeriesHandle(_borrow(lib, value, Val(:pio_value_time_series)), lib))
 _wrap_as(::Type{ScenarioSet{T}}, lib, value, owner) where {T} =
-    ScenarioSet{T}(ScenarioSetHandle(_borrow(lib, value, :pio_value_scenario_set), lib))
+    ScenarioSet{T}(ScenarioSetHandle(_borrow(lib, value, Val(:pio_value_scenario_set)), lib))
 _wrap_as(::Type{OperatingPoint{BalancedNetwork}}, lib, value, owner) =
-    OperatingPoint{BalancedNetwork}(OperatingPointHandle(_borrow(lib, value, :pio_value_balanced_operating_point), lib))
+    OperatingPoint{BalancedNetwork}(OperatingPointHandle(_borrow(lib, value, Val(:pio_value_balanced_operating_point)), lib))
 _wrap_as(::Type{OperatingPoint{MulticonductorNetwork}}, lib, value, owner) =
-    OperatingPoint{MulticonductorNetwork}(OperatingPointHandle(_borrow(lib, value, :pio_value_multiconductor_operating_point), lib))
+    OperatingPoint{MulticonductorNetwork}(OperatingPointHandle(_borrow(lib, value, Val(:pio_value_multiconductor_operating_point)), lib))
 function _wrap_as(::Type{T}, lib, value, owner) where {T<:CalculationInstance}
     sym = _INSTANCE_TYPES[_type_name(T)][2]
     return T(CalculationInstanceHandle(_borrow(lib, value, sym), lib))

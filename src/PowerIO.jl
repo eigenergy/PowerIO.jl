@@ -34,6 +34,31 @@ using Preferences: @load_preference, load_preference, set_preferences!
 import Libdl
 import SparseArrays
 
+# The raw C ABI 7 layer. `LibPowerIO` is a submodule, not part of the public
+# API; only the view structs the element tables read and `PioError` come into
+# this namespace by name. Entry points are called through `@capi`.
+include("LibPowerIO.jl")
+using .LibPowerIO: LibPowerIO, PioError, PioActivePowerControlView, PioBalancedAreaView,
+    PioBalancedBranchView, PioBalancedBusView, PioBalancedGeneratorView, PioBalancedGeoView,
+    PioBalancedHvdcConverterView, PioBalancedHvdcView, PioBalancedLoadView,
+    PioBalancedLocationView, PioBalancedShuntView, PioBalancedStaticVarCompensatorView,
+    PioBalancedStorageView, PioBalancedSwitchView, PioBalancedThreeWindingTransformerView,
+    PioBranchRatingView, PioByteView, PioComponentIdView, PioControlProfileView,
+    PioDetailedConnectivityCountsView, PioDiagnosticSpanView, PioF64View,
+    PioGeneratorCapabilityView, PioGeneratorCostView, PioInverterBasedResourceView,
+    PioLinDist3FlowConductorView, PioLinDist3FlowNodeView, PioModuleHistoryEntryView,
+    PioModuleHistoryParameterView, PioModuleProducerView, PioModuleSourceView,
+    PioMulticonductorBusView, PioMulticonductorCapacitorView, PioMulticonductorCommandView,
+    PioMulticonductorGeneratorView, PioMulticonductorGeoView, PioMulticonductorLineCodeView,
+    PioMulticonductorLineView, PioMulticonductorLoadView, PioMulticonductorLocationView,
+    PioMulticonductorNetworkCountsView, PioMulticonductorShuntView,
+    PioMulticonductorSwitchView, PioMulticonductorTransformerView,
+    PioMulticonductorTransformerWindingView, PioMulticonductorUntypedObjectView,
+    PioMulticonductorUntypedPropertyView, PioShuntBlockView, PioSizeView,
+    PioStringPropertyView, PioStringView, PioTerminalReferenceView,
+    PioThreeWindingTransformerImpedanceView, PioThreeWindingTransformerWindingView,
+    PioTransformerControlView, PioVoltageSourceView
+
 # Operations. `parse` extends `Base.parse` and is not exported.
 export PioModule, emit, serialize, deserialize
 
@@ -92,8 +117,7 @@ export to_powermodels, from_powermodels, build_powermodels_ref, repair_powermode
 # Library resolution.
 export set_library!, clear_library!, abi_version, library_version, library_available
 
-include("views.jl")          # C struct mirrors and span conversions
-include("capi.jl")           # library resolution and the ABI handshake
+include("capi.jl")           # library resolution, entry point calls, the ABI handshake
 include("handles.jl")        # owned handle types with release finalizers
 include("diagnostics.jl")    # Diagnostic and SourceSpan
 include("errors.jl")         # PowerIOError and the checked call helpers

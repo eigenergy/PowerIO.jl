@@ -53,22 +53,29 @@ Base.show(io::IO, p::ActivePower) = print(io, "ActivePower(", p.unit, "=", p.val
 Base.show(io::IO, p::ReactivePower) = print(io, "ReactivePower(", p.unit, "=", p.value, ")")
 Base.show(io::IO, p::ApparentPower) = print(io, "ApparentPower(", p.unit, "=", p.value, ")")
 
-_quantity_handle(lib, p::ActivePower) = ActivePowerHandle(
-    ccall(_library_symbol(lib, p.unit === :watts ? :pio_active_power_from_watts : :pio_active_power_from_megawatts),
-          Ptr{Cvoid}, (Float64,), p.value), lib)
-_quantity_handle(lib, p::ReactivePower) = ReactivePowerHandle(
-    ccall(_library_symbol(lib, p.unit === :vars ? :pio_reactive_power_from_vars : :pio_reactive_power_from_megavars),
-          Ptr{Cvoid}, (Float64,), p.value), lib)
-_quantity_handle(lib, p::ApparentPower) = ApparentPowerHandle(
-    ccall(_library_symbol(lib, p.unit === :volt_amperes ? :pio_apparent_power_from_volt_amperes :
-                               :pio_apparent_power_from_megavolt_amperes),
-          Ptr{Cvoid}, (Float64,), p.value), lib)
+function _quantity_handle(lib, p::ActivePower)
+    ptr = p.unit === :watts ? @capi(lib, :pio_active_power_from_watts(p.value)) :
+                              @capi(lib, :pio_active_power_from_megawatts(p.value))
+    return ActivePowerHandle(ptr, lib)
+end
+
+function _quantity_handle(lib, p::ReactivePower)
+    ptr = p.unit === :vars ? @capi(lib, :pio_reactive_power_from_vars(p.value)) :
+                             @capi(lib, :pio_reactive_power_from_megavars(p.value))
+    return ReactivePowerHandle(ptr, lib)
+end
+
+function _quantity_handle(lib, p::ApparentPower)
+    ptr = p.unit === :volt_amperes ?
+          @capi(lib, :pio_apparent_power_from_volt_amperes(p.value)) :
+          @capi(lib, :pio_apparent_power_from_megavolt_amperes(p.value))
+    return ApparentPowerHandle(ptr, lib)
+end
 
 function _component_handle(lib, id::ComponentId)
     ptr = _checked(lib) do err
-        ccall(_library_symbol(lib, :pio_component_id_new), Ptr{Cvoid},
-              (Ptr{UInt8}, Csize_t, Ptr{UInt8}, Csize_t, Ref{Ptr{Cvoid}}),
-              id.component_type, sizeof(id.component_type), id.local_id, sizeof(id.local_id), err)
+        @capi lib :pio_component_id_new(id.component_type, sizeof(id.component_type), id.local_id,
+                                        sizeof(id.local_id), err)
     end
     return ComponentIdHandle(ptr, lib)
 end
@@ -106,16 +113,14 @@ const _NO_TERMINAL = ""
 
 # Build an operating point update whose C constructor takes a component, an
 # optional terminal, and a quantity handle.
-function _power_update(sym::Symbol, id::ComponentId, power, terminal, description)
+function _power_update(entry, id::ComponentId, power, terminal, description)
     lib = _checked_lib()
     component = _component_handle(lib, id)
     quantity = _quantity_handle(lib, power)
     term = terminal === nothing ? _NO_TERMINAL : String(terminal)
     ptr = @with_handles component quantity term _checked(lib) do err
-        ccall(_library_symbol(lib, sym), Ptr{Cvoid},
-              (Ptr{Cvoid}, Ptr{UInt8}, Csize_t, Ptr{Cvoid}, Ref{Ptr{Cvoid}}),
-              _ptr(component), terminal === nothing ? C_NULL : pointer(term),
-              terminal === nothing ? Csize_t(0) : Csize_t(sizeof(term)), _ptr(quantity), err)
+        @capi lib entry(_ptr(component), terminal === nothing ? C_NULL : pointer(term),
+                      terminal === nothing ? Csize_t(0) : Csize_t(sizeof(term)), _ptr(quantity), err)
     end
     release!(component)
     release!(quantity)
@@ -124,20 +129,20 @@ end
 
 # Build an operating point update whose C constructor takes a component and
 # one `double` or one `bool`.
-function _scalar_update(sym::Symbol, id::ComponentId, value::Float64)
+function _scalar_update(entry, id::ComponentId, value::Float64)
     lib = _checked_lib()
     component = _component_handle(lib, id)
     ptr = @with_handles component _checked(lib) do err
-        ccall(_library_symbol(lib, sym), Ptr{Cvoid}, (Ptr{Cvoid}, Float64, Ref{Ptr{Cvoid}}), _ptr(component), value, err)
+        @capi lib entry(_ptr(component), value, err)
     end
     release!(component)
     return ptr, lib
 end
-function _scalar_update(sym::Symbol, id::ComponentId, value::Bool)
+function _scalar_update(entry, id::ComponentId, value::Bool)
     lib = _checked_lib()
     component = _component_handle(lib, id)
     ptr = @with_handles component _checked(lib) do err
-        ccall(_library_symbol(lib, sym), Ptr{Cvoid}, (Ptr{Cvoid}, Bool, Ref{Ptr{Cvoid}}), _ptr(component), value, err)
+        @capi lib entry(_ptr(component), value, err)
     end
     release!(component)
     return ptr, lib
@@ -152,7 +157,7 @@ An update that sets a load's active power. `terminal` selects one terminal
 of a multiconductor load.
 """
 function set_load_active_power(id::ComponentId, power::ActivePower; terminal=nothing)
-    ptr, lib = _power_update(:pio_operating_point_update_set_load_active_power, id, power, terminal, "")
+    ptr, lib = _power_update(Val(:pio_operating_point_update_set_load_active_power), id, power, terminal, "")
     return OperatingPointUpdate(OperatingPointUpdateHandle(ptr, lib), "$(_describe(id)) active power $power")
 end
 
@@ -162,7 +167,7 @@ end
 An update that sets a load's reactive power.
 """
 function set_load_reactive_power(id::ComponentId, power::ReactivePower; terminal=nothing)
-    ptr, lib = _power_update(:pio_operating_point_update_set_load_reactive_power, id, power, terminal, "")
+    ptr, lib = _power_update(Val(:pio_operating_point_update_set_load_reactive_power), id, power, terminal, "")
     return OperatingPointUpdate(OperatingPointUpdateHandle(ptr, lib), "$(_describe(id)) reactive power $power")
 end
 
@@ -172,7 +177,7 @@ end
 An update that sets a generator's active power setpoint.
 """
 function set_generator_active_power(id::ComponentId, power::ActivePower; terminal=nothing)
-    ptr, lib = _power_update(:pio_operating_point_update_set_generator_active_power, id, power, terminal, "")
+    ptr, lib = _power_update(Val(:pio_operating_point_update_set_generator_active_power), id, power, terminal, "")
     return OperatingPointUpdate(OperatingPointUpdateHandle(ptr, lib), "$(_describe(id)) active power $power")
 end
 
@@ -182,7 +187,7 @@ end
 An update that sets a generator's reactive power setpoint.
 """
 function set_generator_reactive_power(id::ComponentId, power::ReactivePower; terminal=nothing)
-    ptr, lib = _power_update(:pio_operating_point_update_set_generator_reactive_power, id, power, terminal, "")
+    ptr, lib = _power_update(Val(:pio_operating_point_update_set_generator_reactive_power), id, power, terminal, "")
     return OperatingPointUpdate(OperatingPointUpdateHandle(ptr, lib), "$(_describe(id)) reactive power $power")
 end
 
@@ -192,7 +197,7 @@ end
 An update that sets a generator's voltage setpoint in per unit.
 """
 function set_generator_voltage_magnitude(id::ComponentId, vm_pu::Real)
-    ptr, lib = _scalar_update(:pio_operating_point_update_set_generator_voltage_magnitude, id, Float64(vm_pu))
+    ptr, lib = _scalar_update(Val(:pio_operating_point_update_set_generator_voltage_magnitude), id, Float64(vm_pu))
     return OperatingPointUpdate(OperatingPointUpdateHandle(ptr, lib), "$(_describe(id)) voltage $vm_pu pu")
 end
 
@@ -202,7 +207,7 @@ end
 An update that sets a generator's service status.
 """
 function set_generator_in_service(id::ComponentId, in_service::Bool)
-    ptr, lib = _scalar_update(:pio_operating_point_update_set_generator_in_service, id, in_service)
+    ptr, lib = _scalar_update(Val(:pio_operating_point_update_set_generator_in_service), id, in_service)
     return OperatingPointUpdate(OperatingPointUpdateHandle(ptr, lib), "$(_describe(id)) in service $in_service")
 end
 
@@ -212,7 +217,7 @@ end
 An update that sets a branch's service status.
 """
 function set_branch_in_service(id::ComponentId, in_service::Bool)
-    ptr, lib = _scalar_update(:pio_operating_point_update_set_branch_in_service, id, in_service)
+    ptr, lib = _scalar_update(Val(:pio_operating_point_update_set_branch_in_service), id, in_service)
     return OperatingPointUpdate(OperatingPointUpdateHandle(ptr, lib), "$(_describe(id)) in service $in_service")
 end
 
@@ -222,7 +227,7 @@ end
 An update that sets a transformer branch's tap ratio.
 """
 function set_transformer_tap_ratio(id::ComponentId, tap_ratio::Real)
-    ptr, lib = _scalar_update(:pio_operating_point_update_set_transformer_tap_ratio, id, Float64(tap_ratio))
+    ptr, lib = _scalar_update(Val(:pio_operating_point_update_set_transformer_tap_ratio), id, Float64(tap_ratio))
     return OperatingPointUpdate(OperatingPointUpdateHandle(ptr, lib), "$(_describe(id)) tap ratio $tap_ratio")
 end
 
@@ -232,7 +237,7 @@ end
 An update that sets a transformer branch's phase shift.
 """
 function set_transformer_phase_shift_degrees(id::ComponentId, degrees::Real)
-    ptr, lib = _scalar_update(:pio_operating_point_update_set_transformer_phase_shift_degrees, id, Float64(degrees))
+    ptr, lib = _scalar_update(Val(:pio_operating_point_update_set_transformer_phase_shift_degrees), id, Float64(degrees))
     return OperatingPointUpdate(OperatingPointUpdateHandle(ptr, lib), "$(_describe(id)) phase shift $degrees deg")
 end
 
@@ -242,7 +247,7 @@ end
 An update that sets a switch position.
 """
 function set_switch_closed(id::ComponentId, closed::Bool)
-    ptr, lib = _scalar_update(:pio_operating_point_update_set_switch_closed, id, closed)
+    ptr, lib = _scalar_update(Val(:pio_operating_point_update_set_switch_closed), id, closed)
     return OperatingPointUpdate(OperatingPointUpdateHandle(ptr, lib), "$(_describe(id)) closed $closed")
 end
 
@@ -252,7 +257,7 @@ end
 A network update that sets a branch's thermal rating.
 """
 function set_branch_thermal_rating(id::ComponentId, rating::ApparentPower; terminal=nothing)
-    ptr, lib = _power_update(:pio_network_update_set_branch_thermal_rating, id, rating, terminal, "")
+    ptr, lib = _power_update(Val(:pio_network_update_set_branch_thermal_rating), id, rating, terminal, "")
     return NetworkUpdate(NetworkUpdateHandle(ptr, lib), "$(_describe(id)) thermal rating $rating")
 end
 
@@ -292,8 +297,7 @@ function _calculation_update(lib, u::OperatingPointUpdate)
     h = u.handle
     _require_library(lib, h)
     ptr = @with_handles h _checked(lib) do err
-        ccall(_library_symbol(lib, :pio_calculation_update_from_operating_point), Ptr{Cvoid},
-              (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _ptr(h), err)
+        @capi lib :pio_calculation_update_from_operating_point(_ptr(h), err)
     end
     return CalculationUpdateHandle(ptr, lib)
 end
@@ -301,8 +305,7 @@ function _calculation_update(lib, u::NetworkUpdate)
     h = u.handle
     _require_library(lib, h)
     ptr = @with_handles h _checked(lib) do err
-        ccall(_library_symbol(lib, :pio_calculation_update_from_network), Ptr{Cvoid},
-              (Ptr{Cvoid}, Ref{Ptr{Cvoid}}), _ptr(h), err)
+        @capi lib :pio_calculation_update_from_network(_ptr(h), err)
     end
     return CalculationUpdateHandle(ptr, lib)
 end
@@ -334,9 +337,7 @@ function apply_updates!(m::PioModule, updates)
         return @with_handles mh handles begin
             ptrs = Ptr{Cvoid}[_ptr(h) for h in handles]
             report_ptr = GC.@preserve ptrs _checked(lib) do err
-                ccall(_library_symbol(lib, :pio_apply_updates), Ptr{Cvoid},
-                      (Ptr{Cvoid}, Ptr{Ptr{Cvoid}}, Csize_t, Ref{Ptr{Cvoid}}),
-                      _ptr(mh), ptrs, length(ptrs), err)
+                @capi lib :pio_apply_updates(_ptr(mh), ptrs, length(ptrs), err)
             end
             setfield!(m, :value, _module_value(lib, mh))
             _update_report(lib, report_ptr)
@@ -346,28 +347,26 @@ function apply_updates!(m::PioModule, updates)
     end
 end
 
-function _update_report(lib, ptr::Ptr{Cvoid})
+function _update_report(lib, ptr::Ptr)
     h = UpdateReportHandle(ptr, lib)
     report = @with_handles h begin
         p = _ptr(h)
-        n = Int(ccall(_library_symbol(lib, :pio_update_report_len), Csize_t, (Ptr{Cvoid},), p))
-        connectivity = ccall(_library_symbol(lib, :pio_update_report_connectivity_changed), Bool, (Ptr{Cvoid},), p)
+        n = Int(@capi lib :pio_update_report_len(p))
+        connectivity = @capi lib :pio_update_report_connectivity_changed(p)
         changes = map(1:n) do k
             cptr = _checked(lib) do err
-                ccall(_library_symbol(lib, :pio_update_report_change), Ptr{Cvoid},
-                      (Ptr{Cvoid}, Csize_t, Ref{Ptr{Cvoid}}), p, Csize_t(k - 1), err)
+                @capi lib :pio_update_report_change(p, Csize_t(k - 1), err)
             end
             change = UpdateChangeHandle(cptr, lib)
             out = @with_handles change begin
                 cp = _ptr(change)
-                id = ComponentIdHandle(ccall(_library_symbol(lib, :pio_update_change_component_id), Ptr{Cvoid},
-                                             (Ptr{Cvoid},), cp), lib)
+                id = ComponentIdHandle(@capi(lib, :pio_update_change_component_id(cp)), lib)
                 component = @with_handles id ComponentId(
-                    _str(ccall(_library_symbol(lib, :pio_component_id_type), PioStringView, (Ptr{Cvoid},), _ptr(id))),
-                    _str(ccall(_library_symbol(lib, :pio_component_id_local_id), PioStringView, (Ptr{Cvoid},), _ptr(id))))
+                    _str(@capi lib :pio_component_id_type(_ptr(id))),
+                    _str(@capi lib :pio_component_id_local_id(_ptr(id))))
                 release!(id)
-                field = _str(ccall(_library_symbol(lib, :pio_update_change_field), PioStringView, (Ptr{Cvoid},), cp))
-                terminal = _str(ccall(_library_symbol(lib, :pio_update_change_terminal), PioStringView, (Ptr{Cvoid},), cp))
+                field = _str(@capi lib :pio_update_change_field(cp))
+                terminal = _str(@capi lib :pio_update_change_terminal(cp))
                 UpdateChange(component, field, isempty(terminal) ? nothing : terminal)
             end
             release!(change)

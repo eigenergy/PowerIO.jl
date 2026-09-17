@@ -98,6 +98,85 @@ end
 _library_symbol(lib::AbstractString, sym::Symbol) =
     Libdl.dlsym(_library_handle(lib), sym)
 
+# --- entry point calls ---------------------------------------------------
+#
+# Every call into the C library goes through `LibPowerIO`, whose argument and
+# return types come from `powerio.h` by way of gen/generate.jl. The symbol is
+# resolved against the library chosen for this call, so a `set_library!` swap
+# takes effect immediately and no call is bound to a library at load time.
+
+"""
+    @capi lib :pio_abi_version()
+
+Call the named C entry point in the library at `lib`, as in
+`@capi lib :pio_balanced_network_bus_count(network)`. Expands to the
+`LibPowerIO` method that takes a resolved function pointer as its last
+argument, so the argument and return types are the header's.
+
+The name is normally quoted. A plain variable holding a `Symbol` also works;
+the method is then looked up by name at the call.
+"""
+macro capi(lib, call)
+    Meta.isexpr(call, :call) ||
+        throw(ArgumentError("@capi expects a call, as in `@capi lib :pio_abi_version()`"))
+    callee = call.args[1]
+    args = map(esc, call.args[2:end])
+    callee isa QuoteNode &&
+        return :(LibPowerIO.$(callee.value)($(args...),
+                                            _library_symbol($(esc(lib)), $callee)))
+    return :(_capi($(esc(lib)), $(esc(callee)), $(args...)))
+end
+
+# `@capi` where a helper takes the entry point as a parameter. A `Val` holding
+# the name carries it in the type, so the helper compiles one specialization
+# per entry point and the call into `LibPowerIO` resolves at compile time. The
+# element tables read every row through this path, and a name passed as a plain
+# `Symbol` there costs a dynamic lookup and a boxed return on every field.
+@inline _capi(lib::AbstractString, ::Val{S}, args...) where {S} =
+    getfield(LibPowerIO, S)(args..., _library_symbol(lib, S))
+
+# The same for a name that is genuinely only known at run time, such as one
+# looked up in a table keyed by a structural type name.
+_capi(lib::AbstractString, sym::Symbol, args...) =
+    getfield(LibPowerIO, sym)(args..., _library_symbol(lib, sym))
+
+# --- borrowed spans ------------------------------------------------------
+#
+# Every span the C ABI hands back is a (pointer, length) pair valid only while
+# the handle that owns it lives. These helpers copy into owned Julia values
+# before the caller can release that handle.
+
+# Copy a borrowed string span into an owned `String`. An empty span is "".
+function _str(v::PioStringView)
+    (v.data == C_NULL || v.len == 0) && return ""
+    return unsafe_string(Ptr{UInt8}(v.data), Int(v.len))
+end
+
+# `nothing` when the presence flag is false, the copied string otherwise.
+_optional_str(v::PioStringView, present::Bool) = present ? _str(v) : nothing
+
+_optional(value, present::Bool) = present ? value : nothing
+
+# Copy a borrowed double span into an owned vector.
+function _f64s(v::PioF64View)
+    (v.data == C_NULL || v.len == 0) && return Float64[]
+    return copy(unsafe_wrap(Vector{Float64}, v.data, Int(v.len)))
+end
+
+_optional_f64s(v::PioF64View, present::Bool) = present ? _f64s(v) : nothing
+
+# Copy a borrowed size span into an owned `Vector{Int}`.
+function _sizes(v::PioSizeView)
+    (v.data == C_NULL || v.len == 0) && return Int[]
+    return Int.(unsafe_wrap(Vector{Csize_t}, v.data, Int(v.len)))
+end
+
+# Copy a borrowed byte span into an owned vector.
+function _bytes(v::PioByteView)
+    (v.data == C_NULL || v.len == 0) && return UInt8[]
+    return copy(unsafe_wrap(Vector{UInt8}, v.data, Int(v.len)))
+end
+
 # Resolve the bundled `powerio_capi` artifact. Until `Artifacts.toml` carries a
 # `powerio_capi` entry for this platform (filled by `gen/update_artifacts.jl`
 # from a tagged powerio release; see docs/src/binary.md), fall back to a plain
@@ -137,7 +216,8 @@ end
 # stale or mismatched library into a clear error at the boundary instead of a
 # ccall fault or silently wrong numbers.
 
-const PIO_ABI_VERSION = UInt32(7)
+# The header states the ABI version this binding was generated against.
+const PIO_ABI_VERSION = UInt32(LibPowerIO.PIO_ABI_VERSION)
 const _ABI_OK = Ref{Bool}(false)
 const _ABI_OK_LIB = Ref{String}("")
 
@@ -149,7 +229,7 @@ Compared against `PIO_ABI_VERSION`, the version this binding targets.
 """
 abi_version() = abi_version(_lib())
 abi_version(lib::AbstractString) =
-    ccall(_library_symbol(lib, :pio_abi_version), UInt32, ())
+    @capi lib :pio_abi_version()
 
 """
     library_version() -> String
@@ -159,7 +239,7 @@ The powerio crate version string the resolved library reports, such as
 """
 function library_version(lib::AbstractString=_lib())
     _ensure_compatible(lib)
-    return _str(ccall(_library_symbol(lib, :pio_version), PioStringView, ()))
+    return _str(@capi lib :pio_version())
 end
 
 # Verify the resolved library is ABI compatible, once per library path. Throws
@@ -213,12 +293,11 @@ function _checked_lib()
 end
 
 # Copy an owned `PioString` into a Julia `String` and release it.
-function _take_string(lib::AbstractString, ptr::Ptr{Cvoid})
+function _take_string(lib::AbstractString, ptr::Ptr)
     ptr == C_NULL && return ""
     h = StringHandle(ptr, lib)
     text = _with_handles(h) do
-        _str(ccall(_library_symbol(lib, :pio_string_view), PioStringView,
-                   (Ptr{Cvoid},), _ptr(h)))
+        _str(@capi lib :pio_string_view(_ptr(h)))
     end
     release!(h)
     return text

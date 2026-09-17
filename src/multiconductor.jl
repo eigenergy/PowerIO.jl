@@ -318,8 +318,7 @@ function _mc_counts(net::MulticonductorNetwork)
     h = getfield(net, :handle)
     lib = getfield(h, :lib)
     return @with_handles h _fill(PioMulticonductorNetworkCountsView, lib) do out, err
-        ccall(_library_symbol(lib, :pio_multiconductor_network_counts), Bool,
-              (Ptr{Cvoid}, Ref{PioMulticonductorNetworkCountsView}, Ref{Ptr{Cvoid}}), _ptr(h), out, err)
+        @capi lib :pio_multiconductor_network_counts(_ptr(h), out, err)
     end
 end
 
@@ -331,25 +330,20 @@ function Base.getproperty(net::MulticonductorNetwork, name::Symbol)
         return Elements{T,MulticonductorNetwork}(net, Int(getfield(_mc_counts(net), field)))
     elseif name === :name
         return @with_handles h begin
-            has = ccall(_library_symbol(lib, :pio_multiconductor_network_has_name), Bool, (Ptr{Cvoid},), _ptr(h))
-            has ? _str(ccall(_library_symbol(lib, :pio_multiconductor_network_name), PioStringView,
-                             (Ptr{Cvoid},), _ptr(h))) : nothing
+            has = @capi lib :pio_multiconductor_network_has_name(_ptr(h))
+            has ? _str(@capi lib :pio_multiconductor_network_name(_ptr(h))) : nothing
         end
     elseif name === :source_format
         return @with_handles h begin
-            has = ccall(_library_symbol(lib, :pio_multiconductor_network_has_source_format), Bool,
-                        (Ptr{Cvoid},), _ptr(h))
-            has ? _str(ccall(_library_symbol(lib, :pio_multiconductor_network_source_format), PioStringView,
-                             (Ptr{Cvoid},), _ptr(h))) : nothing
+            has = @capi lib :pio_multiconductor_network_has_source_format(_ptr(h))
+            has ? _str(@capi lib :pio_multiconductor_network_source_format(_ptr(h))) : nothing
         end
     elseif name === :base_frequency
-        return @with_handles h ccall(_library_symbol(lib, :pio_multiconductor_network_base_frequency_hz), Float64,
-                                    (Ptr{Cvoid},), _ptr(h))
+        return @with_handles h @capi lib :pio_multiconductor_network_base_frequency_hz(_ptr(h))
     elseif name === :geo
         return @with_handles h begin
             v = _fill(PioMulticonductorGeoView, lib) do out, err
-                ccall(_library_symbol(lib, :pio_multiconductor_network_geo), Bool,
-                      (Ptr{Cvoid}, Ref{PioMulticonductorGeoView}, Ref{Ptr{Cvoid}}), _ptr(h), out, err)
+                @capi lib :pio_multiconductor_network_geo(_ptr(h), out, err)
             end
             _geo(v)
         end
@@ -369,37 +363,37 @@ function _with_network(f, net::MulticonductorNetwork)
 end
 
 # `count` terminal names through a two index string fill.
-function _terminals(sym::Symbol, lib, p, i, count)
+function _terminals(entry, lib, p, i, count)
     return map(0:Int(count)-1) do j
-        _str(_at(PioStringView, sym, lib, p, i, j))
+        _str(_at(PioStringView, entry, lib, p, i, j))
     end
 end
 
 # Terminal names of one transformer winding (three index fill).
 function _winding_terminals(lib, p, i, j, count)
     return map(0:Int(count)-1) do k
-        _str(_at(PioStringView, :pio_multiconductor_network_transformer_winding_terminal_at, lib, p, i, j, k))
+        _str(_at(PioStringView, Val(:pio_multiconductor_network_transformer_winding_terminal_at), lib, p, i, j, k))
     end
 end
 
-# Assemble a matrix from `rows` row spans read through `sym`.
-function _matrix(sym::Symbol, lib, p, i, rows)
+# Assemble a matrix from `rows` row spans read through `entry`.
+function _matrix(entry, lib, p, i, rows)
     rows = Int(rows)
     rows == 0 && return Matrix{Float64}(undef, 0, 0)
-    first_row = _f64s(_at(PioF64View, sym, lib, p, i, 0))
+    first_row = _f64s(_at(PioF64View, entry, lib, p, i, 0))
     out = Matrix{Float64}(undef, rows, length(first_row))
     out[1, :] = first_row
     for r in 2:rows
-        out[r, :] = _f64s(_at(PioF64View, sym, lib, p, i, r - 1))
+        out[r, :] = _f64s(_at(PioF64View, entry, lib, p, i, r - 1))
     end
     return out
 end
 
 _element(::Type{MulticonductorBus}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioMulticonductorBusView, :pio_multiconductor_network_bus_at, lib, p, i)
+    v = _at(PioMulticonductorBusView, Val(:pio_multiconductor_network_bus_at), lib, p, i)
     MulticonductorBus(_str(v.id),
-                      _terminals(:pio_multiconductor_network_bus_terminal_at, lib, p, i, v.terminal_count),
-                      _terminals(:pio_multiconductor_network_bus_grounded_terminal_at, lib, p, i, v.grounded_terminal_count),
+                      _terminals(Val(:pio_multiconductor_network_bus_terminal_at), lib, p, i, v.terminal_count),
+                      _terminals(Val(:pio_multiconductor_network_bus_grounded_terminal_at), lib, p, i, v.grounded_terminal_count),
                       _optional(v.voltage_min_v, v.has_voltage_min),
                       _optional(v.voltage_max_v, v.has_voltage_max),
                       _optional_f64s(v.phase_to_ground_voltage_min_v, v.has_phase_to_ground_voltage_min),
@@ -417,49 +411,49 @@ _element(::Type{MulticonductorBus}, net::MulticonductorNetwork, i) = _with_netwo
 end
 
 _element(::Type{MulticonductorLineCode}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioMulticonductorLineCodeView, :pio_multiconductor_network_line_code_at, lib, p, i)
+    v = _at(PioMulticonductorLineCodeView, Val(:pio_multiconductor_network_line_code_at), lib, p, i)
     MulticonductorLineCode(_str(v.name), Int(v.conductor_count),
-                           _matrix(:pio_multiconductor_network_line_code_resistance_matrix_row_at, lib, p, i, v.resistance_matrix_row_count),
-                           _matrix(:pio_multiconductor_network_line_code_reactance_matrix_row_at, lib, p, i, v.reactance_matrix_row_count),
-                           _matrix(:pio_multiconductor_network_line_code_conductance_from_matrix_row_at, lib, p, i, v.conductance_from_matrix_row_count),
-                           _matrix(:pio_multiconductor_network_line_code_susceptance_from_matrix_row_at, lib, p, i, v.susceptance_from_matrix_row_count),
-                           _matrix(:pio_multiconductor_network_line_code_conductance_to_matrix_row_at, lib, p, i, v.conductance_to_matrix_row_count),
-                           _matrix(:pio_multiconductor_network_line_code_susceptance_to_matrix_row_at, lib, p, i, v.susceptance_to_matrix_row_count),
+                           _matrix(Val(:pio_multiconductor_network_line_code_resistance_matrix_row_at), lib, p, i, v.resistance_matrix_row_count),
+                           _matrix(Val(:pio_multiconductor_network_line_code_reactance_matrix_row_at), lib, p, i, v.reactance_matrix_row_count),
+                           _matrix(Val(:pio_multiconductor_network_line_code_conductance_from_matrix_row_at), lib, p, i, v.conductance_from_matrix_row_count),
+                           _matrix(Val(:pio_multiconductor_network_line_code_susceptance_from_matrix_row_at), lib, p, i, v.susceptance_from_matrix_row_count),
+                           _matrix(Val(:pio_multiconductor_network_line_code_conductance_to_matrix_row_at), lib, p, i, v.conductance_to_matrix_row_count),
+                           _matrix(Val(:pio_multiconductor_network_line_code_susceptance_to_matrix_row_at), lib, p, i, v.susceptance_to_matrix_row_count),
                            _optional_f64s(v.current_limit_a, v.has_current_limit),
                            _optional_f64s(v.apparent_power_limit_va, v.has_apparent_power_limit),
                            _optional_str(v.source, v.has_source))
 end
 
 _element(::Type{MulticonductorLine}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioMulticonductorLineView, :pio_multiconductor_network_line_at, lib, p, i)
+    v = _at(PioMulticonductorLineView, Val(:pio_multiconductor_network_line_at), lib, p, i)
     route = if v.has_route
         map(0:Int(v.route_point_count)-1) do j
-            pt = _at(PioMulticonductorLocationView, :pio_multiconductor_network_line_route_point_at, lib, p, i, j)
+            pt = _at(PioMulticonductorLocationView, Val(:pio_multiconductor_network_line_route_point_at), lib, p, i, j)
             Location(pt.x, pt.y, _optional_str(pt.kind, pt.has_kind))
         end
     else
         nothing
     end
     MulticonductorLine(_str(v.name), _str(v.bus_from), _str(v.bus_to),
-                       _terminals(:pio_multiconductor_network_line_terminal_from_at, lib, p, i, v.terminal_map_from_count),
-                       _terminals(:pio_multiconductor_network_line_terminal_to_at, lib, p, i, v.terminal_map_to_count),
+                       _terminals(Val(:pio_multiconductor_network_line_terminal_from_at), lib, p, i, v.terminal_map_from_count),
+                       _terminals(Val(:pio_multiconductor_network_line_terminal_to_at), lib, p, i, v.terminal_map_to_count),
                        _str(v.line_code), v.length_m, route,
                        _optional_f64s(v.current_limit_a, v.has_current_limit),
                        _optional_f64s(v.apparent_power_limit_va, v.has_apparent_power_limit))
 end
 
 _element(::Type{MulticonductorSwitch}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioMulticonductorSwitchView, :pio_multiconductor_network_switch_at, lib, p, i)
+    v = _at(PioMulticonductorSwitchView, Val(:pio_multiconductor_network_switch_at), lib, p, i)
     MulticonductorSwitch(_str(v.name), _str(v.bus_from), _str(v.bus_to),
-                         _terminals(:pio_multiconductor_network_switch_terminal_from_at, lib, p, i, v.terminal_map_from_count),
-                         _terminals(:pio_multiconductor_network_switch_terminal_to_at, lib, p, i, v.terminal_map_to_count),
+                         _terminals(Val(:pio_multiconductor_network_switch_terminal_from_at), lib, p, i, v.terminal_map_from_count),
+                         _terminals(Val(:pio_multiconductor_network_switch_terminal_to_at), lib, p, i, v.terminal_map_to_count),
                          v.open, _optional_f64s(v.current_limit_a, v.has_current_limit))
 end
 
 _element(::Type{MulticonductorTransformer}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioMulticonductorTransformerView, :pio_multiconductor_network_transformer_at, lib, p, i)
+    v = _at(PioMulticonductorTransformerView, Val(:pio_multiconductor_network_transformer_at), lib, p, i)
     windings = map(0:Int(v.winding_count)-1) do j
-        w = _at(PioMulticonductorTransformerWindingView, :pio_multiconductor_network_transformer_winding_at, lib, p, i, j)
+        w = _at(PioMulticonductorTransformerWindingView, Val(:pio_multiconductor_network_transformer_winding_at), lib, p, i, j)
         MulticonductorTransformerWinding(_str(w.bus), _winding_terminals(lib, p, i, j, w.terminal_map_count),
                                          _str(w.connection), w.rated_voltage_v, w.apparent_power_rating_va,
                                          w.resistance_percent, w.tap,
@@ -470,9 +464,9 @@ _element(::Type{MulticonductorTransformer}, net::MulticonductorNetwork, i) = _wi
 end
 
 _element(::Type{MulticonductorLoad}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioMulticonductorLoadView, :pio_multiconductor_network_load_at, lib, p, i)
+    v = _at(PioMulticonductorLoadView, Val(:pio_multiconductor_network_load_at), lib, p, i)
     MulticonductorLoad(_str(v.name), _str(v.bus),
-                       _terminals(:pio_multiconductor_network_load_terminal_at, lib, p, i, v.terminal_map_count),
+                       _terminals(Val(:pio_multiconductor_network_load_terminal_at), lib, p, i, v.terminal_map_count),
                        _str(v.configuration), _f64s(v.active_power_nominal_w), _f64s(v.reactive_power_nominal_var),
                        _str(v.voltage_model), _f64s(v.nominal_voltage_v),
                        _f64s(v.active_power_constant_impedance), _f64s(v.active_power_constant_current),
@@ -482,9 +476,9 @@ _element(::Type{MulticonductorLoad}, net::MulticonductorNetwork, i) = _with_netw
 end
 
 _element(::Type{MulticonductorGenerator}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioMulticonductorGeneratorView, :pio_multiconductor_network_generator_at, lib, p, i)
+    v = _at(PioMulticonductorGeneratorView, Val(:pio_multiconductor_network_generator_at), lib, p, i)
     MulticonductorGenerator(_str(v.name), _str(v.bus),
-                            _terminals(:pio_multiconductor_network_generator_terminal_at, lib, p, i, v.terminal_map_count),
+                            _terminals(Val(:pio_multiconductor_network_generator_terminal_at), lib, p, i, v.terminal_map_count),
                             _str(v.configuration), _f64s(v.active_power_nominal_w), _f64s(v.reactive_power_nominal_var),
                             _optional_f64s(v.active_power_min_w, v.has_active_power_min),
                             _optional_f64s(v.active_power_max_w, v.has_active_power_max),
@@ -496,9 +490,9 @@ _element(::Type{MulticonductorGenerator}, net::MulticonductorNetwork, i) = _with
 end
 
 _element(::Type{InverterBasedResource}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioInverterBasedResourceView, :pio_multiconductor_network_inverter_based_resource_at, lib, p, i)
+    v = _at(PioInverterBasedResourceView, Val(:pio_multiconductor_network_inverter_based_resource_at), lib, p, i)
     InverterBasedResource(_str(v.name), _str(v.bus),
-                          _terminals(:pio_multiconductor_network_inverter_based_resource_terminal_at, lib, p, i, v.terminal_map_count),
+                          _terminals(Val(:pio_multiconductor_network_inverter_based_resource_terminal_at), lib, p, i, v.terminal_map_count),
                           _str(v.topology), _str(v.prime_mover), _f64s(v.apparent_power_limit_va),
                           _optional_f64s(v.current_limit_a, v.has_current_limit),
                           _optional(v.active_power_available_w, v.has_active_power_available),
@@ -511,7 +505,7 @@ _element(::Type{InverterBasedResource}, net::MulticonductorNetwork, i) = _with_n
 end
 
 _element(::Type{ControlProfile}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioControlProfileView, :pio_multiconductor_network_control_profile_at, lib, p, i)
+    v = _at(PioControlProfileView, Val(:pio_multiconductor_network_control_profile_at), lib, p, i)
     volt_var = v.has_volt_var ? VoltVarControl(
         _optional_str(v.volt_var_voltage_reference, v.has_volt_var_voltage_reference),
         _f64s(v.volt_var_breakpoints), _f64s(v.volt_var_reactive_power_limits),
@@ -528,43 +522,43 @@ _element(::Type{ControlProfile}, net::MulticonductorNetwork, i) = _with_network(
 end
 
 _element(::Type{MulticonductorShunt}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioMulticonductorShuntView, :pio_multiconductor_network_shunt_at, lib, p, i)
+    v = _at(PioMulticonductorShuntView, Val(:pio_multiconductor_network_shunt_at), lib, p, i)
     MulticonductorShunt(_str(v.name), _str(v.bus),
-                        _terminals(:pio_multiconductor_network_shunt_terminal_at, lib, p, i, v.terminal_map_count),
-                        _matrix(:pio_multiconductor_network_shunt_conductance_matrix_row_at, lib, p, i, v.conductance_matrix_row_count),
-                        _matrix(:pio_multiconductor_network_shunt_susceptance_matrix_row_at, lib, p, i, v.susceptance_matrix_row_count))
+                        _terminals(Val(:pio_multiconductor_network_shunt_terminal_at), lib, p, i, v.terminal_map_count),
+                        _matrix(Val(:pio_multiconductor_network_shunt_conductance_matrix_row_at), lib, p, i, v.conductance_matrix_row_count),
+                        _matrix(Val(:pio_multiconductor_network_shunt_susceptance_matrix_row_at), lib, p, i, v.susceptance_matrix_row_count))
 end
 
 _element(::Type{MulticonductorCapacitor}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioMulticonductorCapacitorView, :pio_multiconductor_network_capacitor_at, lib, p, i)
+    v = _at(PioMulticonductorCapacitorView, Val(:pio_multiconductor_network_capacitor_at), lib, p, i)
     MulticonductorCapacitor(_str(v.name), _str(v.bus),
-                            _terminals(:pio_multiconductor_network_capacitor_terminal_at, lib, p, i, v.terminal_map_count),
+                            _terminals(Val(:pio_multiconductor_network_capacitor_terminal_at), lib, p, i, v.terminal_map_count),
                             _str(v.configuration), v.rated_reactive_power_var, v.nominal_voltage_v)
 end
 
 _element(::Type{VoltageSource}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioVoltageSourceView, :pio_multiconductor_network_voltage_source_at, lib, p, i)
+    v = _at(PioVoltageSourceView, Val(:pio_multiconductor_network_voltage_source_at), lib, p, i)
     VoltageSource(_str(v.name), _str(v.bus),
-                  _terminals(:pio_multiconductor_network_voltage_source_terminal_at, lib, p, i, v.terminal_map_count),
+                  _terminals(Val(:pio_multiconductor_network_voltage_source_terminal_at), lib, p, i, v.terminal_map_count),
                   _f64s(v.voltage_magnitude_v), _f64s(v.voltage_angle_rad),
                   _optional_f64s(v.energy_cost_rate_per_kwh, v.has_energy_cost_rate))
 end
 
 _element(::Type{UntypedObject}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioMulticonductorUntypedObjectView, :pio_multiconductor_network_untyped_object_at, lib, p, i)
+    v = _at(PioMulticonductorUntypedObjectView, Val(:pio_multiconductor_network_untyped_object_at), lib, p, i)
     properties = map(0:Int(v.property_count)-1) do j
-        prop = _at(PioMulticonductorUntypedPropertyView, :pio_multiconductor_network_untyped_object_property_at, lib, p, i, j)
+        prop = _at(PioMulticonductorUntypedPropertyView, Val(:pio_multiconductor_network_untyped_object_property_at), lib, p, i, j)
         Pair{Union{String,Nothing},String}(_optional_str(prop.name, prop.has_name), _str(prop.value))
     end
     UntypedObject(_str(v.class_name), _str(v.name), properties)
 end
 
 _element(::Type{SourceCommand}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioMulticonductorCommandView, :pio_multiconductor_network_command_at, lib, p, i)
+    v = _at(PioMulticonductorCommandView, Val(:pio_multiconductor_network_command_at), lib, p, i)
     SourceCommand(_str(v.verb), _str(v.args))
 end
 
 _element(::Type{Pair{String,String}}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioStringPropertyView, :pio_multiconductor_network_option_at, lib, p, i)
+    v = _at(PioStringPropertyView, Val(:pio_multiconductor_network_option_at), lib, p, i)
     _str(v.name) => _str(v.value)
 end

@@ -85,8 +85,9 @@ macro handle(name, release, doc)
             lib::String
             operation_lock::ReentrantLock
             release_function::Ptr{Cvoid}
-            function $(esc(name))(ptr::Ptr{Cvoid}, lib::AbstractString)
+            function $(esc(name))(ptr::Ptr, lib::AbstractString)
                 ptr == C_NULL && error("PowerIO: null $($(string(name)))")
+                ptr = Ptr{Cvoid}(ptr)
                 lib = String(lib)
                 free = _library_symbol(lib, $release)
                 h = new(ptr, lib, ReentrantLock(), free)

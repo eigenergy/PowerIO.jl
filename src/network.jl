@@ -543,8 +543,7 @@ function Base.getproperty(dc::DetailedConnectivity, name::Symbol)
     h = getfield(dc, :handle)
     lib = getfield(h, :lib)
     v = @with_handles h _fill(PioDetailedConnectivityCountsView, lib) do out, err
-        ccall(_library_symbol(lib, :pio_detailed_connectivity_counts), Bool,
-              (Ptr{Cvoid}, Ref{PioDetailedConnectivityCountsView}, Ref{Ptr{Cvoid}}), _ptr(h), out, err)
+        @capi lib :pio_detailed_connectivity_counts(_ptr(h), out, err)
     end
     names = fieldnames(PioDetailedConnectivityCountsView)
     return NamedTuple{names}(map(f -> Int(getfield(v, f)), names))
@@ -574,45 +573,41 @@ function Base.getindex(v::Elements{T}, i::Int) where {T}
 end
 Base.summary(io::IO, v::Elements{T}) where {T} = print(io, length(v), "-element Elements{", T, "}")
 
-# One typed view fill. `sym` names the `_at` entry point, `p` the network
-# pointer, and the indices are zero based.
-function _at(::Type{V}, sym::Symbol, lib, p::Ptr{Cvoid}, i::Integer) where {V}
+# One typed view fill. `entry` is `Val(:pio_..._at)`, `p` the network pointer,
+# and the indices are zero based.
+function _at(::Type{V}, entry, lib, p::Ptr{Cvoid}, i::Integer) where {V}
     return _fill(V, lib) do out, err
-        ccall(_library_symbol(lib, sym), Bool,
-              (Ptr{Cvoid}, Csize_t, Ref{V}, Ref{Ptr{Cvoid}}), p, Csize_t(i), out, err)
+        @capi lib entry(p, Csize_t(i), out, err)
     end
 end
-function _at(::Type{V}, sym::Symbol, lib, p::Ptr{Cvoid}, i::Integer, j::Integer) where {V}
+function _at(::Type{V}, entry, lib, p::Ptr{Cvoid}, i::Integer, j::Integer) where {V}
     return _fill(V, lib) do out, err
-        ccall(_library_symbol(lib, sym), Bool,
-              (Ptr{Cvoid}, Csize_t, Csize_t, Ref{V}, Ref{Ptr{Cvoid}}), p, Csize_t(i), Csize_t(j), out, err)
+        @capi lib entry(p, Csize_t(i), Csize_t(j), out, err)
     end
 end
-function _at(::Type{V}, sym::Symbol, lib, p::Ptr{Cvoid}, i::Integer, j::Integer, k::Integer) where {V}
+function _at(::Type{V}, entry, lib, p::Ptr{Cvoid}, i::Integer, j::Integer, k::Integer) where {V}
     return _fill(V, lib) do out, err
-        ccall(_library_symbol(lib, sym), Bool,
-              (Ptr{Cvoid}, Csize_t, Csize_t, Csize_t, Ref{V}, Ref{Ptr{Cvoid}}),
-              p, Csize_t(i), Csize_t(j), Csize_t(k), out, err)
+        @capi lib entry(p, Csize_t(i), Csize_t(j), Csize_t(k), out, err)
     end
 end
 
-_count(sym::Symbol, lib, p::Ptr{Cvoid}) =
-    Int(ccall(_library_symbol(lib, sym), Csize_t, (Ptr{Cvoid},), p))
+_count(entry, lib, p::Ptr{Cvoid}) =
+    Int(@capi lib entry(p))
 
 # --- BalancedNetwork properties ----------------------------------------------
 
 const _BALANCED_TABLES = (
-    buses = (Bus, :pio_balanced_network_bus_count),
-    branches = (Branch, :pio_balanced_network_branch_count),
-    generators = (Generator, :pio_balanced_network_generator_count),
-    loads = (Load, :pio_balanced_network_load_count),
-    shunts = (Shunt, :pio_balanced_network_shunt_count),
-    static_var_compensators = (StaticVarCompensator, :pio_balanced_network_static_var_compensator_count),
-    storage = (Storage, :pio_balanced_network_storage_count),
-    switches = (Switch, :pio_balanced_network_switch_count),
-    hvdc = (Hvdc, :pio_balanced_network_hvdc_count),
-    transformers_3w = (ThreeWindingTransformer, :pio_balanced_network_three_winding_transformer_count),
-    areas = (Area, :pio_balanced_network_area_count),
+    buses = (Bus, Val(:pio_balanced_network_bus_count)),
+    branches = (Branch, Val(:pio_balanced_network_branch_count)),
+    generators = (Generator, Val(:pio_balanced_network_generator_count)),
+    loads = (Load, Val(:pio_balanced_network_load_count)),
+    shunts = (Shunt, Val(:pio_balanced_network_shunt_count)),
+    static_var_compensators = (StaticVarCompensator, Val(:pio_balanced_network_static_var_compensator_count)),
+    storage = (Storage, Val(:pio_balanced_network_storage_count)),
+    switches = (Switch, Val(:pio_balanced_network_switch_count)),
+    hvdc = (Hvdc, Val(:pio_balanced_network_hvdc_count)),
+    transformers_3w = (ThreeWindingTransformer, Val(:pio_balanced_network_three_winding_transformer_count)),
+    areas = (Area, Val(:pio_balanced_network_area_count)),
 )
 
 const _BALANCED_SCALARS = (:name, :base_mva, :base_frequency, :geo, :detailed_connectivity)
@@ -621,33 +616,27 @@ function Base.getproperty(net::BalancedNetwork, name::Symbol)
     h = getfield(net, :handle)
     lib = getfield(h, :lib)
     if haskey(_BALANCED_TABLES, name)
-        T, count_sym = _BALANCED_TABLES[name]
-        n = @with_handles h _count(count_sym, lib, _ptr(h))
+        T, count_entry = _BALANCED_TABLES[name]
+        n = @with_handles h _count(count_entry, lib, _ptr(h))
         return Elements{T,BalancedNetwork}(net, n)
     elseif name === :name
-        return @with_handles h _str(ccall(_library_symbol(lib, :pio_balanced_network_name), PioStringView,
-                                         (Ptr{Cvoid},), _ptr(h)))
+        return @with_handles h _str(@capi lib :pio_balanced_network_name(_ptr(h)))
     elseif name === :base_mva
-        return @with_handles h ccall(_library_symbol(lib, :pio_balanced_network_base_mva), Float64,
-                                    (Ptr{Cvoid},), _ptr(h))
+        return @with_handles h @capi lib :pio_balanced_network_base_mva(_ptr(h))
     elseif name === :base_frequency
-        return @with_handles h ccall(_library_symbol(lib, :pio_balanced_network_base_frequency_hz), Float64,
-                                    (Ptr{Cvoid},), _ptr(h))
+        return @with_handles h @capi lib :pio_balanced_network_base_frequency_hz(_ptr(h))
     elseif name === :geo
         return @with_handles h begin
             v = _fill(PioBalancedGeoView, lib) do out, err
-                ccall(_library_symbol(lib, :pio_balanced_network_geo), Bool,
-                      (Ptr{Cvoid}, Ref{PioBalancedGeoView}, Ref{Ptr{Cvoid}}), _ptr(h), out, err)
+                @capi lib :pio_balanced_network_geo(_ptr(h), out, err)
             end
             _geo(v)
         end
     elseif name === :detailed_connectivity
         return @with_handles h begin
-            has = ccall(_library_symbol(lib, :pio_balanced_network_has_detailed_connectivity), Bool,
-                        (Ptr{Cvoid},), _ptr(h))
+            has = @capi lib :pio_balanced_network_has_detailed_connectivity(_ptr(h))
             has || return nothing
-            ptr = ccall(_library_symbol(lib, :pio_balanced_network_detailed_connectivity), Ptr{Cvoid},
-                        (Ptr{Cvoid},), _ptr(h))
+            ptr = @capi lib :pio_balanced_network_detailed_connectivity(_ptr(h))
             ptr == C_NULL ? nothing : DetailedConnectivity(DetailedConnectivityHandle(ptr, lib))
         end
     end
@@ -669,7 +658,7 @@ function _with_network(f, net::BalancedNetwork)
 end
 
 _element(::Type{Bus}, net::BalancedNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioBalancedBusView, :pio_balanced_network_bus_at, lib, p, i)
+    v = _at(PioBalancedBusView, Val(:pio_balanced_network_bus_at), lib, p, i)
     Bus(Int(v.id), _optional_str(v.component_id, v.has_component_id), _str(v.bus_type),
         v.vm_pu, v.va_degrees, v.base_kv, v.vmax_pu, v.vmin_pu,
         _optional(v.emergency_vmax_pu, v.has_emergency_voltage_limits),
@@ -679,7 +668,7 @@ _element(::Type{Bus}, net::BalancedNetwork, i) = _with_network(net) do lib, p
 end
 
 _element(::Type{Load}, net::BalancedNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioBalancedLoadView, :pio_balanced_network_load_at, lib, p, i)
+    v = _at(PioBalancedLoadView, Val(:pio_balanced_network_load_at), lib, p, i)
     m = v.voltage_model
     model = LoadVoltageModel(_str(m.kind), m.p_constant_power_mw, m.q_constant_power_mvar,
                              m.p_constant_current_mw, m.q_constant_current_mvar,
@@ -693,10 +682,10 @@ _element(::Type{Load}, net::BalancedNetwork, i) = _with_network(net) do lib, p
 end
 
 _element(::Type{Shunt}, net::BalancedNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioBalancedShuntView, :pio_balanced_network_shunt_at, lib, p, i)
+    v = _at(PioBalancedShuntView, Val(:pio_balanced_network_shunt_at), lib, p, i)
     control = if v.has_control
         blocks = map(0:Int(v.control_block_count)-1) do j
-            b = _at(PioShuntBlockView, :pio_balanced_network_shunt_block_at, lib, p, i, j)
+            b = _at(PioShuntBlockView, Val(:pio_balanced_network_shunt_block_at), lib, p, i, j)
             ShuntBlock(Int(b.steps), b.conductance_mw, b.susceptance_mvar)
         end
         ShuntControl(_str(v.control_mode), v.control_vmax_pu, v.control_vmin_pu,
@@ -711,7 +700,7 @@ _element(::Type{Shunt}, net::BalancedNetwork, i) = _with_network(net) do lib, p
 end
 
 _element(::Type{StaticVarCompensator}, net::BalancedNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioBalancedStaticVarCompensatorView, :pio_balanced_network_static_var_compensator_at, lib, p, i)
+    v = _at(PioBalancedStaticVarCompensatorView, Val(:pio_balanced_network_static_var_compensator_at), lib, p, i)
     StaticVarCompensator(_optional_str(v.component_id, v.has_component_id), Int(v.bus_id),
                          v.minimum_susceptance_siemens, v.maximum_susceptance_siemens,
                          v.voltage_setpoint_kv, v.reactive_power_setpoint_mvar,
@@ -721,14 +710,14 @@ _element(::Type{StaticVarCompensator}, net::BalancedNetwork, i) = _with_network(
 end
 
 _element(::Type{Branch}, net::BalancedNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioBalancedBranchView, :pio_balanced_network_branch_at, lib, p, i)
+    v = _at(PioBalancedBranchView, Val(:pio_balanced_network_branch_at), lib, p, i)
     ratings = map(0:Int(v.additional_rating_count)-1) do j
-        r = _at(PioBranchRatingView, :pio_balanced_network_branch_rating_at, lib, p, i, j)
+        r = _at(PioBranchRatingView, Val(:pio_balanced_network_branch_rating_at), lib, p, i, j)
         BranchRating(_str(r.name), r.rate_mva)
     end
     route = if v.has_route
         map(0:Int(v.route_point_count)-1) do j
-            pt = _at(PioBalancedLocationView, :pio_balanced_network_branch_route_point_at, lib, p, i, j)
+            pt = _at(PioBalancedLocationView, Val(:pio_balanced_network_branch_route_point_at), lib, p, i, j)
             Location(pt.x, pt.y, _optional_str(pt.kind, pt.has_kind))
         end
     else
@@ -746,9 +735,9 @@ _element(::Type{Branch}, net::BalancedNetwork, i) = _with_network(net) do lib, p
 end
 
 _element(::Type{Generator}, net::BalancedNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioBalancedGeneratorView, :pio_balanced_network_generator_at, lib, p, i)
+    v = _at(PioBalancedGeneratorView, Val(:pio_balanced_network_generator_at), lib, p, i)
     capabilities = map(0:Int(v.capability_count)-1) do j
-        c = _at(PioGeneratorCapabilityView, :pio_balanced_network_generator_capability_at, lib, p, i, j)
+        c = _at(PioGeneratorCapabilityView, Val(:pio_balanced_network_generator_capability_at), lib, p, i, j)
         GeneratorCapability(_str(c.name), _optional(c.value, c.has_value))
     end
     Generator(_optional_str(v.component_id, v.has_component_id), Int(v.bus_id), _str(v.energy_source),
@@ -762,7 +751,7 @@ _element(::Type{Generator}, net::BalancedNetwork, i) = _with_network(net) do lib
 end
 
 _element(::Type{Storage}, net::BalancedNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioBalancedStorageView, :pio_balanced_network_storage_at, lib, p, i)
+    v = _at(PioBalancedStorageView, Val(:pio_balanced_network_storage_at), lib, p, i)
     Storage(_optional_str(v.component_id, v.has_component_id), Int(v.bus_id),
             v.active_power_mw, v.reactive_power_mvar, v.energy_mwh, v.energy_rating_mwh,
             v.charge_rating_mw, v.discharge_rating_mw, v.charge_efficiency, v.discharge_efficiency,
@@ -773,7 +762,7 @@ _element(::Type{Storage}, net::BalancedNetwork, i) = _with_network(net) do lib, 
 end
 
 _element(::Type{Switch}, net::BalancedNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioBalancedSwitchView, :pio_balanced_network_switch_at, lib, p, i)
+    v = _at(PioBalancedSwitchView, Val(:pio_balanced_network_switch_at), lib, p, i)
     Switch(_optional_str(v.component_id, v.has_component_id), Int(v.from_bus_id), Int(v.to_bus_id),
            v.closed, _optional(v.thermal_rating_mva, v.has_thermal_rating),
            _optional(v.current_rating_a, v.has_current_rating),
@@ -784,7 +773,7 @@ _element(::Type{Switch}, net::BalancedNetwork, i) = _with_network(net) do lib, p
 end
 
 _element(::Type{Hvdc}, net::BalancedNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioBalancedHvdcView, :pio_balanced_network_hvdc_at, lib, p, i)
+    v = _at(PioBalancedHvdcView, Val(:pio_balanced_network_hvdc_at), lib, p, i)
     Hvdc(_optional_str(v.component_id, v.has_component_id), Int(v.from_bus_id), Int(v.to_bus_id),
          v.in_service, v.from_active_power_mw, v.to_active_power_mw,
          v.from_reactive_power_mvar, v.to_reactive_power_mvar, v.from_voltage_pu, v.to_voltage_pu,
@@ -801,7 +790,7 @@ _element(::Type{Hvdc}, net::BalancedNetwork, i) = _with_network(net) do lib, p
 end
 
 _element(::Type{ThreeWindingTransformer}, net::BalancedNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioBalancedThreeWindingTransformerView, :pio_balanced_network_three_winding_transformer_at, lib, p, i)
+    v = _at(PioBalancedThreeWindingTransformerView, Val(:pio_balanced_network_three_winding_transformer_at), lib, p, i)
     windings = map(0:Int(v.winding_count)-1) do j
         w = _at(PioThreeWindingTransformerWindingView,
                 :pio_balanced_network_three_winding_transformer_winding_at, lib, p, i, j)
@@ -821,7 +810,7 @@ _element(::Type{ThreeWindingTransformer}, net::BalancedNetwork, i) = _with_netwo
 end
 
 _element(::Type{Area}, net::BalancedNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioBalancedAreaView, :pio_balanced_network_area_at, lib, p, i)
+    v = _at(PioBalancedAreaView, Val(:pio_balanced_network_area_at), lib, p, i)
     Area(Int(v.number), _optional(Int(v.slack_bus_id), v.has_slack_bus), v.net_interchange_mw,
          v.tolerance_mw, _optional_str(v.name, v.has_name),
          _optional_str(v.component_id, v.has_component_id),

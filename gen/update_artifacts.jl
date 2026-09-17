@@ -83,8 +83,10 @@ struct CandidateReport
     gridfm_available::Bool
 end
 
+# Read an integer constant out of the binding sources. The value is written
+# either as `UInt32(7)` by hand or as a bare `7` by the generated raw layer.
 function _binding_const(name::AbstractString, files)
-    re = Regex("\\b$(name)\\s*=\\s*UInt32\\((\\d+)\\)")
+    re = Regex("\\b$(name)\\s*=\\s*(?:UInt32\\()?(\\d+)")
     for file in files
         path = joinpath(ROOT, "src", file)
         isfile(path) || continue
@@ -94,7 +96,7 @@ function _binding_const(name::AbstractString, files)
     error("$name not found in binding sources")
 end
 
-_binding_abi() = _binding_const("PIO_ABI_VERSION", ("capi.jl", "PowerIO.jl"))
+_binding_abi() = _binding_const("PIO_ABI_VERSION", ("capi.jl", "PowerIO.jl", "LibPowerIO.jl"))
 
 function validate_candidate(report::CandidateReport, tag::AbstractString;
                             binding_abi::UInt32=_binding_abi())
