@@ -209,55 +209,6 @@ pio_ac_scuc_instance_shunt_get	pending 0.11.3 parity work: AC SCUC instance tabl
 pio_ac_scuc_instance_transformer_control_at	pending 0.11.3 parity work: AC SCUC instance tables
 pio_ac_scuc_instance_transformer_control_count	pending 0.11.3 parity work: AC SCUC instance tables
 pio_ac_scuc_instance_violation_costs	pending 0.11.3 parity work: AC SCUC instance tables
-pio_detailed_connectivity_boundary_line_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_boundary_line_reactive_capability_point_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_boundary_line_reactive_capability_point_property_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_boundary_line_reactive_limit_property_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_bus_breaker_bus_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_busbar_section_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_calculated_bus_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_calculated_bus_node_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_component_alias_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_component_metadata_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_component_property_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_dc_busbar_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_dc_converter_unit_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_dc_ground_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_dc_line_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_dc_node_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_dc_series_device_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_dc_switch_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_dc_topological_node_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_equipment_reactive_capability_point_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_equipment_reactive_capability_point_property_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_equipment_reactive_limit_property_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_equipment_reactive_limits_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_external_identifier_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_internal_connection_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_junction_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_line_commutated_converter_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_line_commutated_converter_droop_curve_segment_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_node_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_omitted_field_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_operational_limit_group_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_operational_limit_group_property_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_subnetwork_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_subnetwork_component_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_substation_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_substation_geographical_tag_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_switch_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_tap_changer_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_tap_changer_step_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_temporary_limit_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_terminal_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_tie_line_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_voltage_level_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_voltage_level_bus_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_voltage_source_converter_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_voltage_source_converter_droop_curve_segment_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_voltage_source_converter_reactive_capability_point_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_voltage_source_converter_reactive_capability_point_property_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_detailed_connectivity_voltage_source_converter_reactive_limit_property_at	pending 0.11.3 parity work: detailed connectivity tables
 pio_apply_bus_load_active_power	pending 0.11.3 parity work: remaining operations
 pio_calculation_solution_balanced_network	pending 0.11.3 parity work: remaining operations
 pio_calculation_solution_multiconductor_network	pending 0.11.3 parity work: remaining operations

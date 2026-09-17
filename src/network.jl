@@ -527,30 +527,6 @@ struct Area
     area_type::Union{String,Nothing}
 end
 
-"""
-    DetailedConnectivity
-
-Source neutral detailed connectivity retained from node breaker formats such
-as XIIDM and CGMES. `dc.counts` is a `NamedTuple` of table lengths. The typed
-tables are not bound in this release.
-"""
-struct DetailedConnectivity
-    handle::DetailedConnectivityHandle
-end
-
-function Base.getproperty(dc::DetailedConnectivity, name::Symbol)
-    name === :counts || return getfield(dc, name)
-    h = getfield(dc, :handle)
-    lib = getfield(h, :lib)
-    v = @with_handles h _fill(PioDetailedConnectivityCountsView, lib) do out, err
-        @capi lib :pio_detailed_connectivity_counts(_ptr(h), out, err)
-    end
-    names = fieldnames(PioDetailedConnectivityCountsView)
-    return NamedTuple{names}(map(f -> Int(getfield(v, f)), names))
-end
-
-Base.propertynames(::DetailedConnectivity, private::Bool=false) = private ? (:counts, :handle) : (:counts,)
-
 # --- element collections ----------------------------------------------------
 
 """

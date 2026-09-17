@@ -87,7 +87,8 @@ Node breaker formats (XIIDM, CGMES) have substations, voltage levels,
 terminals, switches, and operational limits beyond the bus branch tables.
 `net.detailed_connectivity` is `nothing` for a bus branch source and a
 [`DetailedConnectivity`](@ref) otherwise; its `counts` property lists the
-table lengths. The typed tables are not bound in this release.
+table lengths and each of its 28 tables reads typed records. See
+[Detailed connectivity](connectivity.md).
 
 ```@docs
 BalancedNetwork

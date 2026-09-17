@@ -20,6 +20,7 @@ makedocs(;
         "Home" => "index.md",
         "Modules" => "modules.md",
         "Networks" => "networks.md",
+        "Detailed connectivity" => "connectivity.md",
         "Distribution" => "distribution.md",
         "Collections and instances" => "collections.md",
         "Matrices" => "matrices.md",
