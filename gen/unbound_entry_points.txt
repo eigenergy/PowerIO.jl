@@ -225,6 +225,3 @@ pio_detailed_connectivity_voltage_source_converter_droop_curve_segment_at	pendin
 pio_detailed_connectivity_voltage_source_converter_reactive_capability_point_at	pending 0.11.3 parity work: detailed connectivity tables
 pio_detailed_connectivity_voltage_source_converter_reactive_capability_point_property_at	pending 0.11.3 parity work: detailed connectivity tables
 pio_detailed_connectivity_voltage_source_converter_reactive_limit_property_at	pending 0.11.3 parity work: detailed connectivity tables
-pio_apply_bus_load_active_power	pending 0.11.3 parity work: remaining operations
-pio_calculation_solution_balanced_network	pending 0.11.3 parity work: remaining operations
-pio_calculation_solution_multiconductor_network	pending 0.11.3 parity work: remaining operations

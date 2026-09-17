@@ -50,10 +50,12 @@
             m = parse(fixture("goc3"))
             @test m isa PioModule{AcScucSolution}
             solution = m.value
-            @test propertynames(solution) == (:instance, :termination, :objective)
+            @test propertynames(solution) == (:instance, :network, :termination, :objective)
             @test solution.instance isa AcScucInstance
             @test solution.instance.network isa BalancedNetwork
             @test solution.instance.network.name == "goc3"
+            @test solution.network isa BalancedNetwork
+            @test solution.network.name == "goc3"
             @test length(solution.instance.network.buses) == 2
             @test solution.termination == "not_reported"
             @test solution.objective === nothing
@@ -70,6 +72,8 @@
             solution = m.value
             @test solution.instance isa AcOpfInstance
             @test length(solution.instance.network.buses) == 14
+            @test solution.network isa BalancedNetwork
+            @test length(solution.network.buses) == 14
             @test solution.termination == "not_reported"
             @test solution.objective isa Float64
             @test solution.objective > 0
@@ -85,6 +89,14 @@
             @test e isa PowerIOError
             @test e.code == "REQUEST.CAPI.QUANTITY_UNKNOWN"
             @test occursin("AcOpfSolution(not_reported)", sprint(show, solution))
+        end
+
+        @testset "a multiconductor solution reports its own network" begin
+            solution = deserialize(fixture("dist", "lindist3flow-solution.pio.json")).value
+            @test solution isa LinDist3FlowOpfSolution
+            @test propertynames(solution) == (:instance, :network, :termination, :objective)
+            @test solution.network isa MulticonductorNetwork
+            @test length(solution.network.buses) == length(solution.instance.network.buses)
         end
 
         @testset "to_*_instance constructions" begin

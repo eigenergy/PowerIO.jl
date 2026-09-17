@@ -66,6 +66,7 @@ names. Readers without LinDist3Flow support reject those types; existing types
 retain their representation.
 
 A solution answers an instance. `solution.instance` is that instance,
+`solution.network` is the network the solution is defined over,
 `solution.termination` is the solver status (`"converged"`, `"iteration_limit"`,
 `"infeasible"`, `"unbounded"`, `"failed"`, `"not_reported"`), and
 `solution.objective` is the reported objective or `nothing`. You read a named

@@ -55,6 +55,8 @@ const EXPORTED_NAMES = Set([
     :ScucStartupCostAdjustment, :ScucStartupLimit, :ScucEnergyRequirement, :ScucShunt,
     :ScucBranchSwitchingCost, :ScucTransformerControl, :ScucActiveReserveZone,
     :ScucReactiveReserveZone, :ScucContingency, :ScucViolationCosts,
+    # bus load updates
+    :apply_bus_load_active_power,
 ])
 
 # Names the 0.10 binding exported and 0.11 removes. None may be defined.

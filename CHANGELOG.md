@@ -6,6 +6,11 @@
   devices with their periods, energy cost blocks and reserve costs, shunts,
   branch switching costs, transformer controls, active and reactive reserve
   zones, contingencies, and the instance wide violation costs.
+- Set the total active demand at one bus with
+  `apply_bus_load_active_power`, spread over the loads there proportionally or
+  equally.
+- Read the network a calculation solution is defined over as
+  `solution.network`, for every solution type.
 - Generate the raw C layer. `src/LibPowerIO.jl` now comes from
   `powerio-capi/include/powerio.h` through `gen/generate.jl`, replacing the
   hand-written struct mirrors and call signatures, so a header change shows up
