@@ -18,15 +18,33 @@ artifact is used.
 
 ## ABI lockstep
 
-The binding targets exactly one C ABI version (`PIO_ABI_VERSION` in
-`src/capi.jl`, 7 for PowerIO 0.11); a mismatched library is refused at first
-use with an error naming both versions. Every `pio_*` entry point the binding
-calls appears as a Symbol literal in `src/`, and powerio's
+The binding targets exactly one C ABI version (7 for PowerIO 0.11); a
+mismatched library is refused at first use with an error naming both versions.
+Every `pio_*` entry point the binding calls appears as a Symbol literal in
+`src/`, written `@capi lib :pio_name(args...)`, and powerio's
 `scripts/check-capi-v7.sh` checks that list against the header, so a renamed
-or removed entry point fails the powerio pull request that changed it. When
-powerio bumps the ABI, update the constant, the struct mirrors in
-`src/views.jl`, and the renamed calls here, run the full suite against the
-matching powerio branch, and merge the two changes back to back.
+or removed entry point fails the powerio pull request that changed it.
+
+`src/LibPowerIO.jl` declares the whole C ABI: every entry point, every view
+struct, every opaque handle type, and the ABI number `PIO_ABI_VERSION` reads.
+It is generated from the header, never edited by hand:
+
+```
+julia --project=gen -e 'using Pkg; Pkg.instantiate()'
+julia --project=gen gen/generate.jl ../powerio/powerio-capi/include/powerio.h
+```
+
+Without the argument the generator reads `POWERIO_HEADER`, then a sibling
+powerio checkout. Its output is deterministic, so an unchanged header
+reproduces the file byte for byte, and CI regenerates against the powerio
+branch under test and fails when the committed file is stale. When powerio
+changes the header, rerun the generator, commit `src/LibPowerIO.jl`, adapt the
+calls here, run the full suite against the matching powerio branch, and merge
+the two changes back to back.
+
+`test/test_capi_coverage.jl` requires every generated entry point to be either
+called from `src/` or listed in `gen/unbound_entry_points.txt` with a reason,
+so a newly added powerio entry point cannot pass through unnoticed.
 
 Companion branches: a powerio pull request that changes the shared surface
 pushes a PowerIO.jl branch with the same name, and powerio's Julia binding job

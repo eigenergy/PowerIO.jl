@@ -30,6 +30,22 @@ A `PowerIO_jll` built from `gen/build_tarballs.jl` (the BinaryBuilder recipe)
 is the planned long term distribution; current releases use the artifact
 pipeline above.
 
+## Generated declarations
+
+The C header in each tarball is also the input to the binding's raw layer.
+`src/LibPowerIO.jl` is generated from `powerio-capi/include/powerio.h` by
+`gen/generate.jl`, a Clang.jl generator project under `gen/`, and declares
+every entry point, view struct, and opaque handle type, along with the ABI
+number the binding targets. It is never edited by hand:
+
+```
+julia --project=gen -e 'using Pkg; Pkg.instantiate()'
+julia --project=gen gen/generate.jl ../powerio/powerio-capi/include/powerio.h
+```
+
+The generator is deterministic, so an unchanged header reproduces the file
+byte for byte and a stale checkout shows up as a diff in CI.
+
 ## Resolution order
 
 The library resolves in this order:

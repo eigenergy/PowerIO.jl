@@ -2,6 +2,14 @@
 
 ## 0.11.3
 
+- Generate the raw C layer. `src/LibPowerIO.jl` now comes from
+  `powerio-capi/include/powerio.h` through `gen/generate.jl`, replacing the
+  hand-written struct mirrors and call signatures, so a header change shows up
+  as a diff instead of a struct read at the wrong offsets.
+- Check entry point coverage: every generated entry point is either called by
+  the binding or listed in `gen/unbound_entry_points.txt` with a reason.
+- Raise the Julia floor to 1.10.
+- Add Dependabot updates for GitHub Actions and the Julia environments.
 - Coordinate the Julia package with PowerIO 0.11.3, whose C ABI 7 adds symbols
   for PSS/E contingency analysis files additively.
 - The added contingency analysis symbols are not bound in Julia in this

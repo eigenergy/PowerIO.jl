@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        julia-version: ['1.9', '1']
+        julia-version: ['1.10', '1']
     env:
       JULIA_NUM_THREADS: "4"
       POWERIO_REQUIRE_LIBRARY: "1"
@@ -93,10 +93,23 @@ jobs:
             features="$features,prob"
           fi
           cargo build -p powerio-capi --release --features "$features" --manifest-path powerio/Cargo.toml
+      # src/LibPowerIO.jl is generated from the checked out header. Regenerating
+      # it here turns a header change that nobody regenerated against into a diff.
+      - name: Check the generated raw layer is current
+        if: steps.powerio.outputs.available == 'true' && matrix.julia-version == '1'
+        run: |
+          julia --project=gen -e 'using Pkg; Pkg.instantiate()'
+          julia --project=gen gen/generate.jl powerio/powerio-capi/include/powerio.h
+          git add -N .
+          git diff --exit-code -- src/LibPowerIO.jl || {
+            echo "::error::src/LibPowerIO.jl is stale; run 'julia --project=gen gen/generate.jl' and commit the result"
+            exit 1
+          }
       - uses: julia-actions/julia-buildpkg@e3eb439fad4f9aba7da2667e7510e4a46ebc46e1 # v1.7.0
       - uses: julia-actions/julia-runtest@6e050c8013b833b1195105ff2fce9cd802f53271 # v1.12.0
         env:
           POWERIO_CAPI: ${{ steps.powerio.outputs.available == 'true' && format('{0}/powerio/target/release/libpowerio_capi.so', github.workspace) || '' }}
+          POWERIO_HEADER: ${{ github.workspace }}/powerio/powerio-capi/include/powerio.h
 
   docs:
     name: Documentation
