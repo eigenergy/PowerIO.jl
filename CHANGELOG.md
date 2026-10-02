@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.11.4
+
+- Coordinate the Julia package with PowerIO 0.11.4. The bundled library no
+  longer counts an out-of-service load or shunt: the indexed bus aggregates,
+  and through them the admittance matrix, the AC power flow Jacobian, and the
+  DC and AC OPF preparations, now take in-service loads and shunts only. A
+  network whose loads and shunts are all in service builds exactly what it
+  built before.
+- `deserialize` reads back multiconductor solutions over more than 65,536
+  bus terminals, the operating point and solution vector bound of PowerIO
+  0.11.4.
+- Allow SHA 1 alongside 0.7, and state the PowerIO compat of the
+  documentation environment.
+
+C ABI 7 and PowerIO IR version 2 remain unchanged.
+
 ## 0.11.3
 
 - Bind the PSS/E contingency analysis files. `ContingencySet`, `SubsystemSet`,
