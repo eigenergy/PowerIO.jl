@@ -116,6 +116,21 @@
             @test_throws PowerIOError to_mc_ac_pf_instance(m)
 
             feeder = parse(fixture("dist", "switch.dss"))
+            # The open stub is a separate unsourced island. Construction must
+            # refuse it without deleting or implicitly energizing the bus.
+            for construct in (to_mc_ac_pf_instance, to_mc_ac_opf_instance)
+                err = try
+                    construct(feeder)
+                    nothing
+                catch e
+                    e
+                end
+                @test err isa PowerIOError
+                @test occursin("has no voltage source", sprint(showerror, err))
+            end
+            connected = replace(read(fixture("dist", "switch.dss"), String),
+                                "Normal=open Action=open" => "Normal=closed Action=close")
+            feeder = parse(IOBuffer(connected); format="dss", name="connected-switch.dss")
             mc = to_mc_ac_pf_instance(feeder)
             @test mc isa PioModule{McAcPfInstance}
             @test mc.value.network isa MulticonductorNetwork
