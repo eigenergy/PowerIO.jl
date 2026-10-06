@@ -259,6 +259,8 @@ end
 
 One ideal voltage source with per terminal magnitude (volts), angle
 (radians), and optional per-phase energy cost rates (dollars/kWh).
+`reference_terminal` names the other voltage endpoint on `bus`; `nothing`
+means earth. A named reference does not imply grounding.
 """
 struct VoltageSource
     name::String
@@ -267,7 +269,12 @@ struct VoltageSource
     voltage_magnitude_v::Vector{Float64}
     voltage_angle_rad::Vector{Float64}
     energy_cost_rate_per_kwh::Union{Vector{Float64},Nothing}
+    reference_terminal::Union{String,Nothing}
 end
+
+# Preserve the existing constructor for earth-referenced sources.
+VoltageSource(name, bus, terminals, magnitude, angle, cost) =
+    VoltageSource(name, bus, terminals, magnitude, angle, cost, nothing)
 
 """
     UntypedObject
@@ -536,12 +543,25 @@ _element(::Type{MulticonductorCapacitor}, net::MulticonductorNetwork, i) = _with
                             _str(v.configuration), v.rated_reactive_power_var, v.nominal_voltage_v)
 end
 
-_element(::Type{VoltageSource}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioVoltageSourceView, Val(:pio_multiconductor_network_voltage_source_at), lib, p, i)
+function _voltage_source_record(lib, p, i, v::PioVoltageSourceView, reference)
     VoltageSource(_str(v.name), _str(v.bus),
                   _terminals(Val(:pio_multiconductor_network_voltage_source_terminal_at), lib, p, i, v.terminal_map_count),
                   _f64s(v.voltage_magnitude_v), _f64s(v.voltage_angle_rad),
-                  _optional_f64s(v.energy_cost_rate_per_kwh, v.has_energy_cost_rate))
+                  _optional_f64s(v.energy_cost_rate_per_kwh, v.has_energy_cost_rate), reference)
+end
+
+_element(::Type{VoltageSource}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
+    # The additive accessor is absent from earlier ABI 7 libraries. Those
+    # libraries cannot deserialize a referenced source and retain the old view.
+    if Libdl.dlsym(_library_handle(lib), :pio_multiconductor_network_voltage_source_boundary_at;
+                   throw_error=false) !== nothing
+        boundary = _at(PioVoltageSourceBoundaryView,
+                       Val(:pio_multiconductor_network_voltage_source_boundary_at), lib, p, i)
+        return _voltage_source_record(lib, p, i, boundary.source,
+            _optional_str(boundary.reference_terminal, boundary.has_reference_terminal))
+    end
+    v = _at(PioVoltageSourceView, Val(:pio_multiconductor_network_voltage_source_at), lib, p, i)
+    _voltage_source_record(lib, p, i, v, nothing)
 end
 
 _element(::Type{UntypedObject}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p

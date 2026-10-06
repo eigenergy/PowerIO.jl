@@ -5,6 +5,11 @@ OpenDSS, PMD JSON, and BMOPF sources parse into a
 length impedance matrices, transformers with windings, loads and generators
 with per terminal powers.
 
+`VoltageSource.reference_terminal` identifies the other voltage endpoint on
+the source bus. `nothing` means earth; a terminal name does not imply
+grounding. Reference-aware views require the additive C accessors; older
+ABI 7 libraries continue to expose their earth-referenced sources.
+
 ```julia
 feeder = parse("IEEE13Nodeckt.dss")     # PioModule{MulticonductorNetwork}
 net = feeder.value
