@@ -22,7 +22,7 @@ function validate_assets(release)
 end
 
 function test_candidate(library; runner=Pkg.test)
-    withenv("POWERIO_CAPI" => library, "PAIRED_RELEASES" => "true") do
+    withenv("POWERIO_CAPI" => library, "PAIRED_RELEASES" => "true", "POWERIO_REQUIRE_LIBRARY" => "1") do
         runner()
     end
 end

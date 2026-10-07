@@ -14,12 +14,14 @@ include(joinpath(@__DIR__, "..", "gen", "paired_release.jl"))
 end
 
 @testset "Paired candidate test environment" begin
-    withenv("PAIRED_RELEASES" => "false", "POWERIO_CAPI" => "legacy") do
+    withenv("PAIRED_RELEASES" => "false", "POWERIO_CAPI" => "legacy", "POWERIO_REQUIRE_LIBRARY" => "0") do
         PowerIOPairedRelease.test_candidate("candidate"; runner=() -> begin
             @test ENV["PAIRED_RELEASES"] == "true"
             @test ENV["POWERIO_CAPI"] == "candidate"
+            @test ENV["POWERIO_REQUIRE_LIBRARY"] == "1"
         end)
         @test ENV["PAIRED_RELEASES"] == "false"
         @test ENV["POWERIO_CAPI"] == "legacy"
+        @test ENV["POWERIO_REQUIRE_LIBRARY"] == "0"
     end
 end
