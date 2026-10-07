@@ -37,3 +37,5 @@ fixture(parts...) = joinpath(DATA, parts...)
     include("test_bridges.jl")            # PowerModels and ExaModelsPower bridges
     include("test_aqua.jl")               # Aqua quality checks
 end
+
+include("test_paired_release.jl")
