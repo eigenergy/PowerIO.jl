@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.11.5
+
+- Coordinate with PowerIO 0.11.5: large CGMES inputs use the increased
+  acquisition limits, transformer winding connectivity is corrected, and
+  PSS/E switched-shunt modes follow the corrected discrete/continuous mapping.
 
 - Validate frozen paired release candidates against the five PowerIO binary
   assets, then register the exact tested Julia commit. Keep the legacy release
