@@ -125,11 +125,21 @@ struct PioSincalReadOptions
     has_snapshot_hours::Bool
     snapshot_hours::Cdouble
     acquired_tables::PioStringView
+    assume_inactive_source_controls::Bool
+end
+
+struct PioSincalBalancedReadOptions
+    has_variant::Bool
+    variant::Int64
+    has_snapshot_hours::Bool
+    snapshot_hours::Cdouble
+    acquired_tables::PioStringView
 end
 
 struct PioParseOptions
     acquisition_root::PioStringView
     sincal_multiconductor::Ptr{PioSincalReadOptions}
+    sincal_balanced::Ptr{PioSincalBalancedReadOptions}
 end
 
 struct PioModuleProducerView

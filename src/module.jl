@@ -152,26 +152,55 @@ function _module_value(lib::AbstractString, handle::ModuleHandle)
 end
 
 """
-    SincalReadOptions(; variant=nothing, snapshot_hours=nothing, acquired_tables=nothing)
+    SincalReadOptions(; variant=nothing, snapshot_hours=nothing, acquired_tables=nothing,
+                      assume_inactive_source_controls=false)
 
 Explicit conductor-resolved SINCAL selection. `variant` is a native ID;
 `snapshot_hours` selects a daily snapshot. `acquired_tables` is a relative
 companion name for explicitly acquired Access records. Parsing retains the
 original MDB and verifies its length/hash; it never runs an acquisition tool.
 Use with `parse(...; format="sincal-multiconductor", sincal_multiconductor=...)`.
+`assume_inactive_source_controls=true` opts into experimental schema-11.5 NULL
+source-control defaults. Every applied assumption emits a diagnostic.
 """
 struct SincalReadOptions
     variant::Union{Int64,Nothing}
     snapshot_hours::Union{Float64,Nothing}
     acquired_tables::Union{String,Nothing}
+    assume_inactive_source_controls::Bool
 end
 
 function SincalReadOptions(; variant::Union{Integer,Nothing}=nothing,
                           snapshot_hours::Union{Real,Nothing}=nothing,
-                          acquired_tables::Union{AbstractString,Nothing}=nothing)
+                          acquired_tables::Union{AbstractString,Nothing}=nothing,
+                          assume_inactive_source_controls::Bool=false)
     variant isa Bool && throw(ArgumentError("variant must be an integer ID, not Bool"))
     snapshot_hours isa Bool && throw(ArgumentError("snapshot_hours must be a number, not Bool"))
     return SincalReadOptions(variant === nothing ? nothing : Int64(variant),
+        snapshot_hours === nothing ? nothing : Float64(snapshot_hours),
+        acquired_tables === nothing ? nothing : String(acquired_tables),
+        assume_inactive_source_controls)
+end
+
+"""
+    SincalBalancedReadOptions(; variant=nothing, snapshot_hours=nothing, acquired_tables=nothing)
+
+Explicit balanced SINCAL selection. Use with `format="sincal-balanced"` and
+`sincal_balanced=...`. The optional Access companion is verified against the
+original MDB; parsing never runs an external acquisition tool.
+"""
+struct SincalBalancedReadOptions
+    variant::Union{Int64,Nothing}
+    snapshot_hours::Union{Float64,Nothing}
+    acquired_tables::Union{String,Nothing}
+end
+
+function SincalBalancedReadOptions(; variant::Union{Integer,Nothing}=nothing,
+                          snapshot_hours::Union{Real,Nothing}=nothing,
+                          acquired_tables::Union{AbstractString,Nothing}=nothing)
+    variant isa Bool && throw(ArgumentError("variant must be an integer ID, not Bool"))
+    snapshot_hours isa Bool && throw(ArgumentError("snapshot_hours must be a number, not Bool"))
+    return SincalBalancedReadOptions(variant === nothing ? nothing : Int64(variant),
         snapshot_hours === nothing ? nothing : Float64(snapshot_hours),
         acquired_tables === nothing ? nothing : String(acquired_tables))
 end
@@ -180,10 +209,11 @@ _optional_input_view(s) = s === nothing ? PioStringView(C_NULL, 0) : PioStringVi
 
 function _parse_source(lib::AbstractString, source::SourceHandle, format;
                        sincal_multiconductor::Union{SincalReadOptions,Nothing}=nothing,
+                       sincal_balanced::Union{SincalBalancedReadOptions,Nothing}=nothing,
                        acquisition_root::Union{AbstractString,Nothing}=nothing)
     fmt = format === nothing ? "" : String(format)
     try
-        ptr = if sincal_multiconductor === nothing && acquisition_root === nothing
+        ptr = if sincal_multiconductor === nothing && sincal_balanced === nothing && acquisition_root === nothing
             @with_handles source fmt _checked(lib) do err
                 @capi lib :pio_parse(_ptr(source), format === nothing ? C_NULL : pointer(fmt), sizeof(fmt), err)
             end
@@ -191,13 +221,19 @@ function _parse_source(lib::AbstractString, source::SourceHandle, format;
             root = acquisition_root === nothing ? nothing : String(acquisition_root)
             choice = sincal_multiconductor === nothing ? SincalReadOptions() : sincal_multiconductor
             tables = choice.acquired_tables
-            @with_handles source fmt root tables begin
+            balanced = sincal_balanced === nothing ? SincalBalancedReadOptions() : sincal_balanced
+            balanced_tables = balanced.acquired_tables
+            @with_handles source fmt root tables balanced_tables begin
                 selected = Ref(PioSincalReadOptions(choice.variant !== nothing,
                     something(choice.variant, Int64(0)), choice.snapshot_hours !== nothing,
-                    something(choice.snapshot_hours, 0.0), _optional_input_view(tables)))
-                @with_handles selected begin
+                    something(choice.snapshot_hours, 0.0), _optional_input_view(tables), choice.assume_inactive_source_controls))
+                selected_balanced = Ref(PioSincalBalancedReadOptions(balanced.variant !== nothing,
+                    something(balanced.variant, Int64(0)), balanced.snapshot_hours !== nothing,
+                    something(balanced.snapshot_hours, 0.0), _optional_input_view(balanced_tables)))
+                @with_handles selected selected_balanced begin
                     options = Ref(PioParseOptions(_optional_input_view(root),
-                        sincal_multiconductor === nothing ? C_NULL : Base.unsafe_convert(Ptr{PioSincalReadOptions}, selected)))
+                        sincal_multiconductor === nothing ? C_NULL : Base.unsafe_convert(Ptr{PioSincalReadOptions}, selected),
+                        sincal_balanced === nothing ? C_NULL : Base.unsafe_convert(Ptr{PioSincalBalancedReadOptions}, selected_balanced)))
                     @with_handles options _checked(lib) do err
                         @capi lib :pio_parse_with_options(_ptr(source),
                             format === nothing ? C_NULL : pointer(fmt), sizeof(fmt), options, err)
@@ -230,7 +266,9 @@ give time series and scenario sets; GO Challenge 3 and OPFData give
 calculation instances and solutions.
 
 Explicit `sincal_multiconductor=SincalReadOptions(...)` requires the matching
-`format="sincal-multiconductor"`. Path inputs may widen their acquisition root
+`format="sincal-multiconductor"`. Balanced inputs use
+`sincal_balanced=SincalBalancedReadOptions(...)` and `format="sincal-balanced"`.
+Path inputs may widen their acquisition root
 with `acquisition_root`; memory inputs receive `named_buffers` and never read
 companions from disk. C/Julia options do not change the returned network family.
 
@@ -239,32 +277,35 @@ Parse failures throw [`PowerIOError`](@ref).
 """
 function Base.parse(path::AbstractString; format::Union{AbstractString,Nothing}=nothing,
                     sincal_multiconductor::Union{SincalReadOptions,Nothing}=nothing,
+                    sincal_balanced::Union{SincalBalancedReadOptions,Nothing}=nothing,
                     acquisition_root::Union{AbstractString,Nothing}=nothing,
                     named_buffers::Union{AbstractDict,Nothing}=nothing)
     named_buffers === nothing || throw(ArgumentError("named_buffers applies only to memory/IO sources"))
     lib = _checked_lib()
-    return _parse_source(lib, _source_open(lib, path), format; sincal_multiconductor, acquisition_root)
+    return _parse_source(lib, _source_open(lib, path), format; sincal_multiconductor, sincal_balanced, acquisition_root)
 end
 
 function Base.parse(io::IO; format::Union{AbstractString,Nothing}=nothing,
                     name::Union{AbstractString,Nothing}=nothing,
                     sincal_multiconductor::Union{SincalReadOptions,Nothing}=nothing,
+                    sincal_balanced::Union{SincalBalancedReadOptions,Nothing}=nothing,
                     named_buffers::Union{AbstractDict,Nothing}=nothing,
                     acquisition_root::Union{AbstractString,Nothing}=nothing)
     acquisition_root === nothing || throw(ArgumentError("acquisition_root applies only to path sources"))
     lib = _checked_lib()
     source_name = name === nothing ? _stream_name(io) : String(name)
-    return _parse_source(lib, _source_from_memory(lib, source_name, read(io); named_buffers), format; sincal_multiconductor)
+    return _parse_source(lib, _source_from_memory(lib, source_name, read(io); named_buffers), format; sincal_multiconductor, sincal_balanced)
 end
 
 function Base.parse(bytes::AbstractVector{UInt8}; format::Union{AbstractString,Nothing}=nothing,
                     name::AbstractString="<memory>",
                     sincal_multiconductor::Union{SincalReadOptions,Nothing}=nothing,
+                    sincal_balanced::Union{SincalBalancedReadOptions,Nothing}=nothing,
                     named_buffers::Union{AbstractDict,Nothing}=nothing,
                     acquisition_root::Union{AbstractString,Nothing}=nothing)
     acquisition_root === nothing || throw(ArgumentError("acquisition_root applies only to path sources"))
     lib = _checked_lib()
-    return _parse_source(lib, _source_from_memory(lib, name, bytes; named_buffers), format; sincal_multiconductor)
+    return _parse_source(lib, _source_from_memory(lib, name, bytes; named_buffers), format; sincal_multiconductor, sincal_balanced)
 end
 
 """

@@ -139,3 +139,17 @@ acquire companions from the filesystem. Original source echo and typed IR
 restoration are supported; fresh experimental writing is currently Rust-only.
 The new selections require the matching native build with
 `pio_parse_with_options` and `pio_source_from_memory_with_buffers`.
+
+Balanced Access snapshots use `SincalBalancedReadOptions` and the
+`sincal_balanced` keyword with `format="sincal-balanced"`. Distribution
+`SincalReadOptions` additionally exposes `assume_inactive_source_controls=false`:
+turning it on accepts the documented schema-11.5 NULL source-control assumption,
+with diagnostics and durable IR provenance. Active controls and missing electrical
+parameters still reject. The two selection types do not change network families.
+
+The CSIRO12 distribution path supports source echo, IR and PF preparation under
+that opt-in assumption. Ordinary DSS/PMD/BMOPF emission still refuses its
+reference-terminal source. PowerIO prepares calculation instances; it does not
+solve them. The matching native branch's `evals/sincal/check_julia_trial_workflows.jl`
+checks CSIRO19 snapshots and the CSIRO12 strict/compatibility paths without
+vendoring either original model.
