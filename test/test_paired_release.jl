@@ -12,3 +12,14 @@ include(joinpath(@__DIR__, "..", "gen", "paired_release.jl"))
     extra = (name="unreviewed.zip", digest="sha256:" * repeat("c", 64))
     @test_throws ErrorException PowerIOPairedRelease.validate_assets((prerelease=false, assets=[assets; extra]))
 end
+
+@testset "Paired candidate test environment" begin
+    withenv("PAIRED_RELEASES" => "false", "POWERIO_CAPI" => "legacy") do
+        PowerIOPairedRelease.test_candidate("candidate"; runner=() -> begin
+            @test ENV["PAIRED_RELEASES"] == "true"
+            @test ENV["POWERIO_CAPI"] == "candidate"
+        end)
+        @test ENV["PAIRED_RELEASES"] == "false"
+        @test ENV["POWERIO_CAPI"] == "legacy"
+    end
+end

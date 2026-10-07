@@ -21,6 +21,12 @@ function validate_assets(release)
                 if String(asset.name) in binaries)
 end
 
+function test_candidate(library; runner=Pkg.test)
+    withenv("POWERIO_CAPI" => library, "PAIRED_RELEASES" => "true") do
+        runner()
+    end
+end
+
 function prepare(tag)
     occursin(r"^v[0-9]+\.[0-9]+\.[0-9]+$", tag) || error("tag must be vX.Y.Z")
     TOML.parsefile(joinpath(ROOT, "Project.toml"))["version"] == tag[2:end] ||
@@ -49,9 +55,7 @@ function prepare(tag)
         run(`tar -xzf $archive -C $unpack`)
         library = Sys.iswindows() ? joinpath(unpack, "bin", "libpowerio_capi.dll") :
                   joinpath(unpack, "lib", Sys.isapple() ? "libpowerio_capi.dylib" : "libpowerio_capi.so")
-        withenv("POWERIO_CAPI" => library) do
-            Pkg.test()
-        end
+        test_candidate(library)
     end
     return nothing
 end

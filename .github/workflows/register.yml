@@ -182,6 +182,7 @@ jobs:
       - name: Test the approved Julia tree using published artifacts
         if: steps.state.outputs.action == 'register'
         env:
+          PAIRED_RELEASES: 'true'
           VERSION: ${{ inputs.version }}
         run: |
           julia --project=PowerIO.jl -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
