@@ -38,7 +38,7 @@ import SparseArrays
 # API; only the view structs the element tables read and `PioError` come into
 # this namespace by name. Entry points are called through `@capi`.
 include("LibPowerIO.jl")
-using .LibPowerIO: LibPowerIO, PioError, PioActivePowerControlView, PioBalancedAreaView,
+using .LibPowerIO: LibPowerIO, PioNamedBufferView, PioParseOptions, PioSincalReadOptions, PioError, PioActivePowerControlView, PioBalancedAreaView,
     PioBalancedBranchView, PioBalancedBusView, PioBalancedGeneratorView, PioBalancedGeoView,
     PioBalancedHvdcConverterView, PioBalancedHvdcView, PioBalancedLoadView,
     PioBalancedLocationView, PioBalancedShuntView, PioBalancedStaticVarCompensatorView,
@@ -60,7 +60,7 @@ using .LibPowerIO: LibPowerIO, PioError, PioActivePowerControlView, PioBalancedA
     PioTransformerControlView, PioVoltageSourceView, PioVoltageSourceBoundaryView
 
 # Operations. `parse` extends `Base.parse` and is not exported.
-export PioModule, emit, serialize, deserialize
+export PioModule, emit, serialize, deserialize, SincalReadOptions
 
 # Values.
 export BalancedNetwork, MulticonductorNetwork, TimeSeries, ScenarioSet, OperatingPoint,

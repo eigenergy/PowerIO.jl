@@ -114,3 +114,28 @@ build, set `POWERIO_CAPI=/path/to/libpowerio_capi.so` or call
 ## License
 
 MIT. See LICENSE.
+
+## SINCAL development reader
+
+The matching `codex/sincal-distribution-reader` native-library branch exposes
+separate `sincal-balanced` and `sincal-multiconductor` profiles. These produce
+`BalancedNetwork` and `MulticonductorNetwork` respectively. Unsupported
+conductor data is rejected rather than silently balanced.
+
+```julia
+using PowerIO
+module_ = parse("project/original.mdb"; format="sincal-multiconductor",
+    sincal_multiconductor=SincalReadOptions(
+        variant=1, snapshot_hours=6, acquired_tables="acquired.json"))
+```
+
+Access inputs require explicitly acquired table records paired with the
+original MDB. PowerIO verifies the original source length and hash; this is
+not independent attestation of the companion's table cells. Active daily
+profiles require an explicit snapshot. File companions stay within the source
+parent unless `acquisition_root` is explicitly supplied. Memory/IO inputs use
+`named_buffers=Dict("acquired.json" => read("acquired.json"))`; they cannot
+acquire companions from the filesystem. Original source echo and typed IR
+restoration are supported; fresh experimental writing is currently Rust-only.
+The new selections require the matching native build with
+`pio_parse_with_options` and `pio_source_from_memory_with_buffers`.

@@ -100,11 +100,32 @@ function _source_open(lib::AbstractString, path::AbstractString)
     return SourceHandle(ptr, lib)
 end
 
-function _source_from_memory(lib::AbstractString, name::AbstractString, bytes::AbstractVector{UInt8})
+function _source_from_memory(lib::AbstractString, name::AbstractString, bytes::AbstractVector{UInt8};
+                             named_buffers::Union{AbstractDict,Nothing}=nothing)
     name = String(name)
     data = bytes isa Vector{UInt8} ? bytes : Vector{UInt8}(bytes)
-    ptr = @with_handles data _checked(lib) do err
-        @capi lib :pio_source_from_memory(name, sizeof(name), pointer(data), length(data), err)
+    ptr = if named_buffers === nothing
+        @with_handles data name _checked(lib) do err
+            @capi lib :pio_source_from_memory(name, sizeof(name), pointer(data), length(data), err)
+        end
+    else
+        names = String[]
+        buffers = Vector{UInt8}[]
+        for (key, value) in named_buffers
+            key isa AbstractString || throw(ArgumentError("named buffer names must be strings"))
+            value isa AbstractVector{UInt8} || throw(ArgumentError("named buffers must contain byte vectors"))
+            push!(names, String(key))
+            push!(buffers, Vector{UInt8}(value))
+        end
+        @with_handles data name names buffers begin
+            views = [PioNamedBufferView(PioStringView(pointer(n), sizeof(n)),
+                                       PioByteView(pointer(b), length(b)))
+                     for (n, b) in zip(names, buffers)]
+            @with_handles views _checked(lib) do err
+                @capi lib :pio_source_from_memory_with_buffers(
+                    name, sizeof(name), pointer(data), length(data), pointer(views), length(views), err)
+            end
+        end
     end
     return SourceHandle(ptr, lib)
 end
@@ -130,13 +151,64 @@ function _module_value(lib::AbstractString, handle::ModuleHandle)
     return _wrap_value(lib, ValueHandle(vptr, lib), handle)
 end
 
-function _parse_source(lib::AbstractString, source::SourceHandle, format)
+"""
+    SincalReadOptions(; variant=nothing, snapshot_hours=nothing, acquired_tables=nothing)
+
+Explicit conductor-resolved SINCAL selection. `variant` is a native ID;
+`snapshot_hours` selects a daily snapshot. `acquired_tables` is a relative
+companion name for explicitly acquired Access records. Parsing retains the
+original MDB and verifies its length/hash; it never runs an acquisition tool.
+Use with `parse(...; format="sincal-multiconductor", sincal_multiconductor=...)`.
+"""
+struct SincalReadOptions
+    variant::Union{Int64,Nothing}
+    snapshot_hours::Union{Float64,Nothing}
+    acquired_tables::Union{String,Nothing}
+end
+
+function SincalReadOptions(; variant::Union{Integer,Nothing}=nothing,
+                          snapshot_hours::Union{Real,Nothing}=nothing,
+                          acquired_tables::Union{AbstractString,Nothing}=nothing)
+    variant isa Bool && throw(ArgumentError("variant must be an integer ID, not Bool"))
+    snapshot_hours isa Bool && throw(ArgumentError("snapshot_hours must be a number, not Bool"))
+    return SincalReadOptions(variant === nothing ? nothing : Int64(variant),
+        snapshot_hours === nothing ? nothing : Float64(snapshot_hours),
+        acquired_tables === nothing ? nothing : String(acquired_tables))
+end
+
+_optional_input_view(s) = s === nothing ? PioStringView(C_NULL, 0) : PioStringView(pointer(s), sizeof(s))
+
+function _parse_source(lib::AbstractString, source::SourceHandle, format;
+                       sincal_multiconductor::Union{SincalReadOptions,Nothing}=nothing,
+                       acquisition_root::Union{AbstractString,Nothing}=nothing)
     fmt = format === nothing ? "" : String(format)
-    ptr = @with_handles source fmt _checked(lib) do err
-        @capi lib :pio_parse(_ptr(source), format === nothing ? C_NULL : pointer(fmt), sizeof(fmt), err)
+    try
+        ptr = if sincal_multiconductor === nothing && acquisition_root === nothing
+            @with_handles source fmt _checked(lib) do err
+                @capi lib :pio_parse(_ptr(source), format === nothing ? C_NULL : pointer(fmt), sizeof(fmt), err)
+            end
+        else
+            root = acquisition_root === nothing ? nothing : String(acquisition_root)
+            choice = sincal_multiconductor === nothing ? SincalReadOptions() : sincal_multiconductor
+            tables = choice.acquired_tables
+            @with_handles source fmt root tables begin
+                selected = Ref(PioSincalReadOptions(choice.variant !== nothing,
+                    something(choice.variant, Int64(0)), choice.snapshot_hours !== nothing,
+                    something(choice.snapshot_hours, 0.0), _optional_input_view(tables)))
+                @with_handles selected begin
+                    options = Ref(PioParseOptions(_optional_input_view(root),
+                        sincal_multiconductor === nothing ? C_NULL : Base.unsafe_convert(Ptr{PioSincalReadOptions}, selected)))
+                    @with_handles options _checked(lib) do err
+                        @capi lib :pio_parse_with_options(_ptr(source),
+                            format === nothing ? C_NULL : pointer(fmt), sizeof(fmt), options, err)
+                    end
+                end
+            end
+        end
+        return _wrap_module(lib, ptr)
+    finally
+        release!(source)
     end
-    release!(source)
-    return _wrap_module(lib, ptr)
 end
 
 """
@@ -157,25 +229,42 @@ and BMOPF give `PioModule{MulticonductorNetwork}`; PyPSA and GridFM folders
 give time series and scenario sets; GO Challenge 3 and OPFData give
 calculation instances and solutions.
 
+Explicit `sincal_multiconductor=SincalReadOptions(...)` requires the matching
+`format="sincal-multiconductor"`. Path inputs may widen their acquisition root
+with `acquisition_root`; memory inputs receive `named_buffers` and never read
+companions from disk. C/Julia options do not change the returned network family.
+
 These methods extend `Base.parse` so the bare name works after `using PowerIO`.
 Parse failures throw [`PowerIOError`](@ref).
 """
-function Base.parse(path::AbstractString; format::Union{AbstractString,Nothing}=nothing)
+function Base.parse(path::AbstractString; format::Union{AbstractString,Nothing}=nothing,
+                    sincal_multiconductor::Union{SincalReadOptions,Nothing}=nothing,
+                    acquisition_root::Union{AbstractString,Nothing}=nothing,
+                    named_buffers::Union{AbstractDict,Nothing}=nothing)
+    named_buffers === nothing || throw(ArgumentError("named_buffers applies only to memory/IO sources"))
     lib = _checked_lib()
-    return _parse_source(lib, _source_open(lib, path), format)
+    return _parse_source(lib, _source_open(lib, path), format; sincal_multiconductor, acquisition_root)
 end
 
 function Base.parse(io::IO; format::Union{AbstractString,Nothing}=nothing,
-                    name::Union{AbstractString,Nothing}=nothing)
+                    name::Union{AbstractString,Nothing}=nothing,
+                    sincal_multiconductor::Union{SincalReadOptions,Nothing}=nothing,
+                    named_buffers::Union{AbstractDict,Nothing}=nothing,
+                    acquisition_root::Union{AbstractString,Nothing}=nothing)
+    acquisition_root === nothing || throw(ArgumentError("acquisition_root applies only to path sources"))
     lib = _checked_lib()
     source_name = name === nothing ? _stream_name(io) : String(name)
-    return _parse_source(lib, _source_from_memory(lib, source_name, read(io)), format)
+    return _parse_source(lib, _source_from_memory(lib, source_name, read(io); named_buffers), format; sincal_multiconductor)
 end
 
 function Base.parse(bytes::AbstractVector{UInt8}; format::Union{AbstractString,Nothing}=nothing,
-                    name::AbstractString="<memory>")
+                    name::AbstractString="<memory>",
+                    sincal_multiconductor::Union{SincalReadOptions,Nothing}=nothing,
+                    named_buffers::Union{AbstractDict,Nothing}=nothing,
+                    acquisition_root::Union{AbstractString,Nothing}=nothing)
+    acquisition_root === nothing || throw(ArgumentError("acquisition_root applies only to path sources"))
     lib = _checked_lib()
-    return _parse_source(lib, _source_from_memory(lib, name, bytes), format)
+    return _parse_source(lib, _source_from_memory(lib, name, bytes; named_buffers), format; sincal_multiconductor)
 end
 
 """

@@ -3,7 +3,7 @@
 const EXPORTED_NAMES = Set([
     :PowerIO,
     # operations
-    :PioModule, :emit, :serialize, :deserialize,
+    :PioModule, :emit, :serialize, :deserialize, :SincalReadOptions,
     # values
     :BalancedNetwork, :MulticonductorNetwork, :TimeSeries, :ScenarioSet, :OperatingPoint,
     :DcPfInstance, :AcPfInstance, :DcOpfInstance, :AcOpfInstance,
