@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Validate frozen paired release candidates against the five PowerIO binary
+  assets, then register the exact tested Julia commit. Keep the legacy release
+  intent checks active until paired automation is explicitly enabled.
+
+C ABI 7 and PowerIO IR version 2 remain unchanged.
+
 ## 0.11.4
 
 - Coordinate the Julia package with PowerIO 0.11.4. The bundled library no
