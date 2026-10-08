@@ -12,6 +12,8 @@ PowerIO
 
 ```@docs
 Base.parse(::AbstractString)
+SincalBalancedReadOptions
+SincalReadOptions
 ```
 
 ## Display and identity
