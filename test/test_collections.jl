@@ -116,11 +116,14 @@
             @test_throws PowerIOError to_mc_ac_pf_instance(m)
 
             feeder = parse(fixture("dist", "switch.dss"))
-            # The open stub is a separate unsourced island. Construction must
-            # refuse it without deleting or implicitly energizing the bus.
+            # Use an explicit unsourced load: the static snapshot does not
+            # execute SwtControl actions to isolate the existing fixture's stub.
+            unsourced = parse(IOBuffer("New Circuit.c phases=1 bus1=source.1 basekv=.24
+New Load.isolated phases=1 bus1=orphan.1.0 kv=.24 kw=1 kvar=0
+"); format="dss", name="unsourced.dss")
             for construct in (to_mc_ac_pf_instance, to_mc_ac_opf_instance)
                 err = try
-                    construct(feeder)
+                    construct(unsourced)
                     nothing
                 catch e
                     e
