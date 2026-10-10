@@ -51,18 +51,14 @@
 
             @test isempty(net.transformers)
             @test length(net.loads) == 1
-            # Early converter branches preserve bounded laws but their legacy
-            # C subset intentionally refuses incomplete voltage-law views.
-            try
-                load = net.loads[1]
-                @test load.name == "l1" && load.bus == "loadbus"
-                @test load.terminals == ["1", "2", "3", "4"]
-                @test sum(load.active_power_nominal_w) == 500_000.0
-            catch error
-                @test error isa PowerIOError
-                @test occursin("legacy load view cannot describe", sprint(showerror, error))
-                @test occursin("bounded_zip", serialize(m).text)
-            end
+            load = net.loads[1]
+            @test load.name == "l1" && load.bus == "loadbus"
+            @test load.terminals == ["1", "2", "3", "4"]   # three phases and the neutral
+            @test length(load.active_power_nominal_w) == 3  # one entry per phase
+            @test sum(load.active_power_nominal_w) == 500_000.0
+            @test load.voltage_model == "bounded_zip"
+            @test load.voltage_min_pu == 0.8 && load.voltage_max_pu == 1.2
+            @test load.cutoff_pu == 0.0 && load.current_limit_pu === nothing
 
             @test length(net.voltage_sources) == 1
             vs = net.voltage_sources[1]

@@ -139,7 +139,34 @@ struct MulticonductorLoad
     reactive_power_constant_power::Vector{Float64}
     active_power_exponent::Vector{Float64}
     reactive_power_exponent::Vector{Float64}
+    voltage_low_pu::Union{Nothing,Float64}
+    voltage_min_pu::Union{Nothing,Float64}
+    voltage_max_pu::Union{Nothing,Float64}
+    cutoff_pu::Union{Nothing,Float64}
+    current_limit_pu::Union{Nothing,Float64}
 end
+
+# Preserve the original positional constructor for ordinary load records.
+MulticonductorLoad(args::Vararg{Any,16}) =
+    MulticonductorLoad(args..., nothing, nothing, nothing, nothing, nothing)
+
+function _dist_load_law(v)
+    (model=_str(v.model), nominal_voltage_v=_f64s(v.nominal_voltage_v),
+     active_power_constant_impedance=_f64s(v.active_power_constant_impedance),
+     active_power_constant_current=_f64s(v.active_power_constant_current),
+     active_power_constant_power=_f64s(v.active_power_constant_power),
+     reactive_power_constant_impedance=_f64s(v.reactive_power_constant_impedance),
+     reactive_power_constant_current=_f64s(v.reactive_power_constant_current),
+     reactive_power_constant_power=_f64s(v.reactive_power_constant_power),
+     active_power_exponent=_f64s(v.active_power_exponent),
+     reactive_power_exponent=_f64s(v.reactive_power_exponent),
+     voltage_low_pu=_optional(v.voltage_low_pu, v.has_voltage_low),
+     voltage_min_pu=_optional(v.voltage_min_pu, v.has_voltage_min),
+     voltage_max_pu=_optional(v.voltage_max_pu, v.has_voltage_max),
+     cutoff_pu=_optional(v.cutoff_pu, v.has_cutoff),
+     current_limit_pu=_optional(v.current_limit_pu, v.has_current_limit))
+end
+
 
 """
     MulticonductorGenerator
@@ -471,15 +498,18 @@ _element(::Type{MulticonductorTransformer}, net::MulticonductorNetwork, i) = _wi
 end
 
 _element(::Type{MulticonductorLoad}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioMulticonductorLoadView, Val(:pio_multiconductor_network_load_at), lib, p, i)
+    v = _at(PioMulticonductorLoadDetailsView, Val(:pio_multiconductor_network_load_details_at), lib, p, i)
+    law = _dist_load_law(v.voltage_model)
     MulticonductorLoad(_str(v.name), _str(v.bus),
                        _terminals(Val(:pio_multiconductor_network_load_terminal_at), lib, p, i, v.terminal_map_count),
                        _str(v.configuration), _f64s(v.active_power_nominal_w), _f64s(v.reactive_power_nominal_var),
-                       _str(v.voltage_model), _f64s(v.nominal_voltage_v),
-                       _f64s(v.active_power_constant_impedance), _f64s(v.active_power_constant_current),
-                       _f64s(v.active_power_constant_power), _f64s(v.reactive_power_constant_impedance),
-                       _f64s(v.reactive_power_constant_current), _f64s(v.reactive_power_constant_power),
-                       _f64s(v.active_power_exponent), _f64s(v.reactive_power_exponent))
+                       law.model, law.nominal_voltage_v,
+                       law.active_power_constant_impedance, law.active_power_constant_current,
+                       law.active_power_constant_power, law.reactive_power_constant_impedance,
+                       law.reactive_power_constant_current, law.reactive_power_constant_power,
+                       law.active_power_exponent, law.reactive_power_exponent,
+                       law.voltage_low_pu, law.voltage_min_pu, law.voltage_max_pu,
+                       law.cutoff_pu, law.current_limit_pu)
 end
 
 _element(::Type{MulticonductorGenerator}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
