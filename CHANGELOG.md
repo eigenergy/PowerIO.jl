@@ -35,9 +35,6 @@
   their code for PSS/E output. A PowerIO IR document an earlier release wrote
   from a PSS/E case keeps the swapped mode when read with `deserialize`, so
   parse the case again.
-- Validate frozen paired release candidates against the five PowerIO binary
-  assets, then register the exact tested Julia commit. Keep the legacy release
-  intent checks active until paired automation is explicitly enabled.
 
 C ABI 7 and PowerIO IR version 2 remain unchanged.
 
