@@ -35,6 +35,18 @@
   their code for PSS/E output. A PowerIO IR document an earlier release wrote
   from a PSS/E case keeps the swapped mode when read with `deserialize`, so
   parse the case again.
+- PSS/E and RAWX two winding transformers whose winding 2 ratio is not one
+  now read with the impedance PSS/E solves with: `r` and `x` scale by the
+  square of that ratio and a winding 1 tap control range divides by it, so
+  those branches' `r`, `x`, and tap limits change. A transformer with a
+  winding 2 ratio of one reads as before. A PowerIO IR document an earlier
+  release wrote from such a case keeps the old impedance, so parse the case
+  again.
+- PSS/E RAW strings in double quotes read as one field, so a double-quoted
+  name or circuit id no longer shifts the columns after it.
+- `MonitoredSet` reads the contingency file spelling
+  `MONITOR BRANCH FROM BUS i TO BUS j [CIRCUIT c]` (also `LINE`) as a
+  one-branch statement instead of keeping it as text.
 
 C ABI 7 and PowerIO IR version 2 remain unchanged.
 
