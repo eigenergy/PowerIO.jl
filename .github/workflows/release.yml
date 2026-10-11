@@ -1,0 +1,256 @@
+name: Release
+
+# Releases PowerIO.jl X.Y.Z for each published powerio vX.Y.Z. The target is
+# the smallest published powerio release newer than the latest PowerIO version
+# in General. A run sets the version in Project.toml, names the changelog
+# section, pins the release binaries in Artifacts.toml, runs the full test
+# suite against them, pushes the release commit to main, and asks
+# JuliaRegistrator to register that commit. powerio's publish dispatch starts
+# a run at once; the hourly schedule retries whatever a run left undone and
+# exits within a minute when there is nothing to release.
+on:
+  repository_dispatch:
+    types: [powerio-release]
+  schedule:
+    - cron: "41 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Prepare and test without pushing, registering, or dispatching TagBot
+        type: boolean
+        default: false
+      source_sha:
+        description: >-
+          Recovery: build the release commit on this commit and push it to
+          release/vX.Y.Z instead of main
+        type: string
+        default: ""
+
+# The Registrator request is a commit comment from github-actions[bot].
+# Registrator refuses requests from an App or a personal access token.
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # Only a run on main releases; a run on any other ref is a dry run.
+      DRY_RUN: ${{ github.ref != 'refs/heads/main' || inputs.dry_run == true }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      # Commit comments as rows: login, created_at, age in seconds, first line.
+      COMMENT_ROWS: >-
+        .[] | [.user.login, .created_at,
+        (now - (.created_at | fromdateiso8601) | floor | tostring),
+        (.body | split("\n") | .[0] | rtrimstr("\r"))] | @tsv
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A branch ref checks out the branch tip when the job starts, so a
+          # run that waited for the concurrency group starts from current main.
+          ref: ${{ inputs.source_sha || github.ref }}
+          fetch-depth: 0
+      - uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
+        with:
+          version: "1"
+
+      - name: Select the powerio release
+        id: select
+        run: |
+          versions="$RUNNER_TEMP/Versions.toml"
+          curl --fail --silent --show-error --location --retry 3 --output "$versions" \
+            https://raw.githubusercontent.com/JuliaRegistries/General/master/P/PowerIO/Versions.toml
+          gh release list --repo eigenergy/powerio --limit 1000 \
+            --json tagName,isDraft,isPrerelease \
+            --jq '.[] | [.tagName, (.isDraft | tostring), (.isPrerelease | tostring)] | @tsv' \
+            > "$RUNNER_TEMP/releases.tsv"
+          latest=$(julia gen/release.jl latest "$versions")
+
+          # TagBot creates the GitHub release of each registered version.
+          code=$(curl --silent --show-error --location \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --output /dev/null --write-out '%{http_code}' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/v$latest")
+          case "$code" in
+            200) ;;
+            404)
+              if [ "$DRY_RUN" = true ]; then
+                echo "PowerIO $latest has no GitHub release; a run on main dispatches TagBot." \
+                  | tee -a "$GITHUB_STEP_SUMMARY"
+              else
+                gh workflow run TagBot.yml --ref main
+                echo "PowerIO $latest has no GitHub release; dispatched TagBot." \
+                  | tee -a "$GITHUB_STEP_SUMMARY"
+              fi
+              ;;
+            *) echo "::error::GitHub release API returned HTTP $code"; exit 1 ;;
+          esac
+
+          version=$(julia gen/release.jl next "$versions" "$RUNNER_TEMP/releases.tsv")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ -z "$version" ]; then
+            echo "No published powerio release is newer than PowerIO $latest in General." \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Releasing PowerIO.jl $version with powerio v$version." \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Check General for an open registration
+        id: pending
+        if: steps.select.outputs.version != ''
+        env:
+          VERSION: ${{ steps.select.outputs.version }}
+          # Rows: title, link, age in seconds, whether an AutoMerge check failed.
+          PR_ROWS: >-
+            .[] | [.title, .url,
+            (now - (.createdAt | fromdateiso8601) | floor | tostring),
+            ([.statusCheckRollup[]?
+            | select(((.name // .context // "") | test("automerge"; "i"))
+            and ((.conclusion // .state // "") | test("^(FAILURE|ERROR)$")))]
+            | length > 0 | tostring)] | @tsv
+        run: |
+          prs() {
+            gh pr list --repo JuliaRegistries/General --state open --limit 20 \
+              --search "\"New version: PowerIO v$VERSION\" in:title" \
+              --json "$1" --jq "$PR_ROWS" > "$RUNNER_TEMP/general-prs.tsv"
+          }
+          # The AutoMerge result is an early signal; the one hour limit
+          # still applies when the checks cannot be read.
+          prs title,url,createdAt,statusCheckRollup || {
+            echo "::warning::could not read the AutoMerge checks of General pull requests"
+            prs title,url,createdAt
+          }
+          state=$(julia gen/release.jl general-pr "$VERSION" "$RUNNER_TEMP/general-prs.tsv")
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+          if [ "$state" = wait ]; then
+            echo "The General pull request for PowerIO $VERSION is open and AutoMerge has not finished." \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Prepare the release files and pin the binaries
+        id: pin
+        if: steps.pending.outputs.state == 'none'
+        env:
+          VERSION: ${{ steps.select.outputs.version }}
+        run: |
+          julia gen/release.jl prepare "$VERSION"
+          # Checks the host binary's ABI, version string, core entry points,
+          # and GridFM parsing before it writes Artifacts.toml.
+          julia --project=. gen/update_artifacts.jl "v$VERSION" \
+            --status-file "$RUNNER_TEMP/artifact-status.toml"
+          cat "$RUNNER_TEMP/artifact-status.toml" >> "$GITHUB_STEP_SUMMARY"
+          julia gen/release.jl pin-status "$RUNNER_TEMP/artifact-status.toml"
+
+          requested=no
+          if git diff --quiet HEAD; then
+            # The checkout already is the release commit, so look for an earlier request on it.
+            gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/commits/$(git rev-parse HEAD)/comments?per_page=100" \
+              --jq "$COMMENT_ROWS" > "$RUNNER_TEMP/comments.tsv"
+            requested=$(julia gen/release.jl requested "$RUNNER_TEMP/comments.tsv")
+          fi
+          echo "requested=$requested" >> "$GITHUB_OUTPUT"
+          if [ "$requested" = yes ]; then
+            echo "Registration of $(git rev-parse HEAD) was requested within the last six hours." \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Test against the pinned binaries
+        if: steps.pin.outputs.requested == 'no'
+        env:
+          VERSION: ${{ steps.select.outputs.version }}
+          POWERIO_REQUIRE_LIBRARY: "1"
+        run: |
+          julia --project=. -e 'using Pkg; Pkg.instantiate()'
+          # The interpolation below belongs to Julia.
+          # shellcheck disable=SC2016
+          julia --project=. -e '
+            using PowerIO
+            version = PowerIO.library_version()
+            version == ENV["VERSION"] ||
+                error("the pinned library reports powerio $version, not $(ENV["VERSION"])")
+          '
+          julia --project=. -e 'using Pkg; Pkg.test()'
+          git diff --exit-code --name-only -- . ':!Project.toml' ':!CHANGELOG.md' ':!Artifacts.toml'
+
+      - name: Commit and push the release
+        id: commit
+        if: steps.pin.outputs.requested == 'no'
+        env:
+          VERSION: ${{ steps.select.outputs.version }}
+        run: |
+          if git diff --quiet HEAD; then
+            echo "$(git rev-parse HEAD) already holds the PowerIO.jl $VERSION release files."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add Project.toml CHANGELOG.md Artifacts.toml
+            git commit --quiet --message "release: PowerIO.jl $VERSION with powerio v$VERSION"
+            branch=main
+            [ -z "$SOURCE_SHA" ] || branch="release/v$VERSION"
+            if [ "$DRY_RUN" = true ]; then
+              echo "Dry run: would push $(git rev-parse HEAD) to $branch." \
+                | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              # A plain push. If the branch moved, the push is rejected and
+              # the next run starts again from the new tip.
+              git push origin "HEAD:refs/heads/$branch"
+            fi
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Request registration
+        if: steps.pin.outputs.requested == 'no'
+        env:
+          VERSION: ${{ steps.select.outputs.version }}
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          notes=$(julia gen/release.jl notes "$VERSION")
+          body=$(printf '@JuliaRegistrator register\n\nRelease notes:\n\n%s\n' "$notes")
+          if [ "$DRY_RUN" = true ]; then
+            {
+              echo "Dry run: would comment on $SHA:"
+              echo
+              echo '```'
+              echo "$body"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          comments="repos/$GITHUB_REPOSITORY/commits/$SHA/comments"
+          since=$(gh api "$comments" -f body="$body" --jq .created_at)
+          # Poll for about ten minutes. A reply other than a registration pull
+          # request fails the run with Registrator's message.
+          wait_for_reply() {
+            for _ in $(seq 20); do
+              sleep 30
+              gh api --paginate "$comments?per_page=100" --jq "$COMMENT_ROWS" \
+                > "$RUNNER_TEMP/comments.tsv"
+              reply=$(julia gen/release.jl reply "$RUNNER_TEMP/comments.tsv" "$since") || exit 1
+              [ "$reply" = ok ] && return 0
+            done
+            return 1
+          }
+          if ! wait_for_reply; then
+            echo "JuliaRegistrator has not replied; requesting registration again."
+            gh api "$comments" -f body="$body" > /dev/null
+            wait_for_reply || {
+              echo "::error::JuliaRegistrator did not reply to two registration requests on $SHA"
+              exit 1
+            }
+          fi
+          echo "JuliaRegistrator opened the General pull request for PowerIO $VERSION from $SHA." \
+            | tee -a "$GITHUB_STEP_SUMMARY"
