@@ -12,6 +12,9 @@
                             format="dss", name="bounded-$model.dss")
             network = module_.value
             load = network.loads[1]
+            @test_throws PowerIOError PowerIO._with_network(network) do lib, p
+                PowerIO._legacy_multiconductor_load(lib, p, 0)
+            end
             @test load.voltage_model == kind
             @test load.active_power_nominal_w == [1000.0]
             @test load.reactive_power_nominal_var == [500.0]
@@ -40,5 +43,29 @@
             old = MulticonductorLoad((getfield(load, f) for f in fieldnames(MulticonductorLoad)[1:16])...)
             @test old.voltage_min_pu === nothing
         end
+    end
+end
+
+@testset "Ordinary load legacy-view compatibility" begin
+    if !LIBRARY_AVAILABLE
+        @test_skip "libpowerio_capi unavailable"
+    else
+        module_ = parse(IOBuffer("New Circuit.c phases=1 bus1=b.1 basekv=.24
+New Load.l phases=1 bus1=b.1.0 kv=.24 kw=1 kvar=.5 model=2
+");
+                        format="dss", name="ordinary-load.dss")
+        network = module_.value
+        modern = network.loads[1]
+        legacy = PowerIO._with_network(network) do lib, p
+            PowerIO._legacy_multiconductor_load(lib, p, 0)
+        end
+        for field in fieldnames(MulticonductorLoad)
+            @test getfield(modern, field) == getfield(legacy, field)
+        end
+        module_ = nothing
+        GC.gc()
+        @test legacy.name == "l"
+        @test legacy.nominal_voltage_v == [240.0]
+        @test legacy.voltage_min_pu === nothing
     end
 end

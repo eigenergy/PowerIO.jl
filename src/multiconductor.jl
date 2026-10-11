@@ -497,7 +497,23 @@ _element(::Type{MulticonductorTransformer}, net::MulticonductorNetwork, i) = _wi
     MulticonductorTransformer(_str(v.name), windings, _f64s(v.short_circuit_reactance_percent), Int(v.phase_count))
 end
 
+function _legacy_multiconductor_load(lib, p, i)
+    v = _at(PioMulticonductorLoadView, Val(:pio_multiconductor_network_load_at), lib, p, i)
+    MulticonductorLoad(_str(v.name), _str(v.bus),
+                       _terminals(Val(:pio_multiconductor_network_load_terminal_at), lib, p, i, v.terminal_map_count),
+                       _str(v.configuration), _f64s(v.active_power_nominal_w), _f64s(v.reactive_power_nominal_var),
+                       _str(v.voltage_model), _f64s(v.nominal_voltage_v),
+                       _f64s(v.active_power_constant_impedance), _f64s(v.active_power_constant_current),
+                       _f64s(v.active_power_constant_power), _f64s(v.reactive_power_constant_impedance),
+                       _f64s(v.reactive_power_constant_current), _f64s(v.reactive_power_constant_power),
+                       _f64s(v.active_power_exponent), _f64s(v.reactive_power_exponent))
+end
+
 _element(::Type{MulticonductorLoad}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
+    if Libdl.dlsym(_library_handle(lib), :pio_multiconductor_network_load_details_at;
+                   throw_error=false) === nothing
+        return _legacy_multiconductor_load(lib, p, i)
+    end
     v = _at(PioMulticonductorLoadDetailsView, Val(:pio_multiconductor_network_load_details_at), lib, p, i)
     law = _dist_load_law(v.voltage_model)
     MulticonductorLoad(_str(v.name), _str(v.bus),

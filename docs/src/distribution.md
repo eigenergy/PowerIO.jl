@@ -131,3 +131,8 @@ available for ordinary laws.
 arrays, complete voltage laws and terminal maps. A row copies only its own
 borrowed arrays. Reference conductors can make the terminal map longer than the
 power-channel arrays. Reading a load never serializes or clones the network.
+
+Ordinary load records remain readable with older ABI 7 libraries through their
+legacy accessor. Complete bounded-law reads and `McAcPfInstance.loads` require
+the additive load-details accessors; a legacy refusal is propagated rather than
+returning an incomplete bounded law.
