@@ -119,8 +119,10 @@ end
 """
     MulticonductorLoad
 
-One load: `configuration`, per terminal nominal powers, the `voltage_model`
-name, and the per terminal ZIP and exponential coefficients.
+One load: `configuration`, nominal powers per active load branch, the
+`voltage_model` name, and ZIP/exponential coefficients in the same branch order.
+`terminals` also includes the return conductor, so its length can exceed the
+number of power channels.
 """
 struct MulticonductorLoad
     name::String
