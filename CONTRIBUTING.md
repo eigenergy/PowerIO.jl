@@ -75,17 +75,38 @@ release step.
   the release commit to `main`, and comments `@JuliaRegistrator register` on
   it with that section as the release notes. TagBot tags the version and
   creates its GitHub release after General merges it.
-- A patch release whose changelog section has a `Breaking` heading fails.
+- A `## X.Y.Z` section written before the release is kept. Notes under a
+  non-empty `## Unreleased` beside it fail the run, because the release is
+  built from `main`, which holds those changes: move them into `## X.Y.Z`.
+- A patch release fails when its changelog section marks a change as
+  breaking: a `### Breaking` heading, a `Breaking:` label, or `(breaking)`.
+- Every PowerIO.jl version pairs with the powerio release of the same number,
+  so do not register a PowerIO.jl version by hand. While General's latest
+  PowerIO version has no published powerio release, every run fails. A
+  binding only fix ships with a powerio patch release.
 
 A failed run states its reason on the run page. The workflow also runs every
 hour, so after fixing the cause, wait for the next run or start one with
-"Run workflow" on "Release". A run does not repeat a registration request made
-on the same commit within the last six hours. The `dry_run` input prepares and
-tests without pushing or registering, and a run started from any branch other
-than `main` is always a dry run. When `main` holds changes that must not ship
-in the release, set `source_sha` to the commit to release from: the run builds
-the release commit on that commit and pushes it to `release/vX.Y.Z` instead of
-`main`.
+"Run workflow" on "Release". A run does not repeat a registration request
+made within the last six hours on any commit since `Project.toml` took the
+version. When JuliaRegistrator answered that request with an error, a run
+on the same commit fails with the answer, and a run on a newer commit
+requests that commit. When AutoMerge fails on the General pull request, fix
+the cause on `main`: the next run requests registration of the new commit,
+and Registrator updates the pull request. The `dry_run` input prepares and
+tests without pushing or registering, and a run started from any branch
+other than `main` is always a dry run.
+
+To keep `main` from being released, set the repository variable
+`RELEASE_HOLD` to `true` before powerio publishes; the hourly runs and the
+run powerio's publish starts are then skipped, and only "Run workflow" runs.
+Delete the variable once the version is registered. To release an earlier commit, set
+`source_sha` to it: the run builds the release commit on that commit and
+pushes it to `release/vX.Y.Z` instead of `main`. The run uses that commit's
+`gen/release.jl`, so the commit must include it. The workflow token cannot
+create a branch whose `.github/workflows` differs from `main`'s, so in that
+case push the commit to `release/vX.Y.Z` yourself first; the run then adds
+the release commit on top.
 
 TagBot uses `TAGBOT_TOKEN` when present, falling back to `GITHUB_TOKEN`. Set
 `TAGBOT_SSH` to a write deploy key, or reuse `DOCUMENTER_KEY`, so TagBot can

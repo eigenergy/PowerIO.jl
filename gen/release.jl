@@ -12,7 +12,7 @@
 #   julia gen/release.jl pin-status STATUS_TOML
 #   julia gen/release.jl notes X.Y.Z
 #   julia gen/release.jl general-pr X.Y.Z PRS_TSV
-#   julia gen/release.jl requested COMMENTS_TSV
+#   julia gen/release.jl requested COMMENTS_TSV HEAD [FAILED_PR_URL]
 #   julia gen/release.jl reply COMMENTS_TSV SINCE
 module PowerIORelease
 
@@ -116,44 +116,57 @@ end
 
 _body(lines, range) = strip(join(lines[(first(range) + 1):last(range)], '\n'))
 
+# A change marked breaking: a `### Breaking` heading, a `Breaking:` label
+# anywhere in a line, or `(breaking)`. Prose such as "No breaking changes" or
+# "non-breaking" does not match.
+const BREAKING_MARK = r"^#{3,}\s+breaking\b|(?<![\w-])breaking\b[*_)]*:|\(breaking\)"i
+
 """
     prepare_changelog(text, version) -> String
 
 Give `CHANGELOG.md` a `## X.Y.Z` section. An existing section is kept; a
 non-empty `## Unreleased` section is renamed; otherwise a section pointing to
-the powerio changelog is inserted. A patch release whose section has a
-`Breaking` heading is refused.
+the powerio changelog is inserted. The release is built from the checked out
+commit, which holds the changes under `## Unreleased`, so notes there next to
+an existing `## X.Y.Z` section are refused. A patch release whose section
+marks a change as breaking is refused.
 """
 function prepare_changelog(text::AbstractString, version::VersionNumber)
     lines = split(text, '\n')
     title = string(version)
-    if _section(lines, title) === nothing
-        unreleased = _section(lines, "Unreleased")
-        if unreleased !== nothing && !isempty(_body(lines, unreleased))
-            lines[first(unreleased)] = "## $title"
+    unreleased = _section(lines, "Unreleased")
+    if _section(lines, title) !== nothing
+        unreleased === nothing || isempty(_body(lines, unreleased)) || error(
+            "CHANGELOG.md has notes under ## Unreleased and a ## $title section. " *
+            "PowerIO.jl $title is released from this commit, which holds the " *
+            "Unreleased changes: move those notes into ## $title, or release an " *
+            "earlier commit with source_sha")
+    elseif unreleased !== nothing && !isempty(_body(lines, unreleased))
+        lines[first(unreleased)] = "## $title"
+    else
+        at = if unreleased !== nothing
+            last(unreleased) + 1
         else
-            at = if unreleased !== nothing
-                last(unreleased) + 1
-            else
-                something(findfirst(line -> _heading(line) !== nothing, lines), length(lines) + 1)
+            something(findfirst(line -> _heading(line) !== nothing, lines), length(lines) + 1)
+        end
+        entry = ["## $title", "",
+                 "- Pairs with PowerIO $title; see the PowerIO changelog: " *
+                 powerio_changelog(title), ""]
+        if at > length(lines)
+            # Appended at the end: one blank line before the heading.
+            while !isempty(lines) && isempty(strip(last(lines)))
+                pop!(lines)
             end
-            entry = ["## $title", "",
-                     "- Pairs with PowerIO $title; see the PowerIO changelog: " *
-                     powerio_changelog(title), ""]
-            if at > length(lines)
-                # Appended at the end: one blank line before the heading.
-                while !isempty(lines) && isempty(strip(last(lines)))
-                    pop!(lines)
-                end
-                append!(lines, ["", entry...])
-            else
-                splice!(lines, at:(at - 1), entry)
-            end
+            append!(lines, ["", entry...])
+        else
+            splice!(lines, at:(at - 1), entry)
         end
     end
     section = _section(lines, title)
-    if version.patch > 0 && any(line -> occursin(r"^#{3,}\s+breaking"i, line), lines[section])
-        error("CHANGELOG.md section $title has a Breaking heading, but $title is a patch release")
+    marked = findfirst(line -> occursin(BREAKING_MARK, line), lines[section])
+    if version.patch > 0 && marked !== nothing
+        error("CHANGELOG.md section $title marks a change as breaking, but $title is a " *
+              "patch release: $(strip(lines[section][marked]))")
     end
     return join(lines, '\n')
 end
@@ -211,48 +224,93 @@ function release_notes(text::AbstractString, version::VersionNumber)
 end
 
 """
-    general_pr(version, prs_tsv) -> "none" | "wait"
+    general_pr(version, prs_tsv) -> (state, url)
 
-Rows are `title`, `url`, age in seconds, and whether an AutoMerge check
-failed, for open General pull requests. A registration younger than an hour
-means wait; an older one or a failed AutoMerge is an error naming its link.
+Rows are `title`, `url`, seconds since the pull request opened or
+Registrator last pushed to it, `state` (`OPEN`, `CLOSED` or `MERGED`), and
+whether AutoMerge failed, for JuliaRegistrator's General pull requests. The
+state is
+
+- `registered` when the registration merged, since General's `Versions.toml`
+  can trail the merge by several minutes;
+- `failed` when the open registration failed AutoMerge;
+- `wait` when the open registration changed within the hour;
+- `none` otherwise. A closed, unmerged registration is ignored.
+
+An open registration unchanged for over an hour that has not failed
+AutoMerge is an error naming its link.
 """
 function general_pr(version::VersionNumber, path::AbstractString)
     title = "New version: PowerIO v$version"
-    state = "none"
-    for (row_title, url, age, failed) in _rows(path, 4)
-        row_title == title || continue
-        failed == "true" && error("AutoMerge failed on the PowerIO $version registration: $url")
-        parse(Int, age) > PENDING_PR_SECONDS &&
-            error("the PowerIO $version registration has been open for over an hour: $url")
-        state = "wait"
+    rows = filter(row -> row[1] == title, _rows(path, 5))
+    for (_, url, _, state, _) in rows
+        state == "MERGED" && return ("registered", url)
     end
-    return state
+    for (_, url, age, state, failed) in rows
+        state == "OPEN" || continue
+        failed == "true" && return ("failed", url)
+        parse(Int, age) > PENDING_PR_SECONDS &&
+            error("the PowerIO $version registration has waited over an hour: $url")
+        return ("wait", url)
+    end
+    return ("none", "")
 end
 
-# Comment rows are `login`, `created_at`, age in seconds, and the first line
-# of the body.
+# Comment rows are the commit sha, `login`, `created_at`, age in seconds, and
+# the first line of the body. `created_at` is an RFC 3339 UTC timestamp as
+# GitHub writes it, so string order is time order.
+
+_reports_pr(line) = startswith(line, "Registration pull request")
 
 """
-    requested(comments_tsv) -> Bool
+    requested(comments_tsv, head; failed_url="") -> Bool
 
-Whether a `@JuliaRegistrator register` comment younger than six hours exists.
+Whether a registration request is still being handled, so the run must not
+ask again. The rows cover the commits from the one that set `Project.toml`
+to the release version through `head`. The latest `@JuliaRegistrator
+register` request counts while it is younger than six hours, unless
+JuliaRegistrator answered it with an error. The same commit gets the same
+answer, so an error answer to a request on `head` is itself an error; an
+error answer to a request on an earlier commit gives false, and the run
+requests `head`, which may hold the fix.
+
+`failed_url` names an open General pull request whose AutoMerge failed.
+Requesting a new commit makes Registrator update that pull request, so the
+result is false unless `head` was already requested, which is an error.
 """
-requested(path::AbstractString) = any(_rows(path, 4)) do (_, _, age, line)
-    startswith(line, REGISTER) && parse(Int, age) < REQUEST_SECONDS
+function requested(path::AbstractString, head::AbstractString; failed_url::AbstractString="")
+    rows = _rows(path, 5)
+    requests = filter(row -> startswith(row[5], REGISTER), rows)
+    if !isempty(failed_url)
+        any(row -> row[1] == head, requests) && error(
+            "AutoMerge failed on $failed_url, and registration of $head was already " *
+            "requested. Fix the cause on main: the next run requests the new commit, " *
+            "and Registrator updates the pull request")
+        return false
+    end
+    isempty(requests) && return false
+    sha, _, since, age, _ = requests[argmax([row[3] for row in requests])]
+    parse(Int, age) < REQUEST_SECONDS || return false
+    for (row_sha, login, created, _, line) in rows
+        row_sha == sha && login == "JuliaRegistrator" && created >= since || continue
+        _reports_pr(line) && return true
+        sha == head && error("JuliaRegistrator replied to the registration request on $head: $line")
+        return false
+    end
+    return true
 end
 
 """
     registrator_reply(comments_tsv, since) -> "ok" | "none"
 
-Read the first JuliaRegistrator comment created at or after `since`, an
-RFC 3339 UTC timestamp as GitHub writes it. A reply that does not report a
-registration pull request is an error carrying its first line.
+Read the first JuliaRegistrator comment created at or after `since`. A reply
+that does not report a registration pull request is an error carrying its
+first line.
 """
 function registrator_reply(path::AbstractString, since::AbstractString)
-    for (login, created, _, line) in _rows(path, 4)
+    for (_, login, created, _, line) in _rows(path, 5)
         login == "JuliaRegistrator" && created >= since || continue
-        startswith(line, "Registration pull request") && return "ok"
+        _reports_pr(line) && return "ok"
         error("JuliaRegistrator replied: $line")
     end
     return "none"
@@ -266,7 +324,7 @@ usage: julia gen/release.jl COMMAND ...
   pin-status STATUS_TOML
   notes X.Y.Z
   general-pr X.Y.Z PRS_TSV
-  requested COMMENTS_TSV
+  requested COMMENTS_TSV HEAD [FAILED_PR_URL]
   reply COMMENTS_TSV SINCE"""
 
 function main(args=ARGS; io::IO=stdout, root::AbstractString=ROOT)
@@ -285,9 +343,11 @@ function main(args=ARGS; io::IO=stdout, root::AbstractString=ROOT)
         println(io, release_notes(read(joinpath(root, "CHANGELOG.md"), String),
                                   parse_version(args[2])))
     elseif command == "general-pr" && n == 3
-        println(io, general_pr(parse_version(args[2]), args[3]))
-    elseif command == "requested" && n == 2
-        println(io, requested(args[2]) ? "yes" : "no")
+        state, url = general_pr(parse_version(args[2]), args[3])
+        println(io, isempty(url) ? state : "$state $url")
+    elseif command == "requested" && n in (3, 4)
+        failed_url = n == 4 ? args[4] : ""
+        println(io, requested(args[2], args[3]; failed_url) ? "yes" : "no")
     elseif command == "reply" && n == 3
         println(io, registrator_reply(args[2], args[3]))
     else

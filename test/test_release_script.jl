@@ -79,8 +79,15 @@ const OLD_SECTION = "## 0.11.4\n\n- Old notes.\n"
     end
 
     @testset "changelog keep, rename, and insert" begin
-        keep = CHANGELOG_HEAD * "## Unreleased\n\n- Later work.\n\n## 0.11.5\n\n- Kept.\n\n" * OLD_SECTION
+        keep = CHANGELOG_HEAD * "## 0.11.5\n\n- Kept.\n\n" * OLD_SECTION
         @test Release.prepare_changelog(keep, v"0.11.5") == keep
+        empty_unreleased = CHANGELOG_HEAD * "## Unreleased\n\n## 0.11.5\n\n- Kept.\n\n" * OLD_SECTION
+        @test Release.prepare_changelog(empty_unreleased, v"0.11.5") == empty_unreleased
+        # The release commit holds the Unreleased changes, so their notes
+        # cannot stay out of an existing release section.
+        @test_throws r"notes under ## Unreleased and a ## 0.11.5 section" Release.prepare_changelog(
+            CHANGELOG_HEAD * "## Unreleased\n\n- Later work.\n\n## 0.11.5\n\n- Kept.\n\n" * OLD_SECTION,
+            v"0.11.5")
 
         renamed = Release.prepare_changelog(
             CHANGELOG_HEAD * "## Unreleased\n\n- New notes.\n\n" * OLD_SECTION, v"0.11.5")
@@ -102,13 +109,27 @@ const OLD_SECTION = "## 0.11.4\n\n- Old notes.\n"
               CHANGELOG_HEAD * "## 0.12.0\n\n### Added\n\n- Item.\n\n" * OLD_SECTION
     end
 
-    @testset "a patch release refuses a Breaking heading" begin
+    @testset "a patch release refuses a breaking change" begin
         breaking = CHANGELOG_HEAD * "## Unreleased\n\n### Breaking\n\n- Removed `f`.\n\n" * OLD_SECTION
-        @test_throws r"Breaking heading" Release.prepare_changelog(breaking, v"0.11.5")
+        @test_throws r"marks a change as breaking.*### Breaking" Release.prepare_changelog(breaking, v"0.11.5")
         @test startswith(Release.prepare_changelog(breaking, v"0.12.0"), CHANGELOG_HEAD * "## 0.12.0\n")
         kept = CHANGELOG_HEAD * "## 0.11.5\n\n### Breaking changes\n\n- Removed `f`.\n\n" * OLD_SECTION
-        @test_throws r"Breaking heading" Release.prepare_changelog(kept, v"0.11.5")
-        # A Breaking heading in an older section does not block the release.
+        @test_throws r"marks a change as breaking" Release.prepare_changelog(kept, v"0.11.5")
+        # The labels CHANGELOG.md uses for breaking entries.
+        for entry in ("- Breaking: `f` is removed.", "Breaking: `f` is removed.",
+                      "  builders already read it. Breaking: `lengths` grows.",
+                      "- **Breaking:** `f` is removed.", "- Removed `f` (breaking): use `g`.")
+            text = CHANGELOG_HEAD * "## Unreleased\n\n" * entry * "\n\n" * OLD_SECTION
+            @test_throws r"marks a change as breaking" Release.prepare_changelog(text, v"0.11.5")
+            @test startswith(Release.prepare_changelog(text, v"0.12.0"), CHANGELOG_HEAD * "## 0.12.0\n")
+        end
+        # Prose that names breaking changes without marking one passes.
+        for entry in ("No breaking changes: the Julia API is unchanged.",
+                      "- A non-breaking: fix to `f`.", "- Fix a crash breaking `f`.")
+            text = CHANGELOG_HEAD * "## Unreleased\n\n" * entry * "\n\n" * OLD_SECTION
+            @test startswith(Release.prepare_changelog(text, v"0.11.5"), CHANGELOG_HEAD * "## 0.11.5\n")
+        end
+        # A breaking entry in an older section does not block the release.
         older = CHANGELOG_HEAD * "## Unreleased\n\n- Fix.\n\n## 0.11.0\n\n### Breaking\n\n- Old.\n"
         @test startswith(Release.prepare_changelog(older, v"0.11.5"), CHANGELOG_HEAD * "## 0.11.5\n")
     end
@@ -159,44 +180,92 @@ const OLD_SECTION = "## 0.11.4\n\n- Old notes.\n"
         end
     end
 
-    @testset "pending General registration" begin
+    @testset "General registration" begin
         mktempdir() do dir
             title = "New version: PowerIO v0.11.5"
             url = "https://github.com/JuliaRegistries/General/pull/1"
             prs(rows...) = _release_file(dir, "prs.tsv", join(("$(join(r, '\t'))\n" for r in rows)))
-            @test Release.general_pr(v"0.11.5", prs()) == "none"
-            @test Release.general_pr(v"0.11.5", prs(("New version: PowerIOX v0.11.5", url, 9999, false),
-                                                    ("New version: PowerIO v0.11.4", url, 9999, false))) == "none"
-            @test Release.general_pr(v"0.11.5", prs((title, url, 1200, false))) == "wait"
+            @test Release.general_pr(v"0.11.5", prs()) == ("none", "")
+            @test Release.general_pr(v"0.11.5", prs(
+                ("New version: PowerIOX v0.11.5", url, 60, "MERGED", false),
+                ("New version: PowerIO v0.11.4", url, 60, "MERGED", false))) == ("none", "")
+            @test Release.general_pr(v"0.11.5", prs((title, url, 1200, "OPEN", false))) == ("wait", url)
             @test_throws r"over an hour: https://github.com/JuliaRegistries/General/pull/1" Release.general_pr(
-                v"0.11.5", prs((title, url, 3601, false)))
-            @test_throws r"AutoMerge failed" Release.general_pr(v"0.11.5", prs((title, url, 60, true)))
+                v"0.11.5", prs((title, url, 3601, "OPEN", false)))
+            @test Release.general_pr(v"0.11.5", prs((title, url, 60, "OPEN", true))) == ("failed", url)
+            @test Release.general_pr(v"0.11.5", prs((title, url, 9999, "OPEN", true))) == ("failed", url)
+            # A merged registration counts while General's Versions.toml lags.
+            @test Release.general_pr(v"0.11.5", prs((title, url, 9999, "MERGED", false))) == ("registered", url)
+            # A closed, unmerged registration is ignored.
+            @test Release.general_pr(v"0.11.5", prs((title, url, 9999, "CLOSED", true))) == ("none", "")
+            @test _run("general-pr", "0.11.5", prs((title, url, 60, "OPEN", false))) == "wait $url\n"
+            @test _run("general-pr", "0.11.5", prs()) == "none\n"
         end
     end
 
     @testset "registration requests and replies" begin
         mktempdir() do dir
             comments(rows...) = _release_file(dir, "comments.tsv", join(("$(join(r, '\t'))\n" for r in rows)))
-            request = ("github-actions[bot]", "2026-10-11T10:00:00Z", 600, "@JuliaRegistrator register")
-            @test Release.requested(comments(request))
-            @test !Release.requested(comments(("github-actions[bot]", "2026-10-11T00:00:00Z", 21600,
-                                               "@JuliaRegistrator register")))
-            @test !Release.requested(comments(("reviewer", "2026-10-11T10:00:00Z", 60, "Looks good")))
-            @test Release.requested(comments(("reviewer", "2026-10-11T10:00:00Z", 60,
-                                              "@JuliaRegistrator register branch=main")))
-            @test !Release.requested(comments())
+            head, earlier = "headsha", "earliersha"
+            url = "https://github.com/JuliaRegistries/General/pull/1"
+            bot = "github-actions[bot]"
+            request(sha, created, age) = (sha, bot, created, age, "@JuliaRegistrator register")
+            reply(sha, created, line) = (sha, "JuliaRegistrator", created, 0, line)
+            created_pr = "Registration pull request created: [JuliaRegistries/General/1](url)"
+            refused = "Error while trying to register: Version 0.11.5 already exists"
+
+            @test !Release.requested(comments(), head)
+            @test !Release.requested(comments((head, "reviewer", "2026-10-11T10:00:00Z", 60, "Looks good")), head)
+            # A recent request on any commit since the version was set is in flight.
+            @test Release.requested(comments(request(head, "2026-10-11T10:00:00Z", 600)), head)
+            @test Release.requested(comments(request(earlier, "2026-10-11T10:00:00Z", 600)), head)
+            @test Release.requested(comments(
+                request(earlier, "2026-10-11T10:00:00Z", 600),
+                reply(earlier, "2026-10-11T10:00:20Z", created_pr)), head)
+            @test Release.requested(comments(("x", "reviewer", "2026-10-11T10:00:00Z", 60,
+                                              "@JuliaRegistrator register branch=main")), head)
+            # A request six hours old is made again.
+            @test !Release.requested(comments(request(head, "2026-10-11T04:00:00Z", 21600)), head)
+            # An error answer on the commit to register fails; on an earlier
+            # commit the run requests the newer one.
+            @test_throws r"replied to the registration request on headsha: Error while" Release.requested(
+                comments(request(head, "2026-10-11T10:00:00Z", 600),
+                         reply(head, "2026-10-11T10:00:20Z", refused)), head)
+            @test !Release.requested(comments(
+                request(earlier, "2026-10-11T10:00:00Z", 600),
+                reply(earlier, "2026-10-11T10:00:20Z", refused)), head)
+            # Only the latest request counts.
+            @test Release.requested(comments(
+                request(earlier, "2026-10-11T09:00:00Z", 4200),
+                reply(earlier, "2026-10-11T09:00:20Z", refused),
+                request(head, "2026-10-11T10:00:00Z", 600)), head)
+            @test !Release.requested(comments(
+                request(head, "2026-10-11T10:00:00Z", 600),
+                reply(head, "2026-10-11T10:00:20Z", created_pr),
+                request(earlier, "2026-10-11T10:30:00Z", 60),
+                reply(earlier, "2026-10-11T10:30:20Z", refused)), head)
+
+            # A failed AutoMerge: a commit not yet requested is requested,
+            # which updates the pull request; the requested one is an error.
+            @test !Release.requested(comments(
+                request(earlier, "2026-10-11T10:00:00Z", 600),
+                reply(earlier, "2026-10-11T10:00:20Z", created_pr)), head; failed_url=url)
+            @test_throws r"AutoMerge failed on https://github.com/JuliaRegistries/General/pull/1" Release.requested(
+                comments(request(head, "2026-09-01T10:00:00Z", 999999)), head; failed_url=url)
+            @test _run("requested", comments(request(head, "2026-10-11T10:00:00Z", 600)), head) == "yes\n"
+            @test _run("requested", comments(request(earlier, "2026-10-11T10:00:00Z", 600)), head, url) == "no\n"
 
             since = "2026-10-11T10:00:00Z"
-            old_reply = ("JuliaRegistrator", "2026-10-11T09:00:00Z", 3600, "Error while trying to register: old")
-            created = ("JuliaRegistrator", "2026-10-11T10:00:20Z", 580,
-                       "Registration pull request created: [JuliaRegistries/General/1](url)")
-            failed = ("JuliaRegistrator", "2026-10-11T10:00:20Z", 580,
-                      "Error while trying to register: Version 0.11.5 already exists")
-            @test Release.registrator_reply(comments(old_reply, request), since) == "none"
-            @test Release.registrator_reply(comments(old_reply, request, created), since) == "ok"
-            @test_throws r"already exists" Release.registrator_reply(comments(request, failed), since)
-            @test _run("reply", comments(request, created), since) == "ok\n"
-            @test _run("requested", comments(request)) == "yes\n"
+            old_reply = reply(head, "2026-10-11T09:00:00Z", "Error while trying to register: old")
+            new_request = request(head, since, 600)
+            @test Release.registrator_reply(comments(old_reply, new_request), since) == "none"
+            @test Release.registrator_reply(comments(old_reply, new_request,
+                                                     reply(head, "2026-10-11T10:00:20Z", created_pr)), since) == "ok"
+            @test Release.registrator_reply(comments(new_request, reply(head, "2026-10-11T10:00:20Z",
+                "Registration pull request updated: [JuliaRegistries/General/1](url)")), since) == "ok"
+            @test_throws r"already exists" Release.registrator_reply(
+                comments(new_request, reply(head, "2026-10-11T10:00:20Z", refused)), since)
+            @test _run("reply", comments(new_request, reply(head, "2026-10-11T10:00:20Z", created_pr)), since) == "ok\n"
         end
     end
 
