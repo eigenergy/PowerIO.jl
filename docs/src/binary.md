@@ -12,17 +12,16 @@ arrives as a prebuilt binary, so you do not compile anything.
    macOS (`x86_64`, `arm64`), and Windows (`x86_64`), and attaches the five
    tarballs to the GitHub release. Each tarball holds the library under `lib/`
    (`bin/` on Windows), the C header under `include/`, and the licenses.
-2. A reviewed `.github/powerio-release.toml` names the exact tag and binds it to
-   the final Julia source digest. "Update artifacts" downloads the five
-   tarballs, computes each one's SHA-256 and unpacked git tree hash, and asks
-   `gen/update_artifacts.jl` to build `Artifacts.toml`. Before writing, the
-   generator loads the host library and checks its ABI number (7), its version
-   string against the tag, the core entry points the binding calls, and that
-   it parses the GridFM fixture. If any of those checks fail, the update is
-   parked and `Artifacts.toml` is left untouched. The workflow tests the exact
-   result, commits only `Artifacts.toml`, pushes only when `main` has not
-   moved, and dispatches registration for that exact SHA. See CONTRIBUTING.md
-   for the state machine and recovery commands.
+2. Publishing that release starts the PowerIO.jl "Release" workflow, which
+   downloads the five tarballs, computes each one's SHA-256 and unpacked git
+   tree hash, and asks `gen/update_artifacts.jl` to build `Artifacts.toml`.
+   Before writing, the generator loads the host library and checks its ABI
+   number (7), its version string against the tag, the core entry points the
+   binding calls, and that it parses the GridFM fixture. A failed check stops
+   the release and leaves `Artifacts.toml` untouched. The workflow then runs
+   the full test suite against the pinned binaries, pushes the release commit
+   that sets the matching PowerIO.jl version, and registers it. See
+   CONTRIBUTING.md.
 3. `Artifacts.toml` is lazy, so `Pkg.add` downloads nothing; the tarball for
    your platform is fetched on the first call that needs the library.
 

@@ -62,74 +62,55 @@ documentation.
 
 ## Releasing
 
-The release is approved before powerio publishes. Put the intended PowerIO
-version in `Project.toml`, write the matching top `CHANGELOG.md` section, and
-merge every Julia source, documentation, and workflow change. Leave
-`.github/powerio-release.toml` in `state = "draft"` while that work is moving.
-From a clean final `main`, run:
+PowerIO.jl X.Y.Z pairs with powerio vX.Y.Z, and the "Release" workflow
+releases it after powerio publishes vX.Y.Z. There is no separate PowerIO.jl
+release step.
 
-```
-julia --project=. gen/release_state.jl prepare-intent
-```
+- Write user facing changes under a `## Unreleased` heading at the top of
+  `CHANGELOG.md`, and leave the version in `Project.toml` alone.
+- Publishing a powerio release releases PowerIO.jl. The workflow sets the
+  version, renames `## Unreleased` to `## X.Y.Z` (or adds a section that
+  points to the powerio changelog when there are no notes), pins the release
+  binaries in `Artifacts.toml`, runs the full test suite against them, pushes
+  the release commit to `main`, and comments `@JuliaRegistrator register` on
+  it with that section as the release notes. TagBot tags the version and
+  creates its GitHub release after General merges it.
+- A `## X.Y.Z` section written before the release is kept. Notes under a
+  non-empty `## Unreleased` beside it fail the run, because the release is
+  built from `main`, which holds those changes: move them into `## X.Y.Z`.
+- A patch release fails when its changelog section marks a change as
+  breaking: a `### Breaking` heading, a `Breaking:` label, or `(breaking)`.
+- Every PowerIO.jl version pairs with the powerio release of the same number,
+  so do not register a PowerIO.jl version by hand. While General's latest
+  PowerIO version has no published powerio release, every run fails. A
+  binding only fix ships with a powerio patch release.
 
-Review and merge that one file intent change last. It records the exact Julia
-version, exact powerio tag, and a SHA-256 digest of every tracked path, mode,
-object type, and object id except `Artifacts.toml` and the intent itself. Any
-later source, documentation, or workflow commit makes the digest stale and
-parks the release until a new intent is reviewed.
+A failed run states its reason on the run page. The workflow also runs every
+hour, so after fixing the cause, wait for the next run or start one with
+"Run workflow" on "Release". A run does not repeat a registration request
+made within the last six hours on any commit since `Project.toml` took the
+version. When JuliaRegistrator answered that request with an error, a run
+on the same commit fails with the answer, and a run on a newer commit
+requests that commit. When AutoMerge fails on the General pull request, fix
+the cause on `main`: the next run requests registration of the new commit,
+and Registrator updates the pull request. The `dry_run` input prepares and
+tests without pushing or registering, and a run started from any branch
+other than `main` is always a dry run.
 
-Publishing the intended powerio release triggers "Update artifacts"; the daily
-schedule and a no input manual dispatch retry the same intent. The workflow:
+To keep `main` from being released, set the repository variable
+`RELEASE_HOLD` to `true` before powerio publishes; the hourly runs and the
+run powerio's publish starts are then skipped, and only "Run workflow" runs.
+Delete the variable once the version is registered. To release an earlier commit, set
+`source_sha` to it: the run builds the release commit on that commit and
+pushes it to `release/vX.Y.Z` instead of `main`. The run uses that commit's
+`gen/release.jl`, so the commit must include it. The workflow token cannot
+create a branch whose `.github/workflows` differs from `main`'s, so in that
+case push the commit to `release/vX.Y.Z` yourself first; the run then adds
+the release commit on top.
 
-1. Requires the exact published powerio release, which must not be a
-   prerelease, and all five platform assets. A missing or draft release waits
-   without changing the tree; a dispatch for another tag is ignored.
-2. Runs `gen/update_artifacts.jl` in memory. It loads the host library and
-   checks the ABI number, the version string against the tag, the core entry
-   points the binding calls, and that the library parses the GridFM fixture.
-   A mismatch reports a stable `parked` reason and leaves `Artifacts.toml`
-   byte identical. Download, registry, archive, or parse errors fail the run.
-3. Resolves the generated artifact and runs the full test suite. It commits
-   only `Artifacts.toml`, and pushes only if `origin/main` still equals the
-   commit the run tested. A race fails; the schedule retries from the new main
-   without rebasing a bot commit.
-4. Dispatches "Register Package" with the exact tested SHA. Registration
-   checks that the SHA is still `origin/main`, revalidates the intent,
-   artifact, release, General transition, and tests, then posts the
-   `@JuliaRegistrator register` comment on that SHA. It never edits or
-   commits, and queued retries suppress a duplicate bot comment for six hours.
-
-The intended version must be the next patch, minor, or major release after the
-maximum PowerIO version in General. A breaking transition needs "breaking" in
-its top changelog section. If the version is already in General, the updater
-neither repins nor registers; it dispatches TagBot only when the Julia GitHub
-release is missing. Registration also makes that intent terminal: later
-development can change the source digest without breaking the scheduled job
-or the TagBot repair path.
-
-For local generator diagnostics, supply a status path explicitly:
-
-```
-julia --project=. gen/update_artifacts.jl vX.Y.Z --status-file update-status.toml
-```
-
-The status is `ready` or `parked`; only `ready` can modify `Artifacts.toml`.
-Manual workflow dispatch is a retry, not a release authority override. An open
-`artifacts/*` PR makes the automatic run wait rather than release around it.
-
-If Registrator has not replied on the exact release commit within about 15
-minutes, rerun "Register Package" with the version and that full SHA. The last
-resort is a human `@JuliaRegistrator register` comment with the top changelog
-section as its `Release notes:` block.
-
-TagBot uses `TAGBOT_TOKEN` when present, falling back to `GITHUB_TOKEN` for
-normal releases. Issue #44 is a manual `v0.0.1` backfill because the tagged
-commit changed workflow files. To resolve it, create a fine grained
-`TAGBOT_TOKEN` with contents and workflows write access, add it as a repo
-Actions secret, then run the TagBot workflow manually. If that still fails,
-run `gh release create v0.0.1 --target a6a9b00a --generate-notes` locally.
-Set `TAGBOT_SSH` to a write deploy key, or reuse `DOCUMENTER_KEY`, so TagBot
-can push release tags through SSH.
+TagBot uses `TAGBOT_TOKEN` when present, falling back to `GITHUB_TOKEN`. Set
+`TAGBOT_SSH` to a write deploy key, or reuse `DOCUMENTER_KEY`, so TagBot can
+push release tags through SSH.
 
 ## Writing
 
