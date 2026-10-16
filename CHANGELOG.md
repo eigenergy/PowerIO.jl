@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.11.5
+
+- Coordinate the Julia package with PowerIO 0.11.5. The bundled library's
+  default input limits rise from 64 MiB to 1 GiB: the file `parse` reads from
+  a path, and the total of the referenced files and expanded CGMES archive
+  contents one source reads. `POWERIO_MAX_PRIMARY_BYTES` sets the first limit
+  and the new `POWERIO_MAX_REFERENCED_BYTES` sets the second; set either in
+  `ENV` before calling `parse`. An invalid value of either variable is refused
+  before any file or directory is opened.
+- A single CGMES XML file or ZIP archive, from a path or from memory, is held
+  to `POWERIO_MAX_REFERENCED_BYTES`, so a CGMES file above 1 GiB read from a
+  path needs both variables raised. This includes a `.xml` profile whose
+  opening 16 KiB do not identify it as CGMES.
+- CGMES ZIP archives are held to what they declare. An XML entry must inflate
+  to exactly the size its header states. An archive is refused when the end
+  record the reader uses, or any Zip64 end record, declares more than 4,096
+  entries; when it holds more than eight end records; when two entries share a
+  name or any bytes; or when an entry lies outside the archive's entry data.
+- CGMES transformer terminals follow the winding's `endNumber` when it differs
+  from the terminal's `sequenceNumber`, so winding connectivity, taps, and
+  limits carry through a fresh CGMES write. Each such terminal is reported as
+  `READ.CGMES.FIELD_UNMAPPED`, and a terminal that several
+  `PowerTransformerEnd` records of one transformer name is refused, since its
+  winding is ambiguous.
+- Fresh CGMES writes index component, terminal, and transformer end
+  identities once per write instead of scanning whole tables repeatedly, which
+  shortens writes of large grids.
+- PSS/E switched shunt `MODSW` 1 reads as `"discrete"` and `MODSW` 2 as
+  `"continuous"` in `Shunt.control.mode`, as PSS/E defines them; the RAW and
+  RAWX readers had the two swapped. PSS/E output of a discrete shunt from
+  another format states `MODSW` 1, and CGMES and XIIDM output of a PSS/E case
+  follow the corrected mode. Codes 3 to 6 still read as `"discrete"` and keep
+  their code for PSS/E output. A PowerIO IR document an earlier release wrote
+  from a PSS/E case keeps the swapped mode when read with `deserialize`, so
+  parse the case again.
+- PSS/E and RAWX two winding transformers whose winding 2 ratio is not one
+  now read with the impedance PSS/E solves with: `r` and `x` scale by the
+  square of that ratio and a winding 1 tap control range divides by it, so
+  those branches' `r`, `x`, and tap limits change. A transformer with a
+  winding 2 ratio of one reads as before. A PowerIO IR document an earlier
+  release wrote from such a case keeps the old impedance, so parse the case
+  again.
+- PSS/E RAW strings in double quotes read as one field, so a double-quoted
+  name or circuit id no longer shifts the columns after it.
+- `MonitoredSet` reads the contingency file spelling
+  `MONITOR BRANCH FROM BUS i TO BUS j [CIRCUIT c]` (also `LINE`) as a
+  one-branch statement instead of keeping it as text.
+
+C ABI 7 and PowerIO IR version 2 remain unchanged.
+
 ## 0.11.4
 
 - Coordinate the Julia package with PowerIO 0.11.4. The bundled library no

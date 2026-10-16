@@ -7,7 +7,12 @@
     @test version_match !== nothing
     version = only(version_match.captures)
 
-    sections = split(changelog, r"(?m)^##\s+"; limit = 3)
+    sections = split(changelog, r"(?m)^##\s+")
+    # Development notes precede the latest numbered release until preparation
+    # promotes them. They must not disable the released-version guard.
+    if length(sections) >= 2 && strip(first(split(sections[2], '\n'))) == "Unreleased"
+        deleteat!(sections, 2)
+    end
     @test length(sections) >= 2
 
     lines = split(sections[2], '\n')
