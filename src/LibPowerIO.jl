@@ -402,6 +402,37 @@ struct PioPrescribedTerminalPowerView
     voltage_model::PioStringView
 end
 
+struct PioDistLoadVoltageModelView
+    model::PioStringView
+    nominal_voltage_v::PioF64View
+    active_power_constant_impedance::PioF64View
+    active_power_constant_current::PioF64View
+    active_power_constant_power::PioF64View
+    reactive_power_constant_impedance::PioF64View
+    reactive_power_constant_current::PioF64View
+    reactive_power_constant_power::PioF64View
+    active_power_exponent::PioF64View
+    reactive_power_exponent::PioF64View
+    voltage_low_pu::Cdouble
+    has_voltage_low::Bool
+    voltage_min_pu::Cdouble
+    has_voltage_min::Bool
+    voltage_max_pu::Cdouble
+    has_voltage_max::Bool
+    cutoff_pu::Cdouble
+    has_cutoff::Bool
+    current_limit_pu::Cdouble
+    has_current_limit::Bool
+end
+
+struct PioPrescribedLoadDetailsView
+    load::PioStringView
+    terminal_count::Csize_t
+    active_power_w::PioF64View
+    reactive_power_var::PioF64View
+    voltage_model::PioDistLoadVoltageModelView
+end
+
 struct PioTerminalPowerView
     terminal::PioStringView
     active_power_w::Cdouble
@@ -1649,6 +1680,16 @@ struct PioMulticonductorLoadView
     reactive_power_exponent::PioF64View
 end
 
+struct PioMulticonductorLoadDetailsView
+    name::PioStringView
+    bus::PioStringView
+    terminal_map_count::Csize_t
+    configuration::PioStringView
+    active_power_nominal_w::PioF64View
+    reactive_power_nominal_var::PioF64View
+    voltage_model::PioDistLoadVoltageModelView
+end
+
 struct PioMulticonductorGeneratorView
     name::PioStringView
     bus::PioStringView
@@ -1772,6 +1813,12 @@ end
 struct PioByteView
     data::Ptr{UInt8}
     len::Csize_t
+end
+
+struct PioVoltageSourceBoundaryView
+    source::PioVoltageSourceView
+    reference_terminal::PioStringView
+    has_reference_terminal::Bool
 end
 
 function pio_abi_version()
@@ -3244,6 +3291,22 @@ end
 
 function pio_mc_ac_pf_instance_load_at(instance, index, output, error, fptr)
     @ccall ($fptr)(instance::Ptr{PioCalculationInstance}, index::Csize_t, output::Ptr{PioPrescribedTerminalPowerView}, error::Ptr{Ptr{PioError}})::Bool
+end
+
+function pio_mc_ac_pf_instance_load_details_at(instance, index, output, error)
+    @ccall libpowerio_capi.pio_mc_ac_pf_instance_load_details_at(instance::Ptr{PioCalculationInstance}, index::Csize_t, output::Ptr{PioPrescribedLoadDetailsView}, error::Ptr{Ptr{PioError}})::Bool
+end
+
+function pio_mc_ac_pf_instance_load_details_at(instance, index, output, error, fptr)
+    @ccall ($fptr)(instance::Ptr{PioCalculationInstance}, index::Csize_t, output::Ptr{PioPrescribedLoadDetailsView}, error::Ptr{Ptr{PioError}})::Bool
+end
+
+function pio_mc_ac_pf_instance_load_terminal_name_at(instance, load_index, terminal_index, output, error)
+    @ccall libpowerio_capi.pio_mc_ac_pf_instance_load_terminal_name_at(instance::Ptr{PioCalculationInstance}, load_index::Csize_t, terminal_index::Csize_t, output::Ptr{PioStringView}, error::Ptr{Ptr{PioError}})::Bool
+end
+
+function pio_mc_ac_pf_instance_load_terminal_name_at(instance, load_index, terminal_index, output, error, fptr)
+    @ccall ($fptr)(instance::Ptr{PioCalculationInstance}, load_index::Csize_t, terminal_index::Csize_t, output::Ptr{PioStringView}, error::Ptr{Ptr{PioError}})::Bool
 end
 
 function pio_mc_ac_pf_instance_load_terminal_at(instance, load_index, terminal_index, output, error)
@@ -4774,6 +4837,14 @@ function pio_multiconductor_network_load_at(network, index, output, error, fptr)
     @ccall ($fptr)(network::Ptr{PioMulticonductorNetwork}, index::Csize_t, output::Ptr{PioMulticonductorLoadView}, error::Ptr{Ptr{PioError}})::Bool
 end
 
+function pio_multiconductor_network_load_details_at(network, index, output, error)
+    @ccall libpowerio_capi.pio_multiconductor_network_load_details_at(network::Ptr{PioMulticonductorNetwork}, index::Csize_t, output::Ptr{PioMulticonductorLoadDetailsView}, error::Ptr{Ptr{PioError}})::Bool
+end
+
+function pio_multiconductor_network_load_details_at(network, index, output, error, fptr)
+    @ccall ($fptr)(network::Ptr{PioMulticonductorNetwork}, index::Csize_t, output::Ptr{PioMulticonductorLoadDetailsView}, error::Ptr{Ptr{PioError}})::Bool
+end
+
 function pio_multiconductor_network_load_terminal_at(network, load_index, terminal_index, output, error)
     @ccall libpowerio_capi.pio_multiconductor_network_load_terminal_at(network::Ptr{PioMulticonductorNetwork}, load_index::Csize_t, terminal_index::Csize_t, output::Ptr{PioStringView}, error::Ptr{Ptr{PioError}})::Bool
 end
@@ -5828,6 +5899,22 @@ end
 
 function pio_string_release(string, fptr)
     @ccall ($fptr)(string::Ptr{PioString})::Cvoid
+end
+
+function pio_multiconductor_network_voltage_source_boundary_at(network, index, output, error)
+    @ccall libpowerio_capi.pio_multiconductor_network_voltage_source_boundary_at(network::Ptr{PioMulticonductorNetwork}, index::Csize_t, output::Ptr{PioVoltageSourceBoundaryView}, error::Ptr{Ptr{PioError}})::Bool
+end
+
+function pio_multiconductor_network_voltage_source_boundary_at(network, index, output, error, fptr)
+    @ccall ($fptr)(network::Ptr{PioMulticonductorNetwork}, index::Csize_t, output::Ptr{PioVoltageSourceBoundaryView}, error::Ptr{Ptr{PioError}})::Bool
+end
+
+function pio_mc_ac_pf_instance_source_boundary_at(instance, index, output, error)
+    @ccall libpowerio_capi.pio_mc_ac_pf_instance_source_boundary_at(instance::Ptr{PioCalculationInstance}, index::Csize_t, output::Ptr{PioVoltageSourceBoundaryView}, error::Ptr{Ptr{PioError}})::Bool
+end
+
+function pio_mc_ac_pf_instance_source_boundary_at(instance, index, output, error, fptr)
+    @ccall ($fptr)(instance::Ptr{PioCalculationInstance}, index::Csize_t, output::Ptr{PioVoltageSourceBoundaryView}, error::Ptr{Ptr{PioError}})::Bool
 end
 
 const PIO_ABI_VERSION = 7

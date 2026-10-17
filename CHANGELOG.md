@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Distribution load records expose the complete bounded voltage laws, including
+  voltage bands, dropout thresholds and current limits. Ordinary load reads
+  continue to work with earlier ABI 7 libraries.
+- Multiconductor power-flow instances expose their prescribed per-load active
+  and reactive powers through lazy, owner-rooted collections.
+
 ## 0.11.5
 
 - Coordinate the Julia package with PowerIO 0.11.5. The bundled library's

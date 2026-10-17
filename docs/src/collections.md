@@ -50,6 +50,11 @@ serialize(opf, "case9_dcopf.pio.json")
 | `to_mc_ac_pf_instance`, `to_mc_ac_opf_instance` | `McAcPfInstance`, `McAcOpfInstance` over a `MulticonductorNetwork` |
 | `to_lindist3flow_opf_instance` | `LinDist3FlowOpfInstance` over a radial `MulticonductorNetwork` |
 
+`McAcPfInstance.source_boundaries` is a lazy vector of `VoltageSource` records.
+Each row supplies the source bus, phase terminals, phasors and optional
+`reference_terminal`; a named reference is the other voltage endpoint on
+that bus and does not imply grounding. The vector retains its instance owner.
+
 A `LinDist3FlowOpfInstance` uses fixed reference phasors and lossless,
 linearized voltage drops. Its `metadata` property returns owned node and
 conductor identities, root nodes, and reference voltages in volts and radians.

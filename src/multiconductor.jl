@@ -119,8 +119,10 @@ end
 """
     MulticonductorLoad
 
-One load: `configuration`, per terminal nominal powers, the `voltage_model`
-name, and the per terminal ZIP and exponential coefficients.
+One load: `configuration`, nominal powers per active load branch, the
+`voltage_model` name, and ZIP/exponential coefficients in the same branch order.
+`terminals` also includes the return conductor, so its length can exceed the
+number of power channels.
 """
 struct MulticonductorLoad
     name::String
@@ -139,7 +141,34 @@ struct MulticonductorLoad
     reactive_power_constant_power::Vector{Float64}
     active_power_exponent::Vector{Float64}
     reactive_power_exponent::Vector{Float64}
+    voltage_low_pu::Union{Nothing,Float64}
+    voltage_min_pu::Union{Nothing,Float64}
+    voltage_max_pu::Union{Nothing,Float64}
+    cutoff_pu::Union{Nothing,Float64}
+    current_limit_pu::Union{Nothing,Float64}
 end
+
+# Preserve the original positional constructor for ordinary load records.
+MulticonductorLoad(args::Vararg{Any,16}) =
+    MulticonductorLoad(args..., nothing, nothing, nothing, nothing, nothing)
+
+function _dist_load_law(v)
+    (model=_str(v.model), nominal_voltage_v=_f64s(v.nominal_voltage_v),
+     active_power_constant_impedance=_f64s(v.active_power_constant_impedance),
+     active_power_constant_current=_f64s(v.active_power_constant_current),
+     active_power_constant_power=_f64s(v.active_power_constant_power),
+     reactive_power_constant_impedance=_f64s(v.reactive_power_constant_impedance),
+     reactive_power_constant_current=_f64s(v.reactive_power_constant_current),
+     reactive_power_constant_power=_f64s(v.reactive_power_constant_power),
+     active_power_exponent=_f64s(v.active_power_exponent),
+     reactive_power_exponent=_f64s(v.reactive_power_exponent),
+     voltage_low_pu=_optional(v.voltage_low_pu, v.has_voltage_low),
+     voltage_min_pu=_optional(v.voltage_min_pu, v.has_voltage_min),
+     voltage_max_pu=_optional(v.voltage_max_pu, v.has_voltage_max),
+     cutoff_pu=_optional(v.cutoff_pu, v.has_cutoff),
+     current_limit_pu=_optional(v.current_limit_pu, v.has_current_limit))
+end
+
 
 """
     MulticonductorGenerator
@@ -259,6 +288,8 @@ end
 
 One ideal voltage source with per terminal magnitude (volts), angle
 (radians), and optional per-phase energy cost rates (dollars/kWh).
+`reference_terminal` names the other voltage endpoint on `bus`; `nothing`
+means earth. A named reference does not imply grounding.
 """
 struct VoltageSource
     name::String
@@ -267,7 +298,12 @@ struct VoltageSource
     voltage_magnitude_v::Vector{Float64}
     voltage_angle_rad::Vector{Float64}
     energy_cost_rate_per_kwh::Union{Vector{Float64},Nothing}
+    reference_terminal::Union{String,Nothing}
 end
+
+# Preserve the existing constructor for earth-referenced sources.
+VoltageSource(name, bus, terminals, magnitude, angle, cost) =
+    VoltageSource(name, bus, terminals, magnitude, angle, cost, nothing)
 
 """
     UntypedObject
@@ -463,7 +499,7 @@ _element(::Type{MulticonductorTransformer}, net::MulticonductorNetwork, i) = _wi
     MulticonductorTransformer(_str(v.name), windings, _f64s(v.short_circuit_reactance_percent), Int(v.phase_count))
 end
 
-_element(::Type{MulticonductorLoad}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
+function _legacy_multiconductor_load(lib, p, i)
     v = _at(PioMulticonductorLoadView, Val(:pio_multiconductor_network_load_at), lib, p, i)
     MulticonductorLoad(_str(v.name), _str(v.bus),
                        _terminals(Val(:pio_multiconductor_network_load_terminal_at), lib, p, i, v.terminal_map_count),
@@ -473,6 +509,25 @@ _element(::Type{MulticonductorLoad}, net::MulticonductorNetwork, i) = _with_netw
                        _f64s(v.active_power_constant_power), _f64s(v.reactive_power_constant_impedance),
                        _f64s(v.reactive_power_constant_current), _f64s(v.reactive_power_constant_power),
                        _f64s(v.active_power_exponent), _f64s(v.reactive_power_exponent))
+end
+
+_element(::Type{MulticonductorLoad}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
+    if Libdl.dlsym(_library_handle(lib), :pio_multiconductor_network_load_details_at;
+                   throw_error=false) === nothing
+        return _legacy_multiconductor_load(lib, p, i)
+    end
+    v = _at(PioMulticonductorLoadDetailsView, Val(:pio_multiconductor_network_load_details_at), lib, p, i)
+    law = _dist_load_law(v.voltage_model)
+    MulticonductorLoad(_str(v.name), _str(v.bus),
+                       _terminals(Val(:pio_multiconductor_network_load_terminal_at), lib, p, i, v.terminal_map_count),
+                       _str(v.configuration), _f64s(v.active_power_nominal_w), _f64s(v.reactive_power_nominal_var),
+                       law.model, law.nominal_voltage_v,
+                       law.active_power_constant_impedance, law.active_power_constant_current,
+                       law.active_power_constant_power, law.reactive_power_constant_impedance,
+                       law.reactive_power_constant_current, law.reactive_power_constant_power,
+                       law.active_power_exponent, law.reactive_power_exponent,
+                       law.voltage_low_pu, law.voltage_min_pu, law.voltage_max_pu,
+                       law.cutoff_pu, law.current_limit_pu)
 end
 
 _element(::Type{MulticonductorGenerator}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
@@ -536,12 +591,25 @@ _element(::Type{MulticonductorCapacitor}, net::MulticonductorNetwork, i) = _with
                             _str(v.configuration), v.rated_reactive_power_var, v.nominal_voltage_v)
 end
 
-_element(::Type{VoltageSource}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    v = _at(PioVoltageSourceView, Val(:pio_multiconductor_network_voltage_source_at), lib, p, i)
+function _voltage_source_record(lib, p, i, v::PioVoltageSourceView, reference)
     VoltageSource(_str(v.name), _str(v.bus),
                   _terminals(Val(:pio_multiconductor_network_voltage_source_terminal_at), lib, p, i, v.terminal_map_count),
                   _f64s(v.voltage_magnitude_v), _f64s(v.voltage_angle_rad),
-                  _optional_f64s(v.energy_cost_rate_per_kwh, v.has_energy_cost_rate))
+                  _optional_f64s(v.energy_cost_rate_per_kwh, v.has_energy_cost_rate), reference)
+end
+
+_element(::Type{VoltageSource}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
+    # The additive accessor is absent from earlier ABI 7 libraries. Those
+    # libraries cannot deserialize a referenced source and retain the old view.
+    if Libdl.dlsym(_library_handle(lib), :pio_multiconductor_network_voltage_source_boundary_at;
+                   throw_error=false) !== nothing
+        boundary = _at(PioVoltageSourceBoundaryView,
+                       Val(:pio_multiconductor_network_voltage_source_boundary_at), lib, p, i)
+        return _voltage_source_record(lib, p, i, boundary.source,
+            _optional_str(boundary.reference_terminal, boundary.has_reference_terminal))
+    end
+    v = _at(PioVoltageSourceView, Val(:pio_multiconductor_network_voltage_source_at), lib, p, i)
+    _voltage_source_record(lib, p, i, v, nothing)
 end
 
 _element(::Type{UntypedObject}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p

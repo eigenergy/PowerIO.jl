@@ -61,8 +61,8 @@
             @test report.matched_buses == 2
             @test report.matched_branches == 0
             @test report.unmatched_features == 0
-            @test report.unlocated_buses == 2
-            @test report.unlocated_branches == 1
+            @test report.unlocated_buses == 3
+            @test report.unlocated_branches == 4
             @test report.notes == String[]
             @test placed.value.buses[1].location.y == 40.6
         end

@@ -50,14 +50,15 @@ using .LibPowerIO: LibPowerIO, PioError, PioActivePowerControlView, PioBalancedA
     PioModuleHistoryParameterView, PioModuleProducerView, PioModuleSourceView,
     PioMulticonductorBusView, PioMulticonductorCapacitorView, PioMulticonductorCommandView,
     PioMulticonductorGeneratorView, PioMulticonductorGeoView, PioMulticonductorLineCodeView,
-    PioMulticonductorLineView, PioMulticonductorLoadView, PioMulticonductorLocationView,
+    PioMulticonductorLineView, PioMulticonductorLoadView, PioMulticonductorLoadDetailsView,
+    PioPrescribedLoadDetailsView, PioMulticonductorLocationView,
     PioMulticonductorNetworkCountsView, PioMulticonductorShuntView,
     PioMulticonductorSwitchView, PioMulticonductorTransformerView,
     PioMulticonductorTransformerWindingView, PioMulticonductorUntypedObjectView,
     PioMulticonductorUntypedPropertyView, PioShuntBlockView, PioSizeView,
     PioStringPropertyView, PioStringView, PioTerminalReferenceView,
     PioThreeWindingTransformerImpedanceView, PioThreeWindingTransformerWindingView,
-    PioTransformerControlView, PioVoltageSourceView
+    PioTransformerControlView, PioVoltageSourceView, PioVoltageSourceBoundaryView
 
 # Operations. `parse` extends `Base.parse` and is not exported.
 export PioModule, emit, serialize, deserialize
