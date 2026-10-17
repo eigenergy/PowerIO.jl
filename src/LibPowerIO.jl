@@ -1774,6 +1774,12 @@ struct PioByteView
     len::Csize_t
 end
 
+struct PioVoltageSourceBoundaryView
+    source::PioVoltageSourceView
+    reference_terminal::PioStringView
+    has_reference_terminal::Bool
+end
+
 function pio_abi_version()
     @ccall libpowerio_capi.pio_abi_version()::UInt32
 end
@@ -5828,6 +5834,22 @@ end
 
 function pio_string_release(string, fptr)
     @ccall ($fptr)(string::Ptr{PioString})::Cvoid
+end
+
+function pio_multiconductor_network_voltage_source_boundary_at(network, index, output, error)
+    @ccall libpowerio_capi.pio_multiconductor_network_voltage_source_boundary_at(network::Ptr{PioMulticonductorNetwork}, index::Csize_t, output::Ptr{PioVoltageSourceBoundaryView}, error::Ptr{Ptr{PioError}})::Bool
+end
+
+function pio_multiconductor_network_voltage_source_boundary_at(network, index, output, error, fptr)
+    @ccall ($fptr)(network::Ptr{PioMulticonductorNetwork}, index::Csize_t, output::Ptr{PioVoltageSourceBoundaryView}, error::Ptr{Ptr{PioError}})::Bool
+end
+
+function pio_mc_ac_pf_instance_source_boundary_at(instance, index, output, error)
+    @ccall libpowerio_capi.pio_mc_ac_pf_instance_source_boundary_at(instance::Ptr{PioCalculationInstance}, index::Csize_t, output::Ptr{PioVoltageSourceBoundaryView}, error::Ptr{Ptr{PioError}})::Bool
+end
+
+function pio_mc_ac_pf_instance_source_boundary_at(instance, index, output, error, fptr)
+    @ccall ($fptr)(instance::Ptr{PioCalculationInstance}, index::Csize_t, output::Ptr{PioVoltageSourceBoundaryView}, error::Ptr{Ptr{PioError}})::Bool
 end
 
 const PIO_ABI_VERSION = 7

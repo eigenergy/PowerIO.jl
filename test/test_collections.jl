@@ -116,6 +116,24 @@
             @test_throws PowerIOError to_mc_ac_pf_instance(m)
 
             feeder = parse(fixture("dist", "switch.dss"))
+            # Use an explicit unsourced load: the static snapshot does not
+            # execute SwtControl actions to isolate the existing fixture's stub.
+            unsourced = parse(IOBuffer("New Circuit.c phases=1 bus1=source.1 basekv=.24
+New Load.isolated phases=1 bus1=orphan.1.0 kv=.24 kw=1 kvar=0
+"); format="dss", name="unsourced.dss")
+            for construct in (to_mc_ac_pf_instance, to_mc_ac_opf_instance)
+                err = try
+                    construct(unsourced)
+                    nothing
+                catch e
+                    e
+                end
+                @test err isa PowerIOError
+                @test occursin("has no voltage source", sprint(showerror, err))
+            end
+            connected = replace(read(fixture("dist", "switch.dss"), String),
+                                "Normal=open Action=open" => "Normal=closed Action=close")
+            feeder = parse(IOBuffer(connected); format="dss", name="connected-switch.dss")
             mc = to_mc_ac_pf_instance(feeder)
             @test mc isa PioModule{McAcPfInstance}
             @test mc.value.network isa MulticonductorNetwork

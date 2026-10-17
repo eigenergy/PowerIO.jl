@@ -14,6 +14,7 @@ _network_type(::Type{<:CalculationSolution}) = BalancedNetwork
 The network a calculation instance is defined over.
 """
 function Base.getproperty(instance::T, name::Symbol) where {T<:CalculationInstance}
+    name === :source_boundaries && instance isa McAcPfInstance && return _SourceBoundaries(instance)
     name === :metadata && instance isa LinDist3FlowOpfInstance && return _lindist3flow_metadata(instance)
     name === :inputs && instance isa AcScucInstance && return _scuc_inputs(instance)
     name === :network || return getfield(instance, name)
@@ -31,6 +32,39 @@ end
 Base.propertynames(::CalculationInstance, private::Bool=false) = private ? (:network, :handle) : (:network,)
 Base.propertynames(::AcScucInstance, private::Bool=false) =
     private ? (:network, :inputs, :handle) : (:network, :inputs)
+
+# A lazy owner-rooted table; reading one boundary copies only that row's views.
+struct _SourceBoundaries <: AbstractVector{VoltageSource}
+    instance::McAcPfInstance
+end
+
+Base.IndexStyle(::Type{_SourceBoundaries}) = IndexLinear()
+function Base.size(table::_SourceBoundaries)
+    count = _with_handle(table.instance) do lib, p
+        Int(@capi lib :pio_mc_ac_pf_instance_source_count(p))
+    end
+    (count,)
+end
+
+function Base.getindex(table::_SourceBoundaries, i::Int)
+    checkbounds(table, i)
+    net = table.instance.network
+    _with_handle(table.instance) do lib, p
+        if Libdl.dlsym(_library_handle(lib), :pio_mc_ac_pf_instance_source_boundary_at;
+                       throw_error=false) === nothing
+            return net.voltage_sources[i]
+        end
+        boundary = _at(PioVoltageSourceBoundaryView,
+                       Val(:pio_mc_ac_pf_instance_source_boundary_at), lib, p, i - 1)
+        _with_network(net) do network_lib, network_ptr
+            _voltage_source_record(network_lib, network_ptr, i - 1, boundary.source,
+                _optional_str(boundary.reference_terminal, boundary.has_reference_terminal))
+        end
+    end
+end
+
+Base.propertynames(::McAcPfInstance, private::Bool=false) =
+    private ? (:network, :source_boundaries, :handle) : (:network, :source_boundaries)
 
 """
     solution.instance

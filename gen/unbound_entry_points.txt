@@ -94,7 +94,6 @@ pio_mc_ac_pf_instance_load_at	multiconductor AC power flow instance tables are C
 pio_mc_ac_pf_instance_load_count	multiconductor AC power flow instance tables are C only
 pio_mc_ac_pf_instance_load_terminal_at	multiconductor AC power flow instance tables are C only
 pio_mc_ac_pf_instance_source_at	multiconductor AC power flow instance tables are C only
-pio_mc_ac_pf_instance_source_count	multiconductor AC power flow instance tables are C only
 pio_mc_ac_pf_instance_source_terminal_at	multiconductor AC power flow instance tables are C only
 pio_calculation_instance_active_constraint_at	instance constraints, objective terms and initial points are C only
 pio_calculation_instance_active_constraint_count	instance constraints, objective terms and initial points are C only
