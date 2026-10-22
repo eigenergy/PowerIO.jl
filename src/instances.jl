@@ -48,7 +48,7 @@ end
 
 function Base.getindex(table::_SourceBoundaries, i::Int)
     checkbounds(table, i)
-    net = table.instance.network
+    net = table.instance.network::MulticonductorNetwork
     _with_handle(table.instance) do lib, p
         if Libdl.dlsym(_library_handle(lib), :pio_mc_ac_pf_instance_source_boundary_at;
                        throw_error=false) === nothing

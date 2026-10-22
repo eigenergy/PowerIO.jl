@@ -499,6 +499,9 @@ end
 
 One balanced three winding transformer: its `windings`, pairwise
 `impedances`, star point voltage, magnetizing branch, and service status.
+`in_service` is the device-level status only. These typed rows do not expose
+individual winding service flags; use the native lowering and matrix APIs
+for partial-winding topology.
 """
 struct ThreeWindingTransformer
     component_id::Union{String,Nothing}

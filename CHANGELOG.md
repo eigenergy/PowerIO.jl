@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Preserve concrete `VoltageSource` inference when indexing lazy power-flow
+  source boundaries, including the older ABI 7 fallback.
+- Use the current native `main` branch for source CI by default, migrate
+  maintained build commands off the inert Arrow compatibility flag, and
+  correct the supported Julia version and SINCAL release instructions.
+
 - Read referenced voltage sources through `VoltageSource.reference_terminal`
   and prescribed power-flow sources through `McAcPfInstance.source_boundaries`.
   A named reference is the other voltage endpoint on the source bus, not a
