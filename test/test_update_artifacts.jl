@@ -34,7 +34,20 @@ _without(symbol::Symbol) = setdiff(copy(ArtifactUpdater.KNOWN_SYMBOLS), Set((sym
                    :pio_balanced_network_bus_at, :pio_multiconductor_network_counts)
         @test _parked_reason(_candidate(symbols=_without(symbol))) == "required_symbol_missing"
     end
-    @test ArtifactUpdater.REQUIRED_FEATURES == ("arrow", "matrix", "gridfm", "dist", "prob")
+    # Removing an inert Cargo flag does not change the ABI or invalidate existing
+    # release archives. Candidate checks use the binary's version and behavior,
+    # not a build-feature label that older archives may still carry.
+    for version in ("0.11.5", "0.11.6")
+        @test ArtifactUpdater.validate_candidate(
+            _candidate(; version), "v$version"; binding_abi=UInt32(7)) isa
+              ArtifactUpdater.CandidateReport
+        @test_throws ArtifactUpdater.ParkedGate ArtifactUpdater.validate_candidate(
+            _candidate(; version=version == "0.11.5" ? "0.11.6" : "0.11.5"), "v$version";
+            binding_abi=UInt32(7))
+        @test_throws ArtifactUpdater.ParkedGate ArtifactUpdater.validate_candidate(
+            _candidate(; version, gridfm_available=false), "v$version";
+            binding_abi=UInt32(7))
+    end
     @test isfile(joinpath(ArtifactUpdater.GRIDFM_FIXTURE, "gridfm_meta.json"))
     # The binding's ABI constant is what the gate compares a release binary against.
     @test ArtifactUpdater._binding_abi() == PowerIO.PIO_ABI_VERSION == UInt32(7)

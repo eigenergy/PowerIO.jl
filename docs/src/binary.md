@@ -7,8 +7,8 @@ arrives as a prebuilt binary, so you do not compile anything.
 
 1. A version tag on [eigenergy/powerio](https://github.com/eigenergy/powerio)
    triggers its `release-binaries` workflow, which builds
-   `libpowerio_capi.<triplet>.tar.gz` with the `arrow`, `matrix`, `gridfm`,
-   `dist`, and `prob` features for Linux glibc (`x86_64`, `aarch64`),
+   `libpowerio_capi.<triplet>.tar.gz` with the `matrix`, `gridfm`, `dist`,
+   and `prob` features for Linux glibc (`x86_64`, `aarch64`),
    macOS (`x86_64`, `arm64`), and Windows (`x86_64`), and attaches the five
    tarballs to the GitHub release. Each tarball holds the library under `lib/`
    (`bin/` on Windows), the C header under `include/`, and the licenses.
@@ -24,10 +24,6 @@ arrives as a prebuilt binary, so you do not compile anything.
    CONTRIBUTING.md.
 3. `Artifacts.toml` is lazy, so `Pkg.add` downloads nothing; the tarball for
    your platform is fetched on the first call that needs the library.
-
-A `PowerIO_jll` built from `gen/build_tarballs.jl` (the BinaryBuilder recipe)
-is the planned long term distribution; current releases use the artifact
-pipeline above.
 
 ## Generated declarations
 

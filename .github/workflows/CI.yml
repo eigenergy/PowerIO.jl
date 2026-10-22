@@ -27,8 +27,7 @@ jobs:
       # real. The probe checks out eigenergy/powerio anonymously when it is public;
       # while it is private, add a token with read access to it as the
       # POWERIO_REPO_TOKEN secret. With neither, the build is skipped and the ccall
-      # tests auto-skip (the pure-Julia tests still run). Drops to
-      # `using PowerIO_jll` once that is registered (issue #1).
+      # tests auto-skip (the pure-Julia tests still run).
       - name: Probe powerio access
         id: powerio
         run: |
@@ -81,18 +80,7 @@ jobs:
           workspaces: powerio
       - name: Build powerio-capi
         if: steps.powerio.outputs.available == 'true'
-        # Build the optional features the checked-out Rust branch supports. Before
-        # the v0.6.1 Rust PRs merge, matrix and normalize options tests skip; once
-        # they land, this job exercises them.
-        run: |
-          features=arrow,gridfm,dist
-          if grep -q '^matrix = ' powerio/powerio-capi/Cargo.toml; then
-            features="$features,matrix"
-          fi
-          if grep -q '^prob = ' powerio/powerio-capi/Cargo.toml; then
-            features="$features,prob"
-          fi
-          cargo build -p powerio-capi --release --features "$features" --manifest-path powerio/Cargo.toml
+        run: cargo build -p powerio-capi --release --features matrix,gridfm,dist,prob --manifest-path powerio/Cargo.toml
       # src/LibPowerIO.jl is generated from the checked out header. Regenerating
       # it here turns a header change that nobody regenerated against into a diff.
       - name: Check the generated raw layer is current

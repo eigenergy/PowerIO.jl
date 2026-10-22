@@ -187,9 +187,8 @@ end
 # Resolve the bundled `powerio_capi` artifact. Until `Artifacts.toml` carries a
 # `powerio_capi` entry for this platform (filled by `gen/update_artifacts.jl`
 # from a tagged powerio release; see docs/src/binary.md), fall back to a plain
-# `libpowerio_capi` on the loader path. The subdir mirrors what
-# `gen/build_tarballs.jl` installs: the Windows dll under `bin/`, the shared
-# object under `lib/` everywhere else.
+# `libpowerio_capi` on the loader path. Release archives put the Windows dll
+# under `bin/` and the shared object under `lib/` everywhere else.
 function _artifact_lib()
     libsubdir = Sys.iswindows() ? "bin" : "lib"
     try

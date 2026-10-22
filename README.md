@@ -103,7 +103,7 @@ build, clone `powerio` next to this checkout and build it:
 
 ```sh
 git clone https://github.com/eigenergy/powerio ../powerio
-(cd ../powerio && cargo build -p powerio-capi --release --features arrow,matrix,gridfm,dist,prob)
+(cd ../powerio && cargo build -p powerio-capi --release --features matrix,gridfm,dist,prob)
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 ```
 
