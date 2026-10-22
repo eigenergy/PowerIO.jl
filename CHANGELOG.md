@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- PF/OPF construction now rejects physical islands without a voltage source
+  instead of assigning an implicit anchor. Parsing retains those islands;
+  callers must resolve de-energized islands explicitly before construction.
 - Preserve concrete `VoltageSource` inference when indexing lazy power-flow
   source boundaries, including the older ABI 7 fallback.
 - Use the current native `main` branch for source CI by default, migrate
