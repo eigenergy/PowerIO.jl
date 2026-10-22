@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+- Read referenced voltage sources through `VoltageSource.reference_terminal`
+  and prescribed power-flow sources through `McAcPfInstance.source_boundaries`.
+  A named reference is the other voltage endpoint on the source bus, not a
+  grounding declaration. Existing earth-referenced constructors and the
+  older ABI 7 source-view fallback remain available.
+- Bind the separate `sincal-balanced` and `sincal-multiconductor` reader
+  profiles through `SincalBalancedReadOptions` and `SincalReadOptions`.
+  Select a native variant, daily snapshot, and explicitly acquired Access
+  tables. Path inputs support an explicit acquisition root; memory and IO
+  inputs accept named companion buffers and never acquire them from disk.
+  Parsing verifies the original MDB's length and hash, but does not
+  independently attest the companion table cells or run acquisition tools.
+- Keep SINCAL distribution reading strict by default.
+  `assume_inactive_source_controls=true` explicitly opts into the
+  experimental schema-11.5 NULL source-control assumption, with diagnostics
+  and durable IR provenance. Active controls and missing electrical
+  parameters still fail. Native SINCAL execution remains unverified.
+  Source echo, IR restoration, and PF preparation are supported; fresh
+  experimental SINCAL writing remains Rust-only. PowerIO prepares
+  calculation instances rather than solving them.
+
+C ABI 7 and PowerIO IR version 2 remain unchanged.
+
 ## 0.11.5
 
 - Coordinate the Julia package with PowerIO 0.11.5. The bundled library's
