@@ -47,6 +47,7 @@ serialize(opf, "case9_dcopf.pio.json")
 |---|---|
 | `to_dc_pf_instance`, `to_ac_pf_instance` | `DcPfInstance`, `AcPfInstance` |
 | `to_dc_opf_instance`, `to_ac_opf_instance` | `DcOpfInstance`, `AcOpfInstance` |
+| `to_ac_ots_instance` | `AcOtsInstance` over the complete physical branch table |
 | `to_mc_ac_pf_instance`, `to_mc_ac_opf_instance` | `McAcPfInstance`, `McAcOpfInstance` over a `MulticonductorNetwork` |
 | `to_lindist3flow_opf_instance` | `LinDist3FlowOpfInstance` over a radial `MulticonductorNetwork` |
 
@@ -95,6 +96,77 @@ An unknown quantity name throws [`PowerIOError`](@ref) with code
 `REQUEST.CAPI.QUANTITY_UNKNOWN`. A [`SocwrOpfSolution`](@ref) comes from a
 second order cone relaxation of an AC OPF instance, so it reports an
 `objective_lower_bound` and is not an AC feasible point.
+
+## AC optimal transmission switching
+
+AC OTS values retain every physical branch and its immutable initial status.
+The default conversion selects initially in-service branches. Explicit options
+can select `:all` (including initially open branches), `:none`, or a list of
+stable identities:
+
+```julia
+case = parse("case9.m")
+ots = to_ac_ots_instance(case)
+ids = ots.value.branch_order
+options = AcOtsOptions(
+    switchable=BranchSelection(:all),
+    switching_costs=[BranchSwitchingCost(ids[2], 2.0, 7.0)],
+    max_open=1, max_switched=1,
+)
+ots = to_ac_ots_instance(ots; options)
+initial = ots.value.initial_closed
+ots.value.branches[2]             # lazy typed branch settings and current bounds
+switching_cost(ots.value, initial)
+fixed = fix_topology(ots.value, initial)  # PioModule{AcOpfInstance}
+fixed.diagnostics                # switching/current policy losses are explicit
+```
+
+`max_open` counts every final-open physical branch, including fixed-open rows.
+`max_switched` counts differences from initial status. `islanding=:forbidden`
+requires global final AC connectivity. `:allowed` retains every load and chooses
+one deterministic zero-angle reference per final island; it does not imply
+load shedding or certify dispatch feasibility.
+
+Current limits are independent from MVA constraints. `:stated` uses explicit
+`BranchCurrentLimit(id, from_pu, to_pu)` records. Each terminal uses per unit on
+system MVA and its own nominal voltage base; `nothing` is unbounded. Legacy
+source-unit current ratings are not converted implicitly. `:derive_from_rate_a`
+uses active thermal and voltage limits to derive necessary current bounds, not
+equivalent MVA constraints.
+
+`to_ac_ots_instance(module; options)` selects the switching objective term once.
+The lower-level `AcOtsInstance(base::AcOpfInstance, options)` constructor preserves
+the base objective exactly. Opening and closing costs apply only to transitions;
+unchanged branches cost zero.
+
+Attach an externally computed fixed-topology `AcOpfSolution` with
+`AcOtsSolution(instance, branch_closed, ac_solution)`. Typed properties include
+`branch_closed`, `branches_open`, `branches_switched`, and `switching_cost`, in
+addition to the generic solution properties and named AC quantity vectors.
+Construction checks exact fixed-instance correspondence, finite values and zero
+open-branch flows, but not power-flow residuals or optimality. `solution.network`
+is the original candidate-complete network. Use
+`materialize_ac_ots_solution(solution)` to obtain a separate network module with
+final statuses, solved voltages, dispatch and branch flows before grid emission.
+
+Typed access is owner-rooted and does not serialize the value. Branch metadata is
+indexed once per C handle, so a complete table traversal is not quadratic.
+No solver, big-M formulation, DC OTS type, SCUC period projection, or GO Challenge
+3 solution writer is provided by this API.
+
+```@docs
+AcOtsInstance
+AcOtsSolution
+AcOtsOptions
+BranchSelection
+BranchSwitchingCost
+BranchCurrentLimit
+to_ac_ots_instance
+validate_topology
+switching_cost
+fix_topology
+materialize_ac_ots_solution
+```
 
 ## AC SCUC inputs
 

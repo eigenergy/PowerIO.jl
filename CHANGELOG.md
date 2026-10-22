@@ -25,6 +25,10 @@
   the bridge reads element tables through a statically typed accessor. CI
   builds and runs a trimmed app (`test/trim`) on every change.
 - Locking a single handle no longer allocates.
+- Add typed AC optimal transmission switching instances, options and solutions.
+  Preserve all physical branches and initial states, validate final topology and
+  transition budgets, and materialize solved networks explicitly. This data API
+  does not implement an optimizer, DC OTS, or a GO Challenge 3 writer.
 
 ## 0.11.6
 
