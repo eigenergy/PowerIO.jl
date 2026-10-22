@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- PF/OPF construction now rejects physical islands without a voltage source
+- Multiconductor PF/OPF construction now rejects physical islands without a voltage source
   instead of assigning an implicit anchor. Parsing retains those islands;
   callers must resolve de-energized islands explicitly before construction.
 - Preserve concrete `VoltageSource` inference when indexing lazy power-flow
