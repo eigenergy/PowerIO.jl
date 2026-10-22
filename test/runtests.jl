@@ -33,6 +33,7 @@ fixture(parts...) = joinpath(DATA, parts...)
     include("test_handle_operations.jl")
     include("test_updates.jl")            # typed updates and apply_updates!
     include("test_connectivity.jl")       # DetailedConnectivity tables
+    include("test_ots.jl")                # typed switching options, topology, ownership and solutions
     include("test_scuc.jl")               # AC SCUC instance inputs
     include("test_contingency.jl")        # PSS/E contingency, subsystem, monitored sets
     include("test_geo.jl")                # geographic layers
