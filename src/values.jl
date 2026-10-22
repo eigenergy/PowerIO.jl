@@ -73,6 +73,7 @@ for (name, doc) in (
         (:DcPfInstance, "DC power flow instance over a `BalancedNetwork`."),
         (:AcPfInstance, "AC power flow instance over a `BalancedNetwork`."),
         (:DcOpfInstance, "DC optimal power flow instance over a `BalancedNetwork`."),
+        (:AcOtsInstance, "AC optimal transmission switching instance over a candidate-complete `BalancedNetwork`."),
         (:AcOpfInstance, "AC optimal power flow instance over a `BalancedNetwork`."),
         (:McAcPfInstance, "Multiconductor AC power flow instance over a `MulticonductorNetwork`."),
         (:McAcOpfInstance, "Multiconductor AC optimal power flow instance over a `MulticonductorNetwork`."),
@@ -86,7 +87,7 @@ for (name, doc) in (
     end
 end
 
-const CalculationInstance = Union{DcPfInstance,AcPfInstance,DcOpfInstance,AcOpfInstance,
+const CalculationInstance = Union{DcPfInstance,AcPfInstance,DcOpfInstance,AcOpfInstance,AcOtsInstance,
                                   McAcPfInstance,McAcOpfInstance,LinDist3FlowOpfInstance,AcScucInstance}
 
 # Calculation solutions: the instance they answer, the termination status, and
@@ -95,6 +96,7 @@ for (name, doc) in (
         (:DcPfSolution, "DC power flow solution."),
         (:AcPfSolution, "AC power flow solution."),
         (:DcOpfSolution, "DC optimal power flow solution."),
+        (:AcOtsSolution, "AC optimal transmission switching result with explicit final branch states."),
         (:AcOpfSolution, "AC optimal power flow solution."),
         (:SocwrOpfSolution, "Second order cone (SOCWR) relaxation of an AC OPF instance; not an AC feasible point."),
         (:McAcPfSolution, "Multiconductor AC power flow solution."),
@@ -109,7 +111,7 @@ for (name, doc) in (
     end
 end
 
-const CalculationSolution = Union{DcPfSolution,AcPfSolution,DcOpfSolution,AcOpfSolution,
+const CalculationSolution = Union{DcPfSolution,AcPfSolution,DcOpfSolution,AcOpfSolution,AcOtsSolution,
                                   SocwrOpfSolution,McAcPfSolution,McAcOpfSolution,LinDist3FlowOpfSolution,AcScucSolution}
 
 """
@@ -184,6 +186,7 @@ const _INSTANCE_TYPES = Dict(
     "powerio.DcPfInstance" => (DcPfInstance, :pio_value_dc_pf_instance),
     "powerio.AcPfInstance" => (AcPfInstance, :pio_value_ac_pf_instance),
     "powerio.DcOpfInstance" => (DcOpfInstance, :pio_value_dc_opf_instance),
+    "powerio.AcOtsInstance" => (AcOtsInstance, :pio_value_ac_ots_instance),
     "powerio.AcOpfInstance" => (AcOpfInstance, :pio_value_ac_opf_instance),
     "powerio.McAcPfInstance" => (McAcPfInstance, :pio_value_mc_ac_pf_instance),
     "powerio.McAcOpfInstance" => (McAcOpfInstance, :pio_value_mc_ac_opf_instance),
@@ -195,6 +198,7 @@ const _SOLUTION_TYPES = Dict(
     "powerio.DcPfSolution" => (DcPfSolution, :pio_value_dc_pf_solution),
     "powerio.AcPfSolution" => (AcPfSolution, :pio_value_ac_pf_solution),
     "powerio.DcOpfSolution" => (DcOpfSolution, :pio_value_dc_opf_solution),
+    "powerio.AcOtsSolution" => (AcOtsSolution, :pio_value_ac_ots_solution),
     "powerio.AcOpfSolution" => (AcOpfSolution, :pio_value_ac_opf_solution),
     "powerio.SocwrOpfSolution" => (SocwrOpfSolution, :pio_value_socwr_opf_solution),
     "powerio.McAcPfSolution" => (McAcPfSolution, :pio_value_mc_ac_pf_solution),

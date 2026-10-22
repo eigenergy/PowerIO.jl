@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add typed AC optimal transmission switching instances, options and solutions.
+  Preserve all physical branches and initial states, validate final topology and
+  transition budgets, and materialize solved networks explicitly. This data API
+  does not implement an optimizer, DC OTS, or a GO Challenge 3 writer.
+
 ## 0.11.5
 
 - Coordinate the Julia package with PowerIO 0.11.5. The bundled library's
