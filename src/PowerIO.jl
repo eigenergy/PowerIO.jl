@@ -89,7 +89,7 @@ export MulticonductorBus, MulticonductorLineCode, MulticonductorLine, Multicondu
        UntypedObject, SourceCommand
 
 # Dense tables and graph projections.
-export to_dense, to_graph
+export to_dense, to_graph, network_islands
 
 # Matrices and vectors.
 export calc_incidence_matrix, calc_branch_susceptances, calc_bus_susceptance_matrix,

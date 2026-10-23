@@ -23,7 +23,8 @@ fixture(parts...) = joinpath(DATA, parts...)
     include("test_public_api.jl")         # the exported surface
     include("test_capi_coverage.jl")      # every generated entry point is bound or exempt
     include("test_operations.jl")         # parse, emit, serialize, deserialize
-    include("test_network.jl")            # BalancedNetwork element tables
+    include("test_network.jl")         # BalancedNetwork element tables
+    include("test_graphs.jl")          # deterministic network graph and island utilities
     include("test_geography.jl")
     include("test_dist.jl")               # MulticonductorNetwork element tables
     include("test_sincal.jl")            # reader selections and source acquisition

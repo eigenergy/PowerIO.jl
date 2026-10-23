@@ -81,6 +81,35 @@ per generator `pg`, `pmax`, and per bus demand and shunt sums.
 [`to_graph`](@ref) returns the bus graph as `buses` and `edges`.
 [`reference_bus_ids`](@ref) lists the `"REF"` buses.
 
+## Connected AC islands
+
+`network_islands(net)` returns the connected AC components as vectors of
+source bus IDs. It is useful for spotting disconnected parts of a case before
+running a power-flow or optimization workflow. Every bus is retained, including
+buses that form a one-bus island.
+
+The default topology includes in-service branches, closed switches, and
+in-service three-winding transformers. Set `include_switches=false` or
+`include_transformers_3w=false` to inspect a topology without those
+connections. Out-of-service branches and transformers and open switches are
+excluded; HVDC links do not join AC islands. The result is deterministic:
+islands are ordered by the first bus in source-table order, and buses within an
+island retain that order.
+
+```julia
+net = parse("case118.m").value
+islands = network_islands(net)
+length(islands)             # number of connected AC islands
+map(length, islands)        # buses per island
+```
+
+This is a graph-connectivity result, not a claim that an island has a reference
+bus, sufficient generation, or a convergent power-flow solution.
+
+```@docs
+network_islands
+```
+
 ## Detailed connectivity
 
 Node breaker formats (XIIDM, CGMES) have substations, voltage levels,

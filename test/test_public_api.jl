@@ -27,7 +27,7 @@ const EXPORTED_NAMES = Set([
     :VoltWattControl, :MulticonductorShunt, :MulticonductorCapacitor, :VoltageSource,
     :UntypedObject, :SourceCommand,
     # dense tables and graphs
-    :to_dense, :to_graph,
+    :to_dense, :to_graph, :network_islands,
     # matrices and vectors
     :calc_incidence_matrix, :calc_branch_susceptances, :calc_bus_susceptance_matrix,
     :calc_branch_flow_matrix, :calc_branch_phase_shift_injection, :calc_bus_phase_shift_injection,
