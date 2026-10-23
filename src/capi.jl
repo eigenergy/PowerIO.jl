@@ -282,11 +282,21 @@ True if the C ABI library resolves and is ABI compatible with this binding
 (see [`abi_version`](@ref)).
 """
 function library_available()
+    return library_available(_lib())
+end
+
+"""
+    library_available(lib::AbstractString) -> Bool
+
+Check whether the library at `lib` has the ABI expected by this binding.
+This probes an explicit candidate without changing library resolution settings.
+"""
+function library_available(lib::AbstractString)
     try
-        _ensure_compatible()
+        _ensure_compatible(lib)
         return true
     catch e
-        @debug "PowerIO: library unavailable or incompatible" exception = (e, catch_backtrace())
+        @debug "PowerIO: library unavailable or incompatible" library = lib exception = (e, catch_backtrace())
         return false
     end
 end
