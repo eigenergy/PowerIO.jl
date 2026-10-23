@@ -3,10 +3,18 @@
 
 # --- quantities -----------------------------------------------------------------
 
+# Keep non-finite values out of typed updates before crossing the C ABI.
+# In particular, NaN and infinities are never meaningful setpoints or ratings.
+function _finite_update_value(value::Real, name::AbstractString)
+    x = Float64(value)
+    isfinite(x) || throw(ArgumentError("PowerIO: $name must be finite, got $(repr(value))"))
+    return x
+end
+
 """
     ActivePower(; watts) or ActivePower(; megawatts)
 
-Active power with an explicit unit.
+Active power with an explicit unit. The supplied value must be finite.
 """
 struct ActivePower
     value::Float64
@@ -14,14 +22,15 @@ struct ActivePower
     function ActivePower(; watts=nothing, megawatts=nothing)
         (watts === nothing) == (megawatts === nothing) &&
             throw(ArgumentError("ActivePower takes exactly one of watts or megawatts"))
-        return watts === nothing ? new(Float64(megawatts), :megawatts) : new(Float64(watts), :watts)
+        return watts === nothing ? new(_finite_update_value(megawatts, "ActivePower"), :megawatts) :
+                                  new(_finite_update_value(watts, "ActivePower"), :watts)
     end
 end
 
 """
     ReactivePower(; vars) or ReactivePower(; megavars)
 
-Reactive power with an explicit unit.
+Reactive power with an explicit unit. The supplied value must be finite.
 """
 struct ReactivePower
     value::Float64
@@ -29,14 +38,15 @@ struct ReactivePower
     function ReactivePower(; vars=nothing, megavars=nothing)
         (vars === nothing) == (megavars === nothing) &&
             throw(ArgumentError("ReactivePower takes exactly one of vars or megavars"))
-        return vars === nothing ? new(Float64(megavars), :megavars) : new(Float64(vars), :vars)
+        return vars === nothing ? new(_finite_update_value(megavars, "ReactivePower"), :megavars) :
+                                  new(_finite_update_value(vars, "ReactivePower"), :vars)
     end
 end
 
 """
     ApparentPower(; volt_amperes) or ApparentPower(; megavolt_amperes)
 
-Apparent power with an explicit unit.
+Apparent power with an explicit unit. The supplied value must be finite.
 """
 struct ApparentPower
     value::Float64
@@ -44,8 +54,8 @@ struct ApparentPower
     function ApparentPower(; volt_amperes=nothing, megavolt_amperes=nothing)
         (volt_amperes === nothing) == (megavolt_amperes === nothing) &&
             throw(ArgumentError("ApparentPower takes exactly one of volt_amperes or megavolt_amperes"))
-        return volt_amperes === nothing ? new(Float64(megavolt_amperes), :megavolt_amperes) :
-                                          new(Float64(volt_amperes), :volt_amperes)
+        return volt_amperes === nothing ? new(_finite_update_value(megavolt_amperes, "ApparentPower"), :megavolt_amperes) :
+                                          new(_finite_update_value(volt_amperes, "ApparentPower"), :volt_amperes)
     end
 end
 
@@ -197,7 +207,8 @@ end
 An update that sets a generator's voltage setpoint in per unit.
 """
 function set_generator_voltage_magnitude(id::ComponentId, vm_pu::Real)
-    ptr, lib = _scalar_update(Val(:pio_operating_point_update_set_generator_voltage_magnitude), id, Float64(vm_pu))
+    value = _finite_update_value(vm_pu, "generator voltage magnitude")
+    ptr, lib = _scalar_update(Val(:pio_operating_point_update_set_generator_voltage_magnitude), id, value)
     return OperatingPointUpdate(OperatingPointUpdateHandle(ptr, lib), "$(_describe(id)) voltage $vm_pu pu")
 end
 
@@ -227,7 +238,8 @@ end
 An update that sets a transformer branch's tap ratio.
 """
 function set_transformer_tap_ratio(id::ComponentId, tap_ratio::Real)
-    ptr, lib = _scalar_update(Val(:pio_operating_point_update_set_transformer_tap_ratio), id, Float64(tap_ratio))
+    value = _finite_update_value(tap_ratio, "transformer tap ratio")
+    ptr, lib = _scalar_update(Val(:pio_operating_point_update_set_transformer_tap_ratio), id, value)
     return OperatingPointUpdate(OperatingPointUpdateHandle(ptr, lib), "$(_describe(id)) tap ratio $tap_ratio")
 end
 
@@ -237,7 +249,8 @@ end
 An update that sets a transformer branch's phase shift.
 """
 function set_transformer_phase_shift_degrees(id::ComponentId, degrees::Real)
-    ptr, lib = _scalar_update(Val(:pio_operating_point_update_set_transformer_phase_shift_degrees), id, Float64(degrees))
+    value = _finite_update_value(degrees, "transformer phase shift")
+    ptr, lib = _scalar_update(Val(:pio_operating_point_update_set_transformer_phase_shift_degrees), id, value)
     return OperatingPointUpdate(OperatingPointUpdateHandle(ptr, lib), "$(_describe(id)) phase shift $degrees deg")
 end
 
