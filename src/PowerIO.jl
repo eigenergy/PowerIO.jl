@@ -33,6 +33,7 @@ using LazyArtifacts
 using Preferences: @load_preference, load_preference, set_preferences!
 import Libdl
 import SparseArrays
+import LinearAlgebra
 
 # The raw C ABI 7 layer. `LibPowerIO` is a submodule, not part of the public
 # API; only the view structs the element tables read and `PioError` come into
@@ -96,7 +97,7 @@ export calc_incidence_matrix, calc_branch_susceptances, calc_bus_susceptance_mat
        calc_branch_flow_matrix, calc_branch_phase_shift_injection, calc_bus_phase_shift_injection,
        calc_branch_flow_dc, calc_bus_injection_dc, calc_dc_index_map,
        calc_admittance_matrix, calc_bprime_matrix, calc_bdoubleprime_matrix, calc_branch_admittances,
-       BusMappedMatrix
+       BusMappedMatrix, PTDFResult, calc_ptdf
 
 # Calculation constructions and solution access.
 export to_dc_pf_instance, to_ac_pf_instance, to_dc_opf_instance, to_ac_opf_instance,
@@ -159,6 +160,7 @@ include("instances.jl")      # calculation instances, solutions, to_*_instance
 include("scuc.jl")           # AC SCUC instance inputs
 include("updates.jl")        # typed updates and apply_updates!
 include("calc.jl")           # the eight DC calculations from the library
+include("sensitivity.jl")     # deterministic network sensitivity analysis
 include("ybus.jl")           # admittance matrices assembled in Julia
 include("powermodels.jl")    # PowerModels.jl network data bridge
 include("exa.jl")            # ExaModelsPower bridge and LoadSeries

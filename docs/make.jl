@@ -25,6 +25,7 @@ makedocs(;
         "Distribution" => "distribution.md",
         "Collections and instances" => "collections.md",
         "Matrices" => "matrices.md",
+        "PTDF sensitivity" => "sensitivity.md",
         "Updates" => "updates.md",
         "Contingency analysis" => "contingency.md",
         "Interop" => "interop.md",
