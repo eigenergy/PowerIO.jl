@@ -43,14 +43,14 @@ in your working directory to run the example, or use the path to your own case.
 pkg> add PowerIO
 ```
 
-Requires Julia 1.9 or newer. The native library downloads on first use, with
+Requires Julia 1.10 or newer. The native library downloads on first use, with
 prebuilt binaries for Linux with glibc (`x86_64`, `aarch64`), macOS
 (`x86_64`, Apple silicon), and Windows (`x86_64`).
 
 For an existing 0.10 application, follow the
 [migration guide](https://eigenergy.github.io/PowerIO.jl/dev/migration-0.11/).
-PowerIO.jl 0.11.1 uses PowerIO 0.11.1 and C ABI 7. The library writes PowerIO
-IR generation 2.
+PowerIO.jl uses the matching PowerIO release and C ABI 7. The library writes
+PowerIO IR generation 2.
 
 ## Formats
 
@@ -103,7 +103,7 @@ build, clone `powerio` next to this checkout and build it:
 
 ```sh
 git clone https://github.com/eigenergy/powerio ../powerio
-(cd ../powerio && cargo build -p powerio-capi --release --features arrow,matrix,gridfm,dist,prob)
+(cd ../powerio && cargo build -p powerio-capi --release --features matrix,gridfm,dist,prob)
 julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 ```
 
@@ -114,3 +114,42 @@ build, set `POWERIO_CAPI=/path/to/libpowerio_capi.so` or call
 ## License
 
 MIT. See LICENSE.
+
+## SINCAL readers
+
+PowerIO 0.11.6 or newer exposes
+separate `sincal-balanced` and `sincal-multiconductor` profiles. These produce
+`BalancedNetwork` and `MulticonductorNetwork` respectively. Unsupported
+conductor data is rejected rather than silently balanced.
+
+```julia
+using PowerIO
+module_ = parse("project/original.mdb"; format="sincal-multiconductor",
+    sincal_multiconductor=SincalReadOptions(
+        variant=1, snapshot_hours=6, acquired_tables="acquired.json"))
+```
+
+Access inputs require explicitly acquired table records paired with the
+original MDB. PowerIO verifies the original source length and hash; this is
+not independent attestation of the companion's table cells. Active daily
+profiles require an explicit snapshot. File companions stay within the source
+parent unless `acquisition_root` is explicitly supplied. Memory/IO inputs use
+`named_buffers=Dict("acquired.json" => read("acquired.json"))`; they cannot
+acquire companions from the filesystem. Original source echo and typed IR
+restoration are supported; fresh experimental writing is currently Rust-only.
+The new selections require the matching native build with
+`pio_parse_with_options` and `pio_source_from_memory_with_buffers`.
+
+Balanced Access snapshots use `SincalBalancedReadOptions` and the
+`sincal_balanced` keyword with `format="sincal-balanced"`. Distribution
+`SincalReadOptions` additionally exposes `assume_inactive_source_controls=false`:
+turning it on accepts the documented schema-11.5 NULL source-control assumption,
+with diagnostics and durable IR provenance. Active controls and missing electrical
+parameters still reject. The two selection types do not change network families.
+
+The CSIRO12 distribution path supports source echo, IR and PF preparation under
+that opt-in assumption. Ordinary DSS/PMD/BMOPF emission still refuses its
+reference-terminal source. PowerIO prepares calculation instances; it does not
+solve them. The native repository's `evals/sincal/check_julia_trial_workflows.jl`
+checks CSIRO19 snapshots and the CSIRO12 strict/compatibility paths without
+vendoring either original model.

@@ -1,5 +1,8 @@
 # Local benchmark notes
 
+These measurements describe the pre-0.11 binding, including its retired Arrow
+export API. They do not describe the current ABI 7 element collections.
+
 Run from the PowerIO.jl repository root:
 
 ```julia
@@ -27,5 +30,5 @@ run used this branch with the sibling `../powerio` release C ABI build.
 | PowerModelsDistribution parse baseline | 4.468 ms | 70341 | 3.978 MiB | 4.701 ms | 70341 | 3.978 MiB |
 
 Serde was tested with concrete Julia structs for the balanced payload. It did
-not beat JSON3 here, so PowerIO.jl keeps JSON3 for the rich cached payload and
-uses Arrow for typed columnar access.
+not beat JSON3 here. That binding used JSON3 for the rich cached payload and
+Arrow for typed columnar access.

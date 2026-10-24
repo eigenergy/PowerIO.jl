@@ -8,7 +8,7 @@ using TOML
 import Libdl
 import Pkg.GitTools
 
-export CandidateReport, ParkedGate, PLATFORMS, REQUIRED_FEATURES,
+export CandidateReport, ParkedGate, PLATFORMS,
        install_ready!, main, run_update, validate_candidate
 
 const ROOT = normpath(joinpath(@__DIR__, ".."))
@@ -24,10 +24,6 @@ const PLATFORMS = [
     ("x86_64-w64-mingw32", ["arch = \"x86_64\"", "os = \"windows\""]),
 ]
 
-# The release build features of powerio-capi. ABI 7 declares one fixed symbol
-# table whatever the features, so the binary is checked by behavior: a release
-# library must parse the GridFM fixture, which only the `gridfm` feature enables.
-const REQUIRED_FEATURES = ("arrow", "matrix", "gridfm", "dist", "prob")
 # One entry point per operation family the binding depends on.
 const CORE_SYMBOLS = Set((
     :pio_version,

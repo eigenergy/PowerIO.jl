@@ -27,6 +27,8 @@ fixture(parts...) = joinpath(DATA, parts...)
     include("test_geography.jl")
     include("test_dist.jl")               # MulticonductorNetwork element tables
     include("test_bounded_loads.jl")
+
+    include("test_sincal.jl")            # reader selections and source acquisition
     include("test_source_boundaries.jl") # reference-aware PF and source views
     include("test_collections.jl")        # TimeSeries, ScenarioSet, instances, solutions
     include("test_lindist3flow.jl")
