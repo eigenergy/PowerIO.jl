@@ -44,6 +44,13 @@ data.ref_buses
 data.pmax
 ```
 
+Every row is emitted with its `status`; select the in-service rows before
+building a model. Give the element type positionally, `to_powerdata(net,
+Float32)` (or a module or path in place of `net`), and as the type parameter of
+a load series, `LoadSeries{Float32}(net, curve)`, where the result must infer:
+those forms, with `parse(BalancedNetwork, path)`, compile under
+`juliac --trim=safe`.
+
 `PowerIO.LoadSeries` builds dense per bus load matrices over several periods
 for the multiperiod models, from a matrix in MW, a per period multiplier, an
 id keyed table, or two files.

@@ -98,6 +98,16 @@ jobs:
         env:
           POWERIO_CAPI: ${{ steps.powerio.outputs.available == 'true' && format('{0}/powerio/target/release/libpowerio_capi.so', github.workspace) || '' }}
           POWERIO_HEADER: ${{ github.workspace }}/powerio/powerio-capi/include/powerio.h
+      # The typed parse and the positional `to_powerdata` must stay compilable
+      # with `juliac --trim=safe`, which refuses any call it cannot resolve
+      # statically: ExaModelsPower compiles its case reader into a library that way.
+      - name: Compile and run a trimmed app
+        if: steps.powerio.outputs.available == 'true' && matrix.julia-version == '1'
+        env:
+          POWERIO_CAPI: ${{ github.workspace }}/powerio/target/release/libpowerio_capi.so
+        run: |
+          julia --project=test/trim -e 'using Pkg; Pkg.instantiate()'
+          julia --project=test/trim test/trim/build.jl
 
   docs:
     name: Documentation

@@ -99,6 +99,14 @@ const RETIRED_NAMES = [
     @test hasmethod(Base.parse, Tuple{AbstractString})
     @test hasmethod(Base.parse, Tuple{IO})
     @test hasmethod(Base.parse, Tuple{AbstractVector{UInt8}})
+    @test hasmethod(Base.parse, Tuple{Type{BalancedNetwork},AbstractString})
+    @test hasmethod(Base.parse, Tuple{Type{AcScucInstance},IO})
+    @test hasmethod(Base.parse, Tuple{Type{BalancedNetwork},AbstractVector{UInt8}})
+    @test hasmethod(Base.parse, Tuple{Type{PioModule{BalancedNetwork}},AbstractString})
+    @test hasmethod(Base.parse, Tuple{Type{PioModule},IO})
+    @test hasmethod(deserialize, Tuple{Type{BalancedNetwork},AbstractString})
+    @test hasmethod(deserialize, Tuple{Type{PioModule{BalancedNetwork}},AbstractString})
+    @test hasmethod(to_powerdata, Tuple{PioModule{BalancedNetwork},Type{Float32}})
     @test PowerIO.PIO_ABI_VERSION == 7
 
     @testset "documentation names no removed operation" begin

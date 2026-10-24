@@ -30,7 +30,7 @@ function Base.getindex(s::TimeSeries{T}, i::Integer) where {T}
         vptr = _checked(lib) do err
             @capi lib :pio_time_series_get(p, Csize_t(i - 1), err)
         end
-        _wrap_value(lib, ValueHandle(vptr, lib), nothing)::T
+        _wrap_value(T, lib, ValueHandle(vptr, lib), nothing, "a time series")
     end
 end
 
@@ -64,7 +64,7 @@ function _scenario_at(s::ScenarioSet{T}, k::Int) where {T}
         vptr = _checked(lib) do err
             @capi lib :pio_scenario_set_get_at(p, Csize_t(k - 1), err)
         end
-        id => _wrap_value(lib, ValueHandle(vptr, lib), nothing)::T
+        id => _wrap_value(T, lib, ValueHandle(vptr, lib), nothing, "a scenario set")
     end
 end
 
@@ -80,7 +80,7 @@ function Base.getindex(s::ScenarioSet{T}, id::AbstractString) where {T}
         vptr = _checked(lib) do err
             @capi lib :pio_scenario_set_get(p, id, sizeof(id), err)
         end
-        _wrap_value(lib, ValueHandle(vptr, lib), nothing)::T
+        _wrap_value(T, lib, ValueHandle(vptr, lib), nothing, "a scenario set")
     end
 end
 

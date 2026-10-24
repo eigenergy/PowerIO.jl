@@ -7,6 +7,29 @@
   continue to work with earlier ABI 7 libraries.
 - Multiconductor power-flow instances expose their prescribed per-load active
   and reactive powers through lazy, owner-rooted collections.
+- `parse(V, source)` parses a path, `IO`, or bytes as a known value type and,
+  as `parse(T, str)` does in Base, returns a `V`: `parse(BalancedNetwork,
+  "case14.m")` is the network, `parse(AcScucInstance, path)` the instance.
+  `parse(PioModule{V}, source)` returns the module instead, and
+  `parse(PioModule, source)` is the untyped form. `V` may also name a family
+  such as `TimeSeries` or `OperatingPoint`, resolved at run time. A source that
+  holds another kind of value is an `ArgumentError` naming the source and what
+  it holds. The untyped `parse` chooses the value type at run time, so only the
+  typed forms are inferable. `deserialize` takes the same forms for PowerIO IR.
+- `to_powerdata(x, T)` and `to_ac_power_data(x, T)` take the element type
+  positionally, for a network, a module, or a path, and infer a concrete
+  result, empty tables included. The keyword forms are unchanged and forward to
+  them. `LoadSeries{T}(net, ...)` is the inferable form of each `LoadSeries`
+  constructor.
+- `to_dc_opf_instance` and the other instance constructions return a concrete
+  `PioModule{I}`, and time series and scenario set entries are wrapped by their
+  static type.
+- The typed parse and the positional bridge compile with `juliac --trim=safe`:
+  handle locking no longer reads fields through the abstract `Handle` type,
+  calculation instances and solutions borrow through static entry points, and
+  the bridge reads element tables through a statically typed accessor. CI
+  builds and runs a trimmed app (`test/trim`) on every change.
+- Locking a single handle no longer allocates.
 
 ## 0.11.6
 

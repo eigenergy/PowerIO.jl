@@ -591,17 +591,26 @@ const _BALANCED_TABLES = (
 
 const _BALANCED_SCALARS = (:name, :base_mva, :base_frequency, :geo, :detailed_connectivity)
 
+# One element table by name. The name is a type parameter, so the table's row
+# type is known statically: the bridges read tables through this rather than
+# through `getproperty`, whose result is concrete only where constant
+# propagation reaches it.
+function _table(net::BalancedNetwork, ::Val{name}) where {name}
+    T, count_entry = _BALANCED_TABLES[name]
+    return Elements{T,BalancedNetwork}(net, _with_network((lib, p) -> _count(count_entry, lib, p), net))
+end
+
+_base_mva(net::BalancedNetwork) = _with_network((lib, p) -> @capi(lib, :pio_balanced_network_base_mva(p)), net)
+
 function Base.getproperty(net::BalancedNetwork, name::Symbol)
     h = getfield(net, :handle)
     lib = getfield(h, :lib)
     if haskey(_BALANCED_TABLES, name)
-        T, count_entry = _BALANCED_TABLES[name]
-        n = @with_handles h _count(count_entry, lib, _ptr(h))
-        return Elements{T,BalancedNetwork}(net, n)
+        return _table(net, Val(name))
     elseif name === :name
         return @with_handles h _str(@capi lib :pio_balanced_network_name(_ptr(h)))
     elseif name === :base_mva
-        return @with_handles h @capi lib :pio_balanced_network_base_mva(_ptr(h))
+        return _base_mva(net)
     elseif name === :base_frequency
         return @with_handles h @capi lib :pio_balanced_network_base_frequency_hz(_ptr(h))
     elseif name === :geo

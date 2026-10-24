@@ -204,11 +204,7 @@ end
 for f in (:calc_admittance_matrix, :calc_bprime_matrix, :calc_bdoubleprime_matrix, :calc_branch_admittances)
     @eval begin
         $f(m::PioModule{BalancedNetwork}; kwargs...) = $f(m.value; kwargs...)
-        function $f(path::AbstractString; format::Union{AbstractString,Nothing}=nothing, kwargs...)
-            m = parse(path; format)
-            m isa PioModule{BalancedNetwork} ||
-                throw(ArgumentError("PowerIO.$($(string(f))): $path holds a $(typeof(m.value)), not a BalancedNetwork"))
-            return $f(m.value; kwargs...)
-        end
+        $f(path::AbstractString; format::Union{AbstractString,Nothing}=nothing, kwargs...) =
+            $f(parse(BalancedNetwork, path; format); kwargs...)
     end
 end

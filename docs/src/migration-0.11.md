@@ -12,7 +12,7 @@ a network's JSON payload now comes from typed C views.
 |---|---|
 | `parse_file(path; format)` | `parse(path; format)` |
 | `parse_text(text; name, format)` | `parse(IOBuffer(text); name, format)` or `parse(codeunits(text); ...)` |
-| `parse_file(BalancedNetwork, path)` | `parse(path).value` |
+| `parse_file(BalancedNetwork, path)` | `parse(BalancedNetwork, path)` (0.11.7), or `parse(path).value` |
 | `kind(m)` | dispatch on `PioModule{T}` or `typeof(m.value)` |
 | `inspect(m)`, `source_format(m)` | `m.sources`, `m.history`, `m.producer` |
 | `emit(m, format)` returning `text` | `emit(m, format)` returning an `EmitResult`; `result.text`, `result.artifacts` |

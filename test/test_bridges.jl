@@ -56,6 +56,18 @@ end
         end
 
         @testset "ExaModelsPower" begin
+            # The element type given positionally infers a concrete result,
+            # empty tables included; the keyword form builds the same values.
+            @test (@inferred to_powerdata(net, Float32)).storage isa Vector{<:NamedTuple}
+            @test isconcretetype(eltype(to_powerdata(net, Float64).storage))
+            @test all(isbitstype ∘ eltype, (to_powerdata(net, Float64)[k] for k in (:bus, :gen, :branch, :arc, :storage)))
+            @test to_powerdata(net, Float32) == to_powerdata(net; T=Float32)
+            @test (@inferred to_ac_power_data(net, Float64)) == to_ac_power_data(net)
+            # The module and path forms take the element type positionally too.
+            @test (@inferred to_powerdata(m, Float32)) == to_powerdata(net, Float32)
+            @test to_powerdata(fixture("case14.m"), Float32) == to_powerdata(net, Float32)
+            @test (@inferred to_ac_power_data(m, Float32)) == to_ac_power_data(net, Float32)
+            @test to_ac_power_data(fixture("case14.m"), Float32) == to_ac_power_data(net, Float32)
             pd = to_powerdata(net)
             @test pd.version == "2"
             @test pd.baseMVA == 100.0
@@ -164,6 +176,9 @@ end
             @test curve.pd ≈ s.pd atol = 1e-10
             @test curve.qd ≈ s.qd atol = 1e-10
             @test PowerIO.LoadSeries(net, mult; T=Float32) isa PowerIO.LoadSeries{Float32}
+            # The type parameter form infers; the keyword form forwards to it.
+            @test (@inferred PowerIO.LoadSeries{Float32}(net, mult)).pd == PowerIO.LoadSeries(net, mult; T=Float32).pd
+            @test (@inferred PowerIO.LoadSeries{Float64}(net, pd_mw, qd_mw)).pd == s.pd
             @test_throws ArgumentError PowerIO.LoadSeries(net, Float64[])
             @test_throws ArgumentError PowerIO.LoadSeries(net, [1.0, Inf])
 

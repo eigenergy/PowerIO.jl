@@ -21,6 +21,60 @@
             @test occursin("PioModule{BalancedNetwork}", sprint(show, m))
         end
 
+        @testset "parse a path as a named value type" begin
+            # As `parse(T, str)` in Base: naming the value type returns that value.
+            net = @inferred parse(BalancedNetwork, fixture("case9.m"))
+            @test net isa BalancedNetwork
+            @test length(net.buses) == 9
+            @test parse(BalancedNetwork, fixture("case9.m"); format="matpower") isa BalancedNetwork
+            @test parse(BalancedNetwork, read(fixture("case9.m")); name="case9.m") isa BalancedNetwork
+            @test open(io -> parse(BalancedNetwork, io), fixture("case9.m")) isa BalancedNetwork
+            @test parse(AcScucInstance, fixture("goc3", "goc3_small.json")) isa AcScucInstance
+            @test parse(MulticonductorNetwork, fixture("dist", "switch.dss")) isa MulticonductorNetwork
+            # The value keeps its module's data alive.
+            net = parse(BalancedNetwork, fixture("case9.m"))
+            GC.gc()
+            @test length(net.buses) == 9
+            # Naming the module type returns the module.
+            m = @inferred parse(PioModule{BalancedNetwork}, fixture("case9.m"))
+            @test m isa PioModule{BalancedNetwork}
+            @test m.type_name == "powerio.BalancedNetwork"
+            @test length(m.value.buses) == 9
+            @test open(io -> parse(PioModule{BalancedNetwork}, io), fixture("case9.m")) isa PioModule{BalancedNetwork}
+            @test parse(PioModule{BalancedNetwork}, read(fixture("case9.m")); name="case9.m") isa PioModule{BalancedNetwork}
+            @test parse(PioModule, fixture("case9.m")) isa PioModule{BalancedNetwork}
+            @test_throws ArgumentError parse(PioModule{MulticonductorNetwork}, fixture("case9.m"))
+            # A module type names one value type, so a family is refused before parsing.
+            @test_throws ArgumentError parse(PioModule{TimeSeries}, fixture("case9.m"))
+            @test_throws ArgumentError parse(PioModule{PowerIO.CalculationInstance}, fixture("goc3", "goc3_small.json"))
+            # A source holding another kind of value names what it holds.
+            err = try
+                parse(MulticonductorNetwork, fixture("case9.m"))
+            catch e
+                e
+            end
+            @test err isa ArgumentError
+            @test occursin("powerio.BalancedNetwork", err.msg)
+            @test occursin("powerio.MulticonductorNetwork", err.msg)
+            @test occursin("case9.m", err.msg)
+            # A calculation instance wraps through a static entry point too.
+            @test (@inferred parse(AcScucInstance, fixture("goc3", "goc3_small.json"))) isa AcScucInstance
+            @test (@inferred parse(PioModule{AcScucInstance}, fixture("goc3", "goc3_small.json"))) isa PioModule{AcScucInstance}
+            # A family resolves the value type at run time and checks membership.
+            @test parse(PowerIO.CalculationInstance, fixture("goc3", "goc3_small.json")) isa AcScucInstance
+            @test parse(Union{BalancedNetwork,MulticonductorNetwork}, fixture("case9.m")) isa BalancedNetwork
+            @test_throws ArgumentError parse(TimeSeries, fixture("case9.m"))
+            @test_throws ArgumentError parse(PowerIO.CalculationSolution, fixture("goc3", "goc3_small.json"))
+            # A parameter that names no PowerIO value type is refused plainly.
+            @test_throws ArgumentError parse(TimeSeries{Int}, fixture("case9.m"))
+        end
+
+        @testset "construct a typed calculation instance" begin
+            m = parse(PioModule{BalancedNetwork}, fixture("case9.m"))
+            @test (@inferred to_dc_opf_instance(m)) isa PioModule{DcOpfInstance}
+            @test (@inferred to_ac_pf_instance(m)) isa PioModule{AcPfInstance}
+        end
+
         @testset "a module names its value's structural type" begin
             m = parse(fixture("case9.m"))
             @test m.type_name == "powerio.BalancedNetwork"
@@ -189,7 +243,14 @@
                 open(path) do io
                     @test deserialize(io) isa PioModule{BalancedNetwork}
                 end
+                @test (@inferred deserialize(BalancedNetwork, path)) isa BalancedNetwork
+                @test (@inferred deserialize(PioModule{BalancedNetwork}, path)) isa PioModule{BalancedNetwork}
+                @test open(io -> deserialize(BalancedNetwork, io), path) isa BalancedNetwork
+                @test deserialize(PioModule, path) isa PioModule{BalancedNetwork}
+                @test_throws ArgumentError deserialize(MulticonductorNetwork, path)
+                @test_throws ArgumentError deserialize(PioModule{MulticonductorNetwork}, path)
             end
+            @test deserialize(BalancedNetwork, Vector{UInt8}(ir.text)) isa BalancedNetwork
 
             e = try
                 deserialize(read(fixture("case9.m")))
