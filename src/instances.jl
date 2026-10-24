@@ -48,7 +48,7 @@ end
 
 function Base.getindex(table::_SourceBoundaries, i::Int)
     checkbounds(table, i)
-    net = table.instance.network
+    net = table.instance.network::MulticonductorNetwork
     _with_handle(table.instance) do lib, p
         if Libdl.dlsym(_library_handle(lib), :pio_mc_ac_pf_instance_source_boundary_at;
                        throw_error=false) === nothing
@@ -183,18 +183,18 @@ Base.show(io::IO, x::CalculationSolution) = print(io, nameof(typeof(x)), "(", x.
 
 # --- constructions -------------------------------------------------------------
 
-for (name, sym, doc) in (
-        (:to_dc_pf_instance, :pio_module_to_dc_pf_instance, "a DC power flow instance"),
-        (:to_ac_pf_instance, :pio_module_to_ac_pf_instance, "an AC power flow instance"),
-        (:to_dc_opf_instance, :pio_module_to_dc_opf_instance, "a DC optimal power flow instance"),
-        (:to_ac_opf_instance, :pio_module_to_ac_opf_instance, "an AC optimal power flow instance"),
-        (:to_mc_ac_pf_instance, :pio_module_to_mc_ac_pf_instance, "a multiconductor AC power flow instance"),
-        (:to_mc_ac_opf_instance, :pio_module_to_mc_ac_opf_instance, "a multiconductor AC optimal power flow instance"),
-        (:to_lindist3flow_opf_instance, :pio_module_to_lindist3flow_opf_instance, "a LinDist3Flow optimal power flow instance"),
+for (name, I, sym, doc) in (
+        (:to_dc_pf_instance, DcPfInstance, :pio_module_to_dc_pf_instance, "a DC power flow instance"),
+        (:to_ac_pf_instance, AcPfInstance, :pio_module_to_ac_pf_instance, "an AC power flow instance"),
+        (:to_dc_opf_instance, DcOpfInstance, :pio_module_to_dc_opf_instance, "a DC optimal power flow instance"),
+        (:to_ac_opf_instance, AcOpfInstance, :pio_module_to_ac_opf_instance, "an AC optimal power flow instance"),
+        (:to_mc_ac_pf_instance, McAcPfInstance, :pio_module_to_mc_ac_pf_instance, "a multiconductor AC power flow instance"),
+        (:to_mc_ac_opf_instance, McAcOpfInstance, :pio_module_to_mc_ac_opf_instance, "a multiconductor AC optimal power flow instance"),
+        (:to_lindist3flow_opf_instance, LinDist3FlowOpfInstance, :pio_module_to_lindist3flow_opf_instance, "a LinDist3Flow optimal power flow instance"),
     )
     @eval begin
         Core.@doc $("""
-            $name(m::PioModule) -> PioModule
+            $name(m::PioModule) -> PioModule{$(nameof(I))}
 
         Construct $doc from a network module. The network is shared, not copied;
         the new module records the construction in its history.
@@ -204,7 +204,7 @@ for (name, sym, doc) in (
             ptr = @with_handles h _checked(lib) do err
                 @capi lib $(QuoteNode(sym))(_ptr(h), err)
             end
-            return _wrap_module(lib, ptr)
+            return _wrap_module($I, lib, ptr, $(string(name)))
         end
     end
 end

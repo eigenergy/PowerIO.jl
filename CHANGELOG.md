@@ -1,5 +1,65 @@
 # Changelog
 
+## Unreleased
+
+- `parse(V, source)` parses a path, `IO`, or bytes as a known value type and,
+  as `parse(T, str)` does in Base, returns a `V`: `parse(BalancedNetwork,
+  "case14.m")` is the network, `parse(AcScucInstance, path)` the instance.
+  `parse(PioModule{V}, source)` returns the module instead, and
+  `parse(PioModule, source)` is the untyped form. `V` may also name a family
+  such as `TimeSeries` or `OperatingPoint`, resolved at run time. A source that
+  holds another kind of value is an `ArgumentError` naming the source and what
+  it holds. The untyped `parse` chooses the value type at run time, so only the
+  typed forms are inferable. `deserialize` takes the same forms for PowerIO IR.
+- `to_powerdata(x, T)` and `to_ac_power_data(x, T)` take the element type
+  positionally, for a network, a module, or a path, and infer a concrete
+  result, empty tables included. The keyword forms are unchanged and forward to
+  them. `LoadSeries{T}(net, ...)` is the inferable form of each `LoadSeries`
+  constructor.
+- `to_dc_opf_instance` and the other instance constructions return a concrete
+  `PioModule{I}`, and time series and scenario set entries are wrapped by their
+  static type.
+- The typed parse and the positional bridge compile with `juliac --trim=safe`:
+  handle locking no longer reads fields through the abstract `Handle` type,
+  calculation instances and solutions borrow through static entry points, and
+  the bridge reads element tables through a statically typed accessor. CI
+  builds and runs a trimmed app (`test/trim`) on every change.
+- Locking a single handle no longer allocates.
+
+## 0.11.6
+
+- Multiconductor PF/OPF construction now rejects physical islands without a voltage source
+  instead of assigning an implicit anchor. Parsing retains those islands;
+  callers must resolve de-energized islands explicitly before construction.
+- Preserve concrete `VoltageSource` inference when indexing lazy power-flow
+  source boundaries, including the older ABI 7 fallback.
+- Use the current native `main` branch for source CI by default, migrate
+  maintained build commands off the inert Arrow compatibility flag, and
+  correct the supported Julia version and SINCAL release instructions.
+
+- Read referenced voltage sources through `VoltageSource.reference_terminal`
+  and prescribed power-flow sources through `McAcPfInstance.source_boundaries`.
+  A named reference is the other voltage endpoint on the source bus, not a
+  grounding declaration. Existing earth-referenced constructors and the
+  older ABI 7 source-view fallback remain available.
+- Bind the separate `sincal-balanced` and `sincal-multiconductor` reader
+  profiles through `SincalBalancedReadOptions` and `SincalReadOptions`.
+  Select a native variant, daily snapshot, and explicitly acquired Access
+  tables. Path inputs support an explicit acquisition root; memory and IO
+  inputs accept named companion buffers and never acquire them from disk.
+  Parsing verifies the original MDB's length and hash, but does not
+  independently attest the companion table cells or run acquisition tools.
+- Keep SINCAL distribution reading strict by default.
+  `assume_inactive_source_controls=true` explicitly opts into the
+  experimental schema-11.5 NULL source-control assumption, with diagnostics
+  and durable IR provenance. Active controls and missing electrical
+  parameters still fail. Native SINCAL execution remains unverified.
+  Source echo, IR restoration, and PF preparation are supported; fresh
+  experimental SINCAL writing remains Rust-only. PowerIO prepares
+  calculation instances rather than solving them.
+
+C ABI 7 and PowerIO IR version 2 remain unchanged.
+
 ## 0.11.5
 
 - Coordinate the Julia package with PowerIO 0.11.5. The bundled library's

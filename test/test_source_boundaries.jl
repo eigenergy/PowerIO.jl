@@ -11,7 +11,8 @@
         """
         earth = parse(IOBuffer(text); format="bmopf", name="source-boundary.json")
         @test earth.value.voltage_sources[1].reference_terminal === nothing
-        @test to_mc_ac_pf_instance(earth).value.source_boundaries[1].reference_terminal === nothing
+        earth_boundaries = to_mc_ac_pf_instance(earth).value.source_boundaries
+        @test (@inferred earth_boundaries[1]).reference_terminal === nothing
         @test VoltageSource("s", "b", ["a"], [230.0], [0.2], nothing).reference_terminal === nothing
 
         # Construct the additive IR record without adding a native fixture or
@@ -37,7 +38,7 @@
         @test size(table) == (1,)
         @test_throws BoundsError table[0]
         @test_throws BoundsError table[2]
-        boundary = only(table)
+        boundary = @inferred table[1]
         @test boundary.name == src.name
         @test boundary.bus == src.bus
         @test boundary.terminals == src.terminals

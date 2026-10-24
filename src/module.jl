@@ -100,11 +100,32 @@ function _source_open(lib::AbstractString, path::AbstractString)
     return SourceHandle(ptr, lib)
 end
 
-function _source_from_memory(lib::AbstractString, name::AbstractString, bytes::AbstractVector{UInt8})
+function _source_from_memory(lib::AbstractString, name::AbstractString, bytes::AbstractVector{UInt8};
+                             named_buffers::Union{AbstractDict,Nothing}=nothing)
     name = String(name)
     data = bytes isa Vector{UInt8} ? bytes : Vector{UInt8}(bytes)
-    ptr = @with_handles data _checked(lib) do err
-        @capi lib :pio_source_from_memory(name, sizeof(name), pointer(data), length(data), err)
+    ptr = if named_buffers === nothing
+        @with_handles data name _checked(lib) do err
+            @capi lib :pio_source_from_memory(name, sizeof(name), pointer(data), length(data), err)
+        end
+    else
+        names = String[]
+        buffers = Vector{UInt8}[]
+        for (key, value) in named_buffers
+            key isa AbstractString || throw(ArgumentError("named buffer names must be strings"))
+            value isa AbstractVector{UInt8} || throw(ArgumentError("named buffers must contain byte vectors"))
+            push!(names, String(key))
+            push!(buffers, Vector{UInt8}(value))
+        end
+        @with_handles data name names buffers begin
+            views = [PioNamedBufferView(PioStringView(pointer(n), sizeof(n)),
+                                       PioByteView(pointer(b), length(b)))
+                     for (n, b) in zip(names, buffers)]
+            @with_handles views _checked(lib) do err
+                @capi lib :pio_source_from_memory_with_buffers(
+                    name, sizeof(name), pointer(data), length(data), pointer(views), length(views), err)
+            end
+        end
     end
     return SourceHandle(ptr, lib)
 end
@@ -125,18 +146,150 @@ function _wrap_module(lib::AbstractString, ptr::Ptr)
     return PioModule(handle, _module_value(lib, handle))
 end
 
+# Wrap a module pointer whose value the caller expects to be a `V`. For a
+# concrete `V` the type is a static parameter, so the wrapped module is a
+# concrete `PioModule{V}` and nothing is chosen at run time: the form
+# `juliac --trim=safe` can compile (`isconcretetype(V)` folds at compile time).
+# A family such as `TimeSeries`, `CalculationInstance`, or `Any` resolves the
+# value type at run time and checks that it belongs to `V`. Either way a value
+# of another type is an `ArgumentError` naming what `origin` holds, and the
+# module is released at once rather than at finalization.
+function _wrap_module(::Type{V}, lib::AbstractString, ptr::Ptr, origin::AbstractString) where {V}
+    isconcretetype(V) || return _expect_value(V, _wrap_module(lib, ptr), origin)
+    handle = ModuleHandle(ptr, lib)
+    vptr = @with_handles handle @capi lib :pio_module_value(_ptr(handle))
+    value = try
+        _wrap_value(V, lib, ValueHandle(vptr, lib), handle, origin)
+    catch
+        release!(handle)
+        rethrow()
+    end
+    return PioModule{V}(handle, value)
+end
+
+function _expect_value(::Type{V}, m::PioModule, origin::AbstractString) where {V}
+    getfield(m, :value) isa V && return m
+    name = _module_type_name(m)
+    release!(_handle(m))
+    throw(ArgumentError("PowerIO: expected a " * string(V) * " from " * origin * ", found a " * name))
+end
+
 function _module_value(lib::AbstractString, handle::ModuleHandle)
     vptr = @with_handles handle @capi lib :pio_module_value(_ptr(handle))
     return _wrap_value(lib, ValueHandle(vptr, lib), handle)
 end
 
-function _parse_source(lib::AbstractString, source::SourceHandle, format)
+"""
+    SincalReadOptions(; variant=nothing, snapshot_hours=nothing, acquired_tables=nothing,
+                      assume_inactive_source_controls=false)
+
+Explicit conductor-resolved SINCAL selection. `variant` is a native ID;
+`snapshot_hours` selects a daily snapshot. `acquired_tables` is a relative
+companion name for explicitly acquired Access records. Parsing retains the
+original MDB and verifies its length/hash; it never runs an acquisition tool.
+Use with `parse(...; format="sincal-multiconductor", sincal_multiconductor=...)`.
+`assume_inactive_source_controls=true` opts into experimental schema-11.5 NULL
+source-control defaults. Every applied assumption emits a diagnostic.
+"""
+struct SincalReadOptions
+    variant::Union{Int64,Nothing}
+    snapshot_hours::Union{Float64,Nothing}
+    acquired_tables::Union{String,Nothing}
+    assume_inactive_source_controls::Bool
+end
+
+function SincalReadOptions(; variant::Union{Integer,Nothing}=nothing,
+                          snapshot_hours::Union{Real,Nothing}=nothing,
+                          acquired_tables::Union{AbstractString,Nothing}=nothing,
+                          assume_inactive_source_controls::Bool=false)
+    variant isa Bool && throw(ArgumentError("variant must be an integer ID, not Bool"))
+    snapshot_hours isa Bool && throw(ArgumentError("snapshot_hours must be a number, not Bool"))
+    return SincalReadOptions(variant === nothing ? nothing : Int64(variant),
+        snapshot_hours === nothing ? nothing : Float64(snapshot_hours),
+        acquired_tables === nothing ? nothing : String(acquired_tables),
+        assume_inactive_source_controls)
+end
+
+"""
+    SincalBalancedReadOptions(; variant=nothing, snapshot_hours=nothing, acquired_tables=nothing)
+
+Explicit balanced SINCAL selection. Use with `format="sincal-balanced"` and
+`sincal_balanced=...`. The optional Access companion is verified against the
+original MDB; parsing never runs an external acquisition tool.
+"""
+struct SincalBalancedReadOptions
+    variant::Union{Int64,Nothing}
+    snapshot_hours::Union{Float64,Nothing}
+    acquired_tables::Union{String,Nothing}
+end
+
+function SincalBalancedReadOptions(; variant::Union{Integer,Nothing}=nothing,
+                          snapshot_hours::Union{Real,Nothing}=nothing,
+                          acquired_tables::Union{AbstractString,Nothing}=nothing)
+    variant isa Bool && throw(ArgumentError("variant must be an integer ID, not Bool"))
+    snapshot_hours isa Bool && throw(ArgumentError("snapshot_hours must be a number, not Bool"))
+    return SincalBalancedReadOptions(variant === nothing ? nothing : Int64(variant),
+        snapshot_hours === nothing ? nothing : Float64(snapshot_hours),
+        acquired_tables === nothing ? nothing : String(acquired_tables))
+end
+
+_optional_input_view(s) = s === nothing ? PioStringView(C_NULL, 0) : PioStringView(pointer(s), sizeof(s))
+
+function _parse_source(::Type{V}, lib::AbstractString, source::SourceHandle, format, origin::AbstractString;
+                       sincal_multiconductor::Union{SincalReadOptions,Nothing}=nothing,
+                       sincal_balanced::Union{SincalBalancedReadOptions,Nothing}=nothing,
+                       acquisition_root::Union{AbstractString,Nothing}=nothing) where {V}
     fmt = format === nothing ? "" : String(format)
-    ptr = @with_handles source fmt _checked(lib) do err
-        @capi lib :pio_parse(_ptr(source), format === nothing ? C_NULL : pointer(fmt), sizeof(fmt), err)
+    try
+        ptr = if sincal_multiconductor === nothing && sincal_balanced === nothing && acquisition_root === nothing
+            @with_handles source fmt _checked(lib) do err
+                @capi lib :pio_parse(_ptr(source), format === nothing ? C_NULL : pointer(fmt), sizeof(fmt), err)
+            end
+        else
+            root = acquisition_root === nothing ? nothing : String(acquisition_root)
+            choice = sincal_multiconductor === nothing ? SincalReadOptions() : sincal_multiconductor
+            tables = choice.acquired_tables
+            balanced = sincal_balanced === nothing ? SincalBalancedReadOptions() : sincal_balanced
+            balanced_tables = balanced.acquired_tables
+            @with_handles source fmt root tables balanced_tables begin
+                selected = Ref(PioSincalReadOptions(choice.variant !== nothing,
+                    something(choice.variant, Int64(0)), choice.snapshot_hours !== nothing,
+                    something(choice.snapshot_hours, 0.0), _optional_input_view(tables), choice.assume_inactive_source_controls))
+                selected_balanced = Ref(PioSincalBalancedReadOptions(balanced.variant !== nothing,
+                    something(balanced.variant, Int64(0)), balanced.snapshot_hours !== nothing,
+                    something(balanced.snapshot_hours, 0.0), _optional_input_view(balanced_tables)))
+                @with_handles selected selected_balanced begin
+                    options = Ref(PioParseOptions(_optional_input_view(root),
+                        sincal_multiconductor === nothing ? C_NULL : Base.unsafe_convert(Ptr{PioSincalReadOptions}, selected),
+                        sincal_balanced === nothing ? C_NULL : Base.unsafe_convert(Ptr{PioSincalBalancedReadOptions}, selected_balanced)))
+                    @with_handles options _checked(lib) do err
+                        @capi lib :pio_parse_with_options(_ptr(source),
+                            format === nothing ? C_NULL : pointer(fmt), sizeof(fmt), options, err)
+                    end
+                end
+            end
+        end
+        return _wrap_module(V, lib, ptr, origin)
+    finally
+        release!(source)
     end
-    release!(source)
-    return _wrap_module(lib, ptr)
+end
+
+# The value types a source can be parsed as by name: `parse(BalancedNetwork, path)`.
+const _ParsedValue = Union{BalancedNetwork,MulticonductorNetwork,ContingencySet,SubsystemSet,
+                           MonitoredSet,GeoLayer,CalculationInstance,CalculationSolution,
+                           TimeSeries,ScenarioSet,OperatingPoint}
+
+# What `parse` and `deserialize` read: a path, a stream, or bytes in memory.
+const _Source = Union{AbstractString,IO,AbstractVector{UInt8}}
+
+# A module type names one value type, so `PioModule{V}` asks for a concrete `V`
+# (`isconcretetype` folds at compile time; nothing is checked at run time).
+function _module_value_type(::Type{V}) where {V}
+    isconcretetype(V) ||
+        throw(ArgumentError("PowerIO: no source holds a PioModule{" * string(V) * "}; ask for the value, " *
+                            string(V) * ", to accept any member"))
+    return V
 end
 
 """
@@ -157,31 +310,82 @@ and BMOPF give `PioModule{MulticonductorNetwork}`; PyPSA and GridFM folders
 give time series and scenario sets; GO Challenge 3 and OPFData give
 calculation instances and solutions.
 
+Explicit `sincal_multiconductor=SincalReadOptions(...)` requires the matching
+`format="sincal-multiconductor"`. Balanced inputs use
+`sincal_balanced=SincalBalancedReadOptions(...)` and `format="sincal-balanced"`.
+Path inputs may widen their acquisition root
+with `acquisition_root`; memory inputs receive `named_buffers` and never read
+companions from disk. C/Julia options do not change the returned network family.
+
 These methods extend `Base.parse` so the bare name works after `using PowerIO`.
 Parse failures throw [`PowerIOError`](@ref).
+
+    parse(V, source; kwargs...) -> V
+    parse(PioModule{V}, source; kwargs...) -> PioModule{V}
+
+The same, for a source whose value type the caller knows. As with
+`parse(T, str)` in Base, the result is a `V`: `parse(BalancedNetwork,
+"case14.m")` is the network and `parse(AcScucInstance, path)` the instance,
+each keeping its module's data alive. Ask for `PioModule{V}` to keep the module
+itself, for [`emit`](@ref), [`apply_updates!`](@ref), or its records;
+`parse(PioModule, source)` is the untyped form. For a concrete `V` both results
+are inferred, where the untyped form's is not, so these are the forms to call
+from code compiled with `juliac --trim=safe`.
+
+`V` may also name a family, such as `TimeSeries` or `CalculationInstance`: the
+value type is then resolved at run time and must belong to it. A module type
+names one value type, so `PioModule{V}` takes a concrete `V`. A source that
+holds another kind of value is an `ArgumentError` naming what it holds.
 """
-function Base.parse(path::AbstractString; format::Union{AbstractString,Nothing}=nothing)
+Base.parse(source::_Source; kwargs...) = _parse(Any, source; kwargs...)
+Base.parse(::Type{PioModule}, source::_Source; kwargs...) = _parse(Any, source; kwargs...)
+Base.parse(::Type{PioModule{V}}, source::_Source; kwargs...) where {V<:_ParsedValue} =
+    _parse(_module_value_type(V), source; kwargs...)
+Base.parse(::Type{V}, source::_Source; kwargs...) where {V<:_ParsedValue} =
+    getfield(_parse(V, source; kwargs...), :value)
+
+function _parse(::Type{V}, path::AbstractString; format::Union{AbstractString,Nothing}=nothing,
+                sincal_multiconductor::Union{SincalReadOptions,Nothing}=nothing,
+                sincal_balanced::Union{SincalBalancedReadOptions,Nothing}=nothing,
+                acquisition_root::Union{AbstractString,Nothing}=nothing,
+                named_buffers::Union{AbstractDict,Nothing}=nothing) where {V}
+    named_buffers === nothing || throw(ArgumentError("named_buffers applies only to memory/IO sources"))
     lib = _checked_lib()
-    return _parse_source(lib, _source_open(lib, path), format)
+    path = String(path)
+    return _parse_source(V, lib, _source_open(lib, path), format, path; sincal_multiconductor, sincal_balanced, acquisition_root)
 end
 
-function Base.parse(io::IO; format::Union{AbstractString,Nothing}=nothing,
-                    name::Union{AbstractString,Nothing}=nothing)
+function _parse(::Type{V}, io::IO; format::Union{AbstractString,Nothing}=nothing,
+                name::Union{AbstractString,Nothing}=nothing,
+                sincal_multiconductor::Union{SincalReadOptions,Nothing}=nothing,
+                sincal_balanced::Union{SincalBalancedReadOptions,Nothing}=nothing,
+                named_buffers::Union{AbstractDict,Nothing}=nothing,
+                acquisition_root::Union{AbstractString,Nothing}=nothing) where {V}
+    acquisition_root === nothing || throw(ArgumentError("acquisition_root applies only to path sources"))
     lib = _checked_lib()
     source_name = name === nothing ? _stream_name(io) : String(name)
-    return _parse_source(lib, _source_from_memory(lib, source_name, read(io)), format)
+    return _parse_source(V, lib, _source_from_memory(lib, source_name, read(io); named_buffers), format, source_name;
+                         sincal_multiconductor, sincal_balanced)
 end
 
-function Base.parse(bytes::AbstractVector{UInt8}; format::Union{AbstractString,Nothing}=nothing,
-                    name::AbstractString="<memory>")
+function _parse(::Type{V}, bytes::AbstractVector{UInt8}; format::Union{AbstractString,Nothing}=nothing,
+                name::AbstractString="<memory>",
+                sincal_multiconductor::Union{SincalReadOptions,Nothing}=nothing,
+                sincal_balanced::Union{SincalBalancedReadOptions,Nothing}=nothing,
+                named_buffers::Union{AbstractDict,Nothing}=nothing,
+                acquisition_root::Union{AbstractString,Nothing}=nothing) where {V}
+    acquisition_root === nothing || throw(ArgumentError("acquisition_root applies only to path sources"))
     lib = _checked_lib()
-    return _parse_source(lib, _source_from_memory(lib, name, bytes), format)
+    return _parse_source(V, lib, _source_from_memory(lib, name, bytes; named_buffers), format, String(name);
+                         sincal_multiconductor, sincal_balanced)
 end
 
 """
     deserialize(path::AbstractString) -> PioModule
     deserialize(io::IO) -> PioModule
     deserialize(bytes::AbstractVector{UInt8}) -> PioModule
+    deserialize(V, source) -> V
+    deserialize(PioModule{V}, source) -> PioModule{V}
 
 Read one PowerIO IR document written by [`serialize`](@ref): `"schema":
 "pio-ir"` and integer generation `"version": 2`. The `producer` record names
@@ -189,23 +393,39 @@ the PowerIO release that wrote it independently. This release reads generation
 2 and refuses other generations, naming the version it found. A structural type
 requires a reader that implements it. PowerIO IR is
 not a grid exchange format; [`parse`](@ref) does not accept it.
+
+The value type may be named as with [`parse`](@ref): `deserialize(BalancedNetwork,
+path)` is the network, `deserialize(PioModule{BalancedNetwork}, path)` its
+module, each inferred, and a document that holds another kind of value is an
+`ArgumentError`.
 """
-function deserialize(path::AbstractString)
+deserialize(source::_Source) = _deserialize(Any, source)
+deserialize(::Type{PioModule}, source::_Source) = _deserialize(Any, source)
+deserialize(::Type{PioModule{V}}, source::_Source) where {V<:_ParsedValue} =
+    _deserialize(_module_value_type(V), source)
+deserialize(::Type{V}, source::_Source) where {V<:_ParsedValue} = getfield(_deserialize(V, source), :value)
+
+_deserialize(::Type{V}, io::IO) where {V} = _deserialize(V, read(io))
+function _deserialize(::Type{V}, path::AbstractString) where {V}
     lib = _checked_lib()
-    return _deserialize_source(lib, _source_open(lib, path))
+    path = String(path)
+    return _deserialize_source(V, lib, _source_open(lib, path), path)
 end
-deserialize(io::IO) = deserialize(read(io))
-function deserialize(bytes::AbstractVector{UInt8})
+function _deserialize(::Type{V}, bytes::AbstractVector{UInt8}) where {V}
     lib = _checked_lib()
-    return _deserialize_source(lib, _source_from_memory(lib, "module.pio.json", bytes))
+    name = "module.pio.json"
+    return _deserialize_source(V, lib, _source_from_memory(lib, name, bytes), name)
 end
 
-function _deserialize_source(lib::AbstractString, source::SourceHandle)
-    ptr = @with_handles source _checked(lib) do err
-        @capi lib :pio_module_deserialize(_ptr(source), err)
+function _deserialize_source(::Type{V}, lib::AbstractString, source::SourceHandle, origin::AbstractString) where {V}
+    ptr = try
+        @with_handles source _checked(lib) do err
+            @capi lib :pio_module_deserialize(_ptr(source), err)
+        end
+    finally
+        release!(source)
     end
-    release!(source)
-    return _wrap_module(lib, ptr)
+    return _wrap_module(V, lib, ptr, origin)
 end
 
 # --- records ---------------------------------------------------------------
@@ -218,7 +438,7 @@ function _module_type_name(m::PioModule)
     h = _handle(m)
     return @with_handles h begin
         value = ValueHandle(@capi(lib, :pio_module_value(_ptr(h))), lib)
-        name = @with_handles value _str(@capi lib :pio_value_type_name(_ptr(value)))
+        name = _value_type_name(lib, value)
         release!(value)
         name
     end

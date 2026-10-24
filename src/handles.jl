@@ -14,19 +14,26 @@
 abstract type Handle end
 const _HANDLE_RELEASE_SYMBOLS = Symbol[:pio_error_release]
 
+# The handles among an operation's roots, each once, in a fixed (objectid)
+# order so that two operations sharing handles always lock them in the same
+# order. Roots that are not handles (strings, buffers kept alive alongside) are
+# skipped. Collected by dispatch rather than `isa` tests over the roots, so the
+# walk over a tuple of mixed types resolves statically.
 function _operation_handles(roots)
     handles = Handle[]
-    for root in roots
-        if root isa Handle
-            push!(handles, root)
-        elseif root isa Tuple || root isa Vector{<:Handle}
-            append!(handles, _operation_handles(root))
+    _collect_handles!(handles, roots)
+    sort!(handles; by=objectid)
+    # Drop repeats: after the sort, the same handle appears consecutively.
+    n = 0
+    for h in handles
+        if n == 0 || handles[n] !== h
+            n += 1
+            handles[n] = h
         end
     end
-    unique!(handles)
-    sort!(handles; by=objectid)
+    resize!(handles, n)
     if !isempty(handles)
-        lib = getfield(first(handles), :lib)
+        lib = _handle_lib(first(handles))
         for h in handles
             _require_library(lib, h)
         end
@@ -34,8 +41,24 @@ function _operation_handles(roots)
     return handles
 end
 
+# One handle, the common case (every element row and property read): nothing to
+# order or deduplicate, so the tuple of roots is the list and nothing is allocated.
+_operation_handles(roots::Tuple{Handle}) = roots
+
+_collect_handles!(handles::Vector{Handle}, h::Handle) = push!(handles, h)
+_collect_handles!(handles::Vector{Handle}, hs::Vector{<:Handle}) = append!(handles, hs)
+_collect_handles!(handles::Vector{Handle}, roots::Tuple) =
+    _collect_handles!(_collect_handles!(handles, first(roots)), Base.tail(roots))
+_collect_handles!(handles::Vector{Handle}, ::Tuple{}) = handles
+_collect_handles!(handles::Vector{Handle}, _) = handles
+
+# Every handle type declares these fields concretely; reading them through the
+# abstract `Handle` needs the assertion for the result to be concrete.
+_handle_lib(h::Handle) = getfield(h, :lib)::String
+_operation_lock(h::Handle) = getfield(h, :operation_lock)::ReentrantLock
+
 function _require_library(lib::AbstractString, h::Handle)
-    getfield(h, :lib) == lib || throw(ArgumentError("PowerIO: handles must belong to the same library"))
+    _handle_lib(h) == lib || throw(ArgumentError("PowerIO: handles must belong to the same library"))
     return nothing
 end
 
@@ -51,13 +74,13 @@ macro with_handles(args...)
             local $acquired = 0
             try
                 for h in $handles
-                    lock(getfield(h, :operation_lock))
+                    lock(_operation_lock(h))
                     $acquired += 1
                 end
                 $body
             finally
                 for i in $acquired:-1:1
-                    unlock(getfield($handles[i], :operation_lock))
+                    unlock(_operation_lock($handles[i]))
                 end
             end
         end
