@@ -1849,12 +1849,6 @@ struct PioVoltageSourceBoundaryView
     has_reference_terminal::Bool
 end
 
-struct PioVoltageSourceBoundaryView
-    source::PioVoltageSourceView
-    reference_terminal::PioStringView
-    has_reference_terminal::Bool
-end
-
 function pio_abi_version()
     @ccall libpowerio_capi.pio_abi_version()::UInt32
 end
