@@ -41,7 +41,8 @@
         constructed = to_lindist3flow_opf_instance(network_module)
         @test constructed isa PioModule{LinDist3FlowOpfInstance}
         @test constructed.value.metadata.roots == [("source", "a")]
-        @test JSON3.read(serialize(constructed).text).version == 2
+        # The 0.11 document reads; the build writes the release it follows.
+        @test VersionNumber(JSON3.read(serialize(constructed).text).version) >= VersionNumber(library_version())
         document = JSON3.read(serialize(constructed).text, Dict{String,Any})
         @test deserialize(Vector{UInt8}(JSON3.write(document))) isa PioModule{LinDist3FlowOpfInstance}
         document["version"] = 3

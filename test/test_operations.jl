@@ -167,8 +167,10 @@
             @test length(ir.artifacts) == 1
             doc = JSON3.read(ir.text)
             @test doc.schema == "pio-ir"
-            @test doc.version == 2
-            # The IR generation and producing release are independent.
+            # The version names the release whose schema the document follows,
+            # at or after the library release; the producer names the release
+            # that wrote it.
+            @test VersionNumber(doc.version) >= VersionNumber(library_version())
             @test doc.producer.name == "powerio"
             @test doc.producer.version == library_version()
             @test doc.value.type == "powerio.BalancedNetwork"
