@@ -10,7 +10,7 @@ const REPO_ROOT = dirname(@__DIR__)
 const GENERATED = Set(n for n in names(LIB_MODULE; all=true) if startswith(String(n), "pio_"))
 
 # The entry points the hand-written sources name. `@capi` keeps the quoted name
-# in the source, which is also what powerio's ABI coverage script greps for.
+# in the source, which is also what powerio's entry point coverage script greps for.
 function _referenced()
     found = Set{Symbol}()
     for file in readdir(joinpath(REPO_ROOT, "src"); join=true)
@@ -45,7 +45,7 @@ const EXEMPT = _exempt()
     isempty(unbound) || @error "entry points that are neither called nor exempt" unbound
     @test unbound == Symbol[]
 
-    # An exemption for a name ABI 7 no longer declares, left behind by a rename.
+    # An exemption for a name the header no longer declares, left behind by a rename.
     unknown = sort!(collect(setdiff(keys(EXEMPT), GENERATED)); by=String)
     isempty(unknown) || @error "exemptions for entry points the header does not declare" unknown
     @test unknown == Symbol[]
@@ -68,7 +68,7 @@ const EXEMPT = _exempt()
             Libdl.dlclose(handle)
         end
     elseif get(ENV, "POWERIO_CAPI", "") != ""
-        @test false  # POWERIO_CAPI names a library that did not load or is not ABI compatible
+        @test false  # POWERIO_CAPI names a library that did not load or is not compatible
     else
         @warn "PowerIO: no library resolved; entry point resolution is not checked (set POWERIO_CAPI)"
         @test_skip isempty(REFERENCED)

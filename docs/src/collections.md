@@ -66,9 +66,9 @@ the source line, and source line rows and conductor positions using Julia's
 squared volts, and `line_active_power`, `line_reactive_power`,
 `source_active_power`, `source_reactive_power`, `generator_active_power`, and
 `generator_reactive_power` in watts and vars. Each vector follows its instance
-axes. These types use PowerIO IR generation 2 with distinct structural type
-names. Readers without LinDist3Flow support reject those types; existing types
-retain their representation.
+axes. These types are PowerIO IR structural types with distinct names.
+Readers without LinDist3Flow support reject those types; existing types retain
+their representation.
 
 A solution answers an instance. `solution.instance` is that instance,
 `solution.network` is the network the solution is defined over,

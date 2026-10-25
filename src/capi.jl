@@ -43,8 +43,8 @@ function set_library!(path::AbstractString; persist::Bool=false)
             set_preferences!(@__MODULE__, _LIBRARY_PREFERENCE => String(path); force=true)
             _PREFERRED_LIBRARY[] = String(path)
         end
-        _ABI_OK[] = false  # the new library must pass its own handshake
-        _ABI_OK_LIB[] = ""
+        _COMPATIBLE[] = false  # the new library must pass its own release check
+        _COMPATIBLE_LIB[] = ""
         return
     end
 end
@@ -65,8 +65,8 @@ function clear_library!(; persist::Bool=false)
                                     disable_invalidation=true)
             _PREFERRED_LIBRARY[] = value isa AbstractString ? String(value) : ""
         end
-        _ABI_OK[] = false
-        _ABI_OK_LIB[] = ""
+        _COMPATIBLE[] = false
+        _COMPATIBLE_LIB[] = ""
         return
     end
 end
@@ -106,7 +106,7 @@ _library_symbol(lib::AbstractString, sym::Symbol) =
 # takes effect immediately and no call is bound to a library at load time.
 
 """
-    @capi lib :pio_abi_version()
+    @capi lib :pio_version()
 
 Call the named C entry point in the library at `lib`, as in
 `@capi lib :pio_balanced_network_bus_count(network)`. Expands to the
@@ -118,7 +118,7 @@ the method is then looked up by name at the call.
 """
 macro capi(lib, call)
     Meta.isexpr(call, :call) ||
-        throw(ArgumentError("@capi expects a call, as in `@capi lib :pio_abi_version()`"))
+        throw(ArgumentError("@capi expects a call, as in `@capi lib :pio_version()`"))
     callee = call.args[1]
     args = map(esc, call.args[2:end])
     callee isa QuoteNode &&
@@ -215,62 +215,105 @@ function _sibling_lib()
     return ""
 end
 
-# --- ABI version handshake ----------------------------------------------
+# --- release check ------------------------------------------------------
 #
-# The C ABI carries an integer ABI version (`pio_abi_version`). This binding
-# targets exactly `PIO_ABI_VERSION`. Checking it once at first use turns a
-# stale or mismatched library into a clear error at the boundary instead of a
-# ccall fault or silently wrong numbers.
+# The header this binding was generated from states the PowerIO release it
+# came from (`PIO_VERSION_MAJOR`, `PIO_VERSION_MINOR`, `PIO_VERSION_PATCH`),
+# and the library reports its own release through `pio_version_numbers`.
+# Within a release series the C ABI only gains symbols, so this binding works
+# with a library from the header's release series at the header's release or
+# a newer one. Checking that once at first use turns a stale or mismatched
+# library into a clear error at the boundary instead of a ccall fault or
+# silently wrong numbers.
 
-# The header states the ABI version this binding was generated against.
-const PIO_ABI_VERSION = UInt32(LibPowerIO.PIO_ABI_VERSION)
-const _ABI_OK = Ref{Bool}(false)
-const _ABI_OK_LIB = Ref{String}("")
+# The release of the header this binding was generated from.
+const _HEADER_RELEASE = VersionNumber(LibPowerIO.PIO_VERSION_MAJOR,
+                                      LibPowerIO.PIO_VERSION_MINOR,
+                                      LibPowerIO.PIO_VERSION_PATCH)
+const _COMPATIBLE = Ref{Bool}(false)
+const _COMPATIBLE_LIB = Ref{String}("")
 
-"""
-    abi_version() -> UInt32
+# The release series of a version, as Cargo defines it: the major and minor
+# numbers before 1.0, the major number from 1.0 on.
+_release_series(v::VersionNumber) = v.major == 0 ? (v.major, v.minor) : (v.major,)
+_series_name(v::VersionNumber) = v.major == 0 ? "$(v.major).$(v.minor).x" : "$(v.major).x"
 
-The ABI version the resolved C library was built with (see `pio_abi_version`).
-Compared against `PIO_ABI_VERSION`, the version this binding targets.
-"""
-abi_version() = abi_version(_lib())
-abi_version(lib::AbstractString) =
-    @capi lib :pio_abi_version()
+# The release the library at `lib` reports through `pio_version_numbers`.
+function _library_release(lib::AbstractString)
+    v = @capi lib :pio_version_numbers()
+    return VersionNumber(v.major, v.minor, v.patch)
+end
+
+# Throw unless a library at release `got` works with a binding generated from
+# the header of release `want`: the same release series, at `want` or newer.
+function _check_release(lib::AbstractString, got::VersionNumber,
+                        want::VersionNumber=_HEADER_RELEASE)
+    series = _series_name(want)
+    _release_series(got) == _release_series(want) || error(
+        "PowerIO: the C library at \"$lib\" is PowerIO $got, from another release " *
+        "series than this PowerIO.jl, which needs PowerIO $series at $want or newer. " *
+        "Build powerio-capi from a PowerIO $series release, or use the PowerIO.jl " *
+        "release that matches the library.")
+    got >= want || error(
+        "PowerIO: the C library at \"$lib\" is PowerIO $got, older than PowerIO " *
+        "$want, the release this PowerIO.jl was generated against. Rebuild " *
+        "powerio-capi from PowerIO $want or a newer $series release.")
+    return nothing
+end
+
+# The version string of a library without `pio_version_numbers`, for the error
+# that refuses it, or "" when it cannot be read.
+function _old_library_version(handle, lib::AbstractString)
+    Libdl.dlsym(handle, :pio_version; throw_error=false) === nothing && return ""
+    try
+        return _str(@capi lib :pio_version())
+    catch
+        return ""
+    end
+end
 
 """
     library_version() -> String
 
 The powerio crate version string the resolved library reports, such as
-`"0.11.0"`. Informational; [`abi_version`](@ref) is the compatibility check.
+`"0.12.0"`. Before the first call into a library, PowerIO.jl checks that the
+library comes from the release series of the header this binding was
+generated from, at that header's release or a newer one.
 """
 function library_version(lib::AbstractString=_lib())
     _ensure_compatible(lib)
     return _str(@capi lib :pio_version())
 end
 
-# Verify the resolved library is ABI compatible, once per library path. Throws
-# a directed error otherwise; every entry point that calls into the library
-# runs this first.
+# Verify the resolved library is compatible, once per library path. Throws a
+# directed error otherwise; every entry point that calls into the library runs
+# this first.
 function _ensure_compatible(lib::AbstractString=_lib())
     lib = String(lib)
     lock(_LIB_HANDLES_LOCK) do
-        _ABI_OK[] && _ABI_OK_LIB[] == lib && return
-        got = try
-            abi_version(lib)
+        _COMPATIBLE[] && _COMPATIBLE_LIB[] == lib && return
+        handle = try
+            _library_handle(lib)
         catch
-            error("PowerIO: the C ABI at \"$lib\" has no pio_abi_version. Build " *
-                  "powerio-capi (`cargo build -p powerio-capi --release` in a powerio " *
-                  "checkout), or check that the library path can be loaded.")
+            error("PowerIO: cannot load the C library at \"$lib\". Build powerio-capi " *
+                  "(`cargo build -p powerio-capi --release` in a powerio checkout), or " *
+                  "check that the library path can be loaded.")
         end
-        got == PIO_ABI_VERSION || error(
-            "PowerIO: C ABI version mismatch: the library at \"$lib\" reports ABI $got, " *
-            "this PowerIO.jl targets ABI $(Int(PIO_ABI_VERSION)). Rebuild powerio-capi " *
-            "from a matching commit, or update PowerIO.jl.")
+        if Libdl.dlsym(handle, :pio_version_numbers; throw_error=false) === nothing
+            reported = _old_library_version(handle, lib)
+            error("PowerIO: the C library at \"$lib\"" *
+                  (isempty(reported) ? "" : " (PowerIO $reported)") *
+                  " has no pio_version_numbers, so it predates PowerIO 0.12. This " *
+                  "PowerIO.jl needs PowerIO $(_series_name(_HEADER_RELEASE)) at " *
+                  "$_HEADER_RELEASE or newer. Rebuild powerio-capi from a matching " *
+                  "release, or use the PowerIO.jl release that matches the library.")
+        end
+        _check_release(lib, _library_release(lib))
         for sym in _HANDLE_RELEASE_SYMBOLS
             _library_symbol(lib, sym)
         end
-        _ABI_OK[] = true
-        _ABI_OK_LIB[] = lib
+        _COMPATIBLE[] = true
+        _COMPATIBLE_LIB[] = lib
         return
     end
 end
@@ -278,8 +321,9 @@ end
 """
     library_available() -> Bool
 
-True if the C ABI library resolves and is ABI compatible with this binding
-(see [`abi_version`](@ref)).
+True if the C library resolves and is compatible with this binding: it comes
+from the release series of the header this binding was generated from, at that
+header's release or a newer one (see [`library_version`](@ref)).
 """
 function library_available()
     try
@@ -291,7 +335,7 @@ function library_available()
     end
 end
 
-# The library every operation binds against: resolved, handshake passed.
+# The library every operation binds against: resolved, release check passed.
 function _checked_lib()
     lib = _lib()
     _ensure_compatible(lib)

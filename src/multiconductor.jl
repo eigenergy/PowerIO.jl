@@ -551,8 +551,8 @@ function _voltage_source_record(lib, p, i, v::PioVoltageSourceView, reference)
 end
 
 _element(::Type{VoltageSource}, net::MulticonductorNetwork, i) = _with_network(net) do lib, p
-    # The additive accessor is absent from earlier ABI 7 libraries. Those
-    # libraries cannot deserialize a referenced source and retain the old view.
+    # PowerIO 0.11.6 added this accessor. Earlier libraries cannot deserialize
+    # a referenced source and retain the old view.
     if Libdl.dlsym(_library_handle(lib), :pio_multiconductor_network_voltage_source_boundary_at;
                    throw_error=false) !== nothing
         boundary = _at(PioVoltageSourceBoundaryView,

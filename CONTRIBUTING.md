@@ -16,18 +16,22 @@ julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
 override the resolution; without a development build, the bundled lazy
 artifact is used.
 
-## ABI lockstep
+## C ABI compatibility
 
-The binding targets exactly one C ABI version (7 for PowerIO 0.11); a
-mismatched library is refused at first use with an error naming both versions.
-Every `pio_*` entry point the binding calls appears as a Symbol literal in
-`src/`, written `@capi lib :pio_name(args...)`, and powerio's
-`scripts/check-capi-v7.sh` checks that list against the header, so a renamed
-or removed entry point fails the powerio pull request that changed it.
+The header states the PowerIO release it was generated from, and the library
+reports its own through `pio_version_numbers`. Within a release series (0.12.x
+before 1.0, then 1.x) the C ABI only gains symbols, so the binding works with
+a library from the header's release series at the header's release or a newer
+one. Any other library is refused at first use with an error naming both
+releases. Every `pio_*` entry point the binding calls appears as a Symbol
+literal in `src/`, written `@capi lib :pio_name(args...)`, and powerio's
+`scripts/check-capi.sh` checks that list against the header, so a renamed or
+removed entry point fails the powerio pull request that changed it.
 
 `src/LibPowerIO.jl` declares the whole C ABI: every entry point, every view
-struct, every opaque handle type, and the ABI number `PIO_ABI_VERSION` reads.
-It is generated from the header, never edited by hand:
+struct, every opaque handle type, and the release the header states
+(`PIO_VERSION_MAJOR`, `PIO_VERSION_MINOR`, `PIO_VERSION_PATCH`). It is
+generated from the header, never edited by hand:
 
 ```
 julia --project=gen -e 'using Pkg; Pkg.instantiate()'

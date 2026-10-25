@@ -184,7 +184,7 @@ end
                 @test nnz(Y.matrix) == nnz(tables["ybus"])
                 @test Matrix(calc_bprime_matrix(network).matrix) ≈ Matrix(tables["bprime"]) rtol = 1e-12
                 @test Matrix(calc_bdoubleprime_matrix(network).matrix) ≈ Matrix(tables["bdoubleprime"]) rtol = 1e-12
-                # The fixture stores the bus by branch orientation; ABI 7 is branch by bus.
+                # The fixture stores the bus by branch orientation; the C ABI is branch by bus.
                 @test Matrix(calc_incidence_matrix(network)) ≈ Matrix(tables["incidence"])'
             end
         end

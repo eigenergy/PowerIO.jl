@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Breaking: the library check follows the PowerIO release series instead of
+  the C ABI number. The header the binding is generated from states its
+  PowerIO release, and the binding accepts a library from the same release
+  series (0.12.x before 1.0, then 1.x) at that release or a newer one, read
+  through `pio_version_numbers`. A library from another series, an older
+  release, or a release before 0.12 is refused at first use with an error
+  naming both releases. `abi_version` is removed; `library_version` reports
+  the library release.
+- The artifact updater checks a release binary against the same rule and
+  parks with `release_series_mismatch` or `release_too_old` where it parked
+  with `core_abi_mismatch`.
+- The documentation describes a PowerIO IR document's `version` as the
+  PowerIO release whose schema it follows. Documents PowerIO 0.11 wrote, with
+  the integer `"version": 2`, are still read.
+
 ## 0.11.6
 
 - Multiconductor PF/OPF construction now rejects physical islands without a voltage source

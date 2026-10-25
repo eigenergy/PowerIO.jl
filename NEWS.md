@@ -2,6 +2,13 @@
 
 Release announcements. See [CHANGELOG.md](CHANGELOG.md) for the complete, itemized history.
 
+## 0.12.0
+
+PowerIO.jl checks the PowerIO release series instead of a C ABI number. It
+works with a library from its own release series at its own release or a
+newer one, and refuses any other library at first use with an error that names
+both releases. `abi_version` is removed; use `library_version`.
+
 ## 0.11.1
 
 Fixes from the PowerDiff.jl port: `to_powerdata` states angles in radians,

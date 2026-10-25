@@ -175,8 +175,8 @@ const OLD_SECTION = "## 0.11.4\n\n- Old notes.\n"
             ready = _release_file(dir, "ready.toml", "status = \"ready\"\ntag = \"v0.11.5\"\nchanged = true\n")
             @test Release.pin_status(ready) === nothing
             parked = _release_file(dir, "parked.toml",
-                "status = \"parked\"\nreason = \"core_abi_mismatch\"\ndetail = \"binary ABI 8\"\n")
-            @test_throws r"parked: core_abi_mismatch binary ABI 8" Release.pin_status(parked)
+                "status = \"parked\"\nreason = \"release_series_mismatch\"\ndetail = \"binary release 0.13.0\"\n")
+            @test_throws r"parked: release_series_mismatch binary release 0.13.0" Release.pin_status(parked)
         end
     end
 

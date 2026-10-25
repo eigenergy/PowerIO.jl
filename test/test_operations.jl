@@ -2,8 +2,10 @@
     if !LIBRARY_AVAILABLE
         @test_skip "libpowerio_capi unavailable"
     else
-        @test PowerIO.abi_version() == PowerIO.PIO_ABI_VERSION
         @test !isempty(PowerIO.library_version())
+        lib = PowerIO._checked_lib()
+        @test PowerIO._library_release(lib) == VersionNumber(PowerIO.library_version())
+        @test PowerIO._library_release(lib) >= PowerIO._HEADER_RELEASE
 
         @testset "parse a path" begin
             m = parse(fixture("case9.m"))
