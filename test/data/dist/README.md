@@ -16,6 +16,7 @@ Released under the Creative Commons Attribution 4.0 International license
 Attribution: "micro distribution test cases, eigenergy powerio contributors,
 <https://github.com/eigenergy/powerio>".
 
-`lindist3flow-solution.pio.json` is a synthetic two-bus PowerIO IR generation-2
-fixture copied from powerio `tests/data/dist/micro`, under the same CC BY 4.0
+`lindist3flow-solution.pio.json` is a synthetic two-bus PowerIO IR document in
+the PowerIO 0.11 layout (`"version": 2`), copied from powerio
+`tests/data/dist/micro`, under the same CC BY 4.0
 license. It tests typed LinDist3Flow access and handle lifetimes.

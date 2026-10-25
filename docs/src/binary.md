@@ -15,13 +15,14 @@ arrives as a prebuilt binary, so you do not compile anything.
 2. Publishing that release starts the PowerIO.jl "Release" workflow, which
    downloads the five tarballs, computes each one's SHA-256 and unpacked git
    tree hash, and asks `gen/update_artifacts.jl` to build `Artifacts.toml`.
-   Before writing, the generator loads the host library and checks its ABI
-   number (7), its version string against the tag, the core entry points the
-   binding calls, and that it parses the GridFM fixture. A failed check stops
-   the release and leaves `Artifacts.toml` untouched. The workflow then runs
-   the full test suite against the pinned binaries, pushes the release commit
-   that sets the matching PowerIO.jl version, and registers it. See
-   CONTRIBUTING.md.
+   Before writing, the generator loads the host library and checks that its
+   release, read through `pio_version_numbers`, is in the release series of
+   the binding's header and no older than that header; its version string
+   against the tag; the core entry points the binding calls; and that it
+   parses the GridFM fixture. A failed check stops the release and leaves
+   `Artifacts.toml` untouched. The workflow then runs the full test suite
+   against the pinned binaries, pushes the release commit that sets the
+   matching PowerIO.jl version, and registers it. See CONTRIBUTING.md.
 3. `Artifacts.toml` is lazy, so `Pkg.add` downloads nothing; the tarball for
    your platform is fetched on the first call that needs the library.
 
@@ -30,8 +31,9 @@ arrives as a prebuilt binary, so you do not compile anything.
 The C header in each tarball is also the input to the binding's raw layer.
 `src/LibPowerIO.jl` is generated from `powerio-capi/include/powerio.h` by
 `gen/generate.jl`, a Clang.jl generator project under `gen/`, and declares
-every entry point, view struct, and opaque handle type, along with the ABI
-number the binding targets. It is never edited by hand:
+every entry point, view struct, and opaque handle type, along with the
+release the header was generated from (`PIO_VERSION_MAJOR`,
+`PIO_VERSION_MINOR`, `PIO_VERSION_PATCH`). It is never edited by hand:
 
 ```
 julia --project=gen -e 'using Pkg; Pkg.instantiate()'
@@ -65,7 +67,6 @@ clear_library!(persist=true)
 ```@docs
 set_library!
 clear_library!
-abi_version
 library_version
 library_available
 ```

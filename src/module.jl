@@ -314,11 +314,13 @@ end
     deserialize(bytes::AbstractVector{UInt8}) -> PioModule
 
 Read one PowerIO IR document written by [`serialize`](@ref): `"schema":
-"pio-ir"` and integer generation `"version": 2`. The `producer` record names
-the PowerIO release that wrote it independently. This release reads generation
-2 and refuses other generations, naming the version it found. A structural type
-requires a reader that implements it. PowerIO IR is
-not a grid exchange format; [`parse`](@ref) does not accept it.
+"pio-ir"` and a `"version"` naming the PowerIO release whose schema the
+document follows, such as `"0.12.0"`. The library reads documents from its own
+release series and the documents PowerIO 0.11 wrote, which carry the integer
+`"version": 2`, and refuses other versions, naming the version it found. The
+`producer` record names the program that wrote the document. A structural
+type requires a reader that implements it. PowerIO IR is not a grid exchange
+format; [`parse`](@ref) does not accept it.
 """
 function deserialize(path::AbstractString)
     lib = _checked_lib()

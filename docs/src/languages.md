@@ -5,7 +5,7 @@ operations. The complete table is in the powerio documentation
 ([Rust, Python, Julia, and C](https://powerio.dev/languages.html)); this page
 covers what is specific to Julia.
 
-| Meaning | Julia | Python | C ABI 7 |
+| Meaning | Julia | Python | C |
 |---|---|---|---|
 | acquire a path | `parse("case.m")` | `parse(Path("case.m"))` | `pio_source_open` |
 | acquire memory | `parse(io; name)`, `parse(bytes; name)` | pass a file or bytes-like object | `pio_source_from_memory` |

@@ -92,6 +92,12 @@ struct PioStringView
     len::Csize_t
 end
 
+struct PioVersionView
+    major::UInt32
+    minor::UInt32
+    patch::UInt32
+end
+
 struct PioDiagnosticSpanView
     source::PioStringView
     byte_start::UInt64
@@ -1808,20 +1814,20 @@ struct PioVoltageSourceBoundaryView
     has_reference_terminal::Bool
 end
 
-function pio_abi_version()
-    @ccall libpowerio_capi.pio_abi_version()::UInt32
-end
-
-function pio_abi_version(fptr)
-    @ccall ($fptr)()::UInt32
-end
-
 function pio_version()
     @ccall libpowerio_capi.pio_version()::PioStringView
 end
 
 function pio_version(fptr)
     @ccall ($fptr)()::PioStringView
+end
+
+function pio_version_numbers()
+    @ccall libpowerio_capi.pio_version_numbers()::PioVersionView
+end
+
+function pio_version_numbers(fptr)
+    @ccall ($fptr)()::PioVersionView
 end
 
 function pio_error_code(error)
@@ -5896,7 +5902,11 @@ function pio_mc_ac_pf_instance_source_boundary_at(instance, index, output, error
     @ccall ($fptr)(instance::Ptr{PioCalculationInstance}, index::Csize_t, output::Ptr{PioVoltageSourceBoundaryView}, error::Ptr{Ptr{PioError}})::Bool
 end
 
-const PIO_ABI_VERSION = 7
+const PIO_VERSION_MAJOR = 0
+
+const PIO_VERSION_MINOR = 11
+
+const PIO_VERSION_PATCH = 6
 
 # exports
 const PREFIXES = ["pio_", "Pio", "PIO_"]

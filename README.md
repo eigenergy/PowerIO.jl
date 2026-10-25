@@ -49,8 +49,8 @@ prebuilt binaries for Linux with glibc (`x86_64`, `aarch64`), macOS
 
 For an existing 0.10 application, follow the
 [migration guide](https://eigenergy.github.io/PowerIO.jl/dev/migration-0.11/).
-PowerIO.jl uses the matching PowerIO release and C ABI 7. The library writes
-PowerIO IR generation 2.
+PowerIO.jl uses a PowerIO library from its own release series, at its own
+release or a newer one, and refuses any other library at first use.
 
 ## Formats
 
@@ -98,7 +98,7 @@ after deserialization. Use `emit` to export data to another grid tool.
 
 ## Development
 
-PowerIO.jl calls the powerio C library (C ABI 7). To work against a local
+PowerIO.jl calls the powerio C library through its C ABI. To work against a local
 build, clone `powerio` next to this checkout and build it:
 
 ```sh

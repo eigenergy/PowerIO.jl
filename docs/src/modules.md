@@ -103,19 +103,21 @@ the content of the single UTF-8 file when it was produced in memory, or
 ## PowerIO IR
 
 PowerIO IR is PowerIO's own serialization of a module: one JSON document
-(`"schema": "pio-ir"`, integer generation `"version": 2`) holding the typed
-value with its diagnostics, producer, sources, source mappings, history, and
-extensions. The producer record separately names the PowerIO release that
+(`"schema": "pio-ir"` and a `"version"` naming a PowerIO release) holding the
+typed value with its diagnostics, producer, sources, source mappings, history,
+and extensions. The producer record separately names the PowerIO release that
 wrote the document. [`serialize`](@ref) writes it and [`deserialize`](@ref)
 reads it.
 
-PowerIO 0.11.1 reads generation 2. Additive structural types keep that
-generation; older readers reject types they do not implement. The generation advances only when the
-an existing serialized representation changes incompatibly, and it is independent of the PowerIO
-release and the C ABI; [`library_version`](@ref) reports the library release.
-A refused document names the generation it found and what to do about it: a
-later generation needs a newer PowerIO, and a document with any other
-`schema` or an older generation has to be regenerated from its original power
+The `version` names the PowerIO release whose schema the document follows,
+such as `"0.12.0"`. A library reads the documents of its own release series,
+and also the documents PowerIO 0.11 wrote, which carry the integer
+`"version": 2`. Within a release series new structural types are added and
+existing ones keep their representation; a reader rejects a type it does not
+implement. [`library_version`](@ref) reports the library release. A refused
+document names the version it found and what to do about it: a document from
+a later release series needs a newer PowerIO, and a document with any other
+`schema` or an older version has to be regenerated from its original power
 system data.
 
 ```julia

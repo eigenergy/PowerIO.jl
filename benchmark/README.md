@@ -1,7 +1,7 @@
 # Local benchmark notes
 
 These measurements describe the pre-0.11 binding, including its retired Arrow
-export API. They do not describe the current ABI 7 element collections.
+export API. They do not describe the current element collections.
 
 Run from the PowerIO.jl repository root:
 

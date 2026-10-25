@@ -72,19 +72,24 @@ Element tables are properties of a network (`net.buses`, `net.branches`,
 | Version | Describes |
 |---|---|
 | PowerIO.jl 0.11.1 / PowerIO 0.11.1 | The package APIs documented here |
-| PowerIO IR generation 2 | The document written by `serialize`; `deserialize` reads generation 2 |
-| C ABI 7 | The interface to the native library |
+| PowerIO IR | The document written by `serialize`; its `version` names the PowerIO release whose schema it follows |
+| C ABI | The interface to the native library; it only gains symbols within a release series |
 
-Use a matching 0.11.1 library when developing this binding. Regenerate stored
+A binding generated from the header of one PowerIO release works with a
+library from the same release series at that release or a newer one. Use a
+matching library when developing this binding. Regenerate stored
 0.10 modules from their original grid data before loading them in 0.11.
 The [migration guide](migration-0.11.md) lists the API replacements.
 
 ## The C library
 
-PowerIO.jl calls the powerio C library (`libpowerio_capi`, C ABI 7). You do
+PowerIO.jl calls the powerio C library (`libpowerio_capi`). You do
 not normally have to find it yourself: on a supported platform the bundled
 artifact is used, and during development a sibling `powerio` checkout's build
 is picked up. To point at another build, call [`set_library!`](@ref) or set
 the `POWERIO_CAPI` environment variable. [`library_available`](@ref) tells you
-whether a compatible library was found, and [`abi_version`](@ref) which ABI
-number it was built with.
+whether a compatible library was found, and [`library_version`](@ref) which
+PowerIO release it comes from. A compatible library comes from the release
+series of the header this binding was generated from, at that header's
+release or a newer one; any other library is refused at first use with an
+error that names both releases.

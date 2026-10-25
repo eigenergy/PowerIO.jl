@@ -214,7 +214,7 @@ jobs:
           fi
 
           julia gen/release.jl prepare "$VERSION"
-          # Checks the host binary's ABI, version string, core entry points,
+          # Checks the host binary's release series, version string, core entry points,
           # and GridFM parsing before it writes Artifacts.toml.
           julia --project=. gen/update_artifacts.jl "v$VERSION" \
             --status-file "$RUNNER_TEMP/artifact-status.toml"
