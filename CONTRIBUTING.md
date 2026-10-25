@@ -41,7 +41,10 @@ julia --project=gen gen/generate.jl ../powerio/powerio-capi/include/powerio.h
 Without the argument the generator reads `POWERIO_HEADER`, then a sibling
 powerio checkout. Its output is deterministic, so an unchanged header
 reproduces the file byte for byte, and CI regenerates against the powerio
-branch under test and fails when the committed file is stale. When powerio
+branch under test and fails when the committed file is stale. A change to the
+three release constants alone does not count: they move with every PowerIO
+release, and a binding generated from an older header of the same release
+series works with the newer library. When powerio
 changes the header, rerun the generator, commit `src/LibPowerIO.jl`, adapt the
 calls here, run the full suite against the matching powerio branch, and merge
 the two changes back to back.
