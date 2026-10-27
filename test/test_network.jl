@@ -115,6 +115,22 @@
             @test to_graph(m) == g
         end
 
+        @testset "nonconsecutive external bus IDs" begin
+            sparse_ids = parse(fixture("nonconsecutive_bus_ids.m"))
+            dense = to_dense(sparse_ids)
+            @test dense.bus_ids == [10, 30, 90]
+            @test dense.branch.from == [10, 30]
+            @test dense.branch.to == [30, 90]
+            @test dense.demand.pd == [0.0, 25.0, 40.0]
+            @test dense.demand.qd == [0.0, 8.0, 12.0]
+            @test dense.reference_bus == 1
+            @test to_dense(sparse_ids.value) == dense
+
+            graph = to_graph(sparse_ids)
+            @test [bus.id for bus in graph.buses] == [10, 30, 90]
+            @test [(edge.from, edge.to) for edge in graph.edges] == [(10, 30), (30, 90)]
+        end
+
         @testset "PSS/E three winding transformers" begin
             raw = parse(fixture("psse", "case3_3w_v33.raw")).value
             @test raw.name == "case3_3w"
