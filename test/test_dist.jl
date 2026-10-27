@@ -88,6 +88,11 @@
             @test g.edges == [(kind = "line", index = 1, from = "sourcebus", to = "mid"),
                               (kind = "switch", index = 1, from = "mid", to = "loadbus")]
             @test to_graph(m) == g
+            # The open switch to "stub" is deliberately absent from the graph.
+            # Bus rows remain visible even when a bus has no conducting edge.
+            @test !any(edge -> edge.kind == "switch" && edge.index == 2, g.edges)
+            @test !any(edge -> edge.from == "stub" || edge.to == "stub", g.edges)
+            @test length(g.buses) == 4
         end
 
         @testset "emit" begin
