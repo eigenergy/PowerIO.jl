@@ -37,6 +37,9 @@ const EXPORTED_NAMES = Set([
     # calculation constructions and solution access
     :to_dc_pf_instance, :to_ac_pf_instance, :to_dc_opf_instance, :to_ac_opf_instance,
     :to_mc_ac_pf_instance, :to_mc_ac_opf_instance, :to_lindist3flow_opf_instance, :time_count,
+    :AcOtsInstance, :AcOtsSolution, :AcOtsOptions, :BranchSelection,
+    :BranchSwitchingCost, :BranchCurrentLimit, :to_ac_ots_instance,
+    :validate_topology, :switching_cost, :fix_topology, :materialize_ac_ots_solution,
     # typed updates
     :ActivePower, :ReactivePower, :ApparentPower, :OperatingPointUpdate, :NetworkUpdate,
     :UpdateReport, :UpdateChange, :apply_updates!,
