@@ -119,3 +119,20 @@ Source energy prices from draft BMOPF 0.2 are available as
 phase order in the source terminal map, excluding neutral terminals. Its unit is \$/kWh.
 The prices survive PowerIO IR serialization; using them in an objective remains
 the responsibility of the selected calculation.
+
+
+Bounded load laws retain their ZIP fractions or independent P/Q exponents,
+nominal voltages, voltage-band transitions, dropout and current limits.
+`network.loads[i]` exposes these as typed values; absent optional bounds remain
+`nothing`. The original 16-argument `MulticonductorLoad` constructor remains
+available for ordinary laws.
+
+`instance.loads` on an `McAcPfInstance` is a lazy table of prescribed power
+arrays, complete voltage laws and terminal maps. A row copies only its own
+borrowed arrays. Reference conductors can make the terminal map longer than the
+power-channel arrays. Reading a load never serializes or clones the network.
+
+Ordinary load records remain readable with older ABI 7 libraries through their
+legacy accessor. Complete bounded-law reads and `McAcPfInstance.loads` require
+the additive load-details accessors; a legacy refusal is propagated rather than
+returning an incomplete bounded law.

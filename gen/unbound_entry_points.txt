@@ -93,7 +93,6 @@ pio_mc_ac_pf_instance_active_control_count	multiconductor AC power flow instance
 pio_mc_ac_pf_instance_isolated_terminal_at	multiconductor AC power flow instance tables are C only
 pio_mc_ac_pf_instance_isolated_terminal_count	multiconductor AC power flow instance tables are C only
 pio_mc_ac_pf_instance_load_at	multiconductor AC power flow instance tables are C only
-pio_mc_ac_pf_instance_load_count	multiconductor AC power flow instance tables are C only
 pio_mc_ac_pf_instance_load_terminal_at	multiconductor AC power flow instance tables are C only
 pio_mc_ac_pf_instance_source_at	multiconductor AC power flow instance tables are C only
 pio_mc_ac_pf_instance_source_terminal_at	multiconductor AC power flow instance tables are C only
