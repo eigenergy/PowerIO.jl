@@ -98,6 +98,9 @@ export calc_incidence_matrix, calc_branch_susceptances, calc_bus_susceptance_mat
        calc_admittance_matrix, calc_bprime_matrix, calc_bdoubleprime_matrix, calc_branch_admittances,
        BusMappedMatrix
 
+# AC islands and DC sensitivity factors.
+export network_islands, NetworkIslands, Island, calc_ptdf, calc_lodf, PtdfMatrix, LodfMatrix
+
 # Calculation constructions and solution access.
 export to_dc_pf_instance, to_ac_pf_instance, to_dc_opf_instance, to_ac_opf_instance,
        to_mc_ac_pf_instance, to_mc_ac_opf_instance, to_lindist3flow_opf_instance, time_count
@@ -165,6 +168,7 @@ include("ots.jl")           # AC optimal transmission switching
 include("scuc.jl")           # AC SCUC instance inputs
 include("updates.jl")        # typed updates and apply_updates!
 include("calc.jl")           # the eight DC calculations from the library
+include("sensitivity.jl")    # AC islands, PTDF, and LODF from the library
 include("ybus.jl")           # admittance matrices assembled in Julia
 include("powermodels.jl")    # PowerModels.jl network data bridge
 include("exa.jl")            # ExaModelsPower bridge and LoadSeries

@@ -25,6 +25,7 @@ pio_emit_result_retain	owns one reference, never retains
 pio_error_retain	owns one reference, never retains
 pio_geo_apply_report_retain	owns one reference, never retains
 pio_geo_layer_retain	owns one reference, never retains
+pio_islands_retain	owns one reference, never retains
 pio_json_value_retain	owns one reference, never retains
 pio_module_retain	owns one reference, never retains
 pio_monitored_set_retain	owns one reference, never retains
@@ -34,6 +35,7 @@ pio_operating_point_retain	owns one reference, never retains
 pio_operating_point_update_retain	owns one reference, never retains
 pio_reactive_power_retain	owns one reference, never retains
 pio_scenario_set_retain	owns one reference, never retains
+pio_sensitivities_retain	owns one reference, never retains
 pio_source_retain	owns one reference, never retains
 pio_sparse_matrix_retain	owns one reference, never retains
 pio_string_retain	owns one reference, never retains
@@ -118,6 +120,7 @@ pio_operating_point_get_value	operating point value and type name are C only
 pio_operating_point_type_name	operating point value and type name are C only
 pio_calculation_solution_type_name	the solution type name is C only
 pio_dc_operators_n_buses	the bus axis length comes from pio_dc_operators_bus_ids
+pio_sensitivities_reduced_dimension	the bus count less the reference count, both on the PTDF axes
 pio_active_power_unit	quantity unit and value readers are C only
 pio_active_power_value	quantity unit and value readers are C only
 pio_apparent_power_unit	quantity unit and value readers are C only

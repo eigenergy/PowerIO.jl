@@ -21,6 +21,10 @@ mutable struct PioDcOpfPreparation end
 
 mutable struct PioDcOperators end
 
+mutable struct PioIslands end
+
+mutable struct PioSensitivities end
+
 mutable struct PioApparentPower end
 
 mutable struct PioBalancedNetwork end
@@ -1800,6 +1804,16 @@ end
 struct PioMulticonductorCommandView
     verb::PioStringView
     args::PioStringView
+end
+
+struct PioIslandView
+    bus_indices::PioSizeView
+    bus_ids::PioSizeView
+    reference_bus_indices::PioSizeView
+    reference_bus_ids::PioSizeView
+    generator_rows::PioSizeView
+    hvdc_rows::PioSizeView
+    supplied::Bool
 end
 
 struct PioVoltageSourceBoundaryView
@@ -5768,6 +5782,166 @@ end
 
 function pio_dc_operators_release(operators, fptr)
     @ccall ($fptr)(operators::Ptr{PioDcOperators})::Cvoid
+end
+
+function pio_balanced_network_islands(network, error)
+    @ccall libpowerio_capi.pio_balanced_network_islands(network::Ptr{PioBalancedNetwork}, error::Ptr{Ptr{PioError}})::Ptr{PioIslands}
+end
+
+function pio_balanced_network_islands(network, error, fptr)
+    @ccall ($fptr)(network::Ptr{PioBalancedNetwork}, error::Ptr{Ptr{PioError}})::Ptr{PioIslands}
+end
+
+function pio_islands_count(islands)
+    @ccall libpowerio_capi.pio_islands_count(islands::Ptr{PioIslands})::Csize_t
+end
+
+function pio_islands_count(islands, fptr)
+    @ccall ($fptr)(islands::Ptr{PioIslands})::Csize_t
+end
+
+function pio_islands_at(islands, index, output, error)
+    @ccall libpowerio_capi.pio_islands_at(islands::Ptr{PioIslands}, index::Csize_t, output::Ptr{PioIslandView}, error::Ptr{Ptr{PioError}})::Bool
+end
+
+function pio_islands_at(islands, index, output, error, fptr)
+    @ccall ($fptr)(islands::Ptr{PioIslands}, index::Csize_t, output::Ptr{PioIslandView}, error::Ptr{Ptr{PioError}})::Bool
+end
+
+function pio_islands_isolated_bus_indices(islands)
+    @ccall libpowerio_capi.pio_islands_isolated_bus_indices(islands::Ptr{PioIslands})::PioSizeView
+end
+
+function pio_islands_isolated_bus_indices(islands, fptr)
+    @ccall ($fptr)(islands::Ptr{PioIslands})::PioSizeView
+end
+
+function pio_islands_isolated_bus_ids(islands)
+    @ccall libpowerio_capi.pio_islands_isolated_bus_ids(islands::Ptr{PioIslands})::PioSizeView
+end
+
+function pio_islands_isolated_bus_ids(islands, fptr)
+    @ccall ($fptr)(islands::Ptr{PioIslands})::PioSizeView
+end
+
+function pio_islands_retain(islands)
+    @ccall libpowerio_capi.pio_islands_retain(islands::Ptr{PioIslands})::Ptr{PioIslands}
+end
+
+function pio_islands_retain(islands, fptr)
+    @ccall ($fptr)(islands::Ptr{PioIslands})::Ptr{PioIslands}
+end
+
+function pio_islands_release(islands)
+    @ccall libpowerio_capi.pio_islands_release(islands::Ptr{PioIslands})::Cvoid
+end
+
+function pio_islands_release(islands, fptr)
+    @ccall ($fptr)(islands::Ptr{PioIslands})::Cvoid
+end
+
+function pio_calc_sensitivities(network, formula, formula_len, solver, solver_len, error)
+    @ccall libpowerio_capi.pio_calc_sensitivities(network::Ptr{PioBalancedNetwork}, formula::Ptr{Cchar}, formula_len::Csize_t, solver::Ptr{Cchar}, solver_len::Csize_t, error::Ptr{Ptr{PioError}})::Ptr{PioSensitivities}
+end
+
+function pio_calc_sensitivities(network, formula, formula_len, solver, solver_len, error, fptr)
+    @ccall ($fptr)(network::Ptr{PioBalancedNetwork}, formula::Ptr{Cchar}, formula_len::Csize_t, solver::Ptr{Cchar}, solver_len::Csize_t, error::Ptr{Ptr{PioError}})::Ptr{PioSensitivities}
+end
+
+function pio_sensitivities_n_buses(sensitivities)
+    @ccall libpowerio_capi.pio_sensitivities_n_buses(sensitivities::Ptr{PioSensitivities})::Csize_t
+end
+
+function pio_sensitivities_n_buses(sensitivities, fptr)
+    @ccall ($fptr)(sensitivities::Ptr{PioSensitivities})::Csize_t
+end
+
+function pio_sensitivities_n_branches(sensitivities)
+    @ccall libpowerio_capi.pio_sensitivities_n_branches(sensitivities::Ptr{PioSensitivities})::Csize_t
+end
+
+function pio_sensitivities_n_branches(sensitivities, fptr)
+    @ccall ($fptr)(sensitivities::Ptr{PioSensitivities})::Csize_t
+end
+
+function pio_sensitivities_bus_ids(sensitivities)
+    @ccall libpowerio_capi.pio_sensitivities_bus_ids(sensitivities::Ptr{PioSensitivities})::PioSizeView
+end
+
+function pio_sensitivities_bus_ids(sensitivities, fptr)
+    @ccall ($fptr)(sensitivities::Ptr{PioSensitivities})::PioSizeView
+end
+
+function pio_sensitivities_branch_rows(sensitivities)
+    @ccall libpowerio_capi.pio_sensitivities_branch_rows(sensitivities::Ptr{PioSensitivities})::PioSizeView
+end
+
+function pio_sensitivities_branch_rows(sensitivities, fptr)
+    @ccall ($fptr)(sensitivities::Ptr{PioSensitivities})::PioSizeView
+end
+
+function pio_sensitivities_branch_identity(sensitivities, index)
+    @ccall libpowerio_capi.pio_sensitivities_branch_identity(sensitivities::Ptr{PioSensitivities}, index::Csize_t)::PioStringView
+end
+
+function pio_sensitivities_branch_identity(sensitivities, index, fptr)
+    @ccall ($fptr)(sensitivities::Ptr{PioSensitivities}, index::Csize_t)::PioStringView
+end
+
+function pio_sensitivities_reference_bus_indices(sensitivities)
+    @ccall libpowerio_capi.pio_sensitivities_reference_bus_indices(sensitivities::Ptr{PioSensitivities})::PioSizeView
+end
+
+function pio_sensitivities_reference_bus_indices(sensitivities, fptr)
+    @ccall ($fptr)(sensitivities::Ptr{PioSensitivities})::PioSizeView
+end
+
+function pio_sensitivities_ptdf(sensitivities)
+    @ccall libpowerio_capi.pio_sensitivities_ptdf(sensitivities::Ptr{PioSensitivities})::PioF64View
+end
+
+function pio_sensitivities_ptdf(sensitivities, fptr)
+    @ccall ($fptr)(sensitivities::Ptr{PioSensitivities})::PioF64View
+end
+
+function pio_sensitivities_lodf(sensitivities)
+    @ccall libpowerio_capi.pio_sensitivities_lodf(sensitivities::Ptr{PioSensitivities})::PioF64View
+end
+
+function pio_sensitivities_lodf(sensitivities, fptr)
+    @ccall ($fptr)(sensitivities::Ptr{PioSensitivities})::PioF64View
+end
+
+function pio_sensitivities_solver_path(sensitivities)
+    @ccall libpowerio_capi.pio_sensitivities_solver_path(sensitivities::Ptr{PioSensitivities})::PioStringView
+end
+
+function pio_sensitivities_solver_path(sensitivities, fptr)
+    @ccall ($fptr)(sensitivities::Ptr{PioSensitivities})::PioStringView
+end
+
+function pio_sensitivities_reduced_dimension(sensitivities)
+    @ccall libpowerio_capi.pio_sensitivities_reduced_dimension(sensitivities::Ptr{PioSensitivities})::Csize_t
+end
+
+function pio_sensitivities_reduced_dimension(sensitivities, fptr)
+    @ccall ($fptr)(sensitivities::Ptr{PioSensitivities})::Csize_t
+end
+
+function pio_sensitivities_retain(sensitivities)
+    @ccall libpowerio_capi.pio_sensitivities_retain(sensitivities::Ptr{PioSensitivities})::Ptr{PioSensitivities}
+end
+
+function pio_sensitivities_retain(sensitivities, fptr)
+    @ccall ($fptr)(sensitivities::Ptr{PioSensitivities})::Ptr{PioSensitivities}
+end
+
+function pio_sensitivities_release(sensitivities)
+    @ccall libpowerio_capi.pio_sensitivities_release(sensitivities::Ptr{PioSensitivities})::Cvoid
+end
+
+function pio_sensitivities_release(sensitivities, fptr)
+    @ccall ($fptr)(sensitivities::Ptr{PioSensitivities})::Cvoid
 end
 
 function pio_calc_incidence_matrix(network, formula, formula_len, error)

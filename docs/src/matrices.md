@@ -32,6 +32,30 @@ table order, with three winding transformer windings after the branches.
 [`calc_dc_index_map`](@ref) names both axes. The admittance matrices below and
 [`to_powerdata`](@ref) do not share the branch axis.
 
+## Islands and DC sensitivity factors
+
+[`network_islands`](@ref) partitions a balanced network into AC islands with
+the library's own rule: buses joined by in-service branches, closed switches,
+and in-service three winding transformer windings. HVDC lines do not join
+islands, and a bus typed `"ISOLATED"` belongs to no island.
+
+[`calc_ptdf`](@ref) and [`calc_lodf`](@ref) return the dense DC power
+transfer and line outage distribution factors from the routine the Rust and
+Python APIs call. The DC bus susceptance matrix is grounded at every
+reference bus, one per island, so every reference bus column of the PTDF is
+zero. Each result names its branch and bus axes and the reference set.
+
+```julia
+r = network_islands(net)
+r[1].bus_ids, r[1].reference_bus_ids, r.isolated_bus_ids
+
+H = calc_ptdf(net)                          # PtdfMatrix, branches by buses
+H.matrix[1, H.bus_to_idx[2]]
+H.reference_bus_ids
+calc_ptdf(net; formula="tap_adjusted_reactance", solver=:sparse)
+L = calc_lodf(net)                          # LodfMatrix, branches by branches
+```
+
 ## Admittance matrices
 
 [`calc_admittance_matrix`](@ref) assembles the complex bus admittance matrix
@@ -82,4 +106,11 @@ calc_bprime_matrix
 calc_bdoubleprime_matrix
 calc_branch_admittances
 BusMappedMatrix
+network_islands
+NetworkIslands
+Island
+calc_ptdf
+calc_lodf
+PtdfMatrix
+LodfMatrix
 ```
