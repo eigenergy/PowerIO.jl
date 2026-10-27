@@ -58,6 +58,9 @@ let you keep working from a local build.
 ```julia
 using PowerIO
 
+# Check a candidate build before changing the active library.
+library_available("/path/to/candidate/libpowerio_capi.dylib")
+
 set_library!("/path/to/libpowerio_capi.dylib"; persist=true)
 clear_library!(persist=true)
 ```
