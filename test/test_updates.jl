@@ -11,6 +11,19 @@
         @test ApparentPower(megavolt_amperes=250.0).unit == :megavolt_amperes
         @test ApparentPower(volt_amperes=250.0).unit == :volt_amperes
         @test_throws ArgumentError ApparentPower()
+
+        # Non-finite numeric inputs must be rejected before they cross the C ABI.
+        for value in (NaN, Inf, -Inf)
+            @test_throws ArgumentError ActivePower(watts=value)
+            @test_throws ArgumentError ActivePower(megawatts=value)
+            @test_throws ArgumentError ReactivePower(vars=value)
+            @test_throws ArgumentError ReactivePower(megavars=value)
+            @test_throws ArgumentError ApparentPower(volt_amperes=value)
+            @test_throws ArgumentError ApparentPower(megavolt_amperes=value)
+            @test_throws ArgumentError set_generator_voltage_magnitude(ComponentId("generator", "bus-1"), value)
+            @test_throws ArgumentError set_transformer_tap_ratio(ComponentId("branch", "1-4"), value)
+            @test_throws ArgumentError set_transformer_phase_shift_degrees(ComponentId("branch", "1-4"), value)
+        end
         @test occursin("megawatts=42.0", sprint(show, ActivePower(megawatts=42.0)))
         @test ComponentId("load", "bus-5") == ComponentId("load", "bus-5")
         @test ComponentId("load", "bus-5") != ComponentId("generator", "bus-5")
