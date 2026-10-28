@@ -1,3 +1,11 @@
+@testset "ExaModelsPower numeric narrowing" begin
+    @test_throws ArgumentError PowerIO._finite(floatmax(Float64), Float32, "test row", :value)
+    @test_throws ArgumentError PowerIO._bound(floatmax(Float64), Float32, "test row", :limit)
+    @test isinf(PowerIO._bound(Inf, Float32, "test row", :limit))
+    @test isinf(PowerIO._bound(-Inf, Float32, "test row", :limit))
+    @test_throws ArgumentError PowerIO._finite(Inf, Float32, "test row", :value)
+end
+
 # Minimal whitespace delimited writer so the test needs no DelimitedFiles dependency.
 function writedlm_ws(path, m::AbstractMatrix)
     open(path, "w") do io
