@@ -18,6 +18,14 @@
             @test [filter(p -> first(p) != "id", d) for d in diagnostic_records(restored.diagnostics)] ==
                   [filter(p -> first(p) != "id", d) for d in diagnostic_records(back.diagnostics)]
             @test length(parse(IOBuffer(emit(restored, "psse").text); format="psse").value.buses) == 9
+            regenerated = emit(restored, "ravens-json")
+            @test regenerated.fidelity == "canonical"
+            @test parse(IOBuffer(regenerated.text); format="ravens-json") isa PioModule{BalancedNetwork}
+            network = back.value
+            PowerIO.release!(PowerIO._handle(back))
+            back = nothing
+            GC.gc()
+            @test length(network.buses) == 9
         end
 
         # A small four-wire feeder keeps the physical load and source explicit.
@@ -43,12 +51,16 @@
                 restored = deserialize(Vector{UInt8}(serialize(back).text))
                 @test restored isa PioModule{MulticonductorNetwork}
                 # IR assigns stable ids to findings that arrived without one.
-            @test [filter(p -> first(p) != "id", d) for d in diagnostic_records(restored.diagnostics)] ==
-                  [filter(p -> first(p) != "id", d) for d in diagnostic_records(back.diagnostics)]
+                @test [filter(p -> first(p) != "id", d) for d in diagnostic_records(restored.diagnostics)] ==
+                      [filter(p -> first(p) != "id", d) for d in diagnostic_records(back.diagnostics)]
+                regenerated = emit(restored, format)
+                @test regenerated.fidelity == "canonical"
+                @test parse(IOBuffer(regenerated.text); format=format) isa PioModule{MulticonductorNetwork}
                 converted = emit(restored, "pmd-json")
                 again = parse(IOBuffer(converted.text); format="pmd-json")
                 @test sum(sum(l.active_power_nominal_w) for l in again.value.loads) ≈ 12_000.0
                 network = back.value
+                PowerIO.release!(PowerIO._handle(back))
                 back = nothing
                 GC.gc()
                 @test sum(sum(l.active_power_nominal_w) for l in network.loads) ≈ 12_000.0
