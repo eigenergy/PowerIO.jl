@@ -418,7 +418,9 @@ function LoadSeries{T}(net::BalancedNetwork, curve::AbstractVector) where {T<:Re
     base, bus_ids, base_pd, base_qd = _load_alignment(net, T)
     c = T[T(x) for x in curve]
     all(isfinite, c) || throw(ArgumentError("LoadSeries: curve has a non-finite multiplier"))
-    return LoadSeries{T}(base_pd * transpose(c) ./ base, base_qd * transpose(c) ./ base, bus_ids, base)
+    pd = _perunit(base_pd * transpose(c), base)
+    qd = _perunit(base_qd * transpose(c), base)
+    return LoadSeries{T}(pd, qd, bus_ids, base)
 end
 LoadSeries(net::BalancedNetwork, curve::AbstractVector; T::Type{<:Real}=Float64) = LoadSeries{T}(net, curve)
 
