@@ -83,6 +83,49 @@ end
             @test all(1 .<= raw_axes.idx_to_branch)
         end
 
+        @testset "DC phase-shift injection invariants" begin
+            # MATPOWER encodes a branch phase shift in its angle column. Use
+            # that input path because the fixture's transformer is represented
+            # as a branch component, not as a separately typed transformer.
+            function case9_with_shift(degrees)
+                lines = split(read(fixture("case9.m"), String), '\n')
+                row = findfirst(lines) do line
+                    fields = split(strip(line))
+                    length(fields) >= 11 && fields[1] == "1" && fields[2] == "4" &&
+                        fields[3] == "0" && fields[4] == "0.0576"
+                end
+                @test row !== nothing
+                fields = split(strip(lines[row]))
+                fields[10] = string(degrees)
+                lines[row] = "\t" * join(fields, "\t")
+                return parse(IOBuffer(join(lines, "\n")); format="matpower", name="case9-shifted.m")
+            end
+
+            shifted = case9_with_shift(7.5)
+            shifted_net = shifted.value
+            shift_incidence = calc_incidence_matrix(shifted_net)
+            shift_branch = calc_branch_phase_shift_injection(shifted_net)
+            shift_bus = calc_bus_phase_shift_injection(shifted_net)
+            shift_zero_angles = zeros(length(shifted_net.buses))
+
+            @test any(x -> !iszero(x), shift_branch)
+            @test any(x -> !iszero(x), shift_bus)
+            # Branch-to-bus aggregation must preserve the injection sign convention.
+            @test shift_bus ≈ transpose(shift_incidence) * shift_branch atol = 1e-12
+            # Phase-shift injections are internal transfers: they cannot create
+            # net active power across the network boundary.
+            @test sum(shift_bus) ≈ 0.0 atol = 1e-12
+            # At zero angles, the affine phase-shift terms are the complete DC
+            # branch-flow and bus-injection results.
+            @test calc_branch_flow_dc(shifted_net, shift_zero_angles) ≈ shift_branch atol = 1e-12
+            @test calc_bus_injection_dc(shifted_net, shift_zero_angles) ≈ shift_bus atol = 1e-12
+
+            # Reversing the phase shift reverses the affine terms.
+            reversed = case9_with_shift(-7.5).value
+            @test calc_branch_phase_shift_injection(reversed) ≈ -shift_branch atol = 1e-12
+            @test calc_bus_phase_shift_injection(reversed) ≈ -shift_bus atol = 1e-12
+        end
+
         @testset "zero impedance branches" begin
             tie = parse(fixture("zero_impedance.m")).value
             err = try
