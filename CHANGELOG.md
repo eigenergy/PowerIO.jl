@@ -1,12 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.11.7
 
 - Distribution load records expose the complete bounded voltage laws, including
   voltage bands, dropout thresholds and current limits. Ordinary load reads
   continue to work with earlier ABI 7 libraries.
 - Multiconductor power-flow instances expose their prescribed per-load active
   and reactive powers through lazy, owner-rooted collections.
+- `network_islands(net)` returns the AC islands the powerio library computes,
+  each with its buses, reference buses, generators, HVDC ties, and whether it
+  is supplied, plus the buses typed isolated. `calc_ptdf(net; formula, solver)`
+  and `calc_lodf` return dense PTDF and LODF matrices with their branch and bus
+  axes and the reference set, from the routine the Rust and Python APIs call:
+  every reference bus is grounded, one per island, and its PTDF column is
+  zero. Both need the C ABI 7 entry points `pio_balanced_network_islands` and
+  `pio_calc_sensitivities` from powerio 0.11.7.
 - `parse(V, source)` parses a path, `IO`, or bytes as a known value type and,
   as `parse(T, str)` does in Base, returns a `V`: `parse(BalancedNetwork,
   "case14.m")` is the network, `parse(AcScucInstance, path)` the instance.

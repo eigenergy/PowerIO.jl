@@ -6,7 +6,9 @@ Everything here is for the test suite only; nothing ships in a release.
   the MATPOWER repository (BSD 3-Clause, PSERC and contributors). `norm_tiny.m`,
   `angle_bounds_clamp.m`, `zero_impedance.m` (one zero impedance bus tie), and
   `oos_cubic_cost.m` (an out of service generator with a cubic cost) are small
-  original cases.
+  original cases. `islands.m` (two AC islands and a bus typed isolated) and
+  `two_islands.m` (the same without the isolated bus) are original cases for
+  the island and PTDF tests.
 - `case14.pm.json`, `case14.egret.json`: PowerModels and Egret renderings of
   `case14.m`.
 - `psse/case3_3w_v33.raw`: an original three bus PSS/E RAW revision 33 case
