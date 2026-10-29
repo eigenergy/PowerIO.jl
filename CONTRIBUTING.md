@@ -51,6 +51,11 @@ pushes a PowerIO.jl branch with the same name, and powerio's Julia binding job
 tests against it. `.github/powerio-companion` names the powerio branch this
 branch is tested against when no same named branch exists.
 
+For validation against a fixed Rust revision, `.github/powerio-ref` contains
+one full commit SHA. It takes precedence over both branch choices, including
+an obsolete same named companion whose changes have already landed. Update
+the pin when changing the shared ABI, or remove it to resume branch selection.
+
 ## Memory safety conventions
 
 Every pointer from the C library is owned by a finalizer backed handle type

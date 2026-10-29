@@ -17,6 +17,7 @@ const DATA = joinpath(@__DIR__, "data")
 fixture(parts...) = joinpath(DATA, parts...)
 
 @testset "PowerIO" begin
+    include("test_ci_companion.jl")       # fixed Rust revisions and companion selection
     include("test_release.jl")            # Project.toml and changelog release guard
     include("test_release_script.jl")     # release target, changelog, and registration steps
     include("test_update_artifacts.jl")   # release binary checks and Artifacts.toml writing
