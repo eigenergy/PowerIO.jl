@@ -55,6 +55,44 @@ const EXEMPT = _exempt()
     isempty(stale) || @error "exemptions for entry points the sources call" stale
     @test stale == Symbol[]
 
+    # These ABI 7 surfaces now have Julia-side callers. Keep them declared,
+    # referenced by the hand-written layer, and out of the C-only exemption list.
+    abi7_julia_bound = Set((
+        :pio_ac_ots_instance_branch_at,
+        :pio_ac_ots_instance_create,
+        :pio_ac_ots_instance_fix_topology,
+        :pio_ac_ots_instance_options,
+        :pio_ac_ots_instance_validate_topology,
+        :pio_ac_ots_solution_branch_closed_at,
+        :pio_ac_ots_solution_create,
+        :pio_ac_ots_solution_materialize,
+        :pio_ac_ots_solution_summary,
+        :pio_balanced_network_islands,
+        :pio_calc_sensitivities,
+        :pio_islands_at,
+        :pio_islands_count,
+        :pio_islands_isolated_bus_ids,
+        :pio_islands_isolated_bus_indices,
+        :pio_islands_release,
+        :pio_module_to_ac_ots_instance,
+        :pio_module_to_ac_ots_instance_with_options,
+        :pio_sensitivities_branch_identity,
+        :pio_sensitivities_branch_rows,
+        :pio_sensitivities_bus_ids,
+        :pio_sensitivities_lodf,
+        :pio_sensitivities_n_branches,
+        :pio_sensitivities_n_buses,
+        :pio_sensitivities_ptdf,
+        :pio_sensitivities_reference_bus_indices,
+        :pio_sensitivities_release,
+        :pio_sensitivities_solver_path,
+        :pio_value_ac_ots_instance,
+        :pio_value_ac_ots_solution,
+    ))
+    @test issubset(abi7_julia_bound, GENERATED)
+    @test issubset(abi7_julia_bound, REFERENCED)
+    @test isempty(intersect(abi7_julia_bound, keys(EXEMPT)))
+
     # Every name the sources call resolves in the library under test. A typo in
     # a quoted name is otherwise only found when that code path runs.
     if LIBRARY_AVAILABLE
