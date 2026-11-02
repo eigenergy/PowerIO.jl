@@ -26,7 +26,10 @@
 
             @test length(net.line_codes) == 4
             lc = net.line_codes[1]
-            @test lc.name == "_pio_line_feeder"
+            # Line.feeder's code. powerio names a code that lines share after
+            # its OpenDSS LineCode; "_pio_line_feeder" is the per-line name
+            # from before that and can be dropped once both sides have merged.
+            @test lc.name in ("lc3", "_pio_line_feeder")
             @test lc.conductor_count == 3
             @test size(lc.resistance) == (3, 3)
             @test lc.resistance[1, 1] == 0.00031
@@ -41,7 +44,7 @@
             @test line.name == "feeder"
             @test (line.bus_from, line.bus_to) == ("sourcebus", "mid")
             @test line.terminals_from == ["1", "2", "3"]
-            @test line.line_code == "_pio_line_feeder"
+            @test line.line_code == lc.name
             @test line.length_m == 1200.0
             @test line.route === nothing
 
