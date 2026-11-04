@@ -25,6 +25,7 @@ fixture(parts...) = joinpath(DATA, parts...)
     include("test_operations.jl")         # parse, emit, serialize, deserialize
     include("test_network.jl")            # BalancedNetwork element tables
     include("test_geography.jl")
+    include("test_ravens.jl")
     include("test_dist.jl")               # MulticonductorNetwork element tables
     include("test_bounded_loads.jl")
 

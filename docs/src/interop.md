@@ -6,7 +6,8 @@
 | ExaModelsPower.jl | out | [`to_powerdata`](@ref), [`to_ac_power_data`](@ref), `LoadSeries` |
 | GridFM | both | `parse` of a Parquet dataset, `emit(m, "gridfm")` |
 | PyPSA | both | `parse` of a CSV folder, `emit(m, "pypsa-csv", dir)` |
-| PowerModelsDistribution.jl | both | `emit(m, "pmd")`, `parse` of PMD JSON |
+| PowerModelsDistribution.jl | both | `emit(m, "pmd-json")` for ENGINEERING, `emit(m, "pmd-math-json")` for MATHEMATICAL |
+| MG-RAVENS | both | `emit(m, "ravens-json")`, `parse` selects the balanced or multiconductor profile |
 | BMOPF | both | `emit(m, "bmopf")`, `parse` of BMOPF JSON |
 | Other PowerIO consumers | both | `serialize`, `deserialize` (PowerIO IR) |
 
@@ -84,3 +85,25 @@ PowerIO.n_periods
 PowerIO.demands_mw
 PowerIO.read_load_series
 ```
+
+## MG-RAVENS and PMD MATHEMATICAL
+
+`ravens-json` accepts both MG-RAVENS profiles. A balanced document returns
+`PioModule{BalancedNetwork}`; a conductor resolved document returns
+`PioModule{MulticonductorNetwork}`. Documents mixing the profiles are refused.
+The same token writes either network type:
+
+```julia
+feeder = parse("feeder.dss")
+result = emit(feeder, "ravens-json")
+result.diagnostics                      # fields the target cannot represent
+back = parse(IOBuffer(result.text); format="ravens-json")
+math = emit(feeder, "pmd-math-json")
+```
+
+PMD MATHEMATICAL output uses the document's per unit bases and reduces grounded
+neutrals by default. Reading it restores a multiconductor network and reports
+values the mathematical model cannot recover, including transformer ratings.
+Use `serialize` and `deserialize` to carry typed PowerIO values and their
+diagnostics through PowerIO IR. Grid exchange output reports its own losses;
+retained input bytes remain available only on the original parsed module.
