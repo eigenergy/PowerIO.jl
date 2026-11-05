@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.8
 
 - Exercise both MG-RAVENS profiles and PMD MATHEMATICAL JSON through typed
   parsing, emission, and PowerIO IR; document the format tokens and fidelity.
