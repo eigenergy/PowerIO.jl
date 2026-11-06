@@ -71,6 +71,7 @@ export BalancedNetwork, MulticonductorNetwork, TimeSeries, ScenarioSet, Operatin
        McAcPfSolution, McAcOpfSolution, LinDist3FlowOpfSolution, AcScucSolution, UnknownValue
 
 # Records and results.
+export InputCollection, CollectionResult, inspect_collection
 export Diagnostic, SourceSpan, PowerIOError, EmitResult, Artifact,
        Producer, ModuleSource, HistoryEntry
 
@@ -155,6 +156,7 @@ include("diagnostics.jl")    # Diagnostic and SourceSpan
 include("errors.jl")         # PowerIOError and the checked call helpers
 include("values.jl")         # the value type tree and structural name dispatch
 include("module.jl")         # PioModule, parse, deserialize, records
+include("input_collection.jl")
 include("emit.jl")           # emit, serialize, EmitResult, Artifact
 include("network.jl")        # BalancedNetwork properties and element structs
 include("connectivity.jl")   # DetailedConnectivity tables and their record structs
