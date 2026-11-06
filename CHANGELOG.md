@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.9
+
+- Pairs with PowerIO 0.11.9; see the PowerIO changelog: https://github.com/eigenergy/powerio/blob/v0.11.9/CHANGELOG.md
+
 ## 0.11.8
 
 - Exercise both MG-RAVENS profiles and PMD MATHEMATICAL JSON through typed
