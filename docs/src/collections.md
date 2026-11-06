@@ -9,7 +9,7 @@ Choose a selection explicitly; several cases can share companion files.
 ```julia
 inputs = InputCollection("cases.zip")
 inventory = inspect_collection(inputs)
-result = parse(inputs, (root="", primary="case9.m", format="matpower", operation="parse"))
+result = parse(inputs, (primary="case9.m", format="matpower", operation="parse"))
 network = result.module.value
 result.dependencies
 close(inputs)                       # the parsed module remains usable

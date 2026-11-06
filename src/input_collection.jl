@@ -130,5 +130,5 @@ function Base.parse(collection::InputCollection, selection;
     end
     module_value = _wrap_module(h.lib, ptr)
     metadata = JSON3.read(_take_string(h.lib, report[]))
-    return CollectionResult(module_value, String.(metadata.dependencies), Bool(metadata.incomplete))
+    return CollectionResult(module_value, String[String(path) for path in metadata.dependencies], Bool(metadata.incomplete))
 end
