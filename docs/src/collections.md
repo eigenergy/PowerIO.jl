@@ -1,5 +1,30 @@
 # Collections and instances
 
+## Input collections
+
+An `InputCollection` holds a bounded folder, ZIP, or dictionary of named byte
+vectors. Inspection suggests independent selections without parsing each case.
+Choose a selection explicitly; several cases can share companion files.
+
+```julia
+inputs = InputCollection("cases.zip")
+inventory = inspect_collection(inputs)
+result = parse(inputs, (primary="case9.m", format="matpower", operation="parse"))
+network = result.module.value
+result.dependencies
+close(inputs)                       # the parsed module remains usable
+```
+
+Inspection does not certify completeness or solver suitability. Check the parsed
+module's diagnostics and the result's `incomplete` flag before downstream use.
+
+```@docs
+InputCollection
+inspect_collection
+CollectionResult
+Base.parse(::InputCollection, ::Any)
+```
+
 ## Time series and scenario sets
 
 A PyPSA folder with several snapshots parses into a

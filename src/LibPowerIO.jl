@@ -11,6 +11,8 @@ module LibPowerIO
 const libpowerio_capi = "libpowerio_capi"
 
 
+mutable struct PioCollection end
+
 mutable struct PioArtifact end
 
 mutable struct PioActivePower end
@@ -6303,6 +6305,62 @@ end
 
 function pio_ac_ots_solution_materialize(solution, error, fptr)
     @ccall ($fptr)(solution::Ptr{PioCalculationSolution}, error::Ptr{Ptr{PioError}})::Ptr{PioModule}
+end
+
+function pio_collection_open(path, path_len, max_bytes, max_files, error)
+    @ccall libpowerio_capi.pio_collection_open(path::Ptr{Cchar}, path_len::Csize_t, max_bytes::UInt64, max_files::Csize_t, error::Ptr{Ptr{PioError}})::Ptr{PioCollection}
+end
+
+function pio_collection_open(path, path_len, max_bytes, max_files, error, fptr)
+    @ccall ($fptr)(path::Ptr{Cchar}, path_len::Csize_t, max_bytes::UInt64, max_files::Csize_t, error::Ptr{Ptr{PioError}})::Ptr{PioCollection}
+end
+
+function pio_collection_from_zip(name, name_len, data, data_len, max_bytes, max_files, error)
+    @ccall libpowerio_capi.pio_collection_from_zip(name::Ptr{Cchar}, name_len::Csize_t, data::Ptr{UInt8}, data_len::Csize_t, max_bytes::UInt64, max_files::Csize_t, error::Ptr{Ptr{PioError}})::Ptr{PioCollection}
+end
+
+function pio_collection_from_zip(name, name_len, data, data_len, max_bytes, max_files, error, fptr)
+    @ccall ($fptr)(name::Ptr{Cchar}, name_len::Csize_t, data::Ptr{UInt8}, data_len::Csize_t, max_bytes::UInt64, max_files::Csize_t, error::Ptr{Ptr{PioError}})::Ptr{PioCollection}
+end
+
+function pio_collection_from_files(name, name_len, buffers, buffers_len, max_bytes, max_files, error)
+    @ccall libpowerio_capi.pio_collection_from_files(name::Ptr{Cchar}, name_len::Csize_t, buffers::Ptr{PioNamedBufferView}, buffers_len::Csize_t, max_bytes::UInt64, max_files::Csize_t, error::Ptr{Ptr{PioError}})::Ptr{PioCollection}
+end
+
+function pio_collection_from_files(name, name_len, buffers, buffers_len, max_bytes, max_files, error, fptr)
+    @ccall ($fptr)(name::Ptr{Cchar}, name_len::Csize_t, buffers::Ptr{PioNamedBufferView}, buffers_len::Csize_t, max_bytes::UInt64, max_files::Csize_t, error::Ptr{Ptr{PioError}})::Ptr{PioCollection}
+end
+
+function pio_collection_inspect(raw, error)
+    @ccall libpowerio_capi.pio_collection_inspect(raw::Ptr{PioCollection}, error::Ptr{Ptr{PioError}})::Ptr{PioString}
+end
+
+function pio_collection_inspect(raw, error, fptr)
+    @ccall ($fptr)(raw::Ptr{PioCollection}, error::Ptr{Ptr{PioError}})::Ptr{PioString}
+end
+
+function pio_collection_parse(raw, selection, selection_len, options, report, error)
+    @ccall libpowerio_capi.pio_collection_parse(raw::Ptr{PioCollection}, selection::Ptr{Cchar}, selection_len::Csize_t, options::Ptr{PioParseOptions}, report::Ptr{Ptr{PioString}}, error::Ptr{Ptr{PioError}})::Ptr{PioModule}
+end
+
+function pio_collection_parse(raw, selection, selection_len, options, report, error, fptr)
+    @ccall ($fptr)(raw::Ptr{PioCollection}, selection::Ptr{Cchar}, selection_len::Csize_t, options::Ptr{PioParseOptions}, report::Ptr{Ptr{PioString}}, error::Ptr{Ptr{PioError}})::Ptr{PioModule}
+end
+
+function pio_collection_retain(raw)
+    @ccall libpowerio_capi.pio_collection_retain(raw::Ptr{PioCollection})::Ptr{PioCollection}
+end
+
+function pio_collection_retain(raw, fptr)
+    @ccall ($fptr)(raw::Ptr{PioCollection})::Ptr{PioCollection}
+end
+
+function pio_collection_release(raw)
+    @ccall libpowerio_capi.pio_collection_release(raw::Ptr{PioCollection})::Cvoid
+end
+
+function pio_collection_release(raw, fptr)
+    @ccall ($fptr)(raw::Ptr{PioCollection})::Cvoid
 end
 
 const PIO_ABI_VERSION = 7

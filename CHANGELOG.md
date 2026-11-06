@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add bounded `InputCollection` folder/ZIP/memory inventories, explicit selection parsing, and typed results with independent dependency observations.
+
 ## 0.11.8
 
 - Exercise both MG-RAVENS profiles and PMD MATHEMATICAL JSON through typed

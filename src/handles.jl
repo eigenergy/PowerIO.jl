@@ -121,6 +121,7 @@ macro handle(name, release, doc)
     end
 end
 
+@handle CollectionHandle :pio_collection_release "Shared bounded input inventory."
 @handle SourceHandle :pio_source_release "Acquired input bytes or path."
 @handle DestinationHandle :pio_destination_release "Selected output location."
 @handle ModuleHandle :pio_module_release "One `PioModule` inside the C library."
