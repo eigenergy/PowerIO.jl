@@ -96,6 +96,10 @@
                               (kind = "line", index = 3, from = "mid", to = "stub"),
                               (kind = "line", index = 4, from = "_pio_vsource_source_emf", to = "sourcebus")]
             @test to_graph(m) == g
+            # The open switch to "stub" is deliberately absent from the graph.
+            # Bus rows remain visible even when a bus has no conducting edge.
+            @test !any(edge -> edge.kind == "switch" && edge.index == 2, g.edges)
+            @test any(bus -> bus.id == "stub", g.buses)
         end
 
         @testset "emit" begin

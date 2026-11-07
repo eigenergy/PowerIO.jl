@@ -1,5 +1,30 @@
 # Collections and instances
 
+## Input collections
+
+An `InputCollection` holds a bounded folder, ZIP, or dictionary of named byte
+vectors. Inspection suggests independent selections without parsing each case.
+Choose a selection explicitly; several cases can share companion files.
+
+```julia
+inputs = InputCollection("cases.zip")
+inventory = inspect_collection(inputs)
+result = parse(inputs, (primary="case9.m", format="matpower", operation="parse"))
+network = result.module.value
+result.dependencies
+close(inputs)                       # the parsed module remains usable
+```
+
+Inspection does not certify completeness or solver suitability. Check the parsed
+module's diagnostics and the result's `incomplete` flag before downstream use.
+
+```@docs
+InputCollection
+inspect_collection
+CollectionResult
+Base.parse(::InputCollection, ::Any)
+```
+
 ## Time series and scenario sets
 
 A PyPSA folder with several snapshots parses into a
@@ -67,9 +92,9 @@ the source line, and source line rows and conductor positions using Julia's
 squared volts, and `line_active_power`, `line_reactive_power`,
 `source_active_power`, `source_reactive_power`, `generator_active_power`, and
 `generator_reactive_power` in watts and vars. Each vector follows its instance
-axes. These types use PowerIO IR generation 2 with distinct structural type
-names. Readers without LinDist3Flow support reject those types; existing types
-retain their representation.
+axes. These types are PowerIO IR structural types with distinct names.
+Readers without LinDist3Flow support reject those types; existing types retain
+their representation.
 
 A solution answers an instance. `solution.instance` is that instance,
 `solution.network` is the network the solution is defined over,

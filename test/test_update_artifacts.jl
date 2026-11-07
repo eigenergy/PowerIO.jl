@@ -4,10 +4,9 @@ include(joinpath(@__DIR__, "..", "gen", "update_artifacts.jl"))
 
 const ArtifactUpdater = PowerIOArtifactUpdater
 
-function _parked_reason(report)
+function _parked_reason(report; tag="v0.11.0", binding_release=v"0.11.0")
     try
-        ArtifactUpdater.validate_candidate(
-            report, "v0.11.0"; binding_abi=UInt32(7))
+        ArtifactUpdater.validate_candidate(report, tag; binding_release)
         return nothing
     catch err
         err isa ArtifactUpdater.ParkedGate || rethrow()
@@ -15,42 +14,54 @@ function _parked_reason(report)
     end
 end
 
-function _candidate(; version="0.11.0", abi=UInt32(7),
+function _candidate(; version="0.11.0", release=VersionNumber(version),
                     symbols=copy(ArtifactUpdater.KNOWN_SYMBOLS), gridfm_available=true)
-    ArtifactUpdater.CandidateReport(version, abi, symbols, gridfm_available)
+    ArtifactUpdater.CandidateReport(version, release, symbols, gridfm_available)
 end
 
 _without(symbol::Symbol) = setdiff(copy(ArtifactUpdater.KNOWN_SYMBOLS), Set((symbol,)))
 
 @testset "artifact candidate gates" begin
     @test ArtifactUpdater.validate_candidate(
-        _candidate(), "v0.11.0"; binding_abi=UInt32(7)) isa
+        _candidate(), "v0.11.0"; binding_release=v"0.11.0") isa
           ArtifactUpdater.CandidateReport
-    @test _parked_reason(_candidate(abi=UInt32(6))) == "core_abi_mismatch"
-    @test _parked_reason(_candidate(version="0.10.0")) == "schema_version_mismatch"
+    # A binding works with a library from its header's release series at the
+    # header's release or a newer one.
+    release_reason(binary, header) = _parked_reason(
+        _candidate(version=string(binary)); tag="v$binary", binding_release=header)
+    @test release_reason(v"0.11.3", v"0.11.0") === nothing
+    @test release_reason(v"0.11.3", v"0.11.3") === nothing
+    @test release_reason(v"0.11.3", v"0.11.4") == "release_too_old"
+    @test release_reason(v"0.12.0", v"0.11.4") == "release_series_mismatch"
+    @test release_reason(v"0.10.9", v"0.11.0") == "release_series_mismatch"
+    @test release_reason(v"1.4.0", v"1.2.0") === nothing
+    @test release_reason(v"1.1.9", v"1.2.0") == "release_too_old"
+    @test release_reason(v"2.0.0", v"1.2.0") == "release_series_mismatch"
+    @test _parked_reason(_candidate(version="0.10.0", release=v"0.11.0")) ==
+          "schema_version_mismatch"
     @test _parked_reason(_candidate(gridfm_available=false)) == "required_feature_missing"
     for symbol in (:pio_version, :pio_parse, :pio_module_value, :pio_emit, :pio_module_serialize,
                    :pio_module_deserialize, :pio_calc_incidence_matrix, :pio_apply_updates,
                    :pio_balanced_network_bus_at, :pio_multiconductor_network_counts)
         @test _parked_reason(_candidate(symbols=_without(symbol))) == "required_symbol_missing"
     end
-    # Removing an inert Cargo flag does not change the ABI or invalidate existing
+    # Removing an inert Cargo flag does not change the C ABI or invalidate existing
     # release archives. Candidate checks use the binary's version and behavior,
     # not a build-feature label that older archives may still carry.
     for version in ("0.11.5", "0.11.6")
         @test ArtifactUpdater.validate_candidate(
-            _candidate(; version), "v$version"; binding_abi=UInt32(7)) isa
+            _candidate(; version), "v$version"; binding_release=v"0.11.5") isa
               ArtifactUpdater.CandidateReport
         @test_throws ArtifactUpdater.ParkedGate ArtifactUpdater.validate_candidate(
             _candidate(; version=version == "0.11.5" ? "0.11.6" : "0.11.5"), "v$version";
-            binding_abi=UInt32(7))
+            binding_release=v"0.11.5")
         @test_throws ArtifactUpdater.ParkedGate ArtifactUpdater.validate_candidate(
             _candidate(; version, gridfm_available=false), "v$version";
-            binding_abi=UInt32(7))
+            binding_release=v"0.11.5")
     end
     @test isfile(joinpath(ArtifactUpdater.GRIDFM_FIXTURE, "gridfm_meta.json"))
-    # The binding's ABI constant is what the gate compares a release binary against.
-    @test ArtifactUpdater._binding_abi() == PowerIO.PIO_ABI_VERSION == UInt32(7)
+    # The binding's header release is what the gate compares a release binary against.
+    @test ArtifactUpdater._binding_release() == PowerIO._HEADER_RELEASE
     if LIBRARY_AVAILABLE
         handle = Libdl.dlopen(PowerIO._lib())
         try
@@ -95,11 +106,11 @@ _without(symbol::Symbol) = setdiff(copy(ArtifactUpdater.KNOWN_SYMBOLS), Set((sym
         parked = ArtifactUpdater.run_update(
             "v0.9.0", status; artifact_path=artifact, fetcher=fake_fetch,
             inspector=(_args...) -> throw(
-                ArtifactUpdater.ParkedGate("core_abi_mismatch", "fixture")),
+                ArtifactUpdater.ParkedGate("release_series_mismatch", "fixture")),
         )
         @test parked.status == "parked"
         @test read(artifact) == before
-        @test TOML.parsefile(status)["reason"] == "core_abi_mismatch"
+        @test TOML.parsefile(status)["reason"] == "release_series_mismatch"
 
         hard_status = joinpath(dir, "hard-status.toml")
         write(hard_status, "sentinel = true\n")

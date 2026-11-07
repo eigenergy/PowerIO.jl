@@ -499,6 +499,9 @@ end
 
 One balanced three winding transformer: its `windings`, pairwise
 `impedances`, star point voltage, magnetizing branch, and service status.
+`magnetizing_connection` says where the magnetizing admittance connects:
+`"star_point"`, or `"winding1_terminal"` (winding 1's bus to ground, outside
+its ratio, as PSS/E states it).
 `in_service` is the device-level status only. These typed rows do not expose
 individual winding service flags; use the native lowering and matrix APIs
 for partial-winding topology.
@@ -513,6 +516,7 @@ struct ThreeWindingTransformer
     magnetizing_conductance_pu::Float64
     magnetizing_susceptance_pu::Float64
     in_service::Bool
+    magnetizing_connection::String
 end
 
 """
@@ -794,7 +798,8 @@ _element(::Type{ThreeWindingTransformer}, net::BalancedNetwork, i) = _with_netwo
     ThreeWindingTransformer(_optional_str(v.component_id, v.has_component_id),
                             _optional_str(v.name, v.has_name), windings, impedances,
                             v.star_voltage_magnitude_pu, v.star_voltage_angle_degrees,
-                            v.magnetizing_conductance_pu, v.magnetizing_susceptance_pu, v.in_service)
+                            v.magnetizing_conductance_pu, v.magnetizing_susceptance_pu, v.in_service,
+                            _str(v.magnetizing_connection))
 end
 
 _element(::Type{Area}, net::BalancedNetwork, i) = _with_network(net) do lib, p

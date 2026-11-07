@@ -1,6 +1,18 @@
 # Reference values: the Python binding (`powerio` 0.11.0) on the same fixtures,
 # and the coordinate lists the powerio matrix crate wrote for case9 and case30.
 
+@testset "Ybus numerical guards" begin
+    branch = (from_bus_id=1, to_bus_id=2,
+              resistance_pu=0.0, reactance_pu=0.1,
+              from_conductance_pu=0.0, from_susceptance_pu=0.0,
+              to_conductance_pu=0.0, to_susceptance_pu=0.0,
+              effective_tap_ratio=1.0e308, phase_shift_degrees=0.0)
+    @test_throws PowerIOError PowerIO._branch_primitive(
+        1, branch; zero_resistance=false, zero_charging=false, unity_taps=false,
+        zero_shifts=false, skip_zero_impedance=false)
+end
+
+
 function coo_from_fixture(path)
     doc = JSON3.read(read(path, String))
     bus_ids = Int.(doc.axes.matrix_bus.bus_id)
@@ -81,6 +93,68 @@ end
             raw_axes = calc_dc_index_map(raw)
             @test length(raw_axes.branch_ids) == size(calc_incidence_matrix(raw), 1)
             @test all(1 .<= raw_axes.idx_to_branch)
+        end
+
+        @testset "DC phase-shift injection invariants" begin
+            # MATPOWER encodes a branch phase shift in its angle column. Use
+            # that input path because the fixture's transformer is represented
+            # as a branch component, not as a separately typed transformer.
+            function case9_with_shift(degrees)
+                lines = split(read(fixture("case9.m"), String), '\n')
+                row = findfirst(lines) do line
+                    fields = split(strip(line))
+                    length(fields) >= 11 && fields[1] == "1" && fields[2] == "4" &&
+                        fields[3] == "0" && fields[4] == "0.0576"
+                end
+                @test row !== nothing
+                fields = split(strip(lines[row]))
+                fields[10] = string(degrees)
+                lines[row] = "\t" * join(fields, "\t")
+                return parse(IOBuffer(join(lines, "\n")); format="matpower", name="case9-shifted.m")
+            end
+
+            shifted = case9_with_shift(7.5)
+            shifted_net = shifted.value
+            shift_incidence = calc_incidence_matrix(shifted_net)
+            shift_branch = calc_branch_phase_shift_injection(shifted_net)
+            shift_bus = calc_bus_phase_shift_injection(shifted_net)
+            shift_zero_angles = zeros(length(shifted_net.buses))
+
+            @test any(x -> !iszero(x), shift_branch)
+            @test any(x -> !iszero(x), shift_bus)
+            # Branch-to-bus aggregation must preserve the injection sign convention.
+            @test shift_bus ≈ transpose(shift_incidence) * shift_branch atol = 1e-12
+            # Phase-shift injections are internal transfers: they cannot create
+            # net active power across the network boundary.
+            @test sum(shift_bus) ≈ 0.0 atol = 1e-12
+            # At zero angles, the affine phase-shift terms are the complete DC
+            # branch-flow and bus-injection results.
+            @test calc_branch_flow_dc(shifted_net, shift_zero_angles) ≈ shift_branch atol = 1e-12
+            @test calc_bus_injection_dc(shifted_net, shift_zero_angles) ≈ shift_bus atol = 1e-12
+
+            # Reversing the phase shift reverses the affine terms.
+            reversed = case9_with_shift(-7.5).value
+            @test calc_branch_phase_shift_injection(reversed) ≈ -shift_branch atol = 1e-12
+            @test calc_bus_phase_shift_injection(reversed) ≈ -shift_bus atol = 1e-12
+        end
+
+        @testset "nonconsecutive bus IDs preserve matrix axes" begin
+            sparse_ids = parse(fixture("nonconsecutive_bus_ids.m")).value
+            axes = calc_dc_index_map(sparse_ids)
+            @test axes.idx_to_bus == [10, 30, 90]
+            @test axes.bus_to_idx == Dict(10 => 1, 30 => 2, 90 => 3)
+            @test axes.idx_to_branch == 1:2
+
+            A = calc_incidence_matrix(sparse_ids)
+            @test size(A) == (2, 3)
+            @test Matrix(A) == [1.0 -1.0 0.0; 0.0 1.0 -1.0]
+
+            Y = calc_admittance_matrix(sparse_ids)
+            @test Y.idx_to_bus == [10, 30, 90]
+            @test Y.bus_to_idx == Dict(10 => 1, 30 => 2, 90 => 3)
+            @test Y.matrix[1, 2] ≈ -inv(complex(0.01, 0.10))
+            @test Y.matrix[2, 3] ≈ -inv(complex(0.02, 0.20))
+            @test calc_admittance_matrix(parse(fixture("nonconsecutive_bus_ids.m"))).matrix == Y.matrix
         end
 
         @testset "zero impedance branches" begin
@@ -184,7 +258,7 @@ end
                 @test nnz(Y.matrix) == nnz(tables["ybus"])
                 @test Matrix(calc_bprime_matrix(network).matrix) ≈ Matrix(tables["bprime"]) rtol = 1e-12
                 @test Matrix(calc_bdoubleprime_matrix(network).matrix) ≈ Matrix(tables["bdoubleprime"]) rtol = 1e-12
-                # The fixture stores the bus by branch orientation; ABI 7 is branch by bus.
+                # The fixture stores the bus by branch orientation; the C ABI is branch by bus.
                 @test Matrix(calc_incidence_matrix(network)) ≈ Matrix(tables["incidence"])'
             end
         end

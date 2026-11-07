@@ -7,8 +7,7 @@ with per terminal powers.
 
 `VoltageSource.reference_terminal` identifies the other voltage endpoint on
 the source bus. `nothing` means earth; a terminal name does not imply
-grounding. Reference-aware views require the additive C accessors; older
-ABI 7 libraries continue to expose their earth-referenced sources.
+grounding.
 
 ```julia
 feeder = parse("IEEE13Nodeckt.dss")     # PioModule{MulticonductorNetwork}
@@ -132,7 +131,7 @@ arrays, complete voltage laws and terminal maps. A row copies only its own
 borrowed arrays. Reference conductors can make the terminal map longer than the
 power-channel arrays. Reading a load never serializes or clones the network.
 
-Ordinary load records remain readable with older ABI 7 libraries through their
-legacy accessor. Complete bounded-law reads and `McAcPfInstance.loads` require
+Ordinary load records remain readable with libraries from before the load
+details accessors through their legacy accessor. Complete bounded-law reads and `McAcPfInstance.loads` require
 the additive load-details accessors; a legacy refusal is propagated rather than
 returning an incomplete bounded law.

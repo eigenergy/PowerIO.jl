@@ -27,7 +27,7 @@ const PLATFORMS = [
 # One entry point per operation family the binding depends on.
 const CORE_SYMBOLS = Set((
     :pio_version,
-    :pio_abi_version,
+    :pio_version_numbers,
     :pio_string_release,
     :pio_source_open,
     :pio_source_from_memory,
@@ -67,37 +67,51 @@ Base.showerror(io::IO, err::ParkedGate) =
 _park(reason::AbstractString, detail::AbstractString) =
     throw(ParkedGate(String(reason), String(detail)))
 
-# What one release library reports: its version string, ABI number, the core
-# entry points it exports, and whether it parses the GridFM fixture.
+# What one release library reports: its version string, the release
+# `pio_version_numbers` returns, the core entry points it exports, and whether
+# it parses the GridFM fixture.
 struct CandidateReport
     version::String
-    abi::UInt32
+    release::VersionNumber
     symbols::Set{Symbol}
     gridfm_available::Bool
 end
 
-# Read an integer constant out of the binding sources. The value is written
-# either as `UInt32(7)` by hand or as a bare `7` by the generated raw layer.
+# Read an integer constant out of the generated raw layer, where it is written
+# as a bare `const NAME = 11`.
 function _binding_const(name::AbstractString, files)
-    re = Regex("\\b$(name)\\s*=\\s*(?:UInt32\\()?(\\d+)")
+    re = Regex("\\b$(name)\\s*=\\s*(\\d+)")
     for file in files
         path = joinpath(ROOT, "src", file)
         isfile(path) || continue
         m = match(re, read(path, String))
-        m === nothing || return parse(UInt32, m.captures[1])
+        m === nothing || return parse(Int, m.captures[1])
     end
     error("$name not found in binding sources")
 end
 
-_binding_abi() = _binding_const("PIO_ABI_VERSION", ("capi.jl", "PowerIO.jl", "LibPowerIO.jl"))
+# The release of the header the binding was generated from.
+_binding_release() = VersionNumber(
+    (_binding_const(name, ("LibPowerIO.jl",))
+     for name in ("PIO_VERSION_MAJOR", "PIO_VERSION_MINOR", "PIO_VERSION_PATCH"))...)
+
+# The release series of a version, as Cargo defines it: the major and minor
+# numbers before 1.0, the major number from 1.0 on.
+_release_series(v::VersionNumber) = v.major == 0 ? (v.major, v.minor) : (v.major,)
 
 function validate_candidate(report::CandidateReport, tag::AbstractString;
-                            binding_abi::UInt32=_binding_abi())
+                            binding_release::VersionNumber=_binding_release())
     missing_core = sort!(collect(setdiff(CORE_SYMBOLS, report.symbols)); by=string)
     isempty(missing_core) || _park(
         "required_symbol_missing", "missing core symbol $(first(missing_core))")
-    report.abi == binding_abi || _park(
-        "core_abi_mismatch", "binary ABI $(report.abi), binding ABI $binding_abi")
+    # The binding works with a library from its header's release series at the
+    # header's release or a newer one.
+    _release_series(report.release) == _release_series(binding_release) || _park(
+        "release_series_mismatch",
+        "binary release $(report.release), binding header release $binding_release")
+    report.release >= binding_release || _park(
+        "release_too_old",
+        "binary release $(report.release), binding header release $binding_release")
 
     version = startswith(tag, "v") ? tag[nextind(tag, firstindex(tag)):end] : String(tag)
     report.version == version || _park(
@@ -125,6 +139,13 @@ struct _StringView
 end
 
 _string(v::_StringView) = (v.data == C_NULL || v.len == 0) ? "" : unsafe_string(v.data, Int(v.len))
+
+# The release numbers, the return type of `pio_version_numbers`.
+struct _VersionView
+    major::UInt32
+    minor::UInt32
+    patch::UInt32
+end
 
 # Parse the GridFM fixture through the library under inspection; true when a
 # module comes back. Any error handle is released.
@@ -162,8 +183,9 @@ function _inspect_library(unpack::AbstractString, triplet::AbstractString,
         isempty(missing_core) || _park(
             "required_symbol_missing", "missing core symbol $(first(missing_core))")
         version = _string(ccall(Libdl.dlsym(handle, :pio_version), _StringView, ()))
-        abi = ccall(Libdl.dlsym(handle, :pio_abi_version), UInt32, ())
-        report = CandidateReport(version, abi, symbols, _parses_gridfm(handle))
+        numbers = ccall(Libdl.dlsym(handle, :pio_version_numbers), _VersionView, ())
+        release = VersionNumber(numbers.major, numbers.minor, numbers.patch)
+        report = CandidateReport(version, release, symbols, _parses_gridfm(handle))
         return validate_candidate(report, tag)
     finally
         Libdl.dlclose(handle)

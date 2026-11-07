@@ -1,4 +1,4 @@
-# Owned handles over the opaque C ABI 7 pointers.
+# Owned handles over the opaque C ABI pointers.
 #
 # Every C handle family has a retain and a release entry point. A Julia handle
 # owns one reference: its finalizer calls the family's release function through
@@ -98,8 +98,8 @@ function _release_once!(h::Handle)
 end
 
 # Define one mutable handle type whose finalizer calls `release`. The release
-# symbol appears as a literal so the ABI coverage gate in the powerio repository
-# checks it against the header.
+# symbol appears as a literal so the entry point coverage check in the powerio
+# repository compares it with the header.
 macro handle(name, release, doc)
     quote
         push!(_HANDLE_RELEASE_SYMBOLS, $release)
@@ -121,6 +121,7 @@ macro handle(name, release, doc)
     end
 end
 
+@handle CollectionHandle :pio_collection_release "Shared bounded input inventory."
 @handle SourceHandle :pio_source_release "Acquired input bytes or path."
 @handle DestinationHandle :pio_destination_release "Selected output location."
 @handle ModuleHandle :pio_module_release "One `PioModule` inside the C library."
