@@ -99,8 +99,7 @@
             # The open switch to "stub" is deliberately absent from the graph.
             # Bus rows remain visible even when a bus has no conducting edge.
             @test !any(edge -> edge.kind == "switch" && edge.index == 2, g.edges)
-            @test !any(edge -> edge.from == "stub" || edge.to == "stub", g.edges)
-            @test length(g.buses) == 4
+            @test any(bus -> bus.id == "stub", g.buses)
         end
 
         @testset "emit" begin

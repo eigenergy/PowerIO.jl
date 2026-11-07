@@ -388,11 +388,13 @@ end
     deserialize(PioModule{V}, source) -> PioModule{V}
 
 Read one PowerIO IR document written by [`serialize`](@ref): `"schema":
-"pio-ir"` and integer generation `"version": 2`. The `producer` record names
-the PowerIO release that wrote it independently. This release reads generation
-2 and refuses other generations, naming the version it found. A structural type
-requires a reader that implements it. PowerIO IR is
-not a grid exchange format; [`parse`](@ref) does not accept it.
+"pio-ir"` and a `"version"` naming the PowerIO release whose schema the
+document follows, such as `"1.0.0"`. The library reads documents from its own
+release series and the documents PowerIO 0.11 wrote, which carry the integer
+`"version": 2`, and refuses other versions, naming the version it found. The
+`producer` record names the program that wrote the document. A structural
+type requires a reader that implements it. PowerIO IR is not a grid exchange
+format; [`parse`](@ref) does not accept it.
 
 The value type may be named as with [`parse`](@ref): `deserialize(BalancedNetwork,
 path)` is the network, `deserialize(PioModule{BalancedNetwork}, path)` its

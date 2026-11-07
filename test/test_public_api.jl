@@ -53,7 +53,7 @@ const EXPORTED_NAMES = Set([
     :to_powermodels, :from_powermodels, :build_powermodels_ref, :repair_powermodels_angle_bounds!,
     :to_powerdata, :to_ac_power_data,
     # library resolution
-    :set_library!, :clear_library!, :abi_version, :library_version, :library_available,
+    :set_library!, :clear_library!, :library_version, :library_available,
     # detailed connectivity tables
     :OmittedField, :ComponentMetadata, :ComponentAlias, :ExternalIdentifier,
     :Subnetwork, :CaseMetadata, :Substation, :VoltageLevel, :BusBreakerBus, :CalculatedBus,
@@ -77,8 +77,9 @@ const EXPORTED_NAMES = Set([
     :GeoLayer, :GeoApplyReport, :parse_geo, :apply_geo_layer,
 ])
 
-# Names the 0.10 binding exported and 0.11 removes. None may be defined.
+# Names earlier bindings exported and this one removes. None may be defined.
 const RETIRED_NAMES = [
+    :abi_version,
     :parse_file, :parse_text, :parse_bytes, :write_file, :kind, :inspect, :source_format,
     :resolve_format, :FormatInfo, :list_states, :export_state, :to_balanced,
     :to_balanced_report, :to_normalized, :to_json, :from_json,
@@ -112,7 +113,11 @@ const RETIRED_NAMES = [
     @test hasmethod(deserialize, Tuple{Type{BalancedNetwork},AbstractString})
     @test hasmethod(deserialize, Tuple{Type{PioModule{BalancedNetwork}},AbstractString})
     @test hasmethod(to_powerdata, Tuple{PioModule{BalancedNetwork},Type{Float32}})
-    @test PowerIO.PIO_ABI_VERSION == 7
+    # The binding checks a library against the release its header states.
+    @test PowerIO._HEADER_RELEASE == VersionNumber(PowerIO.LibPowerIO.PIO_VERSION_MAJOR,
+                                                   PowerIO.LibPowerIO.PIO_VERSION_MINOR,
+                                                   PowerIO.LibPowerIO.PIO_VERSION_PATCH)
+    @test !isdefined(PowerIO, :PIO_ABI_VERSION)
 
     @testset "documentation names no removed operation" begin
         root = dirname(@__DIR__)
@@ -122,7 +127,8 @@ const RETIRED_NAMES = [
         retired = (r"\bparse_file\(", r"\bparse_text\(", r"\bto_json\(", r"\bfrom_json\(",
                    r"\blist_states\(", r"\bexport_state\(", r"\bto_balanced\(",
                    r"\bresolve_format\(", r"\bto_arrow\(", r"\bbuild_info\(", r"\bhas_feature\(",
-                   r"\bn_buses\(", r"\bbuses\(", r"ABI 6", r"\.data\.", r"—")
+                   r"\bn_buses\(", r"\bbuses\(", r"ABI 6", r"ABI 7", r"\babi_version\b",
+                   r"\.data\.", r"—")
         for page in pages
             text = read(page, String)
             for pattern in retired

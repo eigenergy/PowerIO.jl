@@ -1,3 +1,9 @@
+# C source for a stand-in library whose `pio_version_numbers` reports `release`.
+_version_numbers_c(release::VersionNumber) =
+    "typedef struct { unsigned major, minor, patch; } PioVersionView;\n" *
+    "PioVersionView pio_version_numbers(void) { PioVersionView v = " *
+    "{$(release.major), $(release.minor), $(release.patch)}; return v; }\n"
+
 @testset "handle operations" begin
     if !LIBRARY_AVAILABLE
         @test_skip "libpowerio_capi unavailable"
@@ -96,7 +102,7 @@
                     source = joinpath(dir, "library.c")
                     library = joinpath(dir, "library.so")
                     declarations = join(["void $(sym)(void *p) {}" for sym in PowerIO._HANDLE_RELEASE_SYMBOLS if sym != omitted], "\n")
-                    write(source, "#include <stddef.h>\nunsigned pio_abi_version(void) { return 7; }\n" *
+                    write(source, "#include <stddef.h>\n" * _version_numbers_c(PowerIO._HEADER_RELEASE) *
                         "static unsigned count = 0;\nunsigned test_allocation_count(void) { return count; }\n" *
                         "void *pio_source_open(const char *p, size_t n, void **err) { count++; return 0; }\n" * declarations)
                     run(`$compiler -shared -fPIC -o $library $source`)
@@ -115,7 +121,7 @@
                     Threads.@spawn begin
                         for _ in 1:30
                             @test PowerIO._checked_lib() isa String
-                            @test PowerIO.abi_version(lib) == 7
+                            @test !isempty(PowerIO.library_version(lib))
                         end
                     end
                 end
@@ -137,6 +143,59 @@
                 @test PowerIO._PREFERRED_LIBRARY[] == ""
                 @test PowerIO._checked_lib() isa String
             end
+        end
+    end
+end
+
+@testset "library release check" begin
+    header = PowerIO._HEADER_RELEASE
+    # The rule alone: the header's release series, at the header's release or newer.
+    accepts(got, want) = PowerIO._check_release("lib", got, want) === nothing
+    @test accepts(v"0.12.0", v"0.12.0")
+    @test accepts(v"0.12.3", v"0.12.0")
+    @test_throws r"older than PowerIO 0\.12\.3" accepts(v"0.12.0", v"0.12.3")
+    @test_throws r"another release series" accepts(v"0.13.0", v"0.12.0")
+    @test_throws r"another release series" accepts(v"0.11.9", v"0.12.0")
+    @test accepts(v"1.4.2", v"1.2.0")
+    @test_throws r"older than PowerIO 1\.2\.0" accepts(v"1.1.9", v"1.2.0")
+    @test_throws r"another release series" accepts(v"2.0.0", v"1.2.0")
+    @test_throws r"another release series" accepts(v"1.0.0", v"0.12.0")
+
+    # Stand-in libraries go through the same check `_checked_lib` runs.
+    compiler = Sys.which("cc")
+    if compiler === nothing || !Sys.isunix()
+        @test_skip "C compiler on a Unix platform required"
+    else
+        mktempdir() do dir
+            function stand_in(name, body)
+                source = joinpath(dir, "$name.c")
+                library = joinpath(dir, "$name.$(Libdl.dlext)")
+                releases = join(["void $(sym)(void *p) {}" for sym in PowerIO._HANDLE_RELEASE_SYMBOLS], "\n")
+                write(source, "#include <stddef.h>\n" * body * releases * "\n")
+                run(`$compiler -shared -fPIC -o $library $source`)
+                return library
+            end
+            # A 0.11 library reports its C ABI number, which the refusal names;
+            # its pio_version is never called.
+            before = stand_in("before", "unsigned int pio_abi_version(void) { return 7; }\n")
+            @test_throws r"C ABI 7 \(PowerIO 0\.11\.x\), has no pio_version_numbers, so it predates PowerIO 1\.0" PowerIO._ensure_compatible(before)
+            # Before 0.11, pio_version returned a `const char *`, which reading
+            # as a PioStringView crashed (#183 review). Such a library is
+            # refused without calling it.
+            ancient = stand_in("ancient", "const char *pio_version(void) { return \"0.10.0\"; }\n")
+            @test_throws r"has no pio_version_numbers, so it predates PowerIO 1\.0" PowerIO._ensure_compatible(ancient)
+            next_series = header.major == 0 ? VersionNumber(0, header.minor + 1, 0) :
+                          VersionNumber(header.major + 1, 0, 0)
+            other = stand_in("other", _version_numbers_c(next_series))
+            @test_throws r"another release series" PowerIO._ensure_compatible(other)
+            if header.patch > 0
+                older = stand_in("older", _version_numbers_c(VersionNumber(header.major, header.minor, header.patch - 1)))
+                @test_throws r"older than PowerIO" PowerIO._ensure_compatible(older)
+            end
+            newer = stand_in("newer", _version_numbers_c(VersionNumber(header.major, header.minor, header.patch + 1)))
+            # The library under test is checked again on its next call.
+            @test PowerIO._ensure_compatible(newer) === nothing
+            @test PowerIO._library_release(newer) > header
         end
     end
 end

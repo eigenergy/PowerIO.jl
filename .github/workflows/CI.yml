@@ -83,13 +83,17 @@ jobs:
         run: cargo build -p powerio-capi --release --features matrix,gridfm,dist,prob --manifest-path powerio/Cargo.toml
       # src/LibPowerIO.jl is generated from the checked out header. Regenerating
       # it here turns a header change that nobody regenerated against into a diff.
+      # The header's release constants move with every PowerIO release, and a
+      # binding generated from an older header of the same release series still
+      # works with the newer library, so a change to them alone is not stale.
       - name: Check the generated raw layer is current
         if: steps.powerio.outputs.available == 'true' && matrix.julia-version == '1'
         run: |
           julia --project=gen -e 'using Pkg; Pkg.instantiate()'
           julia --project=gen gen/generate.jl powerio/powerio-capi/include/powerio.h
           git add -N .
-          git diff --exit-code -- src/LibPowerIO.jl || {
+          git diff --exit-code -I '^const PIO_VERSION_(MAJOR|MINOR|PATCH) = [0-9]+$' \
+            -- src/LibPowerIO.jl || {
             echo "::error::src/LibPowerIO.jl is stale; run 'julia --project=gen gen/generate.jl' and commit the result"
             exit 1
           }
