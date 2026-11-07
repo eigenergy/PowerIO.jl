@@ -113,6 +113,9 @@
             @test length(g.edges) == 9
             @test g.edges[1] == (; kind = "branch", index = 1, from = 1, to = 4)
             @test to_graph(m) == g
+            # Graph edge indices preserve positions in the source branch table.
+            @test [edge.index for edge in g.edges] == collect(1:9)
+            @test all(edge -> edge.kind == "branch", g.edges)
         end
 
         @testset "PSS/E three winding transformers" begin
@@ -132,6 +135,12 @@
             @test t.star_voltage_magnitude_pu == 0.98
             @test t.star_voltage_angle_degrees == -1.5
             @test t.in_service
+            # Balanced graph projections contain branch edges only. Three-winding
+            # transformer metadata remains available on the network table; this
+            # projection must not invent transformer edges for the balanced API.
+            graph = to_graph(raw)
+            @test length(graph.buses) == length(raw.buses)
+            @test all(edge -> edge.kind == "branch", graph.edges)
             @test length(raw.areas) == 1
             @test raw.areas[1].number == 1
             @test raw.areas[1].area_type == "ControlArea"
