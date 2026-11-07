@@ -283,7 +283,7 @@ end
     library_version() -> String
 
 The powerio crate version string the resolved library reports, such as
-`"1.0.0"`. Before the first call into a library, PowerIO.jl checks that the
+`"0.12.0"`. Before the first call into a library, PowerIO.jl checks that the
 library comes from the release series of the header this binding was
 generated from, at that header's release or a newer one.
 """
@@ -310,7 +310,7 @@ function _ensure_compatible(lib::AbstractString=_lib(); cache::Bool=true)
             reported = _old_library_version(handle)
             error("PowerIO: the C library at \"$lib\"" *
                   (isempty(reported) ? "" : ", $reported,") *
-                  " has no pio_version_numbers, so it predates PowerIO 1.0. This " *
+                  " has no pio_version_numbers, so it predates PowerIO 0.12. This " *
                   "PowerIO.jl needs PowerIO $(_series_name(_HEADER_RELEASE)) at " *
                   "$_HEADER_RELEASE or newer. Rebuild powerio-capi from a matching " *
                   "release, or use the PowerIO.jl release that matches the library.")

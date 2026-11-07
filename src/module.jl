@@ -389,7 +389,7 @@ end
 
 Read one PowerIO IR document written by [`serialize`](@ref): `"schema":
 "pio-ir"` and a `"version"` naming the PowerIO release whose schema the
-document follows, such as `"1.0.0"`. The library reads documents from its own
+document follows, such as `"0.12.0"`. The library reads documents from its own
 release series and the documents PowerIO 0.11 wrote, which carry the integer
 `"version": 2`, and refuses other versions, naming the version it found. The
 `producer` record names the program that wrote the document. A structural

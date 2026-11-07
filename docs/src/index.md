@@ -71,7 +71,7 @@ Element tables are properties of a network (`net.buses`, `net.branches`,
 
 | Version | Describes |
 |---|---|
-| PowerIO.jl 1.0 / PowerIO 1.0 | The package APIs documented here |
+| PowerIO.jl 0.12 / PowerIO 0.12 | The package APIs documented here |
 | PowerIO IR | The document written by `serialize`; its `version` names the PowerIO release whose schema it follows |
 | C ABI | The interface to the native library; it only gains symbols within a release series |
 

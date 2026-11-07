@@ -6370,9 +6370,9 @@ function pio_collection_release(raw, fptr)
     @ccall ($fptr)(raw::Ptr{PioCollection})::Cvoid
 end
 
-const PIO_VERSION_MAJOR = 1
+const PIO_VERSION_MAJOR = 0
 
-const PIO_VERSION_MINOR = 0
+const PIO_VERSION_MINOR = 12
 
 const PIO_VERSION_PATCH = 0
 

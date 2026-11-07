@@ -4,7 +4,7 @@
     else
         @test !isempty(PowerIO.library_version())
         lib = PowerIO._checked_lib()
-        # A prerelease (1.0.0-rc.1) states its core release in the numbers.
+        # A prerelease (0.12.0-rc.1) states its core release in the numbers.
         reported = VersionNumber(PowerIO.library_version())
         @test PowerIO._library_release(lib) ==
               VersionNumber(reported.major, reported.minor, reported.patch)

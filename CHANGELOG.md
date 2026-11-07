@@ -5,11 +5,11 @@
 - Breaking: the library check follows the PowerIO release series instead of
   the C ABI number. The header the binding is generated from states its
   PowerIO release, and the binding accepts a library from the same release
-  series (1.x) at that release or a newer one, read through
+  series (0.12.x) at that release or a newer one, read through
   `pio_version_numbers`. A library from another series, an older release, or
-  a release before 1.0 is refused at first use with an error naming both
+  a release before 0.12 is refused at first use with an error naming both
   releases. `abi_version` is removed; `library_version` reports the library
-  release. The refusal of a library older than 1.0 reads its C ABI number
+  release. The refusal of a library older than 0.12 reads its C ABI number
   rather than calling its `pio_version`, whose return type differs before
   0.11.
 - The artifact updater checks a release binary against the same rule and
