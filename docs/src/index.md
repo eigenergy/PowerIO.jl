@@ -12,7 +12,7 @@ and optimization code needs.
 using Pkg; Pkg.add("PowerIO")
 ```
 
-Requires Julia 1.9 or newer. Save
+Requires Julia 1.10 or newer. Save
 [case9.m](https://github.com/eigenergy/powerio/blob/main/tests/data/case9.m)
 in your working directory before running the example below.
 
@@ -71,11 +71,11 @@ Element tables are properties of a network (`net.buses`, `net.branches`,
 
 | Version | Describes |
 |---|---|
-| PowerIO.jl 0.11.1 / PowerIO 0.11.1 | The package APIs documented here |
+| PowerIO.jl 0.11.6 / PowerIO 0.11.6 | The package APIs documented here |
 | PowerIO IR generation 2 | The document written by `serialize`; `deserialize` reads generation 2 |
 | C ABI 7 | The interface to the native library |
 
-Use a matching 0.11.1 library when developing this binding. Regenerate stored
+Use a matching 0.11.6 library when developing this binding. Regenerate stored
 0.10 modules from their original grid data before loading them in 0.11.
 The [migration guide](migration-0.11.md) lists the API replacements.
 
