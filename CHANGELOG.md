@@ -5,6 +5,8 @@
 - Pairs with PowerIO 0.11.9; see the PowerIO changelog: https://github.com/eigenergy/powerio/blob/v0.11.9/CHANGELOG.md
 ## Unreleased
 
+- `clear_library!(persist=true)` no longer passes Preferences.jl a
+  `disable_invalidation` keyword it does not accept (#196).
 - Add bounded `InputCollection` folder/ZIP/memory inventories, explicit selection parsing, and typed results with independent dependency observations.
 
 ## 0.11.8
