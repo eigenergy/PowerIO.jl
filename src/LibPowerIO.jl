@@ -1532,6 +1532,7 @@ struct PioBalancedThreeWindingTransformerView
     magnetizing_conductance_pu::Cdouble
     magnetizing_susceptance_pu::Cdouble
     in_service::Bool
+    magnetizing_connection::PioStringView
 end
 
 struct PioThreeWindingTransformerWindingView
