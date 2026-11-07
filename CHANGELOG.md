@@ -3,6 +3,9 @@
 ## 0.11.9
 
 - Pairs with PowerIO 0.11.9; see the PowerIO changelog: https://github.com/eigenergy/powerio/blob/v0.11.9/CHANGELOG.md
+## Unreleased
+
+- Add bounded `InputCollection` folder/ZIP/memory inventories, explicit selection parsing, and typed results with independent dependency observations.
 
 ## 0.11.8
 
