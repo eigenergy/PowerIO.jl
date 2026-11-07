@@ -83,6 +83,25 @@ end
             @test all(1 .<= raw_axes.idx_to_branch)
         end
 
+        @testset "nonconsecutive bus IDs preserve matrix axes" begin
+            sparse_ids = parse(fixture("nonconsecutive_bus_ids.m")).value
+            axes = calc_dc_index_map(sparse_ids)
+            @test axes.idx_to_bus == [10, 30, 90]
+            @test axes.bus_to_idx == Dict(10 => 1, 30 => 2, 90 => 3)
+            @test axes.idx_to_branch == 1:2
+
+            A = calc_incidence_matrix(sparse_ids)
+            @test size(A) == (2, 3)
+            @test Matrix(A) == [1.0 -1.0 0.0; 0.0 1.0 -1.0]
+
+            Y = calc_admittance_matrix(sparse_ids)
+            @test Y.idx_to_bus == [10, 30, 90]
+            @test Y.bus_to_idx == Dict(10 => 1, 30 => 2, 90 => 3)
+            @test Y.matrix[1, 2] ≈ -inv(complex(0.01, 0.10))
+            @test Y.matrix[2, 3] ≈ -inv(complex(0.02, 0.20))
+            @test calc_admittance_matrix(parse(fixture("nonconsecutive_bus_ids.m"))).matrix == Y.matrix
+        end
+
         @testset "zero impedance branches" begin
             tie = parse(fixture("zero_impedance.m")).value
             err = try
