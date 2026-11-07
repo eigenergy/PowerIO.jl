@@ -178,12 +178,12 @@ end
             # A 0.11 library reports its C ABI number, which the refusal names;
             # its pio_version is never called.
             before = stand_in("before", "unsigned int pio_abi_version(void) { return 7; }\n")
-            @test_throws r"C ABI 7 \(PowerIO 0\.11\.x\), has no pio_version_numbers, so it predates PowerIO 1\.0" PowerIO._ensure_compatible(before)
+            @test_throws r"C ABI 7 \(PowerIO 0\.11\.x\), has no pio_version_numbers, so it predates PowerIO 0\.12" PowerIO._ensure_compatible(before)
             # Before 0.11, pio_version returned a `const char *`, which reading
             # as a PioStringView crashed (#183 review). Such a library is
             # refused without calling it.
             ancient = stand_in("ancient", "const char *pio_version(void) { return \"0.10.0\"; }\n")
-            @test_throws r"has no pio_version_numbers, so it predates PowerIO 1\.0" PowerIO._ensure_compatible(ancient)
+            @test_throws r"has no pio_version_numbers, so it predates PowerIO 0\.12" PowerIO._ensure_compatible(ancient)
             next_series = header.major == 0 ? VersionNumber(0, header.minor + 1, 0) :
                           VersionNumber(header.major + 1, 0, 0)
             other = stand_in("other", _version_numbers_c(next_series))
