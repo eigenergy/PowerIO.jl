@@ -61,8 +61,9 @@ function clear_library!(; persist::Bool=false)
         _SESSION_LIBRARY[] = ""
         if persist
             set_preferences!(@__MODULE__, _LIBRARY_PREFERENCE => missing; force=true)
-            value = load_preference(@__MODULE__, _LIBRARY_PREFERENCE, "";
-                                    disable_invalidation=true)
+            # Preferences.jl has no `disable_invalidation` keyword (#196); a
+            # runtime read of a deleted key returns the default.
+            value = load_preference(@__MODULE__, _LIBRARY_PREFERENCE, "")
             _PREFERRED_LIBRARY[] = value isa AbstractString ? String(value) : ""
         end
         _ABI_OK[] = false
