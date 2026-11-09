@@ -174,6 +174,9 @@ end
 
             curve = PowerIO.LoadSeries(net, mult)
             @test curve.pd ≈ s.pd atol = 1e-10
+            # Finite inputs can still overflow during demand scaling.
+            @test_throws ArgumentError PowerIO.LoadSeries(net, [floatmax(Float64)])
+            @test_throws ArgumentError PowerIO.LoadSeries(net, [floatmax(Float32)]; T=Float32)
             @test curve.qd ≈ s.qd atol = 1e-10
             @test PowerIO.LoadSeries(net, mult; T=Float32) isa PowerIO.LoadSeries{Float32}
             # The type parameter form infers; the keyword form forwards to it.
