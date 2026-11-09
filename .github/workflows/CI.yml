@@ -26,8 +26,7 @@ jobs:
       # Build the C ABI from a sibling powerio checkout so the ccall tests run for
       # real. The probe checks out eigenergy/powerio anonymously when it is public;
       # while it is private, add a token with read access to it as the
-      # POWERIO_REPO_TOKEN secret. With neither, the build is skipped and the ccall
-      # tests auto-skip (the pure-Julia tests still run).
+      # POWERIO_REPO_TOKEN secret. Missing access fails this required binding gate.
       - name: Probe powerio access
         id: powerio
         run: |
@@ -37,7 +36,8 @@ jobs:
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "eigenergy/powerio is unreachable (no POWERIO_REPO_TOKEN secret, and the repo is not public); the ccall tests will skip."
+            echo "::error::powerio is unreachable; binding tests have not run."
+            exit 1
           fi
       - name: Select powerio branch
         id: powerio-ref
@@ -78,6 +78,11 @@ jobs:
         if: steps.powerio.outputs.available == 'true'
         with:
           workspaces: powerio
+      - name: Record tested source pair
+        if: steps.powerio.outputs.available == 'true'
+        run: |
+          echo "Rust commit: $(git -C powerio rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Julia commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
       - name: Build powerio-capi
         if: steps.powerio.outputs.available == 'true'
         run: cargo build -p powerio-capi --release --features matrix,gridfm,dist,prob --manifest-path powerio/Cargo.toml

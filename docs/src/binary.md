@@ -87,7 +87,7 @@ exchange operation, not the implementation of property access.
 Rust types/functions through Julia modules. That is valuable when a Rust program
 needs Julia execution, but PowerIO's data library does not require it. Adding
 libJulia/JlrsCore coupling would add another compatibility surface to every
-release. The public `miguelraz/RustCall.jl` repository inspected in November 2026
+release. The public [miguelraz/RustCall.jl](https://github.com/miguelraz/RustCall.jl) repository inspected in November 2026
 contains a minimal `hello_world` module, not a replacement for this binding's
 ownership, generation and distribution machinery.
 

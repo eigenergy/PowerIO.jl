@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Include the complete 0.11.10 companion; binding CI fails on unavailable native
+  source instead of reporting a green skipped test, and records tested commits.
+
 - Egret electrical time series canonically emit after IR round trips, preserving
   native branch results, labels and durations. `time_points(series)` reads
   typed metadata through the C ABI without serializing networks.

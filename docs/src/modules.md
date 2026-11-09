@@ -126,7 +126,7 @@ wrote the document. [`serialize`](@ref) writes it and [`deserialize`](@ref)
 reads it.
 
 The `version` names the PowerIO release whose schema the document follows,
-such as `"0.12.0"`. A library reads the documents of its own release series,
+such as `"0.12.0"`. A library reads supported structural types from its own release series,
 and also the documents PowerIO 0.11 wrote, which carry the integer
 `"version": 2`. Within a release series new structural types are added and
 existing ones keep their representation; a reader rejects a type it does not
