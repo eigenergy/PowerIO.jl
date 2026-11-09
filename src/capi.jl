@@ -61,8 +61,9 @@ function clear_library!(; persist::Bool=false)
         _SESSION_LIBRARY[] = ""
         if persist
             set_preferences!(@__MODULE__, _LIBRARY_PREFERENCE => missing; force=true)
-            value = load_preference(@__MODULE__, _LIBRARY_PREFERENCE, "";
-                                    disable_invalidation=true)
+            # Preferences.jl has no `disable_invalidation` keyword (#196); a
+            # runtime read of a deleted key returns the default.
+            value = load_preference(@__MODULE__, _LIBRARY_PREFERENCE, "")
             _PREFERRED_LIBRARY[] = value isa AbstractString ? String(value) : ""
         end
         _ABI_OK[] = false
@@ -251,10 +252,10 @@ end
 # Verify the resolved library is ABI compatible, once per library path. Throws
 # a directed error otherwise; every entry point that calls into the library
 # runs this first.
-function _ensure_compatible(lib::AbstractString=_lib())
+function _ensure_compatible(lib::AbstractString=_lib(); cache::Bool=true)
     lib = String(lib)
     lock(_LIB_HANDLES_LOCK) do
-        _ABI_OK[] && _ABI_OK_LIB[] == lib && return
+        cache && _ABI_OK[] && _ABI_OK_LIB[] == lib && return
         got = try
             abi_version(lib)
         catch
@@ -269,8 +270,10 @@ function _ensure_compatible(lib::AbstractString=_lib())
         for sym in _HANDLE_RELEASE_SYMBOLS
             _library_symbol(lib, sym)
         end
-        _ABI_OK[] = true
-        _ABI_OK_LIB[] = lib
+        if cache
+            _ABI_OK[] = true
+            _ABI_OK_LIB[] = lib
+        end
         return
     end
 end
@@ -287,6 +290,22 @@ function library_available()
         return true
     catch e
         @debug "PowerIO: library unavailable or incompatible" exception = (e, catch_backtrace())
+        return false
+    end
+end
+
+"""
+    library_available(lib::AbstractString) -> Bool
+
+Check whether the library at `lib` has the ABI expected by this binding.
+This probes an explicit candidate without changing library resolution settings.
+"""
+function library_available(lib::AbstractString)
+    try
+        _ensure_compatible(lib; cache=false)
+        return true
+    catch e
+        @debug "PowerIO: library unavailable or incompatible" library = lib exception = (e, catch_backtrace())
         return false
     end
 end

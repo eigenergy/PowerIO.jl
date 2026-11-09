@@ -58,6 +58,9 @@ let you keep working from a local build.
 ```julia
 using PowerIO
 
+# Check a candidate build before changing the active library.
+library_available("/path/to/candidate/libpowerio_capi.dylib")
+
 set_library!("/path/to/libpowerio_capi.dylib"; persist=true)
 clear_library!(persist=true)
 ```
@@ -69,3 +72,44 @@ abi_version
 library_version
 library_available
 ```
+
+## Why the binding uses C and a separate Julia package
+
+Julia's [native C interface](https://docs.julialang.org/en/v1/manual/calling-c-and-fortran-code/)
+provides direct ABI calls without a Julia-specific Rust runtime. The generated
+raw declarations, owner-rooted handles, copied borrowed views, `GC.@preserve`,
+and entry-point coverage checks form the safety boundary. Typed values and
+`TimeSeries` remain Julia interfaces over those handles; serialization is an
+exchange operation, not the implementation of property access.
+
+[jlrs](https://docs.rs/jlrs/latest/jlrs/) supports embedding Julia and exposing
+Rust types/functions through Julia modules. That is valuable when a Rust program
+needs Julia execution, but PowerIO's data library does not require it. Adding
+libJulia/JlrsCore coupling would add another compatibility surface to every
+release. The public [miguelraz/RustCall.jl](https://github.com/miguelraz/RustCall.jl) repository inspected in November 2026
+contains a minimal `hello_world` module, not a replacement for this binding's
+ownership, generation and distribution machinery.
+
+[BinaryBuilder and Yggdrasil](https://docs.binarybuilder.org/stable/) address
+cross-compilation and JLL packaging; they are complementary to the C interface.
+A future `PowerIO_jll` could replace the artifact source while keeping the typed
+API. First demonstrate all supported platforms, native dependencies, version
+checks, symbols, licenses and tests with reproducible recipes. The existing
+five-platform release gate already tests the exact artifacts the Julia package
+pins. Do not replace it merely to change packaging tools.
+
+Keeping PowerIO.jl as its registered Julia repository preserves Documenter,
+General registration and Julia-focused contributor workflows. Matching companion
+branches and artifact tests provide integration across repositories. A monorepo
+could reduce coordination overhead, but would require a deliberate migration of
+registration paths, release automation and contributor history; the RC does not
+need that disruption to provide robust Julia bindings.
+
+## Patch release before the next series
+
+Finish the 0.11-compatible Julia companion and the PowerIO 0.11.10 release,
+including Julia's artifact tests and registration, before merging the 0.12
+companion into Julia `main`. The Rust candidate tag tests Julia `main`, so that
+companion must then land before the 0.12 RC tag. The patch changes are merged
+into the RC branches before final CI. Prerelease Rust tags do not publish a
+registered Julia release; the final release does.

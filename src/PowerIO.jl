@@ -71,6 +71,7 @@ export BalancedNetwork, MulticonductorNetwork, TimeSeries, ScenarioSet, Operatin
        McAcPfSolution, McAcOpfSolution, LinDist3FlowOpfSolution, AcScucSolution, UnknownValue
 
 # Records and results.
+export TimePoint, time_points
 export Diagnostic, SourceSpan, PowerIOError, EmitResult, Artifact,
        Producer, ModuleSource, HistoryEntry
 

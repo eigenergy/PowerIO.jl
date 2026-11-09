@@ -129,5 +129,14 @@
                 clear_library!()
             end
         end
+
+        @testset "clear_library!(persist=true) reads the deleted preference back (#196)" begin
+            # Leave a developer's saved library override alone.
+            if !haskey(Base.get_preferences(Base.PkgId(PowerIO).uuid), PowerIO._LIBRARY_PREFERENCE)
+                @test clear_library!(; persist=true) === nothing
+                @test PowerIO._PREFERRED_LIBRARY[] == ""
+                @test PowerIO._checked_lib() isa String
+            end
+        end
     end
 end

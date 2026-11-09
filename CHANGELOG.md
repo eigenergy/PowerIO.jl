@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Egret electrical time series preserve native branch flows, labels and durations
+  through canonical emission and IR; `time_points(series)` reads typed metadata.
+- Reject overflowing load multipliers, transformer tap squares and Float32
+  bridge narrowing; test external bus IDs and DC phase-shift conventions.
+- `library_available(path)` probes candidates without changing library selection.
+- `clear_library!(persist=true)` uses the supported Preferences.jl call.
+- Audit bound C entry points and update the GitHub Actions dependencies.
+- Document C binding, packaging choices and patch-before-RC sequencing.
+
 ## 0.11.9
 
 - Pairs with PowerIO 0.11.9; see the PowerIO changelog: https://github.com/eigenergy/powerio/blob/v0.11.9/CHANGELOG.md
