@@ -5,11 +5,17 @@
 # other field must be finite.
 function _bound(x::Real, ::Type{T}, element::AbstractString, field::Symbol) where {T<:Real}
     isnan(x) && throw(ArgumentError("PowerIO.to_powerdata: $element has NaN $field"))
-    return T(x)
+    y = T(x)
+    (isfinite(x) && !isfinite(y)) &&
+        throw(ArgumentError("PowerIO.to_powerdata: $element $field overflows $T ($x)"))
+    return y
 end
 function _finite(x::Real, ::Type{T}, element::AbstractString, field::Symbol) where {T<:Real}
     isfinite(x) || throw(ArgumentError("PowerIO.to_powerdata: $element has non-finite $field ($x)"))
-    return T(x)
+    y = T(x)
+    isfinite(y) ||
+        throw(ArgumentError("PowerIO.to_powerdata: $element $field cannot be represented as finite $T ($x)"))
+    return y
 end
 
 # Quadratic cost coefficients `(c2, c1, c0)` on the per unit power axis from a
