@@ -61,9 +61,13 @@ function _branch_primitive(k, br; zero_resistance::Bool, zero_charging::Bool, un
     (isfinite(tap) && abs(tap) >= _MIN_DIVISIBLE_MAGNITUDE) ||
         throw(_assembly_error("BUILD.OPERATOR.NOT_A_NUMBER",
                               "branch $k has a tap ratio of $tap that cannot be divided by"))
+    tap_squared = tap * tap
+    (isfinite(tap_squared) && tap_squared > 0) ||
+        throw(_assembly_error("BUILD.OPERATOR.NOT_A_NUMBER",
+                              "branch $k has a tap ratio of $tap whose square is not finite and positive"))
     shift = zero_shifts ? 0.0 : deg2rad(br.phase_shift_degrees)
     a = tap * cis(shift)
-    y_ff = (y_series + y_fr) / (tap * tap)
+    y_ff = (y_series + y_fr) / tap_squared
     y_tt = y_series + y_to
     y_ft = -y_series / conj(a)
     y_tf = -y_series / a
