@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Egret electrical time series canonically emit after IR round trips, preserving
+  native branch results, labels and durations. `time_points(series)` reads
+  typed metadata through the C ABI without serializing networks.
+- Document the generated C binding and binary packaging choices, repository
+  boundary, and patch-before-RC release sequence.
+
 - Breaking: the library check follows the PowerIO release series instead of
   the C ABI number. The header the binding is generated from states its
   PowerIO release, and the binding accepts a library from the same release

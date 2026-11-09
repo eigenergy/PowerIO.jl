@@ -9,6 +9,35 @@ end
 
 # --- TimeSeries ---------------------------------------------------------------
 
+"""
+    TimePoint
+
+A copied time label and an optional duration in seconds. Returned by `time_points`.
+"""
+struct TimePoint
+    label::String
+    duration_seconds::Union{Nothing,Float64}
+end
+
+"""
+    time_points(series::TimeSeries)
+
+Copy the time axis through the typed C interface. Network values are not copied
+or serialized. An unstated duration is `nothing`.
+"""
+function time_points(series::TimeSeries)
+    return _with_handle(series) do lib, ptr
+        [begin
+            output = Ref{LibPowerIO.PioTimePointView}()
+            _checked(lib) do err
+                @capi lib :pio_time_series_time_point(ptr, Csize_t(index - 1), output, err)
+            end
+            point = output[]
+            TimePoint(_str(point.label), point.has_duration ? point.duration_seconds : nothing)
+        end for index in 1:length(series)]
+    end
+end
+
 Base.length(s::TimeSeries) = _with_handle(s) do lib, p
     Int(@capi lib :pio_time_series_len(p))
 end

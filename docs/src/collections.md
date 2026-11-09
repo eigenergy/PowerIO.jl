@@ -286,3 +286,29 @@ to_mc_ac_pf_instance
 to_mc_ac_opf_instance
 to_lindist3flow_opf_instance
 ```
+
+## Egret time-series exchange
+
+Egret electrical time series retain labels and optional interval durations.
+They can be emitted canonically after an IR round trip, including native branch
+results; unsupported topology or intertemporal optimization variation is refused.
+The same operation accepts supported balanced operating-point time series.
+
+```julia
+module_ = parse("electrical-series.egret.json")
+points = time_points(module_.value)
+points[1].label
+points[1].duration_seconds        # nothing when no duration was stated
+restored = deserialize(IOBuffer(serialize(module_).text))
+output = emit(restored, "egret-json")
+```
+
+```@docs
+TimePoint
+time_points
+```
+
+This is Egret's electrical snapshot profile, not a unit-commitment model.
+Individual snapshots can be passed to compatible static writers. Time metadata
+uses the typed C interface and copies only labels and scalar durations; accessing
+it does not serialize or clone a network.

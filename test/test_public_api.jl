@@ -1,7 +1,7 @@
 # The exported surface, pinned exactly. A name added or removed shows up here
 # before it reaches a user.
 const EXPORTED_NAMES = Set([
-    :PowerIO, :InputCollection, :CollectionResult, :inspect_collection,
+    :PowerIO, :InputCollection, :CollectionResult, :inspect_collection, :TimePoint, :time_points,
     # operations
     :PioModule, :emit, :serialize, :deserialize, :SincalReadOptions, :SincalBalancedReadOptions,
     # values

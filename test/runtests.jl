@@ -33,6 +33,7 @@ fixture(parts...) = joinpath(DATA, parts...)
     include("test_sincal.jl")            # reader selections and source acquisition
     include("test_source_boundaries.jl") # reference-aware PF and source views
     include("test_input_collection.jl")
+    include("test_egret_temporal.jl")
     include("test_collections.jl")        # TimeSeries, ScenarioSet, instances, solutions
     include("test_lindist3flow.jl")
     include("test_handle_operations.jl")

@@ -700,6 +700,12 @@ struct PioScucContingencyComponentView
     id::PioComponentIdView
 end
 
+struct PioTimePointView
+    label::PioStringView
+    duration_seconds::Cdouble
+    has_duration::Bool
+end
+
 struct PioBalancedGeoView
     has_geo::Bool
     space::PioStringView
@@ -3920,6 +3926,14 @@ end
 
 function pio_time_series_len(series, fptr)
     @ccall ($fptr)(series::Ptr{PioTimeSeriesHandle})::Csize_t
+end
+
+function pio_time_series_time_point(series, index, out, error)
+    @ccall libpowerio_capi.pio_time_series_time_point(series::Ptr{PioTimeSeriesHandle}, index::Csize_t, out::Ptr{PioTimePointView}, error::Ptr{Ptr{PioError}})::Bool
+end
+
+function pio_time_series_time_point(series, index, out, error, fptr)
+    @ccall ($fptr)(series::Ptr{PioTimeSeriesHandle}, index::Csize_t, out::Ptr{PioTimePointView}, error::Ptr{Ptr{PioError}})::Bool
 end
 
 function pio_time_series_element_type(series)
