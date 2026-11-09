@@ -264,6 +264,9 @@ to_lindist3flow_opf_instance
 
 ## Egret time-series exchange
 
+`time_points` requires the additive time-point accessor in PowerIO 0.11.10
+or the 0.12 companion library.
+
 Egret electrical time series retain labels and optional interval durations.
 They can be emitted canonically after an IR round trip, including native branch
 results; unsupported topology or intertemporal optimization variation is refused.

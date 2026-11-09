@@ -125,8 +125,8 @@ extensions. The producer record separately names the PowerIO release that
 wrote the document. [`serialize`](@ref) writes it and [`deserialize`](@ref)
 reads it.
 
-PowerIO 0.11.1 reads generation 2. Additive structural types keep that
-generation; older readers reject types they do not implement. The generation advances only when the
+PowerIO 0.11.x reads generation 2. Additive structural types keep that
+generation; older readers reject types they do not implement. The generation advances only when
 an existing serialized representation changes incompatibly, and it is independent of the PowerIO
 release and the C ABI; [`library_version`](@ref) reports the library release.
 A refused document names the generation it found and what to do about it: a
