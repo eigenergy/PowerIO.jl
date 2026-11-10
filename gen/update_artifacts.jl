@@ -290,8 +290,10 @@ end
 function run_update(tag::AbstractString, status_path::AbstractString;
                     artifact_path::AbstractString=ARTIFACT_PATH,
                     fetcher=fetch_asset, inspector=_inspect_library)
-    occursin(r"^v[0-9]+\.[0-9]+\.[0-9]+$", tag) ||
-        error("powerio tag must be vX.Y.Z")
+    # RC tarballs pass the same packaged-library gate as stable releases.
+    # Registration target selection remains stable-only in gen/release.jl.
+    occursin(r"^v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-rc\.[1-9][0-9]*)?\z", tag) ||
+        error("powerio tag must be vX.Y.Z or vX.Y.Z-rc.N (N >= 1)")
     try
         content = _render_artifacts(tag; fetcher, inspector)
         changed = install_ready!(artifact_path, status_path, content, tag)
@@ -316,7 +318,7 @@ end
 
 function main(args=ARGS)
     length(args) == 3 && args[2] == "--status-file" || error(
-        "usage: julia --project=. gen/update_artifacts.jl vX.Y.Z --status-file PATH")
+        "usage: julia --project=. gen/update_artifacts.jl TAG --status-file PATH (TAG: vX.Y.Z or vX.Y.Z-rc.N)")
     run_update(args[1], args[3])
     return nothing
 end

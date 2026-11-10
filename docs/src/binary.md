@@ -12,7 +12,7 @@ arrives as a prebuilt binary, so you do not compile anything.
    macOS (`x86_64`, `arm64`), and Windows (`x86_64`), and attaches the five
    tarballs to the GitHub release. Each tarball holds the library under `lib/`
    (`bin/` on Windows), the C header under `include/`, and the licenses.
-2. Publishing that release starts the PowerIO.jl "Release" workflow, which
+2. Publishing a stable release starts the PowerIO.jl "Release" workflow, which
    downloads the five tarballs, computes each one's SHA-256 and unpacked git
    tree hash, and asks `gen/update_artifacts.jl` to build `Artifacts.toml`.
    Before writing, the generator loads the host library and checks that its
@@ -114,3 +114,46 @@ companion into Julia `main`. The Rust candidate tag tests Julia `main`, so that
 companion must then land before the 0.12 RC tag. The patch changes are merged
 into the RC branches before final CI. Prerelease Rust tags do not publish a
 registered Julia release; the final release does.
+
+## Testing a release candidate
+
+The development branch keeps `Project.toml` and `Artifacts.toml` at the last
+stable package release until the stable release workflow updates them. Its
+generated header can already require the next native release series. Thus
+`Pkg.status()` alone does not identify the native candidate, and the old
+artifact is not a compatible default for a new-series RC checkout. Record both
+the exact Julia companion commit and `PowerIO.library_version()` when reporting
+results.
+
+After the candidate's [PowerIO release](https://github.com/eigenergy/powerio/releases)
+is published, download its `libpowerio_capi.<triplet>.tar.gz` for your platform
+and extract it. Install the exact Julia companion commit recorded for that
+candidate into a separate environment, and set `POWERIO_CAPI` before importing
+PowerIO. Replace the commit and library path in this example:
+
+```julia
+using Pkg
+Pkg.activate("powerio-rc")
+Pkg.add(url="https://github.com/eigenergy/PowerIO.jl", rev="FULL_JULIA_COMMIT")
+ENV["POWERIO_CAPI"] = "/absolute/extracted/path/lib/libpowerio_capi.so"
+using PowerIO
+@assert PowerIO.library_version() == "0.12.0-rc.1"
+Pkg.test("PowerIO")
+```
+
+Use `lib/libpowerio_capi.dylib` on macOS and
+`bin/libpowerio_capi.dll` on Windows. For an unpublished candidate, a matching
+local C API build can supply the same override. Do not reuse a native library
+from another release series or rely on the unchanged package version to select
+one. Testing `rc.2` requires its own recorded companion commit and library;
+update the assertion to the exact new version. Restart Julia when changing the
+environment variable, or use `PowerIO.set_library!` for an explicit session
+override.
+
+The artifact updater also accepts canonical `vX.Y.Z-rc.N` tags (`N >= 1`) so
+the Rust release workflow can validate and pin all five RC tarballs before
+publication. It still checks the exact version string, release series, required
+symbols and GridFM behavior. These temporary pins do not publish a Julia
+registry version. The automated release selector ignores RCs, even if a
+GitHub release is accidentally marked stable; the final `vX.Y.Z` release
+updates the package version and artifact pins together.

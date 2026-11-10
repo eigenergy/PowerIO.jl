@@ -39,6 +39,16 @@ _without(symbol::Symbol) = setdiff(copy(ArtifactUpdater.KNOWN_SYMBOLS), Set((sym
     @test release_reason(v"2.0.0", v"1.2.0") == "release_series_mismatch"
     @test _parked_reason(_candidate(version="0.10.0", release=v"0.11.0")) ==
           "schema_version_mismatch"
+    # pio_version_numbers reports the numeric release; pio_version must match
+    # the complete requested tag, including the RC number.
+    rc = _candidate(version="0.12.0-rc.1", release=v"0.12.0")
+    @test _parked_reason(rc; tag="v0.12.0-rc.1", binding_release=v"0.12.0") === nothing
+    @test _parked_reason(rc; tag="v0.12.0-rc.2", binding_release=v"0.12.0") ==
+          "schema_version_mismatch"
+    @test _parked_reason(rc; tag="v0.12.0", binding_release=v"0.12.0") ==
+          "schema_version_mismatch"
+    @test _parked_reason(_candidate(version="0.12.0"); tag="v0.12.0-rc.1",
+                        binding_release=v"0.12.0") == "schema_version_mismatch"
     @test _parked_reason(_candidate(gridfm_available=false)) == "required_feature_missing"
     for symbol in (:pio_version, :pio_parse, :pio_module_value, :pio_emit, :pio_module_serialize,
                    :pio_module_deserialize, :pio_calc_incidence_matrix, :pio_apply_updates,
@@ -150,5 +160,61 @@ _without(symbol::Symbol) = setdiff(copy(ArtifactUpdater.KNOWN_SYMBOLS), Set((sym
         @test unchanged.status == "ready"
         @test !unchanged.changed
         @test read(artifact, String) == rendered
+
+        @testset "RC artifact pins" begin
+            # A synthetic archive exercises all five manifest entries without
+            # depending on published assets or accepting an unverified version.
+            for tag in ("v0.12.0-rc.1", "v0.12.0-rc.2")
+                inspected = String[]
+                function inspect_rc(_unpack, _triplet, requested)
+                    push!(inspected, requested)
+                    report = _candidate(version=tag[2:end], release=v"0.12.0")
+                    ArtifactUpdater.validate_candidate(report, requested;
+                                                       binding_release=v"0.12.0")
+                end
+                ready = ArtifactUpdater.run_update(
+                    tag, status; artifact_path=artifact, fetcher=fake_fetch,
+                    inspector=inspect_rc,
+                )
+                @test ready.status == "ready"
+                @test inspected == [tag]
+                entries = TOML.parsefile(artifact)["powerio_capi"]
+                @test length(entries) == 5
+                @test all(occursin("/releases/download/$tag/", only(entry["download"])["url"])
+                          for entry in entries)
+                @test TOML.parsefile(status)["tag"] == tag
+                unchanged = ArtifactUpdater.run_update(
+                    tag, status; artifact_path=artifact, fetcher=fake_fetch,
+                    inspector=inspect_rc,
+                )
+                @test !unchanged.changed
+            end
+
+            old_artifact, old_status = read(artifact), read(status)
+            for tag in ("0.12.0-rc.1", "v0.12.0-rc1", "v0.12.0-rc.0",
+                        "v0.12.0-rc.01", "v0.12.0-rc.-1", "v0.12.0-rc.1.2",
+                        "v0.12.0-beta.1", "v0.12.0+build", "v0.12.0-rc.1+build",
+                        "v00.12.0", "v0.012.0", "v0.12.00", "v0.12.0-rc.1\n")
+                fetched = Ref(false)
+                @test_throws r"powerio tag must be" ArtifactUpdater.run_update(
+                    tag, status; artifact_path=artifact,
+                    fetcher=(_args...) -> (fetched[] = true),
+                    inspector=(_args...) -> nothing,
+                )
+                @test !fetched[]
+                @test read(artifact) == old_artifact
+                @test read(status) == old_status
+            end
+
+            # A valid RC tag with the wrong binary is parked, preserving pins.
+            parked = ArtifactUpdater.run_update(
+                "v0.12.0-rc.2", status; artifact_path=artifact, fetcher=fake_fetch,
+                inspector=(_unpack, _triplet, requested) ->
+                    ArtifactUpdater.validate_candidate(rc, requested; binding_release=v"0.12.0"),
+            )
+            @test parked.status == "parked"
+            @test parked.reason == "schema_version_mismatch"
+            @test read(artifact) == old_artifact
+        end
     end
 end

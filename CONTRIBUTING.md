@@ -75,6 +75,12 @@ release step.
 
 - Write user facing changes under a `## Unreleased` heading at the top of
   `CHANGELOG.md`, and leave the version in `Project.toml` alone.
+- Git-only release candidates keep that last stable package version and the
+  stable artifact pins. The generated header determines native compatibility;
+  test the exact companion commit with the matching RC library through
+  `POWERIO_CAPI`, as described in [Binary distribution](docs/src/binary.md#testing-a-release-candidate).
+  The artifact updater accepts `vX.Y.Z-rc.N` for packaged-library validation,
+  but the release selector and General registration remain stable-only.
 - Publishing a powerio release releases PowerIO.jl. The workflow sets the
   version, renames `## Unreleased` to `## X.Y.Z` (or adds a section that
   points to the powerio changelog when there are no notes), pins the release

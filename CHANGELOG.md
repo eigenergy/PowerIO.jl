@@ -10,6 +10,9 @@
   typed metadata through the C ABI without serializing networks.
 - Document the generated C binding and binary packaging choices, repository
   boundary, and patch-before-RC release sequence.
+- Validate canonical `vX.Y.Z-rc.N` artifact tags through the same packaged
+  binary checks as stable tags; keep automated registration stable-only and
+  document exact-commit RC installation with an explicit native library.
 
 - Breaking: the library check follows the PowerIO release series instead of
   the C ABI number. The header the binding is generated from states its
