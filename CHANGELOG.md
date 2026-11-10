@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.10
 
 - Egret electrical time series preserve native branch flows, labels and durations
   through canonical emission and IR; `time_points(series)` reads typed metadata.
