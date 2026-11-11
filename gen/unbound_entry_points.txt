@@ -62,35 +62,6 @@ pio_multiconductor_network_load_count	superseded by pio_multiconductor_network_c
 pio_value_is_type	superseded by comparing pio_value_type_name
 
 # Families the C ABI exposes that neither the Julia nor the Python binding
-pio_ac_ots_instance_branch_at	AC optimal-transmission-switching instances and solutions have no Julia wrapper types yet
-pio_ac_ots_instance_create	AC optimal-transmission-switching instances and solutions have no Julia wrapper types yet
-pio_ac_ots_instance_fix_topology	AC optimal-transmission-switching instances and solutions have no Julia wrapper types yet
-pio_ac_ots_instance_options	AC optimal-transmission-switching instances and solutions have no Julia wrapper types yet
-pio_ac_ots_instance_validate_topology	AC optimal-transmission-switching instances and solutions have no Julia wrapper types yet
-pio_ac_ots_solution_branch_closed_at	AC optimal-transmission-switching instances and solutions have no Julia wrapper types yet
-pio_ac_ots_solution_create	AC optimal-transmission-switching instances and solutions have no Julia wrapper types yet
-pio_ac_ots_solution_materialize	AC optimal-transmission-switching instances and solutions have no Julia wrapper types yet
-pio_ac_ots_solution_summary	AC optimal-transmission-switching instances and solutions have no Julia wrapper types yet
-pio_balanced_network_islands	island decomposition results have no Julia wrapper type or API yet
-pio_calc_sensitivities	sensitivity-analysis results have no Julia wrapper type or API yet
-pio_islands_at	island decomposition results have no Julia wrapper type or API yet
-pio_islands_count	island decomposition results have no Julia wrapper type or API yet
-pio_islands_isolated_bus_ids	island decomposition results have no Julia wrapper type or API yet
-pio_islands_isolated_bus_indices	island decomposition results have no Julia wrapper type or API yet
-pio_islands_release	island decomposition results have no Julia wrapper type or API yet
-pio_module_to_ac_ots_instance	AC optimal-transmission-switching instances and solutions have no Julia wrapper types yet
-pio_module_to_ac_ots_instance_with_options	AC optimal-transmission-switching instances and solutions have no Julia wrapper types yet
-pio_sensitivities_branch_identity	sensitivity-analysis results have no Julia wrapper type or API yet
-pio_sensitivities_branch_rows	sensitivity-analysis results have no Julia wrapper type or API yet
-pio_sensitivities_bus_ids	sensitivity-analysis results have no Julia wrapper type or API yet
-pio_sensitivities_lodf	sensitivity-analysis results have no Julia wrapper type or API yet
-pio_sensitivities_n_branches	sensitivity-analysis results have no Julia wrapper type or API yet
-pio_sensitivities_n_buses	sensitivity-analysis results have no Julia wrapper type or API yet
-pio_sensitivities_ptdf	sensitivity-analysis results have no Julia wrapper type or API yet
-pio_sensitivities_reference_bus_indices	sensitivity-analysis results have no Julia wrapper type or API yet
-pio_sensitivities_solver_path	sensitivity-analysis results have no Julia wrapper type or API yet
-pio_value_ac_ots_instance	AC optimal-transmission-switching instances and solutions have no Julia wrapper types yet
-pio_value_ac_ots_solution	AC optimal-transmission-switching instances and solutions have no Julia wrapper types yet
 # wraps. Reading them needs a Julia type for the result first.
 pio_ac_opf_preparation_branch_at	OPF preparation is C only
 pio_ac_opf_preparation_bus_at	OPF preparation is C only
