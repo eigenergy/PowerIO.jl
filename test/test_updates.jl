@@ -12,18 +12,25 @@
         @test ApparentPower(volt_amperes=250.0).unit == :volt_amperes
         @test_throws ArgumentError ApparentPower()
 
-        # Non-finite numeric inputs must be rejected before they cross the C ABI.
+        # Non-finite setpoints are refused; ratings also accept positive infinity.
         for value in (NaN, Inf, -Inf)
             @test_throws ArgumentError ActivePower(watts=value)
             @test_throws ArgumentError ActivePower(megawatts=value)
             @test_throws ArgumentError ReactivePower(vars=value)
             @test_throws ArgumentError ReactivePower(megavars=value)
-            @test_throws ArgumentError ApparentPower(volt_amperes=value)
-            @test_throws ArgumentError ApparentPower(megavolt_amperes=value)
+            if value == Inf
+                @test ApparentPower(volt_amperes=value).value === Inf
+                @test ApparentPower(megavolt_amperes=value).value === Inf
+            else
+                @test_throws ArgumentError ApparentPower(volt_amperes=value)
+                @test_throws ArgumentError ApparentPower(megavolt_amperes=value)
+            end
             @test_throws ArgumentError set_generator_voltage_magnitude(ComponentId("generator", "bus-1"), value)
             @test_throws ArgumentError set_transformer_tap_ratio(ComponentId("branch", "1-4"), value)
             @test_throws ArgumentError set_transformer_phase_shift_degrees(ComponentId("branch", "1-4"), value)
         end
+        @test_throws ArgumentError ApparentPower(megavolt_amperes=big"1e10000")
+        @test_throws ArgumentError ApparentPower(megavolt_amperes=big"1e-10000")
         @test occursin("megawatts=42.0", sprint(show, ActivePower(megawatts=42.0)))
         @test ComponentId("load", "bus-5") == ComponentId("load", "bus-5")
         @test ComponentId("load", "bus-5") != ComponentId("generator", "bus-5")
@@ -63,6 +70,27 @@
             @test [c.field for c in report.changes] == ["branch_thermal_rating"]
             @test !report.connectivity_changed
             @test m.value.branches[1].rate_a_mva == 333.0
+        end
+
+        @testset "numeric thermal limits preserve zero and infinity" begin
+            m = parse(fixture("case9.m"))
+            id = ComponentId("branch", "1-4")
+            before = calc_admittance_matrix(m.value)
+            report = apply_updates!(m, [set_branch_thermal_rating(id, ApparentPower(megavolt_amperes=0.0))])
+            @test !report.connectivity_changed
+            @test m.value.branches[1].rate_a_mva === 0.0
+            @test m.value.branches[1].in_service
+            @test calc_admittance_matrix(m.value).matrix == before.matrix
+            @test to_powerdata(m).branch[1].rate_a === 0.0
+            @test deserialize(IOBuffer(serialize(m).text)).value.branches[1].rate_a_mva === 0.0
+            apply_updates!(m, [set_branch_thermal_rating(id, ApparentPower(megavolt_amperes=Inf))])
+            @test m.value.branches[1].rate_a_mva === Inf
+            @test isinf(to_powerdata(m).branch[1].rate_a)
+            @test m.value.branches[1].in_service
+            apply_updates!(m, [set_branch_thermal_rating(id, ApparentPower(volt_amperes=1e8))])
+            @test m.value.branches[1].rate_a_mva === 100.0
+            apply_updates!(m, [set_branch_thermal_rating(id, ApparentPower(megavolt_amperes=0.0))])
+            @test m.value.branches[1].rate_a_mva === 0.0
         end
 
         @testset "a failed batch leaves the module unchanged" begin
