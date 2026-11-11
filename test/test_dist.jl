@@ -124,7 +124,7 @@ end
         @test_skip "libpowerio_capi unavailable"
     else
         text = """
-        {"meta":{"\$schema":"https://raw.githubusercontent.com/distribution-system-opt/dsopt-schema/main/schema/bmopf/0.2.0/bmopf.schema.json","schema_version":"0.2.0","frequency":50},
+        {"meta":{"schema_version":"0.2.0","frequency":50},
          "terminal_conventions":{"phase":["a","b"],"neutral":["n"]},
          "bus":{"b":{"terminal_names":["a","b","n"],"v_min":[210,215],"v_max":[250,245]}},
          "voltage_source":{"s":{"bus":"b","terminal_map":["a","b","n"],"v_magnitude":[230,230,0],"v_angle":[0,3.14159,0],"energy_cost_rate":[0.1,0.2]}}}
@@ -144,7 +144,8 @@ end
         # A fresh write from the IR states 0.2.0 and spells the phase to
         # ground bounds `vpg_*`, the name schema 0.1.1 gave them.
         output = JSON3.read(emit(restored, "bmopf-json@0.2.0").text)
-        @test occursin("/0.2.0/", output.meta[Symbol("\$schema")])
+        # 0.2.x names its release in `schema_version` and no schema URL.
+        @test !haskey(output.meta, Symbol("\$schema"))
         @test output.meta.schema_version == "0.2.0"
         @test output.bus.b.vpg_min == [210,215]
         @test !haskey(output.bus.b, :v_min)
