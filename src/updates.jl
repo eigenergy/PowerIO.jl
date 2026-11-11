@@ -3,11 +3,13 @@
 
 # --- quantities -----------------------------------------------------------------
 
-# Keep non-finite values out of typed updates before crossing the C ABI.
-# In particular, NaN and infinities are never meaningful setpoints or ratings.
-function _finite_update_value(value::Real, name::AbstractString)
+# Setpoints must be finite. An apparent-power bound may be positive infinity.
+function _finite_update_value(value::Real, name::AbstractString; allow_positive_infinity=false)
     x = Float64(value)
+    allow_positive_infinity && value == Inf && return x
     isfinite(x) || throw(ArgumentError("PowerIO: $name must be finite, got $(repr(value))"))
+    allow_positive_infinity && iszero(x) && !iszero(value) &&
+        throw(ArgumentError("PowerIO: $name underflows Float64, got $(repr(value))"))
     return x
 end
 
@@ -46,7 +48,8 @@ end
 """
     ApparentPower(; volt_amperes) or ApparentPower(; megavolt_amperes)
 
-Apparent power with an explicit unit. The supplied value must be finite.
+Apparent power with an explicit unit. Positive infinity means no upper bound
+when used as a rating. NaN and negative infinity are refused.
 """
 struct ApparentPower
     value::Float64
@@ -54,8 +57,8 @@ struct ApparentPower
     function ApparentPower(; volt_amperes=nothing, megavolt_amperes=nothing)
         (volt_amperes === nothing) == (megavolt_amperes === nothing) &&
             throw(ArgumentError("ApparentPower takes exactly one of volt_amperes or megavolt_amperes"))
-        return volt_amperes === nothing ? new(_finite_update_value(megavolt_amperes, "ApparentPower"), :megavolt_amperes) :
-                                          new(_finite_update_value(volt_amperes, "ApparentPower"), :volt_amperes)
+        return volt_amperes === nothing ? new(_finite_update_value(megavolt_amperes, "ApparentPower"; allow_positive_infinity=true), :megavolt_amperes) :
+                                          new(_finite_update_value(volt_amperes, "ApparentPower"; allow_positive_infinity=true), :volt_amperes)
     end
 end
 
@@ -267,7 +270,8 @@ end
 """
     set_branch_thermal_rating(id::ComponentId, rating::ApparentPower; terminal=nothing)
 
-A network update that sets a branch's thermal rating.
+A network update that sets a branch's thermal rating: zero is a zero bound,
+and positive infinity removes the bound.
 """
 function set_branch_thermal_rating(id::ComponentId, rating::ApparentPower; terminal=nothing)
     ptr, lib = _power_update(Val(:pio_network_update_set_branch_thermal_rating), id, rating, terminal, "")

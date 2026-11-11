@@ -78,6 +78,15 @@ _field(x::Real, ::Type{T}, element::AbstractString, field::Symbol, checked::Bool
 _bound_field(x::Real, ::Type{T}, element::AbstractString, field::Symbol, checked::Bool) where {T<:Real} =
     checked ? _bound(x, T, element, field) : _stated(x, T)
 
+# Numeric solver bounds use +Inf for unlimited and retain a finite zero.
+function _thermal_bound(x::Real, ::Type{T}, base::T,
+                        element::AbstractString, field::Symbol, checked::Bool) where {T<:Real}
+    value = _bound_field(x, T, element, field, checked) / base
+    checked && x > 0 && iszero(value) && throw(ArgumentError(
+        "PowerIO.to_powerdata: $element $field underflows $T ($x)"))
+    return value
+end
+
 # The eight admittance coefficients ExaModelsPower reads per branch:
 # `c1 + im*c2 = y_tf`, `c3 + im*c4 = y_ft`, `c5 + im*c6 = y_ff`, `c7 + im*c8 = y_tt`
 # in MATPOWER's `makeYbus` notation, the same values `calc_branch_admittances`
@@ -238,9 +247,9 @@ function to_powerdata(net::BalancedNetwork, ::Type{T}; strict::Bool=true,
         end
         c1, c2, c3, c4, c5, c6, c7, c8 = _branch_coeffs(r, x, b_fr, b_to, g_fr, g_to, tap, shift)
         (; i, f_bus = f, t_bus = t, br_r = r, br_x = x, b_fr, b_to, g_fr, g_to,
-           rate_a = _bound_field(br.rate_a_mva, T, label, :rate_a, checked) / base,
-           rate_b = _bound_field(br.rate_b_mva, T, label, :rate_b, checked) / base,
-           rate_c = _bound_field(br.rate_c_mva, T, label, :rate_c, checked) / base,
+           rate_a = _thermal_bound(br.rate_a_mva, T, base, label, :rate_a, checked),
+           rate_b = _thermal_bound(br.rate_b_mva, T, base, label, :rate_b, checked),
+           rate_c = _thermal_bound(br.rate_c_mva, T, base, label, :rate_c, checked),
            tap, shift, status = Int(br.in_service),
            angmin = deg2rad(_bound_field(br.angle_min_degrees, T, label, :angmin, checked)),
            angmax = deg2rad(_bound_field(br.angle_max_degrees, T, label, :angmax, checked)),
