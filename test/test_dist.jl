@@ -143,7 +143,10 @@ end
         for version in ("0.1.0", "0.2.0")
             output = JSON3.read(emit(module_, "bmopf-json@" * version).text)
             @test occursin("/" * version * "/", output.meta[Symbol("\$schema")])
-            @test output.bus.b.v_min == [210,215]
+            # Schema 0.1.1 renamed the phase to ground bounds `vpg_*`; 0.2.0
+            # output uses that spelling, 0.1.0 output keeps `v_*`.
+            bound = version == "0.1.0" ? :v_min : :vpg_min
+            @test output.bus.b[bound] == [210,215]
         end
         module_ = nothing
         GC.gc()

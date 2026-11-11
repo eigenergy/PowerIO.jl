@@ -24,8 +24,16 @@
         for version in ("0.1.0", "0.2.0")
             written = emit(edited, "bmopf-json@" * version)
             doc = JSON3.read(written.text)
-            @test !haskey(doc.bus.a, :geo)
-            @test doc.extras.geojson.type == "FeatureCollection"
+            # Schema 0.2.0 carries geometry in its typed slots; 0.1.0 has
+            # none and carries the `extras.geojson` layer.
+            if version == "0.2.0"
+                @test doc.bus.a.geo.coordinates == [-83.72, 42.3]
+                @test doc.line.ab.geo.coordinates[2] == [-83.68, 42.36]
+                @test !haskey(doc, :extras) || !haskey(doc.extras, :geojson)
+            else
+                @test !haskey(doc.bus.a, :geo)
+                @test doc.extras.geojson.type == "FeatureCollection"
+            end
             again = parse(IOBuffer(written.text); format="bmopf-json", name="edited.bmopf.json")
             @test again.value.buses[1].location.x == -83.72
             @test again.value.lines[1].route[2].y == 42.36
