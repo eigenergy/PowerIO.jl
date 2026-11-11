@@ -184,6 +184,14 @@ end
             # refused without calling it.
             ancient = stand_in("ancient", "const char *pio_version(void) { return \"0.10.0\"; }\n")
             @test_throws r"has no pio_version_numbers, so it predates PowerIO 0\.12" PowerIO._ensure_compatible(ancient)
+            # Isolate the historical ABI-6 signature so a future ABI regression
+            # is reported as a failed subprocess instead of terminating this suite.
+            abi6 = stand_in("abi6", "unsigned int pio_abi_version(void) { return 6; }\n" *
+                "const char *pio_version(void) { return \"0.10.0\"; }\n")
+            project = dirname(@__DIR__)
+            probe = "using PowerIO, Test; @test_throws r\"C ABI 6\" PowerIO._ensure_compatible(" *
+                repr(abi6) * ")"
+            @test success(`$(Base.julia_cmd()) --startup-file=no --project=$project -e $probe`)
             next_series = header.major == 0 ? VersionNumber(0, header.minor + 1, 0) :
                           VersionNumber(header.major + 1, 0, 0)
             other = stand_in("other", _version_numbers_c(next_series))

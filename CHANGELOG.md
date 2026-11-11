@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Test SINCAL acquired-table selections through memory and folder collections,
+  including dependency reporting, boundary checks and ownership after close.
+- Isolate the legacy pointer-returning ABI-6 rejection test in a subprocess.
+
 - Include the complete 0.11.10 companion; binding CI fails on unavailable native
   source instead of reporting a green skipped test, and records tested commits.
 
@@ -40,6 +44,10 @@
 - Reject overflowing load-series multipliers, transformer tap squares, and
   bridge narrowing to `Float32` with an `ArgumentError` instead of returning
   `Inf`.
+
+## 0.11.11
+
+- Pairs with PowerIO 0.11.11; see the PowerIO changelog: https://github.com/eigenergy/powerio/blob/v0.11.11/CHANGELOG.md
 
 ## 0.11.10
 

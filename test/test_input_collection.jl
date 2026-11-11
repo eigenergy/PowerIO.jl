@@ -42,3 +42,52 @@
         @test_throws PowerIOError InputCollection(UInt8[1,2,3])
     end
 end
+
+@testset "SINCAL acquired tables in collections" begin
+    if LIBRARY_AVAILABLE
+        records = read(fixture("synthetic-sincal-records.json"))
+        files = Dict("synthetic.mdb" => copy(SINCAL_SYNTHETIC_SOURCE),
+                     "records.json" => records)
+        choice = SincalReadOptions(variant=1, snapshot_hours=6,
+                                  acquired_tables="records.json")
+        selection = (primary="synthetic.mdb", format="sincal-multiconductor",
+                     operation="parse")
+        direct = parse(SINCAL_SYNTHETIC_SOURCE; name="synthetic.mdb",
+            format="sincal-multiconductor", sincal_multiconductor=choice,
+            named_buffers=Dict("records.json" => records))
+        expected = fill(4000.0, 3)
+        @test direct.value.loads[1].active_power_nominal_w == expected
+
+        function check_acquired_tables(collection)
+            result = try
+                parsed = parse(collection, selection; sincal_multiconductor=choice)
+                @test parsed.module isa PioModule{MulticonductorNetwork}
+                @test parsed.module.value.loads[1].active_power_nominal_w == expected
+                @test parsed.dependencies == ["records.json"]
+                @test !parsed.incomplete
+                @test_throws PowerIOError parse(collection, selection;
+                    sincal_multiconductor=SincalReadOptions(variant=1, snapshot_hours=6,
+                        acquired_tables="missing.json"))
+                @test_throws PowerIOError parse(collection, selection;
+                    sincal_multiconductor=SincalReadOptions(variant=1, snapshot_hours=6,
+                        acquired_tables="../records.json"))
+                parsed
+            finally
+                close(collection)
+            end
+            GC.gc()
+            @test result.module.value.loads[1].active_power_nominal_w == expected
+            @test emit(result.module, "sincal").artifacts[1].data == SINCAL_SYNTHETIC_SOURCE
+        end
+
+        check_acquired_tables(InputCollection(files))
+        mktempdir() do dir
+            for (name, bytes) in files
+                write(joinpath(dir, name), bytes)
+            end
+            check_acquired_tables(InputCollection(dir))
+        end
+    else
+        @test_skip LIBRARY_AVAILABLE
+    end
+end
