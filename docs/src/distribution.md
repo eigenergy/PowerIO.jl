@@ -64,8 +64,6 @@ the target format cannot represent.
 emit(feeder, "dss", "copy.dss")
 emit(feeder, "pmd").text
 emit(feeder, "bmopf").text
-emit(feeder, "bmopf-json@0.1.0").text
-emit(feeder, "bmopf-json@0.2.0").text
 ```
 
 OpenDSS, PMD JSON, and BMOPF are grid exchange formats: other tools read and
@@ -75,10 +73,13 @@ serialization of a module, diagnostics and history included, for handing a
 module to another PowerIO consumer. It is not an exchange format, and no other
 tool reads it.
 
-BMOPF 0.2.0 output follows draft BMOPF 0.2, subject to Task Force
-review. Its metadata identifies the immutable schema and producer provenance.
-Explicit schema-version selection converts the typed value even when its source is BMOPF.
-Fields outside the 0.1.0 schema move to `extras`, with relocation diagnostics.
+PowerIO writes one BMOPF version: 0.2.0, as proposed in
+[dsopt-schema#2](https://github.com/distribution-system-opt/dsopt-schema/pull/2),
+subject to Task Force ratification. Its metadata identifies the immutable
+schema and producer provenance. `"bmopf-json@0.2.0"` names the same version;
+any other version is refused. A document written against an earlier version
+(0.1.0, 0.1.1, or the draft PowerIO 0.11 wrote) is read as 0.2.0 with one
+`READ.BMOPF.SCHEMA_LEGACY` warning, and writing it produces 0.2.0.
 
 Bus `phase_to_ground_voltage_min_v` and `phase_to_ground_voltage_max_v` contain
 unequal phase limits in volts. Their entries follow bus terminal order, excluding
@@ -113,7 +114,7 @@ UntypedObject
 SourceCommand
 ```
 
-Source energy prices from draft BMOPF 0.2 are available as
+Source energy prices from BMOPF 0.2.0 are available as
 `net.voltage_sources[i].energy_cost_rate_per_kwh`. The optional vector follows
 phase order in the source terminal map, excluding neutral terminals. Its unit is \$/kWh.
 The prices survive PowerIO IR serialization; using them in an objective remains

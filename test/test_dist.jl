@@ -119,7 +119,7 @@
     end
 end
 
-@testset "BMOPF phase bounds, energy prices and schema versions" begin
+@testset "BMOPF phase bounds, energy prices and the 0.2.0 schema" begin
     if !LIBRARY_AVAILABLE
         @test_skip "libpowerio_capi unavailable"
     else
@@ -139,15 +139,17 @@ end
         restored = deserialize(Vector{UInt8}(serialize(module_).text))
         @test restored.value.buses[1].phase_to_ground_voltage_min_v == [210,215]
         @test restored.value.voltage_sources[1].energy_cost_rate_per_kwh == [0.1,0.2]
+        # The source states 0.2.0, so the plain token echoes it.
         @test emit(module_, "bmopf").text == text
-        for version in ("0.1.0", "0.2.0")
-            output = JSON3.read(emit(module_, "bmopf-json@" * version).text)
-            @test occursin("/" * version * "/", output.meta[Symbol("\$schema")])
-            # Schema 0.1.1 renamed the phase to ground bounds `vpg_*`; 0.2.0
-            # output uses that spelling, 0.1.0 output keeps `v_*`.
-            bound = version == "0.1.0" ? :v_min : :vpg_min
-            @test output.bus.b[bound] == [210,215]
-        end
+        # A fresh write from the IR states 0.2.0 and spells the phase to
+        # ground bounds `vpg_*`, the name schema 0.1.1 gave them.
+        output = JSON3.read(emit(restored, "bmopf-json@0.2.0").text)
+        @test occursin("/0.2.0/", output.meta[Symbol("\$schema")])
+        @test output.meta.schema_version == "0.2.0"
+        @test output.bus.b.vpg_min == [210,215]
+        @test !haskey(output.bus.b, :v_min)
+        # PowerIO writes one BMOPF version; any other is refused.
+        @test_throws PowerIOError emit(restored, "bmopf-json@0.1.0")
         module_ = nothing
         GC.gc()
         @test network.voltage_sources[1].energy_cost_rate_per_kwh == [0.1,0.2]

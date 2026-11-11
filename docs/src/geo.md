@@ -14,10 +14,11 @@ points. Geographic x/y means longitude/latitude; drawing x/y retains drawing
 units. PowerIO IR preserves these values.
 
 PowerIO reads supported PWB bus locations and BMOPF `geo` Point/LineString
-values. Explicit BMOPF 0.2.0 output writes geometry in the schema's typed
-`bus.*.geo`, `line.*.geo` and `meta.crs` slots; 0.1.0 output, which has no
-such slot, writes it under `extras.geojson`. Same-type source emission retains
-source bytes; after changes, the typed coordinates determine the output.
+values. BMOPF output writes geometry in the schema's typed `bus.*.geo`,
+`line.*.geo` and `meta.crs` slots; the `extras.geojson` layer PowerIO 0.11
+wrote still reads. Same-type source emission retains the bytes of a source
+that states BMOPF 0.2.0; after changes, the typed coordinates determine the
+output.
 
 ## Reading a layer
 
