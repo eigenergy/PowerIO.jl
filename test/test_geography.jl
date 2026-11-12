@@ -21,15 +21,16 @@
         ir = JSON3.read(serialize(m).text, Dict{String,Any})
         ir["value"]["data"]["buses"][1]["location"]["x"] = -83.72
         edited = deserialize(Vector{UInt8}(JSON3.write(ir)))
-        for version in ("0.1.0", "0.2.0")
-            written = emit(edited, "bmopf-json@" * version)
-            doc = JSON3.read(written.text)
-            @test !haskey(doc.bus.a, :geo)
-            @test doc.extras.geojson.type == "FeatureCollection"
-            again = parse(IOBuffer(written.text); format="bmopf-json", name="edited.bmopf.json")
-            @test again.value.buses[1].location.x == -83.72
-            @test again.value.lines[1].route[2].y == 42.36
-        end
+        written = emit(edited, "bmopf-json")
+        doc = JSON3.read(written.text)
+        # BMOPF carries geometry in its typed slots, with no
+        # `extras.geojson` layer.
+        @test doc.bus.a.geo.coordinates == [-83.72, 42.3]
+        @test doc.line.ab.geo.coordinates[2] == [-83.68, 42.36]
+        @test !haskey(doc, :extras) || !haskey(doc.extras, :geojson)
+        again = parse(IOBuffer(written.text); format="bmopf-json", name="edited.bmopf.json")
+        @test again.value.buses[1].location.x == -83.72
+        @test again.value.lines[1].route[2].y == 42.36
         dataset = get(ENV, "POWERIO_GEO_DATASET", "")
         if !isempty(dataset)
             case = parse(dataset)
