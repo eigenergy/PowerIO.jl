@@ -45,6 +45,10 @@
   bridge narrowing to `Float32` with an `ArgumentError` instead of returning
   `Inf`.
 
+## 0.11.12
+
+- Pairs with PowerIO 0.11.12; see the PowerIO changelog: https://github.com/eigenergy/powerio/blob/v0.11.12/CHANGELOG.md
+
 ## 0.11.11
 
 - Pairs with PowerIO 0.11.11; see the PowerIO changelog: https://github.com/eigenergy/powerio/blob/v0.11.11/CHANGELOG.md
