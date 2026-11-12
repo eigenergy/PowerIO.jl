@@ -23,7 +23,7 @@
         edited = deserialize(Vector{UInt8}(JSON3.write(ir)))
         written = emit(edited, "bmopf-json")
         doc = JSON3.read(written.text)
-        # BMOPF 0.2.0 carries geometry in its typed slots, with no
+        # BMOPF carries geometry in its typed slots, with no
         # `extras.geojson` layer.
         @test doc.bus.a.geo.coordinates == [-83.72, 42.3]
         @test doc.line.ab.geo.coordinates[2] == [-83.68, 42.36]

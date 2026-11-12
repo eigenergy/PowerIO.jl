@@ -119,7 +119,7 @@
     end
 end
 
-@testset "BMOPF phase bounds, energy prices and the 0.2.0 schema" begin
+@testset "BMOPF phase bounds, energy prices and the BMOPF schema" begin
     if !LIBRARY_AVAILABLE
         @test_skip "libpowerio_capi unavailable"
     else
@@ -139,18 +139,23 @@ end
         restored = deserialize(Vector{UInt8}(serialize(module_).text))
         @test restored.value.buses[1].phase_to_ground_voltage_min_v == [210,215]
         @test restored.value.voltage_sources[1].energy_cost_rate_per_kwh == [0.1,0.2]
-        # The source states 0.2.0, so the plain token echoes it.
+        # The source states the current schema, so the plain token echoes it.
         @test emit(module_, "bmopf").text == text
-        # A fresh write from the IR states 0.2.0 and spells the phase to
-        # ground bounds `vpg_*`, the name schema 0.1.1 gave them.
-        output = JSON3.read(emit(restored, "bmopf-json@0.2.0").text)
-        # 0.2.x names its release in `schema_version` and no schema URL.
+        # A fresh write from the IR states the current schema and spells the
+        # phase to ground bounds `vpg_*`.
+        output = JSON3.read(emit(restored, "bmopf-json").text)
+        # A current document names its release in `schema_version`, the
+        # directory of the schema's `$id`, and no schema URL.
         @test !haskey(output.meta, Symbol("\$schema"))
-        @test output.meta.schema_version == "0.2.0"
+        schema_id = output.meta.provenance.powerio_bmopf.schema_id
+        @test output.meta.schema_version == split(schema_id, '/')[end-1]
         @test output.bus.b.vpg_min == [210,215]
         @test !haskey(output.bus.b, :v_min)
-        # PowerIO writes one BMOPF version; any other is refused.
-        @test_throws PowerIOError emit(restored, "bmopf-json@0.1.0")
+        # There is one BMOPF: a token naming a version, as 0.11 accepted, is
+        # refused.
+        for token in ("bmopf-json@0.1.0", "bmopf-json@0.2.0")
+            @test_throws PowerIOError emit(restored, token)
+        end
         module_ = nothing
         GC.gc()
         @test network.voltage_sources[1].energy_cost_rate_per_kwh == [0.1,0.2]

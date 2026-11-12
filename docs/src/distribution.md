@@ -73,13 +73,14 @@ serialization of a module, diagnostics and history included, for handing a
 module to another PowerIO consumer. It is not an exchange format, and no other
 tool reads it.
 
-PowerIO writes one BMOPF version: 0.2.0, as proposed in
+There is one BMOPF. PowerIO reads and writes the schema proposed in
 [dsopt-schema#2](https://github.com/distribution-system-opt/dsopt-schema/pull/2),
 subject to Task Force ratification. Its metadata identifies the immutable
-schema and producer provenance. `"bmopf-json@0.2.0"` names the same version;
-any other version is refused. A document written against an earlier version
-(0.1.0, 0.1.1, or the draft PowerIO 0.11 wrote) is read as 0.2.0 with one
-`READ.BMOPF.SCHEMA_LEGACY` warning, and writing it produces 0.2.0.
+schema and producer provenance. `"bmopf"` and `"bmopf-json"` are the BMOPF
+format strings; a `"bmopf-json@<version>"` string is refused. A document from
+an older BMOPF draft, including the draft PowerIO 0.11 wrote, is read as
+BMOPF with one `READ.BMOPF.SCHEMA_LEGACY` warning, and writing it produces
+the current schema.
 
 Bus `phase_to_ground_voltage_min_v` and `phase_to_ground_voltage_max_v` contain
 unequal phase limits in volts. Their entries follow bus terminal order, excluding
@@ -114,7 +115,7 @@ UntypedObject
 SourceCommand
 ```
 
-Source energy prices from BMOPF 0.2.0 are available as
+Source energy prices from BMOPF are available as
 `net.voltage_sources[i].energy_cost_rate_per_kwh`. The optional vector follows
 phase order in the source terminal map, excluding neutral terminals. Its unit is \$/kWh.
 The prices survive PowerIO IR serialization; using them in an objective remains

@@ -17,8 +17,8 @@ PowerIO reads supported PWB bus locations and BMOPF `geo` Point/LineString
 values. BMOPF output writes geometry in the schema's typed `bus.*.geo`,
 `line.*.geo` and `meta.crs` slots; the `extras.geojson` layer PowerIO 0.11
 wrote still reads. Same-type source emission retains the bytes of a source
-that states BMOPF 0.2.0; after changes, the typed coordinates determine the
-output.
+that states the current BMOPF schema; after changes, the typed coordinates
+determine the output.
 
 ## Reading a layer
 
