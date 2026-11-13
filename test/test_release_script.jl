@@ -38,9 +38,9 @@ const OLD_SECTION = "## 0.11.4\n\n- Old notes.\n"
                 ("v0.11.6", false, false),
                 ("v0.11.5", false, false),
                 ("v0.11.4", false, false),
-                ("v0.12.0-rc1", false, false),
-                ("v0.12.0-rc.1", false, false),
-                ("v0.12.0-rc.2", false, true),
+                ("v1.0.0-rc1", false, false),
+                ("v1.0.0-rc.1", false, false),
+                ("v1.0.0-rc.2", false, true),
             ])
             @test Release.published_versions(listing) == [v"0.11.4", v"0.11.5", v"0.11.6"]
             # The smallest newer release, not the newest.

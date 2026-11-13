@@ -51,10 +51,11 @@ For an existing 0.10 application, follow the
 [migration guide](https://eigenergy.github.io/PowerIO.jl/dev/migration-0.11/).
 PowerIO.jl uses a PowerIO library from its generated header's release series,
 at that header's release or a newer one, and refuses any other library at first use.
-For a Git checkout of a release candidate, follow the
-[RC installation instructions](docs/src/binary.md#testing-a-release-candidate):
+A Git checkout of `main` between a new release series' companion merge and its
+release needs a matching library through `POWERIO_CAPI`; see
+[Testing an unreleased library](docs/src/binary.md#testing-an-unreleased-library):
 package metadata and default artifacts remain at the last stable release until
-the stable release workflow updates them.
+the release workflow updates them.
 
 ## Formats
 

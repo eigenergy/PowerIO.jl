@@ -290,7 +290,7 @@ end
 function run_update(tag::AbstractString, status_path::AbstractString;
                     artifact_path::AbstractString=ARTIFACT_PATH,
                     fetcher=fetch_asset, inspector=_inspect_library)
-    # RC tarballs pass the same packaged-library gate as stable releases.
+    # Prerelease (rc.N) tarballs pass the same packaged-library gate as stable releases.
     # Registration target selection remains stable-only in gen/release.jl.
     occursin(r"^v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-rc\.[1-9][0-9]*)?\z", tag) ||
         error("powerio tag must be vX.Y.Z or vX.Y.Z-rc.N (N >= 1)")
