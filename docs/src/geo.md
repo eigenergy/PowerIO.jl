@@ -13,10 +13,12 @@ space. Balanced branches and multiconductor lines expose optional `route`
 points. Geographic x/y means longitude/latitude; drawing x/y retains drawing
 units. PowerIO IR preserves these values.
 
-PowerIO reads supported PWB bus locations and the BMOPFTools proposed
-Point/LineString values. Explicit BMOPF output writes geometry under the
-schema-valid `extras.geojson` location. Same-type source emission retains
-source bytes; after changes, the typed coordinates determine the output.
+PowerIO reads supported PWB bus locations and BMOPF `geo` Point/LineString
+values. BMOPF output writes geometry in the schema's typed `bus.*.geo`,
+`line.*.geo` and `meta.crs` slots; the `extras.geojson` layer PowerIO 0.11
+wrote still reads. Same-type source emission retains the bytes of a source
+that states the current BMOPF schema; after changes, the typed coordinates
+determine the output.
 
 ## Reading a layer
 

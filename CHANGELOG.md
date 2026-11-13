@@ -1,5 +1,51 @@
 # Changelog
 
+## Unreleased
+
+- Test SINCAL acquired-table selections through memory and folder collections,
+  including dependency reporting, boundary checks and ownership after close.
+- Isolate the legacy pointer-returning ABI-6 rejection test in a subprocess.
+
+- Include the complete 0.11.10 companion; binding CI fails on unavailable native
+  source instead of reporting a green skipped test, and records tested commits.
+
+- Egret electrical time series canonically emit after IR round trips, preserving
+  native branch results, labels and durations. `time_points(series)` reads
+  typed metadata through the C ABI without serializing networks.
+- Document the generated C binding and binary packaging choices, repository
+  boundary, and the patch-before-new-series release sequence.
+- Validate canonical prerelease `vX.Y.Z-rc.N` artifact tags through the same
+  packaged binary checks as stable tags; keep automated registration
+  stable-only and document testing an exact commit with an explicit native
+  library.
+
+- Breaking: the library check follows the PowerIO release series instead of
+  the C ABI number. The header the binding is generated from states its
+  PowerIO release, and the binding accepts a library from the same release
+  series (0.12.x) at that release or a newer one, read through
+  `pio_version_numbers`. A library from another series, an older release, or
+  a release before 0.12 is refused at first use with an error naming both
+  releases. `abi_version` is removed; `library_version` reports the library
+  release. The refusal of a library older than 0.12 reads its C ABI number
+  rather than calling its `pio_version`, whose return type differs before
+  0.11.
+- The artifact updater checks a release binary against the same rule and
+  parks with `release_series_mismatch` or `release_too_old` where it parked
+  with `core_abi_mismatch`.
+- The documentation describes a PowerIO IR document's `version` as the
+  PowerIO release whose schema it follows. Documents PowerIO 0.11 wrote, with
+  the integer `"version": 2`, are still read.
+- `clear_library!(persist=true)` no longer passes Preferences.jl a
+  `disable_invalidation` keyword it does not accept (#196).
+- Add bounded `InputCollection` folder/ZIP/memory inventories, explicit
+  selection parsing, and typed results with independent dependency
+  observations.
+- `library_available(path)` probes an explicit library candidate without
+  changing which library is selected.
+- Reject overflowing load-series multipliers, transformer tap squares, and
+  bridge narrowing to `Float32` with an `ArgumentError` instead of returning
+  `Inf`.
+
 ## 0.11.12
 
 - Pairs with PowerIO 0.11.12; see the PowerIO changelog: https://github.com/eigenergy/powerio/blob/v0.11.12/CHANGELOG.md

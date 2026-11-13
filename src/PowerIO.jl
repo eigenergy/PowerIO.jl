@@ -1,7 +1,7 @@
 """
     PowerIO
 
-Julia binding of PowerIO, the power system data compiler, over C ABI 7.
+Julia binding of PowerIO, the power system data compiler, over its C ABI.
 
 ```julia
 using PowerIO
@@ -34,7 +34,7 @@ using Preferences: @load_preference, load_preference, set_preferences!
 import Libdl
 import SparseArrays
 
-# The raw C ABI 7 layer. `LibPowerIO` is a submodule, not part of the public
+# The raw C ABI layer. `LibPowerIO` is a submodule, not part of the public
 # API; only the view structs the element tables read and `PioError` come into
 # this namespace by name. Entry points are called through `@capi`.
 include("LibPowerIO.jl")
@@ -71,7 +71,7 @@ export BalancedNetwork, MulticonductorNetwork, TimeSeries, ScenarioSet, Operatin
        McAcPfSolution, McAcOpfSolution, LinDist3FlowOpfSolution, AcScucSolution, UnknownValue
 
 # Records and results.
-export TimePoint, time_points
+export InputCollection, CollectionResult, inspect_collection, TimePoint, time_points
 export Diagnostic, SourceSpan, PowerIOError, EmitResult, Artifact,
        Producer, ModuleSource, HistoryEntry
 
@@ -125,7 +125,7 @@ export to_powermodels, from_powermodels, build_powermodels_ref, repair_powermode
        to_powerdata, to_ac_power_data
 
 # Library resolution.
-export set_library!, clear_library!, abi_version, library_version, library_available
+export set_library!, clear_library!, library_version, library_available
 
 # Detailed connectivity tables.
 export OmittedField, ComponentMetadata, ComponentAlias, ExternalIdentifier,
@@ -150,12 +150,13 @@ export ContingencySet, SubsystemSet, MonitoredSet, ContingencyResolution,
        resolve_contingencies, expand_contingencies, select_subsystem_buses,
        GeoLayer, GeoApplyReport, parse_geo, apply_geo_layer
 
-include("capi.jl")           # library resolution, entry point calls, the ABI handshake
+include("capi.jl")           # library resolution, entry point calls, the release check
 include("handles.jl")        # owned handle types with release finalizers
 include("diagnostics.jl")    # Diagnostic and SourceSpan
 include("errors.jl")         # PowerIOError and the checked call helpers
 include("values.jl")         # the value type tree and structural name dispatch
 include("module.jl")         # PioModule, parse, deserialize, records
+include("input_collection.jl")
 include("emit.jl")           # emit, serialize, EmitResult, Artifact
 include("network.jl")        # BalancedNetwork properties and element structs
 include("connectivity.jl")   # DetailedConnectivity tables and their record structs

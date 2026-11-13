@@ -7,8 +7,7 @@ with per terminal powers.
 
 `VoltageSource.reference_terminal` identifies the other voltage endpoint on
 the source bus. `nothing` means earth; a terminal name does not imply
-grounding. Reference-aware views require the additive C accessors; older
-ABI 7 libraries continue to expose their earth-referenced sources.
+grounding.
 
 ```julia
 feeder = parse("IEEE13Nodeckt.dss")     # PioModule{MulticonductorNetwork}
@@ -65,8 +64,6 @@ the target format cannot represent.
 emit(feeder, "dss", "copy.dss")
 emit(feeder, "pmd").text
 emit(feeder, "bmopf").text
-emit(feeder, "bmopf-json@0.1.0").text
-emit(feeder, "bmopf-json@0.2.0").text
 ```
 
 OpenDSS, PMD JSON, and BMOPF are grid exchange formats: other tools read and
@@ -76,10 +73,14 @@ serialization of a module, diagnostics and history included, for handing a
 module to another PowerIO consumer. It is not an exchange format, and no other
 tool reads it.
 
-BMOPF 0.2.0 output follows draft BMOPF 0.2, subject to Task Force
-review. Its metadata identifies the immutable schema and producer provenance.
-Explicit schema-version selection converts the typed value even when its source is BMOPF.
-Fields outside the 0.1.0 schema move to `extras`, with relocation diagnostics.
+There is one BMOPF. PowerIO reads and writes the schema proposed in
+[dsopt-schema#2](https://github.com/distribution-system-opt/dsopt-schema/pull/2),
+subject to Task Force ratification. Its metadata identifies the immutable
+schema and producer provenance. `"bmopf"` and `"bmopf-json"` are the BMOPF
+format strings; a `"bmopf-json@<version>"` string is refused. A document from
+an older BMOPF draft, including the draft PowerIO 0.11 wrote, is read as
+BMOPF with one `READ.BMOPF.SCHEMA_LEGACY` warning, and writing it produces
+the current schema.
 
 Bus `phase_to_ground_voltage_min_v` and `phase_to_ground_voltage_max_v` contain
 unequal phase limits in volts. Their entries follow bus terminal order, excluding
@@ -114,7 +115,7 @@ UntypedObject
 SourceCommand
 ```
 
-Source energy prices from draft BMOPF 0.2 are available as
+Source energy prices from BMOPF are available as
 `net.voltage_sources[i].energy_cost_rate_per_kwh`. The optional vector follows
 phase order in the source terminal map, excluding neutral terminals. Its unit is \$/kWh.
 The prices survive PowerIO IR serialization; using them in an objective remains
@@ -132,7 +133,7 @@ arrays, complete voltage laws and terminal maps. A row copies only its own
 borrowed arrays. Reference conductors can make the terminal map longer than the
 power-channel arrays. Reading a load never serializes or clones the network.
 
-Ordinary load records remain readable with older ABI 7 libraries through their
-legacy accessor. Complete bounded-law reads and `McAcPfInstance.loads` require
+Ordinary load records remain readable with libraries from before the load
+details accessors through their legacy accessor. Complete bounded-law reads and `McAcPfInstance.loads` require
 the additive load-details accessors; a legacy refusal is propagated rather than
 returning an incomplete bounded law.
