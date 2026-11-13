@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.0
 
 - Test SINCAL acquired-table selections through memory and folder collections,
   including dependency reporting, boundary checks and ownership after close.
