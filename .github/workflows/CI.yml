@@ -49,7 +49,17 @@ jobs:
           if [ -n "${POWERIO_TOKEN}" ]; then
             remote="https://x-access-token:${POWERIO_TOKEN}@github.com/eigenergy/powerio.git"
           fi
-          if git ls-remote --exit-code --heads "$remote" "$POWERIO_BRANCH" >/dev/null 2>&1; then
+          # A fixed revision takes precedence over an obsolete same-named
+          # companion after its Rust changes have landed on main.
+          if [ -f .github/powerio-ref ]; then
+            ref="$(tr -d '[:space:]' < .github/powerio-ref)"
+            if ! [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::.github/powerio-ref must contain one full commit SHA"
+              exit 1
+            fi
+            echo "ref=$ref" >> "$GITHUB_OUTPUT"
+            echo "Using eigenergy/powerio commit $ref (.github/powerio-ref)"
+          elif git ls-remote --exit-code --heads "$remote" "$POWERIO_BRANCH" >/dev/null 2>&1; then
             echo "ref=$POWERIO_BRANCH" >> "$GITHUB_OUTPUT"
             echo "Using eigenergy/powerio branch $POWERIO_BRANCH"
           elif [ -f .github/powerio-companion ] && \
