@@ -131,3 +131,39 @@ pio_reactive_power_value	quantity unit and value readers are C only
 pio_ac_scuc_instance_contingency_get	a Dict over instance.inputs covers the lookup by source identity
 pio_ac_scuc_instance_device_get	a Dict over instance.inputs covers the lookup by source identity
 pio_ac_scuc_instance_shunt_get	a Dict over instance.inputs covers the lookup by source identity
+# C ABI 7 capabilities not yet surfaced by the Julia API. These remain
+# available to C and other language consumers; Julia does not yet expose
+# the corresponding OTS, island-analysis, or sensitivity result types.
+pio_ac_ots_instance_branch_at	AC optimal transmission switching is not yet wrapped by Julia
+pio_ac_ots_instance_create	AC optimal transmission switching is not yet wrapped by Julia
+pio_ac_ots_instance_fix_topology	AC optimal transmission switching is not yet wrapped by Julia
+pio_ac_ots_instance_options	AC optimal transmission switching is not yet wrapped by Julia
+pio_ac_ots_instance_validate_topology	AC optimal transmission switching is not yet wrapped by Julia
+pio_ac_ots_solution_branch_closed_at	AC optimal transmission switching is not yet wrapped by Julia
+pio_ac_ots_solution_create	AC optimal transmission switching is not yet wrapped by Julia
+pio_ac_ots_solution_materialize	AC optimal transmission switching is not yet wrapped by Julia
+pio_ac_ots_solution_summary	AC optimal transmission switching is not yet wrapped by Julia
+pio_module_to_ac_ots_instance	AC optimal transmission switching is not yet wrapped by Julia
+pio_module_to_ac_ots_instance_with_options	AC optimal transmission switching is not yet wrapped by Julia
+pio_value_ac_ots_instance	AC optimal transmission switching is not yet wrapped by Julia
+pio_value_ac_ots_solution	AC optimal transmission switching is not yet wrapped by Julia
+pio_balanced_network_islands	Island-analysis results are not yet wrapped by Julia
+pio_islands_at	Island-analysis results are not yet wrapped by Julia
+pio_islands_count	Island-analysis results are not yet wrapped by Julia
+pio_islands_isolated_bus_ids	Island-analysis results are not yet wrapped by Julia
+pio_islands_isolated_bus_indices	Island-analysis results are not yet wrapped by Julia
+pio_islands_release	Island-analysis result handles are not owned by the Julia binding
+pio_islands_retain	Island-analysis result handles are not owned by the Julia binding
+pio_calc_sensitivities	Sensitivity-analysis results are not yet wrapped by Julia
+pio_sensitivities_branch_identity	Sensitivity-analysis results are not yet wrapped by Julia
+pio_sensitivities_branch_rows	Sensitivity-analysis results are not yet wrapped by Julia
+pio_sensitivities_bus_ids	Sensitivity-analysis results are not yet wrapped by Julia
+pio_sensitivities_lodf	Sensitivity-analysis results are not yet wrapped by Julia
+pio_sensitivities_n_branches	Sensitivity-analysis results are not yet wrapped by Julia
+pio_sensitivities_n_buses	Sensitivity-analysis results are not yet wrapped by Julia
+pio_sensitivities_ptdf	Sensitivity-analysis results are not yet wrapped by Julia
+pio_sensitivities_reduced_dimension	Sensitivity-analysis results are not yet wrapped by Julia
+pio_sensitivities_reference_bus_indices	Sensitivity-analysis results are not yet wrapped by Julia
+pio_sensitivities_release	Sensitivity-analysis result handles are not owned by the Julia binding
+pio_sensitivities_retain	Sensitivity-analysis result handles are not owned by the Julia binding
+pio_sensitivities_solver_path	Sensitivity-analysis results are not yet wrapped by Julia
