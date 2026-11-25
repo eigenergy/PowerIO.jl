@@ -5616,6 +5616,14 @@ function pio_emit_result_fidelity(result, fptr)
     @ccall ($fptr)(result::Ptr{PioEmitResult})::PioStringView
 end
 
+function pio_emit_result_element_map(result)
+    @ccall libpowerio_capi.pio_emit_result_element_map(result::Ptr{PioEmitResult})::PioStringView
+end
+
+function pio_emit_result_element_map(result, fptr)
+    @ccall ($fptr)(result::Ptr{PioEmitResult})::PioStringView
+end
+
 function pio_emit_result_artifact_count(result)
     @ccall libpowerio_capi.pio_emit_result_artifact_count(result::Ptr{PioEmitResult})::Csize_t
 end

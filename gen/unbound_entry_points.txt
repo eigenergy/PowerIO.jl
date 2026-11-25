@@ -131,3 +131,7 @@ pio_reactive_power_value	quantity unit and value readers are C only
 pio_ac_scuc_instance_contingency_get	a Dict over instance.inputs covers the lookup by source identity
 pio_ac_scuc_instance_device_get	a Dict over instance.inputs covers the lookup by source identity
 pio_ac_scuc_instance_shunt_get	a Dict over instance.inputs covers the lookup by source identity
+
+# Entry points newer than the pinned library. Calling one against the pinned
+# artifacts would fail at first use.
+pio_emit_result_element_map	bound once a 0.12.5 library is pinned; calling it against 0.12.4 artifacts would fail
