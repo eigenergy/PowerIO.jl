@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.5
+
+- Pairs with PowerIO 0.12.5; see the PowerIO changelog: https://github.com/eigenergy/powerio/blob/v0.12.5/CHANGELOG.md
+
 ## 0.12.4
 
 - Pairs with PowerIO 0.12.4; see the PowerIO changelog: https://github.com/eigenergy/powerio/blob/v0.12.4/CHANGELOG.md
